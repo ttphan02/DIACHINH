@@ -42,3 +42,8 @@ next-env.d.ts
 
 # Large scanned SVGs (hosted on Cloudflare R2)
 /public/svgs/
+
+# Cloudflare OpenNext & Wrangler
+/.open-next/
+/.wrangler/
+
