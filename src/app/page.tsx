@@ -84,8 +84,8 @@ export default function Home() {
       setIsSyncingGgs(true);
       const res = await fetch(`/api/sync-ggs${force ? '?force=true' : ''}`);
       if (!res.ok) throw new Error(`Lỗi HTTP ${res.status}`);
-      const data = await res.json();
-      if (data.success && Array.isArray(data.ggsCodes)) {
+      const data: any = await res.json();
+      if (data && data.success && Array.isArray(data.ggsCodes)) {
         setGgsCodes(new Set(data.ggsCodes));
         setIsGgsLoaded(true);
         setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
