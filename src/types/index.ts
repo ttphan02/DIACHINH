@@ -31,8 +31,22 @@ export interface Parcel {
   is_declared?: boolean;
 }
 
+export type CompassQuadrant = 'dong' | 'tay' | 'nam' | 'bac';
+
 export interface NeighborParcel extends Parcel {
   distanceMeters: number;
+  bearing?: number;
+  directionText?: string;
+  arrow?: string;
+  quadrant?: CompassQuadrant;
+  quadrantText?: string;
+}
+
+export interface AutoBoundariesResult {
+  dong?: NeighborParcel;
+  tay?: NeighborParcel;
+  nam?: NeighborParcel;
+  bac?: NeighborParcel;
 }
 
 export type DeclarationMode = 'SELF' | 'SURVEYOR';

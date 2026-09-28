@@ -22,15 +22,166 @@ export function calculateDistanceMeters(
 }
 
 /**
+ * Tính góc phương vị (bearing) từ điểm 1 đến điểm 2:
+ * Trả về góc từ 0 đến 360 độ (0 = Bắc, 90 = Đông, 180 = Nam, 270 = Tây)
+ */
+export function calculateBearing(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x =
+    Math.cos(φ1) * Math.sin(φ2) -
+    Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  const θ = Math.atan2(y, x);
+  const bearing = ((θ * 180) / Math.PI + 360) % 360;
+  return Math.round(bearing * 10) / 10;
+}
+
+export function getCompassInfo(bearing: number): {
+  directionText: string;
+  quadrant: 'dong' | 'tay' | 'nam' | 'bac';
+  quadrantText: string;
+  arrow: string;
+} {
+  const b = ((bearing % 360) + 360) % 360;
+
+  let directionText = 'Bắc';
+  let arrow = '⬆️';
+
+  if (b >= 22.5 && b < 67.5) {
+    directionText = 'Đông Bắc';
+    arrow = '↗️';
+  } else if (b >= 67.5 && b < 112.5) {
+    directionText = 'Đông';
+    arrow = '➡️';
+  } else if (b >= 112.5 && b < 157.5) {
+    directionText = 'Đông Nam';
+    arrow = '↘️';
+  } else if (b >= 157.5 && b < 202.5) {
+    directionText = 'Nam';
+    arrow = '⬇️';
+  } else if (b >= 202.5 && b < 247.5) {
+    directionText = 'Tây Nam';
+    arrow = '↙️';
+  } else if (b >= 247.5 && b < 292.5) {
+    directionText = 'Tây';
+    arrow = '⬅️';
+  } else if (b >= 292.5 && b < 337.5) {
+    directionText = 'Tây Bắc';
+    arrow = '↖️';
+  }
+
+  // Phân chia 4 cung chính (Tứ cận: Đông, Tây, Nam, Bắc)
+  let quadrant: 'dong' | 'tay' | 'nam' | 'bac' = 'bac';
+  let quadrantText = 'Phía Đông';
+  if (b >= 45 && b < 135) {
+    quadrant = 'dong';
+    quadrantText = 'Phía Đông';
+  } else if (b >= 135 && b < 225) {
+    quadrant = 'nam';
+    quadrantText = 'Phía Nam';
+  } else if (b >= 225 && b < 315) {
+    quadrant = 'tay';
+    quadrantText = 'Phía Tây';
+  } else {
+    quadrant = 'bac';
+    quadrantText = 'Phía Bắc';
+  }
+
+  return { directionText, quadrant, quadrantText, arrow };
+}
+
+/**
+ * Định dạng chuỗi mô tả ranh giới thửa đất chuẩn địa chính
+ */
+export function formatBoundaryText(p?: Parcel | NeighborParcel | null): string {
+  if (!p) return '';
+  const owner = p.chu_ho && p.chu_ho !== 'Chưa có tên' ? ` - ${p.chu_ho}` : '';
+  return `Thửa ${p.so_thua} (Tờ ${p.to_ban_do})${owner}`;
+}
+
+/**
+ * Tự động quét và nhận diện thửa tiếp giáp 4 hướng (Tứ cận: Đông, Tây, Nam, Bắc)
+ * dựa trên tọa độ GPS thực địa.
+ */
+export function autoDetectBoundaries(
+  current: Parcel,
+  allParcels: Parcel[],
+  maxDistance = 500
+): {
+  dong?: NeighborParcel;
+  tay?: NeighborParcel;
+  nam?: NeighborParcel;
+  bac?: NeighborParcel;
+} {
+  if (!current.lat || !current.lng) return {};
+
+  const byQuadrant: Record<'dong' | 'tay' | 'nam' | 'bac', NeighborParcel[]> = {
+    dong: [],
+    tay: [],
+    nam: [],
+    bac: [],
+  };
+
+  for (const p of allParcels) {
+    if (p.ma_thua === current.ma_thua) continue;
+    if (!p.lat || !p.lng) continue;
+
+    const dist = calculateDistanceMeters(current.lat, current.lng, p.lat, p.lng);
+    if (dist > maxDistance) continue;
+
+    const bearing = calculateBearing(current.lat, current.lng, p.lat, p.lng);
+    const compass = getCompassInfo(bearing);
+
+    byQuadrant[compass.quadrant].push({
+      ...p,
+      distanceMeters: dist,
+      bearing,
+      directionText: compass.directionText,
+      arrow: compass.arrow,
+      quadrant: compass.quadrant,
+      quadrantText: compass.quadrantText,
+    });
+  }
+
+  // Chọn thửa tiếp giáp tốt nhất cho mỗi hướng:
+  // Ưu tiên khoảng cách gần, nếu có tên trong khoảng cách gần thì ưu tiên
+  const pickBestNeighbor = (list: NeighborParcel[]): NeighborParcel | undefined => {
+    if (list.length === 0) return undefined;
+    return list.sort((a, b) => {
+      const hasOwnerA = Boolean(a.chu_ho && a.chu_ho !== 'Chưa có tên');
+      const hasOwnerB = Boolean(b.chu_ho && b.chu_ho !== 'Chưa có tên');
+      if (hasOwnerA !== hasOwnerB && a.distanceMeters < b.distanceMeters * 1.5) {
+        return hasOwnerA ? -1 : 1;
+      }
+      return a.distanceMeters - b.distanceMeters;
+    })[0];
+  };
+
+  return {
+    dong: pickBestNeighbor(byQuadrant.dong),
+    tay: pickBestNeighbor(byQuadrant.tay),
+    nam: pickBestNeighbor(byQuadrant.nam),
+    bac: pickBestNeighbor(byQuadrant.bac),
+  };
+}
+
+/**
  * Tìm các thửa lân cận (gần nhất):
- * Hỗ trợ lấy cả thửa màu xanh (đã số hóa/đã kê khai) và thửa màu vàng (có tên chủ đất),
- * ưu tiên theo khoảng cách thực địa gần nhất để tiện lập biên bản tứ cận.
+ * Tự động tính toán hướng la bàn và khoảng cách thực tế.
  */
 export function findNearbyParcels(
   current: Parcel,
   allParcels: Parcel[],
-  maxDistance = 350,
-  limit = 8
+  maxDistance = 450,
+  limit = 12
 ): NeighborParcel[] {
   if (!current.lat || !current.lng) return [];
 
@@ -42,41 +193,42 @@ export function findNearbyParcels(
 
     const dist = calculateDistanceMeters(current.lat, current.lng, p.lat, p.lng);
     if (dist <= maxDistance) {
+      const bearing = calculateBearing(current.lat, current.lng, p.lat, p.lng);
+      const compass = getCompassInfo(bearing);
       neighbors.push({
         ...p,
         distanceMeters: dist,
+        bearing,
+        directionText: compass.directionText,
+        arrow: compass.arrow,
+        quadrant: compass.quadrant,
+        quadrantText: compass.quadrantText,
       });
     }
   }
 
-  // Phân loại ưu tiên:
-  // Nhóm 1 (Độ ưu tiên cao nhất): Thửa Xanh lá (GGS), Xanh lam (Đã kê khai) và Vàng (Có tên chủ đất)
-  // Nhóm 2: Thửa chưa có tên (Trắng/Xám)
-  // Trong cùng nhóm, sắp xếp tăng dần theo khoảng cách (thửa gần nhất lên đầu)
+  // Sắp xếp theo khoảng cách tăng dần (gần nhất lên đầu)
   return neighbors
     .sort((a, b) => {
       const getPriorityScore = (p: NeighborParcel) => {
-        if (p.trang_thai === 'DA_SO_HOA_XANH') return 0; // Xanh lá
-        if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') return 1; // Xanh lam
-        if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') return 2; // Vàng (có tên)
-        return 3; // Trắng (chưa tên)
+        if (p.trang_thai === 'DA_SO_HOA_XANH') return 0;
+        if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') return 1;
+        if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') return 2;
+        return 3;
       };
 
       const scoreA = getPriorityScore(a);
       const scoreB = getPriorityScore(b);
 
-      // Nếu cả hai đều có thông tin (thuộc nhóm 0, 1 hoặc 2), ưu tiên khoảng cách gần nhất
       const isInformativeA = scoreA < 3;
       const isInformativeB = scoreB < 3;
 
       if (isInformativeA && isInformativeB) {
         return a.distanceMeters - b.distanceMeters;
       }
-
       if (isInformativeA !== isInformativeB) {
         return isInformativeA ? -1 : 1;
       }
-
       return a.distanceMeters - b.distanceMeters;
     })
     .slice(0, limit);

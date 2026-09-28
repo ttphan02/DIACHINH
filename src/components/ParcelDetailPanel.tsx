@@ -24,12 +24,14 @@ import {
   Trash2,
   AlertTriangle,
   FileEdit,
+  Sparkles,
 } from 'lucide-react';
-import { downloadFile } from '@/utils/geo';
+import { downloadFile, autoDetectBoundaries, formatBoundaryText } from '@/utils/geo';
 
 interface ParcelDetailPanelProps {
   parcel: Parcel | null;
   neighbors: NeighborParcel[];
+  allParcels?: Parcel[];
   sameCccdParcels?: Parcel[];
   sameNameParcels?: Parcel[];
   sameOwnerParcels?: Parcel[];
@@ -42,6 +44,7 @@ interface ParcelDetailPanelProps {
 export default function ParcelDetailPanel({
   parcel,
   neighbors,
+  allParcels = [],
   sameCccdParcels = [],
   sameNameParcels = [],
   sameOwnerParcels = [],
@@ -186,8 +189,45 @@ export default function ParcelDetailPanel({
     }
   };
 
+  // Tự động nhận diện Tứ cận (Đông, Tây, Nam, Bắc) dựa trên tọa độ bản đồ
+  const detectedBoundaries = useMemo(() => {
+    if (!parcel) return {};
+    const pool = allParcels && allParcels.length > 0 ? allParcels : neighbors;
+    return autoDetectBoundaries(parcel, pool, 500);
+  }, [parcel, allParcels, neighbors]);
+
+  const [autoDetectToast, setAutoDetectToast] = useState<string | null>(null);
+
+  const handleAutoDetectBoundaries = () => {
+    if (!parcel) return;
+    let count = 0;
+    if (detectedBoundaries.dong) {
+      setGiapDong(formatBoundaryText(detectedBoundaries.dong));
+      count++;
+    }
+    if (detectedBoundaries.tay) {
+      setGiapTay(formatBoundaryText(detectedBoundaries.tay));
+      count++;
+    }
+    if (detectedBoundaries.nam) {
+      setGiapNam(formatBoundaryText(detectedBoundaries.nam));
+      count++;
+    }
+    if (detectedBoundaries.bac) {
+      setGiapBac(formatBoundaryText(detectedBoundaries.bac));
+      count++;
+    }
+
+    if (count > 0) {
+      setAutoDetectToast(`Đã tự động xác định và điền ${count} hướng tiếp giáp từ bản đồ!`);
+    } else {
+      setAutoDetectToast('Không tìm thấy thửa lân cận trong bán kính quét.');
+    }
+    setTimeout(() => setAutoDetectToast(null), 3500);
+  };
+
   const handleApplyNeighborToBoundary = (direction: 'dong' | 'tay' | 'nam' | 'bac', neighbor: NeighborParcel) => {
-    const text = `Thửa ${neighbor.so_thua} (Tờ ${neighbor.to_ban_do}) - ${neighbor.chu_ho || 'Chưa rõ'}`;
+    const text = formatBoundaryText(neighbor);
     if (direction === 'dong') setGiapDong(text);
     if (direction === 'tay') setGiapTay(text);
     if (direction === 'nam') setGiapNam(text);
@@ -695,73 +735,225 @@ export default function ParcelDetailPanel({
             )}
 
             {/* Tứ Cận (Đông, Tây, Nam, Bắc) */}
-            <div className="bg-white p-3 rounded-xl border border-gray-200/80 shadow-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
-                  <Compass className="w-3.5 h-3.5 text-blue-600" />
-                  Tứ cận (Tiếp giáp)
-                </h4>
-                <span className="text-[10px] text-gray-400">Bấm từ danh sách dưới để điền nhanh</span>
+            <div className="bg-white p-3.5 rounded-2xl border border-gray-200/90 shadow-xs space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-xs font-black text-gray-800 flex items-center gap-1.5">
+                    <Compass className="w-4 h-4 text-blue-600" />
+                    Tứ cận (Tiếp giáp 4 hướng)
+                  </h4>
+                  <p className="text-[10px] text-gray-400 mt-0.5">
+                    Tự động phân tích hướng tiếp giáp từ tọa độ vệ tinh thực địa
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAutoDetectBoundaries}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition active:scale-95 shadow-2xs shrink-0"
+                  title="Tự động nhận diện 4 thửa tiếp giáp gần nhất theo hướng Đông, Tây, Nam, Bắc"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
+                  <span>Tự động nhận diện</span>
+                </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">
-                    Phía Đông:
-                  </label>
+              {autoDetectToast && (
+                <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-[11px] font-semibold flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>{autoDetectToast}</span>
+                </div>
+              )}
+
+              {/* Sơ đồ La bàn trực quan (Compass Mini-Map) */}
+              <div className="bg-slate-50/90 p-2.5 rounded-xl border border-slate-200/80">
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider text-center mb-1.5 flex items-center justify-center gap-1">
+                  <Compass className="w-3 h-3 text-blue-500" /> Sơ đồ vị trí các hướng tiếp giáp
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 text-center items-center">
+                  {/* Hàng 1: Bắc */}
+                  <div></div>
+                  <div
+                    onClick={() => detectedBoundaries.bac && setGiapBac(formatBoundaryText(detectedBoundaries.bac))}
+                    className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                      detectedBoundaries.bac
+                        ? 'bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-900'
+                        : 'bg-gray-100/70 border-gray-200 text-gray-400 cursor-default'
+                    }`}
+                    title={detectedBoundaries.bac ? `Phía Bắc: ${formatBoundaryText(detectedBoundaries.bac)} (Bấm để điền)` : 'Chưa có thửa'}
+                  >
+                    <span className="text-[9px] text-blue-700 block font-black">⬆️ PHÍA BẮC</span>
+                    <span className="text-[10px] font-bold truncate block">
+                      {detectedBoundaries.bac ? `Thửa ${detectedBoundaries.bac.so_thua}` : 'Chưa rõ'}
+                    </span>
+                  </div>
+                  <div></div>
+
+                  {/* Hàng 2: Tây - Thửa đang chọn - Đông */}
+                  <div
+                    onClick={() => detectedBoundaries.tay && setGiapTay(formatBoundaryText(detectedBoundaries.tay))}
+                    className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                      detectedBoundaries.tay
+                        ? 'bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-900'
+                        : 'bg-gray-100/70 border-gray-200 text-gray-400 cursor-default'
+                    }`}
+                    title={detectedBoundaries.tay ? `Phía Tây: ${formatBoundaryText(detectedBoundaries.tay)} (Bấm để điền)` : 'Chưa có thửa'}
+                  >
+                    <span className="text-[9px] text-blue-700 block font-black">⬅️ PHÍA TÂY</span>
+                    <span className="text-[10px] font-bold truncate block">
+                      {detectedBoundaries.tay ? `Thửa ${detectedBoundaries.tay.so_thua}` : 'Chưa rõ'}
+                    </span>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-rose-50 border-2 border-rose-300 font-black text-rose-900 shadow-2xs">
+                    <span className="text-[8px] text-rose-600 block uppercase font-black">Đang chọn</span>
+                    <span className="text-xs font-black text-rose-700">Thửa {parcel.so_thua}</span>
+                  </div>
+
+                  <div
+                    onClick={() => detectedBoundaries.dong && setGiapDong(formatBoundaryText(detectedBoundaries.dong))}
+                    className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                      detectedBoundaries.dong
+                        ? 'bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-900'
+                        : 'bg-gray-100/70 border-gray-200 text-gray-400 cursor-default'
+                    }`}
+                    title={detectedBoundaries.dong ? `Phía Đông: ${formatBoundaryText(detectedBoundaries.dong)} (Bấm để điền)` : 'Chưa có thửa'}
+                  >
+                    <span className="text-[9px] text-blue-700 block font-black">➡️ PHÍA ĐÔNG</span>
+                    <span className="text-[10px] font-bold truncate block">
+                      {detectedBoundaries.dong ? `Thửa ${detectedBoundaries.dong.so_thua}` : 'Chưa rõ'}
+                    </span>
+                  </div>
+
+                  {/* Hàng 3: Nam */}
+                  <div></div>
+                  <div
+                    onClick={() => detectedBoundaries.nam && setGiapNam(formatBoundaryText(detectedBoundaries.nam))}
+                    className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                      detectedBoundaries.nam
+                        ? 'bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-900'
+                        : 'bg-gray-100/70 border-gray-200 text-gray-400 cursor-default'
+                    }`}
+                    title={detectedBoundaries.nam ? `Phía Nam: ${formatBoundaryText(detectedBoundaries.nam)} (Bấm để điền)` : 'Chưa có thửa'}
+                  >
+                    <span className="text-[9px] text-blue-700 block font-black">⬇️ PHÍA NAM</span>
+                    <span className="text-[10px] font-bold truncate block">
+                      {detectedBoundaries.nam ? `Thửa ${detectedBoundaries.nam.so_thua}` : 'Chưa rõ'}
+                    </span>
+                  </div>
+                  <div></div>
+                </div>
+              </div>
+
+              {/* 4 Ô Nhập Tứ Cận với Gợi Ý Tự Động */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                {/* Phía Đông */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-gray-700 flex items-center gap-1">
+                      <span>➡️</span> Phía Đông:
+                    </label>
+                    {detectedBoundaries.dong && !giapDong && (
+                      <button
+                        type="button"
+                        onClick={() => setGiapDong(formatBoundaryText(detectedBoundaries.dong))}
+                        className="text-[10px] text-blue-600 hover:underline font-semibold"
+                      >
+                        Gợi ý: Thửa {detectedBoundaries.dong.so_thua} (+Điền)
+                      </button>
+                    )}
+                  </div>
                   <input
                     type="text"
                     value={giapDong}
                     onChange={(e) => setGiapDong(e.target.value)}
-                    placeholder="Giáp thửa/đường..."
-                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    placeholder="Giáp thửa/đường/suối..."
+                    className="w-full text-xs px-2.5 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
                 </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">
-                    Phía Tây:
-                  </label>
+
+                {/* Phía Tây */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-gray-700 flex items-center gap-1">
+                      <span>⬅️</span> Phía Tây:
+                    </label>
+                    {detectedBoundaries.tay && !giapTay && (
+                      <button
+                        type="button"
+                        onClick={() => setGiapTay(formatBoundaryText(detectedBoundaries.tay))}
+                        className="text-[10px] text-blue-600 hover:underline font-semibold"
+                      >
+                        Gợi ý: Thửa {detectedBoundaries.tay.so_thua} (+Điền)
+                      </button>
+                    )}
+                  </div>
                   <input
                     type="text"
                     value={giapTay}
                     onChange={(e) => setGiapTay(e.target.value)}
-                    placeholder="Giáp thửa/đường..."
-                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    placeholder="Giáp thửa/đường/suối..."
+                    className="w-full text-xs px-2.5 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
                 </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">
-                    Phía Nam:
-                  </label>
+
+                {/* Phía Nam */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-gray-700 flex items-center gap-1">
+                      <span>⬇️</span> Phía Nam:
+                    </label>
+                    {detectedBoundaries.nam && !giapNam && (
+                      <button
+                        type="button"
+                        onClick={() => setGiapNam(formatBoundaryText(detectedBoundaries.nam))}
+                        className="text-[10px] text-blue-600 hover:underline font-semibold"
+                      >
+                        Gợi ý: Thửa {detectedBoundaries.nam.so_thua} (+Điền)
+                      </button>
+                    )}
+                  </div>
                   <input
                     type="text"
                     value={giapNam}
                     onChange={(e) => setGiapNam(e.target.value)}
-                    placeholder="Giáp thửa/đường..."
-                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    placeholder="Giáp thửa/đường/suối..."
+                    className="w-full text-xs px-2.5 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
                 </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">
-                    Phía Bắc:
-                  </label>
+
+                {/* Phía Bắc */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-gray-700 flex items-center gap-1">
+                      <span>⬆️</span> Phía Bắc:
+                    </label>
+                    {detectedBoundaries.bac && !giapBac && (
+                      <button
+                        type="button"
+                        onClick={() => setGiapBac(formatBoundaryText(detectedBoundaries.bac))}
+                        className="text-[10px] text-blue-600 hover:underline font-semibold"
+                      >
+                        Gợi ý: Thửa {detectedBoundaries.bac.so_thua} (+Điền)
+                      </button>
+                    )}
+                  </div>
                   <input
                     type="text"
                     value={giapBac}
                     onChange={(e) => setGiapBac(e.target.value)}
-                    placeholder="Giáp thửa/đường..."
-                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    placeholder="Giáp thửa/đường/suối..."
+                    className="w-full text-xs px-2.5 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
                 </div>
               </div>
             </div>
 
-            {/* Thửa Lân Cận Đã Kê Khai */}
+            {/* Thửa Lân Cận Theo Phương Hướng Bản Đồ */}
             <div className="bg-white p-3 rounded-xl border border-gray-200/80 shadow-xs space-y-2">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold text-gray-800 flex items-center gap-1">
                   <Navigation className="w-3.5 h-3.5 text-emerald-600" />
-                  Thửa lân cận (gần nhất)
+                  Thửa xung quanh theo phương hướng
                 </h4>
                 <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold">
                   {neighbors.length} thửa
@@ -770,10 +962,10 @@ export default function ParcelDetailPanel({
 
               {neighbors.length === 0 ? (
                 <p className="text-[11px] text-gray-400 py-2.5 text-center">
-                  Không có thửa liền kề xung quanh.
+                  Không có thửa liền kề xung quanh trong bán kính quét.
                 </p>
               ) : (
-                <div className="divide-y divide-gray-100 max-h-48 overflow-y-auto pr-1">
+                <div className="divide-y divide-gray-100 max-h-56 overflow-y-auto pr-1">
                   {neighbors.map((nb) => {
                     const getNeighborDot = () => {
                       if (nb.trang_thai === 'DA_SO_HOA_XANH') {
@@ -789,7 +981,7 @@ export default function ParcelDetailPanel({
                     };
 
                     return (
-                      <div key={nb.ma_thua} className="py-2 space-y-1">
+                      <div key={nb.ma_thua} className="py-2.5 space-y-1.5">
                         <div className="flex items-center justify-between text-xs">
                           <button
                             type="button"
@@ -800,78 +992,84 @@ export default function ParcelDetailPanel({
                             {getNeighborDot()}
                             <span>Thửa {nb.so_thua} (Tờ {nb.to_ban_do})</span>
                           </button>
-                          <span className="text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded font-mono">
-                            ~{nb.distanceMeters}m
+
+                          {/* Badge Phương Hướng & Khoảng cách */}
+                          <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded-md font-semibold flex items-center gap-1 shrink-0">
+                            <span>{nb.arrow || '🧭'}</span>
+                            <span>{nb.directionText || nb.quadrantText || 'Lân cận'}</span>
+                            <span className="text-gray-300">|</span>
+                            <span className="font-mono">~{nb.distanceMeters}m</span>
                           </span>
                         </div>
+
                         <p className="text-[11px] text-gray-600 truncate" title={nb.chu_ho}>
                           Chủ: <strong className="text-gray-800">{nb.chu_ho || 'Chưa có tên'}</strong>
                         </p>
 
-                      <div className="flex items-center justify-between pt-0.5">
-                        {(nb.has_cccd && (nb.cccd_url || nb.svg_url)) ? (
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() =>
-                                onOpenVectorViewer(
-                                  (nb.cccd_url || nb.svg_url)!,
-                                  `Ảnh CCCD - Thửa ${nb.so_thua} (Tờ ${nb.to_ban_do})`,
-                                  nb.chu_ho,
-                                  nb.cccd
-                                )
-                              }
-                              className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 hover:text-emerald-800 hover:underline"
-                            >
-                              <Eye className="w-3 h-3" /> Xem
-                            </button>
-                            <button
-                              onClick={() =>
-                                downloadFile(
-                                  (nb.cccd_url || nb.svg_url)!,
-                                  `CCCD_${nb.chu_ho || 'ChuHo'}_Thua_${nb.so_thua}_To_${nb.to_ban_do}.jpg`
-                                )
-                              }
-                              className="inline-flex items-center gap-0.5 text-[10px] font-bold text-gray-500 hover:text-emerald-700"
-                              title="Tải ảnh CCCD"
-                            >
-                              <Download className="w-3 h-3" /> Tải
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-[10px] text-gray-400 italic">Chưa có ảnh CCCD</span>
-                        )}
+                        <div className="flex items-center justify-between pt-0.5">
+                          {(nb.has_cccd && (nb.cccd_url || nb.svg_url)) ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() =>
+                                  onOpenVectorViewer(
+                                    (nb.cccd_url || nb.svg_url)!,
+                                    `Ảnh CCCD - Thửa ${nb.so_thua} (Tờ ${nb.to_ban_do})`,
+                                    nb.chu_ho,
+                                    nb.cccd
+                                  )
+                                }
+                                className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 hover:text-emerald-800 hover:underline"
+                              >
+                                <Eye className="w-3 h-3" /> Xem
+                              </button>
+                              <button
+                                onClick={() =>
+                                  downloadFile(
+                                    (nb.cccd_url || nb.svg_url)!,
+                                    `CCCD_${nb.chu_ho || 'ChuHo'}_Thua_${nb.so_thua}_To_${nb.to_ban_do}.jpg`
+                                  )
+                                }
+                                className="inline-flex items-center gap-0.5 text-[10px] font-bold text-gray-500 hover:text-emerald-700"
+                                title="Tải ảnh CCCD"
+                              >
+                                <Download className="w-3 h-3" /> Tải
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-gray-400 italic">Chưa có ảnh CCCD</span>
+                          )}
 
-                        <div className="flex items-center gap-1">
-                          <span className="text-[9px] text-gray-400">Điền:</span>
-                          <button
-                            onClick={() => handleApplyNeighborToBoundary('dong', nb)}
-                            className="px-1 text-[10px] bg-gray-100 hover:bg-gray-200 rounded font-medium"
-                          >
-                            Đông
-                          </button>
-                          <button
-                            onClick={() => handleApplyNeighborToBoundary('tay', nb)}
-                            className="px-1 text-[10px] bg-gray-100 hover:bg-gray-200 rounded font-medium"
-                          >
-                            Tây
-                          </button>
-                          <button
-                            onClick={() => handleApplyNeighborToBoundary('nam', nb)}
-                            className="px-1 text-[10px] bg-gray-100 hover:bg-gray-200 rounded font-medium"
-                          >
-                            Nam
-                          </button>
-                          <button
-                            onClick={() => handleApplyNeighborToBoundary('bac', nb)}
-                            className="px-1 text-[10px] bg-gray-100 hover:bg-gray-200 rounded font-medium"
-                          >
-                            Bắc
-                          </button>
+                          {/* Cụm hành động điền vào hướng */}
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleApplyNeighborToBoundary(nb.quadrant || 'dong', nb)}
+                              className="px-2 py-0.5 text-[10px] bg-blue-600 hover:bg-blue-700 text-white rounded font-bold transition flex items-center gap-1 shadow-2xs"
+                              title={`Điền thửa này vào ${nb.quadrantText || 'Phía Đông'}`}
+                            >
+                              <span>{nb.arrow}</span> Điền {nb.quadrantText || 'Phía Đông'}
+                            </button>
+
+                            {/* Các nút phụ đổi hướng */}
+                            <span className="text-[9px] text-gray-400 ml-1">Đổi:</span>
+                            {(['dong', 'tay', 'nam', 'bac'] as const)
+                              .filter((q) => q !== (nb.quadrant || 'dong'))
+                              .map((q) => (
+                                <button
+                                  key={q}
+                                  type="button"
+                                  onClick={() => handleApplyNeighborToBoundary(q, nb)}
+                                  className="px-1 text-[9px] bg-gray-100 hover:bg-gray-200 text-gray-600 rounded font-medium uppercase"
+                                  title={`Điền vào ${q === 'dong' ? 'Đông' : q === 'tay' ? 'Tây' : q === 'nam' ? 'Nam' : 'Bắc'}`}
+                                >
+                                  {q === 'dong' ? 'Đ' : q === 'tay' ? 'T' : q === 'nam' ? 'N' : 'B'}
+                                </button>
+                              ))}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1002,9 +1200,20 @@ export default function ParcelDetailPanel({
 
             {/* Tứ cận cập nhật nếu có sai lệch */}
             <div className="bg-white p-3 rounded-xl border border-gray-200 text-xs space-y-2">
-              <span className="font-bold text-gray-800 block text-[11px]">
-                Tứ cận chuẩn xác (nếu cần sửa):
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-gray-800 block text-[11px]">
+                  Tứ cận chuẩn xác (nếu cần sửa):
+                </span>
+                <button
+                  type="button"
+                  onClick={handleAutoDetectBoundaries}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-lg transition"
+                  title="Tự động nhận diện 4 hướng tiếp giáp từ tọa độ thực địa"
+                >
+                  <Sparkles className="w-3 h-3 text-amber-500 fill-amber-400" />
+                  <span>Tự động nhận diện</span>
+                </button>
+              </div>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div>
                   <label className="text-[10px] text-gray-500 block">Đông:</label>
@@ -1333,6 +1542,67 @@ export default function ParcelDetailPanel({
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Tứ Cận (Đông, Tây, Nam, Bắc) */}
+            <div className="bg-gray-50/80 p-2.5 rounded-xl border border-gray-200 text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-gray-800 block text-[11px] flex items-center gap-1">
+                  <Compass className="w-3.5 h-3.5 text-blue-600" />
+                  Tứ cận (Tiếp giáp 4 hướng):
+                </span>
+                <button
+                  type="button"
+                  onClick={handleAutoDetectBoundaries}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-100/70 hover:bg-blue-200/80 px-2 py-0.5 rounded-lg transition"
+                  title="Tự động nhận diện 4 hướng tiếp giáp từ tọa độ thực địa"
+                >
+                  <Sparkles className="w-3 h-3 text-amber-500 fill-amber-400" />
+                  <span>Tự động nhận diện</span>
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <label className="text-[10px] text-gray-500 block">Đông:</label>
+                  <input
+                    type="text"
+                    value={giapDong}
+                    onChange={(e) => setGiapDong(e.target.value)}
+                    placeholder="Giáp thửa/đường..."
+                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 block">Tây:</label>
+                  <input
+                    type="text"
+                    value={giapTay}
+                    onChange={(e) => setGiapTay(e.target.value)}
+                    placeholder="Giáp thửa/đường..."
+                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 block">Nam:</label>
+                  <input
+                    type="text"
+                    value={giapNam}
+                    onChange={(e) => setGiapNam(e.target.value)}
+                    placeholder="Giáp thửa/đường..."
+                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 block">Bắc:</label>
+                  <input
+                    type="text"
+                    value={giapBac}
+                    onChange={(e) => setGiapBac(e.target.value)}
+                    placeholder="Giáp thửa/đường..."
+                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Ghi chú */}

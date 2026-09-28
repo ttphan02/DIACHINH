@@ -325,8 +325,8 @@ export default function Home() {
       setIsPanelOpen(true);
     });
 
-    // Tìm thửa lân cận: bao gồm cả thửa xanh lá, xanh lam và thửa vàng (có tên)
-    const nbs = findNearbyParcels(latest, computedParcels, 350, 8);
+    // Tìm thửa lân cận: tự động tính hướng la bàn và khoảng cách thực tế
+    const nbs = findNearbyParcels(latest, computedParcels, 450, 12);
     setNeighborParcels(nbs);
 
     if (window.innerWidth < 1024 && panelRef.current) {
@@ -422,6 +422,7 @@ export default function Home() {
                   <ParcelDetailPanel
                     parcel={selectedParcel}
                     neighbors={neighborParcels}
+                    allParcels={computedParcels}
                     sameCccdParcels={sameCccdParcels}
                     sameNameParcels={sameNameParcels}
                     sameOwnerParcels={sameOwnerParcels}
@@ -602,6 +603,7 @@ export default function Home() {
               parcels={filteredParcels}
               onSelectParcel={handleSelectParcel}
               selectedParcel={selectedParcel}
+              neighborParcels={neighborParcels}
             />
           </div>
         ) : (

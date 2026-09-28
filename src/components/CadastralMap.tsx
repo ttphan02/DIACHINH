@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Parcel } from '@/types';
+import { Parcel, NeighborParcel } from '@/types';
 import { Layers, Maximize2 } from 'lucide-react';
 import type { Map as LeafletMap, LayerGroup } from 'leaflet';
 
@@ -9,16 +9,19 @@ interface CadastralMapProps {
   parcels: Parcel[];
   onSelectParcel: (parcel: Parcel) => void;
   selectedParcel: Parcel | null;
+  neighborParcels?: NeighborParcel[];
 }
 
 export default function CadastralMap({
   parcels,
   onSelectParcel,
   selectedParcel,
+  neighborParcels = [],
 }: CadastralMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<LeafletMap | null>(null);
   const layerGroupRef = useRef<LayerGroup | null>(null);
+  const neighborsLayerRef = useRef<LayerGroup | null>(null);
   const tileLayerRef = useRef<any>(null);
   const [mapType, setMapType] = useState<'hybrid' | 'streets'>('hybrid');
   const [dotsCount, setDotsCount] = useState(0);
@@ -59,6 +62,9 @@ export default function CadastralMap({
 
       const layerGroup = L.layerGroup().addTo(leafletMap);
       layerGroupRef.current = layerGroup;
+
+      const neighborsLayer = L.layerGroup().addTo(leafletMap);
+      neighborsLayerRef.current = neighborsLayer;
 
       setMap(leafletMap);
     });
@@ -203,6 +209,75 @@ export default function CadastralMap({
       isMounted = false;
     };
   }, [map, parcels, selectedParcel, onSelectParcel]);
+
+  // 4. Vẽ đường nối la bàn và phương hướng tới các thửa xung quanh
+  useEffect(() => {
+    if (!map || !neighborsLayerRef.current) return;
+    const group = neighborsLayerRef.current;
+    group.clearLayers();
+
+    if (!selectedParcel?.lat || !selectedParcel?.lng || !neighborParcels || neighborParcels.length === 0) {
+      return;
+    }
+
+    let isMounted = true;
+    import('leaflet').then((L) => {
+      if (!isMounted) return;
+      const centerLat = selectedParcel.lat as number;
+      const centerLng = selectedParcel.lng as number;
+
+      neighborParcels.slice(0, 8).forEach((nb) => {
+        if (!nb.lat || !nb.lng) return;
+
+        // Vẽ đường nối đứt nét từ tâm thửa hiện tại tới thửa lân cận
+        const line = L.polyline(
+          [
+            [centerLat, centerLng],
+            [nb.lat, nb.lng],
+          ],
+          {
+            color: '#0284c7', // Sky blue
+            weight: 2,
+            dashArray: '4, 5',
+            opacity: 0.85,
+          }
+        );
+
+        const dirLabel = nb.quadrantText || nb.directionText || 'Lân cận';
+        const arrow = nb.arrow || '🧭';
+        const owner = nb.chu_ho && nb.chu_ho !== 'Chưa có tên' ? ` (${nb.chu_ho})` : '';
+
+        line.bindTooltip(
+          `
+            <div style="font-size: 11px; font-weight: bold; color: #fff;">
+              ${arrow} <b>${dirLabel}</b>: Thửa ${nb.so_thua} <span style="font-size: 10px; opacity: 0.85;">~${nb.distanceMeters}m</span>
+            </div>
+            <div style="font-size: 10px; color: #bae6fd;">${owner}</div>
+          `,
+          {
+            className: 'custom-map-tooltip',
+            sticky: true,
+          }
+        );
+
+        line.addTo(group);
+
+        // Vẽ vòng tròn nhấn mạnh quanh thửa lân cận
+        const ring = L.circleMarker([nb.lat, nb.lng], {
+          radius: 9,
+          color: '#38bdf8',
+          fillColor: 'transparent',
+          weight: 1.5,
+          dashArray: '2, 3',
+        });
+        ring.addTo(group);
+      });
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [map, selectedParcel, neighborParcels]);
 
   const handleFitBounds = useCallback(() => {
     if (!map) return;
