@@ -157,7 +157,7 @@ export default function CadastralMap({
           weight,
         });
 
-        const ownerDisplay = p.chu_ho && p.chu_ho !== 'Chưa có tên' ? p.chu_ho : 'Chưa có tên';
+        const ownerDisplay = p.chu_ho || 'Không có trong dữ liệu';
         const statusLabel =
           p.trang_thai === 'DA_SO_HOA_XANH'
             ? '🟢 Đã số hóa (GGS)'
@@ -165,7 +165,7 @@ export default function CadastralMap({
             ? '🔵 Đã kê khai (Chưa lên GGS)'
             : p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG'
             ? '🟡 Có tên'
-            : '⚪ Chưa có tên';
+            : '⚪ Chưa cập nhật / Không có DL';
 
         const tooltipContent = `
           <div style="font-weight: 800; font-size: 13px; color: #fff; margin-bottom: 2px;">

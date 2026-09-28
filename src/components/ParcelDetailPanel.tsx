@@ -126,8 +126,20 @@ export default function ParcelDetailPanel({
       setGiapDong(parcel.giap_dong || '');
       setGiapTay(parcel.giap_tay || '');
       setGiapNam(parcel.giap_nam || '');
-      setGiapBac(parcel.giap_bac || '');
-      setChuDatTen(parcel.chu_ho && parcel.chu_ho !== 'Chưa có tên' ? parcel.chu_ho : '');
+      const nonPersonPlaceholders = [
+        'chưa có tên',
+        'không có tên',
+        'không có dữ liệu',
+        'không có dữ liệu cập nhật',
+        'không có trong dữ liệu',
+        'không có trong smk',
+        'hồ ea rớt',
+        'ubnd xã',
+        'ông ..',
+        '..',
+      ];
+      const isPlaceholder = nonPersonPlaceholders.some((ph) => parcel.chu_ho?.toLowerCase().includes(ph));
+      setChuDatTen(parcel.chu_ho && !isPlaceholder ? parcel.chu_ho : '');
       setChuDatCccd(parcel.cccd || '');
       setLyDoBaoSai('');
       setSavedSuccess(false);

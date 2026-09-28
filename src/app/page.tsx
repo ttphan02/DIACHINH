@@ -146,8 +146,8 @@ export default function Home() {
       let chu_ho = p.chu_ho;
       if (ggsInfo?.chu_ho && !ggsInfo.chu_ho.startsWith('w6jp')) {
         chu_ho = ggsInfo.chu_ho;
-      } else if (chu_ho?.startsWith('w6jp')) {
-        chu_ho = 'Chưa có tên';
+      } else if (chu_ho?.startsWith('w6jp') || !chu_ho) {
+        chu_ho = 'Không có trong dữ liệu';
       }
 
       let cccd = p.cccd;
@@ -292,7 +292,26 @@ export default function Home() {
 
   // 2. Danh sách các thửa đất khác có cùng Tên (trừ các thửa đã trùng CCCD) - "Có thể chủ hộ này còn sở hữu"
   const sameNameParcels = useMemo(() => {
-    if (!selectedParcel || !selectedParcel.chu_ho || selectedParcel.chu_ho === 'Chưa có tên') {
+    const nonPersonPlaceholders = [
+      'Chưa có tên',
+      'Không có tên',
+      'Không có dữ liệu',
+      'Không có dữ liệu cập nhật',
+      'Không có trong dữ liệu',
+      'Không có trong SMK',
+      'Hồ Ea Rớt',
+      'UBND xã',
+      'UBND xã Cư Pui',
+      'Ông ..',
+      'Bà ..',
+      '..',
+    ];
+
+    if (
+      !selectedParcel ||
+      !selectedParcel.chu_ho ||
+      nonPersonPlaceholders.some((np) => selectedParcel.chu_ho.toLowerCase().includes(np.toLowerCase()))
+    ) {
       return [];
     }
     const cleanOwner = selectedParcel.chu_ho.trim().toLowerCase();
@@ -303,7 +322,7 @@ export default function Home() {
         p.ma_thua !== selectedParcel.ma_thua &&
         !cccdMatchedCodes.has(p.ma_thua) &&
         p.chu_ho &&
-        p.chu_ho !== 'Chưa có tên' &&
+        !nonPersonPlaceholders.some((np) => p.chu_ho.toLowerCase().includes(np.toLowerCase())) &&
         p.chu_ho.trim().toLowerCase() === cleanOwner
     );
   }, [selectedParcel, computedParcels, sameCccdParcels]);
@@ -508,7 +527,7 @@ export default function Home() {
                   Có tên ({stats.yellow.toLocaleString('vi-VN')})
                 </button>
 
-                {/* Chưa có tên (Trắng) */}
+                {/* Không có dữ liệu cập nhật / Chưa số hóa (Trắng) */}
                 <button
                   onClick={() => {
                     setStatusFilter('CHUA_CO_TEN_XAM');
@@ -519,10 +538,10 @@ export default function Home() {
                       ? 'bg-slate-700 text-white shadow-sm ring-2 ring-slate-400'
                       : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700/80 border border-slate-600/30'
                   }`}
-                  title="Thửa chưa có tên chủ đất"
+                  title="Thửa không có trong DSCOTEN: chưa có dữ liệu cập nhật, không có trong SMK, chưa rõ tên..."
                 >
                   <span className="w-2.5 h-2.5 rounded-full bg-white border border-slate-400"></span>
-                  Chưa có tên ({stats.gray.toLocaleString('vi-VN')})
+                  Chưa cập nhật / Không có DL ({stats.gray.toLocaleString('vi-VN')})
                 </button>
 
                 {/* Nút bấm & Chỉ báo Realtime Google Sheets */}
@@ -771,7 +790,7 @@ export default function Home() {
                               ? 'Đã kê khai'
                               : isYellow
                               ? 'Có tên chủ'
-                              : 'Chưa có tên'}
+                              : 'Chưa cập nhật'}
                           </span>
 
                           <span className="text-[11px] font-mono font-bold text-gray-400 group-hover:text-blue-600 transition">
@@ -784,11 +803,13 @@ export default function Home() {
                           <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-blue-500 group-hover:translate-x-0.5 transition" />
                         </h3>
 
-                        <p className="text-xs text-gray-700 font-semibold mt-1 truncate" title={p.chu_ho}>
-                          {p.chu_ho && p.chu_ho !== 'Chưa có tên' ? (
-                            p.chu_ho
+                        <p className="text-xs font-semibold mt-1 truncate" title={p.chu_ho}>
+                          {p.chu_ho ? (
+                            <span className={p.chu_ho.includes('Không có') || p.chu_ho === 'Chưa có tên' ? 'text-gray-400 font-normal italic' : 'text-gray-800'}>
+                              {p.chu_ho}
+                            </span>
                           ) : (
-                            <span className="text-gray-400 font-normal italic">Chưa có tên chủ</span>
+                            <span className="text-gray-400 font-normal italic">Không có trong dữ liệu</span>
                           )}
                         </p>
 
