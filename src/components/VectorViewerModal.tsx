@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { ZoomIn, ZoomOut, RotateCcw, X, ShieldCheck, Download, ChevronLeft, ChevronRight, FileText, AlertCircle } from 'lucide-react';
-import { getResolvedImageUrl } from '@/utils/geo';
+import { ZoomIn, ZoomOut, RotateCcw, X, ShieldCheck, Download, ChevronLeft, ChevronRight, FileText, AlertCircle, Loader2 } from 'lucide-react';
+import { getResolvedImageUrl, downloadFile } from '@/utils/geo';
 
 interface VectorViewerModalProps {
   isOpen: boolean;
@@ -28,6 +28,7 @@ export default function VectorViewerModal({
   const [imgError, setImgError] = useState(false);
   const [retryWithProxy, setRetryWithProxy] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   // Danh sách các ảnh cần hiển thị (nếu có urls thì lấy urls, ngược lại lấy [svgUrl])
   const imageList = urls && urls.length > 0 ? urls : [svgUrl];
@@ -77,6 +78,14 @@ export default function VectorViewerModal({
   const handleZoomIn = () => setScale((prev) => Math.min(prev + 0.3, 4.5));
   const handleZoomOut = () => setScale((prev) => Math.max(prev - 0.3, 0.5));
   const handleReset = () => setScale(1);
+
+  const handleDownload = async () => {
+    if (isDownloading) return;
+    setIsDownloading(true);
+    const fname = title ? `${title.replace(/[\/\\:*?"<>|]/g, '_')}_trang_${activeIdx + 1}.jpg` : undefined;
+    await downloadFile(currentPath, fname);
+    setIsDownloading(false);
+  };
 
   const handleImageError = () => {
     if (!retryWithProxy) {
@@ -150,17 +159,19 @@ export default function VectorViewerModal({
               <span className="hidden sm:inline">Đặt lại</span>
             </button>
 
-            <a
-              href={getImgSrc()}
-              download
-              target="_blank"
-              rel="noreferrer"
-              className="p-2 text-gray-700 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition flex items-center gap-1 text-xs font-bold"
-              title="Tải ảnh về máy"
+            <button
+              onClick={handleDownload}
+              disabled={isDownloading}
+              className="p-2 text-gray-700 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition flex items-center gap-1 text-xs font-bold disabled:opacity-50"
+              title="Tải ảnh về máy tính hoặc điện thoại"
             >
-              <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">Tải về</span>
-            </a>
+              {isDownloading ? (
+                <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">{isDownloading ? 'Đang tải...' : 'Tải về'}</span>
+            </button>
 
             <div className="w-[1px] h-6 bg-gray-200 mx-1" />
 

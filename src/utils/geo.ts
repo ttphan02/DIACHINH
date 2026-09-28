@@ -118,3 +118,59 @@ export function getResolvedImageUrl(path?: string | null): string {
 export function getResolvedSvgUrl(path?: string | null): string {
   return getResolvedImageUrl(path);
 }
+
+/**
+ * Tải file ảnh về máy tính hoặc điện thoại:
+ * Tự động chuyển đổi qua Blob để kích hoạt tải xuống thật (không bị trình duyệt mở tab mới)
+ */
+export async function downloadFile(urlOrPath: string, customFilename?: string): Promise<boolean> {
+  if (!urlOrPath) return false;
+  try {
+    const directUrl = getResolvedImageUrl(urlOrPath);
+    let blob: Blob | null = null;
+    try {
+      const res = await fetch(directUrl);
+      if (res.ok) {
+        blob = await res.blob();
+      }
+    } catch {
+      // Fallback via proxy
+    }
+
+    if (!blob) {
+      try {
+        const cleanPath = urlOrPath.startsWith('http')
+          ? new URL(urlOrPath).pathname.replace(/^\/+/, '')
+          : urlOrPath.replace(/^\/+/, '');
+        const proxyUrl = `/api/image/${cleanPath}`;
+        const res = await fetch(proxyUrl);
+        if (res.ok) {
+          blob = await res.blob();
+        }
+      } catch (proxyErr) {
+        console.warn('Proxy fetch failed:', proxyErr);
+      }
+    }
+
+    if (blob) {
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      const defaultName = urlOrPath.split('/').pop() || 'hoso_diachinh.jpg';
+      a.download = customFilename || defaultName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1500);
+      return true;
+    }
+
+    window.open(directUrl, '_blank');
+    return true;
+  } catch (err) {
+    console.error('Download file error:', err);
+    window.open(getResolvedImageUrl(urlOrPath), '_blank');
+    return false;
+  }
+}
+
