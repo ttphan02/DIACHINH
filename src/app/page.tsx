@@ -232,19 +232,41 @@ export default function Home() {
 
   const totalPages = Math.ceil(filteredParcels.length / pageSize);
 
-  // Danh sách các thửa đất cùng chủ hộ với thửa đang chọn
-  const sameOwnerParcels = useMemo(() => {
+  // 1. Danh sách các thửa đất cùng chủ CHÍNH XÁC theo CCCD (duy nhất)
+  const sameCccdParcels = useMemo(() => {
+    if (!selectedParcel || !selectedParcel.cccd || selectedParcel.cccd.trim().length < 9) {
+      return [];
+    }
+    const cleanCccd = selectedParcel.cccd.trim();
+    return computedParcels.filter(
+      (p) =>
+        p.ma_thua !== selectedParcel.ma_thua &&
+        p.cccd &&
+        p.cccd.trim() === cleanCccd
+    );
+  }, [selectedParcel, computedParcels]);
+
+  // 2. Danh sách các thửa đất khác có cùng Tên (trừ các thửa đã trùng CCCD) - "Có thể chủ hộ này còn sở hữu"
+  const sameNameParcels = useMemo(() => {
     if (!selectedParcel || !selectedParcel.chu_ho || selectedParcel.chu_ho === 'Chưa có tên') {
       return [];
     }
     const cleanOwner = selectedParcel.chu_ho.trim().toLowerCase();
+    const cccdMatchedCodes = new Set(sameCccdParcels.map((p) => p.ma_thua));
+
     return computedParcels.filter(
       (p) =>
+        p.ma_thua !== selectedParcel.ma_thua &&
+        !cccdMatchedCodes.has(p.ma_thua) &&
         p.chu_ho &&
         p.chu_ho !== 'Chưa có tên' &&
         p.chu_ho.trim().toLowerCase() === cleanOwner
     );
-  }, [selectedParcel, computedParcels]);
+  }, [selectedParcel, computedParcels, sameCccdParcels]);
+
+  const sameOwnerParcels = useMemo(() => {
+    return [...sameCccdParcels, ...sameNameParcels];
+  }, [sameCccdParcels, sameNameParcels]);
 
   const handleSelectParcel = (p: Parcel) => {
     if (closeTimerRef.current) {
@@ -343,6 +365,8 @@ export default function Home() {
                   <ParcelDetailPanel
                     parcel={selectedParcel}
                     neighbors={neighborParcels}
+                    sameCccdParcels={sameCccdParcels}
+                    sameNameParcels={sameNameParcels}
                     sameOwnerParcels={sameOwnerParcels}
                     onSelectParcel={handleSelectParcel}
                     onClose={handleClosePanel}

@@ -23,6 +23,8 @@ import {
 interface ParcelDetailPanelProps {
   parcel: Parcel | null;
   neighbors: NeighborParcel[];
+  sameCccdParcels?: Parcel[];
+  sameNameParcels?: Parcel[];
   sameOwnerParcels?: Parcel[];
   onSelectParcel?: (parcel: Parcel) => void;
   onClose: () => void;
@@ -33,6 +35,8 @@ interface ParcelDetailPanelProps {
 export default function ParcelDetailPanel({
   parcel,
   neighbors,
+  sameCccdParcels = [],
+  sameNameParcels = [],
   sameOwnerParcels = [],
   onSelectParcel,
   onClose,
@@ -42,11 +46,24 @@ export default function ParcelDetailPanel({
   const [activeTab, setActiveTab] = useState<'info' | 'declare'>('info');
   const [mode, setMode] = useState<DeclarationMode>('SELF');
 
-  // Danh sách các thửa khác cùng chủ hộ (loại trừ thửa hiện tại)
-  const otherParcels = useMemo(() => {
-    if (!parcel) return [];
-    return sameOwnerParcels.filter((p) => p.ma_thua !== parcel.ma_thua);
-  }, [parcel, sameOwnerParcels]);
+  // 1. Thửa khác cùng chủ CHÍNH XÁC theo CCCD (duy nhất)
+  const resolvedSameCccdParcels = useMemo(() => {
+    if (sameCccdParcels && sameCccdParcels.length > 0) {
+      return sameCccdParcels.filter((p) => p.ma_thua !== parcel?.ma_thua);
+    }
+    return [];
+  }, [sameCccdParcels, parcel]);
+
+  // 2. Thửa khác có cùng Tên (trừ các thửa đã trùng CCCD) - "Có thể chủ hộ này còn sở hữu"
+  const resolvedSameNameParcels = useMemo(() => {
+    if (sameNameParcels && sameNameParcels.length > 0) {
+      return sameNameParcels.filter((p) => p.ma_thua !== parcel?.ma_thua);
+    }
+    if (sameOwnerParcels && sameOwnerParcels.length > 0) {
+      return sameOwnerParcels.filter((p) => p.ma_thua !== parcel?.ma_thua);
+    }
+    return [];
+  }, [sameNameParcels, sameOwnerParcels, parcel]);
 
   // Boundaries state (Tứ cận)
   const [giapDong, setGiapDong] = useState('');
@@ -154,14 +171,23 @@ export default function ParcelDetailPanel({
             <code className="text-[11px] font-mono bg-white px-1.5 py-0.5 rounded border border-gray-200 text-gray-700">
               {parcel.ma_thua}
             </code>
-            {sameOwnerParcels.length > 1 && (
+            {resolvedSameCccdParcels.length > 0 ? (
               <>
                 <span className="text-gray-300">•</span>
-                <span className="text-[10px] font-bold bg-blue-100/90 text-blue-800 px-1.5 py-0.5 rounded border border-blue-200">
-                  Chủ có {sameOwnerParcels.length} thửa
+                <span className="text-[10px] font-bold bg-emerald-100/90 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200 inline-flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                  Cùng CCCD: {resolvedSameCccdParcels.length + 1} thửa
                 </span>
               </>
-            )}
+            ) : resolvedSameNameParcels.length > 0 ? (
+              <>
+                <span className="text-gray-300">•</span>
+                <span className="text-[10px] font-bold bg-amber-100/90 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200 inline-flex items-center gap-1">
+                  <Users className="w-3 h-3 text-amber-600" />
+                  Cùng tên: {resolvedSameNameParcels.length + 1} thửa
+                </span>
+              </>
+            ) : null}
           </p>
         </div>
 
@@ -310,32 +336,32 @@ export default function ParcelDetailPanel({
               </div>
             </div>
 
-            {/* DANH SÁCH CÁC THỬA ĐẤT KHÁC CÙNG CHỦ HỘ */}
-            {otherParcels.length > 0 && (
-              <div className="bg-gradient-to-br from-blue-50/90 to-indigo-50/70 p-3 rounded-xl border border-blue-200/90 shadow-xs space-y-2">
+            {/* 1. THỬA KHÁC CÙNG CHỦ THEO CCCD (CHÍNH XÁC DUY NHẤT) */}
+            {resolvedSameCccdParcels.length > 0 && (
+              <div className="bg-gradient-to-br from-emerald-50/90 to-teal-50/70 p-3 rounded-xl border border-emerald-200/90 shadow-xs space-y-2">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-black text-blue-900 flex items-center gap-1.5">
-                    <Layers className="w-3.5 h-3.5 text-blue-600" />
-                    Thửa khác cùng chủ ({otherParcels.length} thửa)
+                  <h4 className="text-xs font-black text-emerald-900 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    Thửa khác cùng chủ ({resolvedSameCccdParcels.length} thửa)
                   </h4>
-                  <span className="text-[10px] font-bold text-blue-700 bg-white px-2 py-0.5 rounded-full border border-blue-200 shadow-2xs">
-                    {parcel.chu_ho}
+                  <span className="text-[10px] font-bold text-emerald-800 bg-white px-2 py-0.5 rounded-full border border-emerald-200 shadow-2xs font-mono">
+                    CCCD: {parcel.cccd}
                   </span>
                 </div>
-                <p className="text-[11px] text-blue-800 leading-snug">
-                  Chủ hộ này còn đứng tên các thửa đất sau. Bấm vào thửa để chuyển nhanh sang xem hoặc kê khai:
+                <p className="text-[11px] text-emerald-800 leading-snug">
+                  Xác thực chính xác theo số CCCD duy nhất. Bấm vào thửa để chuyển nhanh sang xem hoặc kê khai:
                 </p>
 
-                <div className="space-y-1.5 max-h-56 overflow-y-auto pr-0.5">
-                  {otherParcels.map((op) => (
+                <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
+                  {resolvedSameCccdParcels.map((op) => (
                     <div
                       key={op.ma_thua}
                       onClick={() => onSelectParcel && onSelectParcel(op)}
-                      className="p-2.5 bg-white hover:bg-blue-50 border border-blue-100 hover:border-blue-400 rounded-xl transition cursor-pointer flex items-center justify-between gap-2 shadow-2xs group"
+                      className="p-2.5 bg-white hover:bg-emerald-50/60 border border-emerald-100 hover:border-emerald-400 rounded-xl transition cursor-pointer flex items-center justify-between gap-2 shadow-2xs group"
                     >
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-extrabold text-xs text-gray-900 group-hover:text-blue-600 transition">
+                          <span className="font-extrabold text-xs text-gray-900 group-hover:text-emerald-700 transition">
                             Thửa {op.so_thua} • Tờ {op.to_ban_do}
                           </span>
                           {op.trang_thai === 'DA_SO_HOA_XANH' ? (
@@ -349,7 +375,7 @@ export default function ParcelDetailPanel({
                           )}
                         </div>
                         <div className="text-[11px] text-gray-500 flex items-center gap-1.5 mt-0.5 truncate">
-                          <span className="font-bold text-blue-600">{op.dien_tich ? `${op.dien_tich} m²` : '---'}</span>
+                          <span className="font-bold text-emerald-700">{op.dien_tich ? `${op.dien_tich} m²` : '---'}</span>
                           <span>•</span>
                           <span>{op.loai_dat || 'Chưa rõ loại'}</span>
                           <span>•</span>
@@ -359,7 +385,75 @@ export default function ParcelDetailPanel({
 
                       <button
                         type="button"
-                        className="px-2.5 py-1 text-[11px] font-bold bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white rounded-lg transition shrink-0 flex items-center gap-0.5"
+                        className="px-2.5 py-1 text-[11px] font-bold bg-emerald-50 text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white rounded-lg transition shrink-0 flex items-center gap-0.5"
+                      >
+                        Kê khai <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 2. THỬA KHÁC CÓ CÙNG TÊN (TRỪ CCCD) - CÓ THỂ CHỦ HỘ NÀY CÒN SỞ HỮU */}
+            {resolvedSameNameParcels.length > 0 && (
+              <div className="bg-gradient-to-br from-amber-50/90 to-orange-50/70 p-3 rounded-xl border border-amber-200/90 shadow-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black text-amber-900 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-amber-600" />
+                    Có thể chủ hộ này còn sở hữu ({resolvedSameNameParcels.length} thửa)
+                  </h4>
+                  <span className="text-[10px] font-bold text-amber-800 bg-white px-2 py-0.5 rounded-full border border-amber-200 shadow-2xs">
+                    {parcel.chu_ho}
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-800 leading-snug">
+                  Trùng họ tên nhưng khác hoặc chưa có số CCCD (có thể là người khác trùng tên). Bấm vào thửa để kiểm tra:
+                </p>
+
+                <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
+                  {resolvedSameNameParcels.map((op) => (
+                    <div
+                      key={op.ma_thua}
+                      onClick={() => onSelectParcel && onSelectParcel(op)}
+                      className="p-2.5 bg-white hover:bg-amber-50/60 border border-amber-100 hover:border-amber-400 rounded-xl transition cursor-pointer flex items-center justify-between gap-2 shadow-2xs group"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-extrabold text-xs text-gray-900 group-hover:text-amber-800 transition">
+                            Thửa {op.so_thua} • Tờ {op.to_ban_do}
+                          </span>
+                          {op.trang_thai === 'DA_SO_HOA_XANH' ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Đã số hóa
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-800">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Có tên
+                            </span>
+                          )}
+                          {op.cccd ? (
+                            <span className="text-[9px] font-mono font-bold bg-amber-100/90 text-amber-900 px-1.5 py-0.2 rounded border border-amber-200">
+                              CCCD: {op.cccd}
+                            </span>
+                          ) : (
+                            <span className="text-[9px] text-gray-400 italic">
+                              Chưa có CCCD
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-gray-500 flex items-center gap-1.5 mt-0.5 truncate">
+                          <span className="font-bold text-amber-800">{op.dien_tich ? `${op.dien_tich} m²` : '---'}</span>
+                          <span>•</span>
+                          <span>{op.loai_dat || 'Chưa rõ loại'}</span>
+                          <span>•</span>
+                          <span className="capitalize">{op.thon_xa}</span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="px-2.5 py-1 text-[11px] font-bold bg-amber-50 text-amber-800 group-hover:bg-amber-600 group-hover:text-white rounded-lg transition shrink-0 flex items-center gap-0.5"
                       >
                         Kê khai <ChevronRight className="w-3 h-3" />
                       </button>
@@ -663,35 +757,66 @@ export default function ParcelDetailPanel({
               Lưu phiếu kê khai
             </button>
 
-            {/* TIỆN ÍCH KÊ KHAI NHANH CÁC THỬA TIẾP THEO CÙNG CHỦ HỘ */}
-            {otherParcels.length > 0 && (
+            {/* TIỆN ÍCH KÊ KHAI NHANH CÁC THỬA TIẾP THEO */}
+            {(resolvedSameCccdParcels.length > 0 || resolvedSameNameParcels.length > 0) && (
               <div className="pt-3 border-t border-gray-100 space-y-2">
                 <div className="flex items-center justify-between">
                   <h5 className="text-xs font-black text-gray-800 flex items-center gap-1.5">
                     <FileText className="w-3.5 h-3.5 text-blue-600" />
-                    Thửa tiếp theo cần kê khai ({otherParcels.length} thửa)
+                    Thửa tiếp theo cần kê khai ({resolvedSameCccdParcels.length + resolvedSameNameParcels.length} thửa)
                   </h5>
                 </div>
                 <p className="text-[11px] text-gray-500">
-                  Chủ hộ <strong>{parcel.chu_ho}</strong> còn các thửa sau, bấm để chuyển nhanh sang kê khai:
+                  Bấm vào thửa để chuyển nhanh sang kê khai:
                 </p>
 
                 <div className="space-y-1.5">
-                  {otherParcels.map((op) => (
+                  {/* Nhóm cùng CCCD */}
+                  {resolvedSameCccdParcels.map((op) => (
                     <button
                       key={op.ma_thua}
                       type="button"
                       onClick={() => onSelectParcel && onSelectParcel(op)}
-                      className="w-full p-2.5 bg-blue-50/60 hover:bg-blue-100/70 border border-blue-200 rounded-xl text-left transition flex items-center justify-between gap-2 group"
+                      className="w-full p-2.5 bg-emerald-50/60 hover:bg-emerald-100/70 border border-emerald-200 rounded-xl text-left transition flex items-center justify-between gap-2 group"
                     >
                       <div>
-                        <div className="font-bold text-xs text-blue-900 group-hover:text-blue-700">
-                          Thửa {op.so_thua} • Tờ {op.to_ban_do} ({op.dien_tich ? `${op.dien_tich} m²` : '---'} - {op.loai_dat || 'Đất'})
+                        <div className="font-bold text-xs text-emerald-950 flex items-center gap-1.5">
+                          <span>Thửa {op.so_thua} • Tờ {op.to_ban_do}</span>
+                          <span className="text-[9px] font-bold bg-emerald-200 text-emerald-800 px-1 py-0.2 rounded">
+                            Cùng CCCD
+                          </span>
                         </div>
-                        <div className="text-[10px] text-gray-500 capitalize">{op.thon_xa}</div>
+                        <div className="text-[10px] text-gray-500 capitalize mt-0.5">
+                          {op.dien_tich ? `${op.dien_tich} m²` : '---'} • {op.loai_dat || 'Đất'} • {op.thon_xa}
+                        </div>
                       </div>
-                      <span className="text-[11px] font-extrabold text-blue-600 group-hover:translate-x-0.5 transition flex items-center gap-0.5 shrink-0">
-                        Kê khai tiếp <ChevronRight className="w-3 h-3" />
+                      <span className="text-[11px] font-extrabold text-emerald-700 group-hover:translate-x-0.5 transition flex items-center gap-0.5 shrink-0">
+                        Kê khai <ChevronRight className="w-3 h-3" />
+                      </span>
+                    </button>
+                  ))}
+
+                  {/* Nhóm cùng Tên */}
+                  {resolvedSameNameParcels.map((op) => (
+                    <button
+                      key={op.ma_thua}
+                      type="button"
+                      onClick={() => onSelectParcel && onSelectParcel(op)}
+                      className="w-full p-2.5 bg-amber-50/60 hover:bg-amber-100/70 border border-amber-200 rounded-xl text-left transition flex items-center justify-between gap-2 group"
+                    >
+                      <div>
+                        <div className="font-bold text-xs text-amber-950 flex items-center gap-1.5">
+                          <span>Thửa {op.so_thua} • Tờ {op.to_ban_do}</span>
+                          <span className="text-[9px] font-bold bg-amber-200 text-amber-800 px-1 py-0.2 rounded">
+                            Cùng tên
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-gray-500 capitalize mt-0.5">
+                          {op.dien_tich ? `${op.dien_tich} m²` : '---'} • {op.loai_dat || 'Đất'} • {op.thon_xa}
+                        </div>
+                      </div>
+                      <span className="text-[11px] font-extrabold text-amber-800 group-hover:translate-x-0.5 transition flex items-center gap-0.5 shrink-0">
+                        Kê khai <ChevronRight className="w-3 h-3" />
                       </span>
                     </button>
                   ))}
