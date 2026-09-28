@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Parcel, NeighborParcel } from '@/types';
+import { extractShortOwnerName } from '@/utils/geo';
 import { Layers, Maximize2 } from 'lucide-react';
 import type { Map as LeafletMap, LayerGroup } from 'leaflet';
 
@@ -249,36 +250,64 @@ export default function CadastralMap({
         const arrow = nb.arrow || '🧭';
         const owner = nb.chu_ho && nb.chu_ho !== 'Chưa có tên' ? ` (${nb.chu_ho})` : '';
 
+        // Trích xuất tên ngắn gọn theo quy tắc (ví dụ: Truc, Dle, Tuốt, Niê Siêng...)
+        const shortName = extractShortOwnerName(nb.chu_ho);
+
         // Vẽ vòng tròn nhấn mạnh quanh thửa lân cận, bấm vào sẽ chọn thửa lân cận đó
         const ring = L.circleMarker([nb.lat, nb.lng], {
-          radius: 10,
+          radius: 11,
           color: '#0284c7',
           fillColor: '#38bdf8',
-          fillOpacity: 0.15,
+          fillOpacity: 0.18,
           weight: 2,
           dashArray: '3, 3',
         });
 
-        ring.bindTooltip(
-          `
-            <div style="font-size: 11px; font-weight: bold; color: #fff;">
-              ${arrow} <b>${dirLabel}</b>: Thửa ${nb.so_thua} (Tờ ${nb.to_ban_do}) <span style="font-size: 10px; opacity: 0.85;">~${nb.distanceMeters}m</span>
-            </div>
-            <div style="font-size: 10px; color: #bae6fd;">${owner}</div>
-            <div style="font-size: 10px; color: #cbd5e1; font-style: italic; margin-top: 2px;">👉 Bấm để xem thửa này</div>
-          `,
-          {
-            className: 'custom-map-tooltip',
-            direction: 'top',
-            offset: [0, -10],
-          }
-        );
+        const tooltipHtml = `
+          <div style="font-size: 11px; font-weight: bold; color: #fff;">
+            ${arrow} <b>${dirLabel}</b>: Thửa ${nb.so_thua} (Tờ ${nb.to_ban_do}) <span style="font-size: 10px; opacity: 0.85;">~${nb.distanceMeters}m</span>
+          </div>
+          <div style="font-size: 10px; color: #bae6fd;">${owner}</div>
+          <div style="font-size: 10px; color: #cbd5e1; font-style: italic; margin-top: 2px;">👉 Bấm để xem thửa này</div>
+        `;
+
+        ring.bindTooltip(tooltipHtml, {
+          className: 'custom-map-tooltip',
+          direction: 'top',
+          offset: [0, -10],
+        });
 
         ring.on('click', () => {
           onSelectParcel(nb);
         });
 
         ring.addTo(group);
+
+        // Hiển thị nhãn tên chủ đất nổi bật ngay trên dấu chấm của thửa lân cận
+        if (shortName) {
+          const badgeMarker = L.marker([nb.lat, nb.lng], {
+            icon: L.divIcon({
+              className: 'neighbor-badge-wrapper',
+              html: `<span class="neighbor-name-badge">${shortName}</span>`,
+              iconSize: [0, 0],
+              iconAnchor: [0, 13],
+            }),
+            interactive: true,
+            zIndexOffset: 1000,
+          });
+
+          badgeMarker.bindTooltip(tooltipHtml, {
+            className: 'custom-map-tooltip',
+            direction: 'top',
+            offset: [0, -10],
+          });
+
+          badgeMarker.on('click', () => {
+            onSelectParcel(nb);
+          });
+
+          badgeMarker.addTo(group);
+        }
       });
     });
 

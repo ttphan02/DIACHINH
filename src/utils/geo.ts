@@ -250,6 +250,64 @@ export function removeVietnameseTones(str: string): string {
   return str.trim();
 }
 
+/**
+ * Trích xuất tên ngắn gọn của chủ hộ hiển thị trên lưới bản đồ thửa lân cận:
+ * - Tên Kinh: hiển thị chữ cuối cùng (ví dụ: "Phan Truc" -> "Truc", "Nguyễn Văn An" -> "An")
+ * - Tên đồng bào (bắt đầu bằng Y, H hoặc H', Y'):
+ *   + 2 chữ: hiển thị chữ thứ 2 (ví dụ: "Y Vé" -> "Vé")
+ *   + 3 chữ: hiển thị chữ thứ 2 (ví dụ: "Y Dle Liêng" -> "Dle", "H Pi Byă" -> "Pi", "Y Tuốt Byă" -> "Tuốt")
+ *   + >= 4 chữ: hiển thị chữ thứ 3 và 4 (ví dụ: "Y Ngoach Niê Siêng" -> "Niê Siêng")
+ * - Tự động loại bỏ các tiền tố: "Hộ ông:", "Hộ bà:", "Ông:", "Bà:", "Hộ:"...
+ * - Bỏ qua các giá trị kỹ thuật/placeholder: "Không có dữ liệu", "Chưa có tên"...
+ */
+export function extractShortOwnerName(rawName?: string | null): string {
+  if (!rawName) return '';
+  let s = String(rawName).trim();
+
+  // Bỏ các tiền tố như "Ông:", "Bà:", "Hộ ông:", "Hộ bà:", "Hộ:"...
+  s = s.replace(/^(hộ\s+ông\s*:\s*|hộ\s+bà\s*:\s*|ông\s*:\s*|bà\s*:\s*|hộ\s*:\s*|ông\s+|bà\s+|hộ\s+)/i, '').trim();
+
+  // Chuẩn hóa dấu nháy H' hoặc Y' (ví dụ H'Pi -> H Pi, Y'Dle -> Y Dle)
+  s = s.replace(/’/g, "'").replace(/^(H|Y)'\s*/i, '$1 ');
+
+  const low = s.toLowerCase();
+  if (low.includes('ubnd')) return 'UBND';
+  if (low.includes('hồ ea rớt')) return 'Hồ Ea Rớt';
+  if (
+    low.includes('không có') ||
+    low.includes('chưa có') ||
+    low.includes('chưa xác định') ||
+    low.includes('chưa số hóa')
+  ) {
+    return '';
+  }
+
+  // Chuẩn hóa khoảng trắng và gạch ngang
+  const sClean = s.replace(/\s*-\s*/g, ' ').trim();
+  const words = sClean.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '';
+
+  // Kiểm tra tên đồng bào (bắt đầu bằng Y hoặc H)
+  const firstW = words[0].toUpperCase();
+  const isMinority = firstW === 'Y' || firstW === 'H';
+
+  if (isMinority) {
+    const n = words.length;
+    if (n === 2) {
+      return words[1];
+    } else if (n === 3) {
+      return words[1];
+    } else if (n >= 4) {
+      return `${words[2]} ${words[3]}`;
+    } else {
+      return words[0];
+    }
+  }
+
+  // Tên người thông thường: lấy chữ cuối cùng
+  return words[words.length - 1];
+}
+
 const DEFAULT_R2_URL = 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
 
 /**

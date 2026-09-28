@@ -47,3 +47,36 @@ input, button, select, textarea, optgroup {
 .leaflet-tooltip.custom-map-tooltip::before {
   border-top-color: rgba(15, 23, 42, 0.9);
 }
+
+/* Nhãn tên chủ đất thửa lân cận trên bản đồ */
+.neighbor-badge-wrapper {
+  background: transparent !important;
+  border: none !important;
+}
+
+.neighbor-name-badge {
+  transform: translate(-50%, -100%);
+  background: #0284c7;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 2.5px 7.5px;
+  border-radius: 9999px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  border: 1.5px solid #ffffff;
+  pointer-events: auto;
+  cursor: pointer;
+  user-select: none;
+  display: inline-block;
+  letter-spacing: 0.2px;
+  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.neighbor-name-badge:hover {
+  background: #0369a1;
+  transform: translate(-50%, -100%) scale(1.12);
+  box-shadow: 0 3px 12px rgba(2, 132, 199, 0.7);
+}
+
