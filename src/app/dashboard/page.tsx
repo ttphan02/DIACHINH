@@ -5,6 +5,7 @@ import Link from 'next/link';
 import rawParcels from '@/data/parcels.json';
 import { Parcel, ParcelStatus } from '@/types';
 import { removeVietnameseTones } from '@/utils/geo';
+import DeclarationPrintModal, { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
 import {
   Map as MapIcon,
   BarChart3,
@@ -32,6 +33,10 @@ import {
   ShieldCheck,
   Check,
   X,
+  Printer,
+  Calendar,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -42,6 +47,7 @@ export default function DashboardPage() {
   const [isSyncingGgs, setIsSyncingGgs] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [declaredParcelCodes, setDeclaredParcelCodes] = useState<Set<string>>(new Set());
+  const [declarationsMap, setDeclarationsMap] = useState<Record<string, any>>({});
 
   // Filter & Search states
   const [searchQuery, setSearchQuery] = useState('');
@@ -59,14 +65,30 @@ export default function DashboardPage() {
   // Active view tab in Dashboard
   const [activeTab, setActiveTab] = useState<'overview' | 'villages' | 'landTypes' | 'table'>('overview');
 
-  // 1. Tải danh sách kê khai từ LocalStorage khi khởi tạo
+  // Checkbox Selection state for Batch PDF Export
+  const [selectedParcelCodes, setSelectedParcelCodes] = useState<Set<string>>(new Set());
+
+  // PDF Print Modal state
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [printModalTitle, setPrintModalTitle] = useState('Tập Đơn Kê Khai Đất Đai');
+  const [printableItems, setPrintableItems] = useState<PrintableDeclarationItem[]>([]);
+
+  // 1. Tải danh sách kê khai và dữ liệu chi tiết từ LocalStorage
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('diachinh_declared_codes');
-      if (saved) {
-        const arr = JSON.parse(saved);
+      const savedCodes = localStorage.getItem('diachinh_declared_codes');
+      if (savedCodes) {
+        const arr = JSON.parse(savedCodes);
         if (Array.isArray(arr)) {
           setDeclaredParcelCodes(new Set(arr));
+        }
+      }
+
+      const savedMap = localStorage.getItem('diachinh_declarations_map');
+      if (savedMap) {
+        const map = JSON.parse(savedMap);
+        if (map && typeof map === 'object') {
+          setDeclarationsMap(map);
         }
       }
     } catch (e) {
@@ -108,19 +130,26 @@ export default function DashboardPage() {
       if (ggsCodes.has(p.ma_thua)) {
         finalStatus = 'DA_SO_HOA_XANH';
         isOnGgs = true;
-      } else if (declaredParcelCodes.has(p.ma_thua)) {
+      } else if (declaredParcelCodes.has(p.ma_thua) || declarationsMap[p.ma_thua]) {
         finalStatus = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
         isDeclared = true;
       }
 
+      // Gộp thêm dữ liệu kê khai mới nhất từ LocalStorage (nếu có)
+      const savedDecl = declarationsMap[p.ma_thua];
+      const mergedChuHo = savedDecl?.chu_dat_ten || p.chu_ho;
+      const mergedCccd = savedDecl?.chu_dat_cccd || p.cccd;
+
       return {
         ...p,
+        chu_ho: mergedChuHo,
+        cccd: mergedCccd,
         trang_thai: finalStatus,
         is_on_ggs: isOnGgs,
         is_declared: isDeclared,
       };
     });
-  }, [parcels, ggsCodes, declaredParcelCodes]);
+  }, [parcels, ggsCodes, declaredParcelCodes, declarationsMap]);
 
   // 4. Danh sách độc nhất Thôn / Buôn, Loại đất, Tờ bản đồ
   const uniqueVillages = useMemo(() => {
@@ -192,7 +221,6 @@ export default function DashboardPage() {
 
     const total = computedParcels.length;
     const completionRate = total > 0 ? Math.round((green / total) * 1000) / 10 : 0;
-    const combinedProgressRate = total > 0 ? Math.round(((green + blue) / total) * 1000) / 10 : 0;
     const totalAreaHa = Math.round((totalAreaM2 / 10000) * 100) / 100;
     const digitizedAreaHa = Math.round((digitizedAreaM2 / 10000) * 100) / 100;
 
@@ -206,7 +234,6 @@ export default function DashboardPage() {
       totalAreaHa,
       digitizedAreaHa,
       completionRate,
-      combinedProgressRate,
       hasGpsCount,
       hasCccdCount,
       uniqueOwnersCount: ownersSet.size,
@@ -258,8 +285,6 @@ export default function DashboardPage() {
         ...item,
         totalAreaHa: Math.round((item.totalAreaM2 / 10000) * 100) / 100,
         rate: item.total > 0 ? Math.round((item.green / item.total) * 1000) / 10 : 0,
-        combinedRate:
-          item.total > 0 ? Math.round(((item.green + item.blue) / item.total) * 1000) / 10 : 0,
       }))
       .sort((a, b) => b.total - a.total);
   }, [computedParcels]);
@@ -361,7 +386,7 @@ export default function DashboardPage() {
     return filteredParcels.slice(start, start + pageSize);
   }, [filteredParcels, currentPage, pageSize]);
 
-  // Xử lý đổi cột sắp xếp
+  // Đổi cột sắp xếp
   const handleSort = (field: 'so_thua' | 'to_ban_do' | 'dien_tich' | 'chu_ho') => {
     if (sortBy === field) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -372,7 +397,188 @@ export default function DashboardPage() {
     setCurrentPage(1);
   };
 
-  // Xuất file CSV báo cáo (có UTF-8 BOM hiển thị tiếng Việt hoàn hảo trên Excel)
+  // Checkbox Selection handlers
+  const isAllPageSelected =
+    paginatedParcels.length > 0 && paginatedParcels.every((p) => selectedParcelCodes.has(p.ma_thua));
+
+  const toggleSelectAllPage = () => {
+    setSelectedParcelCodes((prev) => {
+      const next = new Set(prev);
+      if (isAllPageSelected) {
+        paginatedParcels.forEach((p) => next.delete(p.ma_thua));
+      } else {
+        paginatedParcels.forEach((p) => next.add(p.ma_thua));
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectParcel = (maThua: string) => {
+    setSelectedParcelCodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(maThua)) next.delete(maThua);
+      else next.add(maThua);
+      return next;
+    });
+  };
+
+  // 9. XUẤT EXCEL DANH SÁCH THỬA ĐÃ KÊ KHAI (Trả lời yêu cầu 1 của user)
+  const handleExportDeclaredExcel = () => {
+    const declaredList = computedParcels.filter(
+      (p) =>
+        declaredParcelCodes.has(p.ma_thua) ||
+        p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM' ||
+        Boolean(declarationsMap[p.ma_thua])
+    );
+
+    if (declaredList.length === 0) {
+      alert('Hiện chưa có thửa đất nào được kê khai trên hệ thống. Hãy mở form trên bản đồ để kê khai thử trước.');
+      return;
+    }
+
+    const headers = [
+      'STT',
+      'Số Thửa',
+      'Tờ Bản Đồ',
+      'Mã Định Danh Thửa',
+      'Thôn / Buôn',
+      'Chủ Thửa Đất / Người Sử Dụng',
+      'Số CCCD / CMND',
+      'Năm Sinh',
+      'Số Điện Thoại',
+      'Địa Chỉ Thường Trú',
+      'Người Kê Khai',
+      'Diện Tích (m2)',
+      'Loại Đất',
+      'Ngày Giờ Kê Khai',
+      'Ghi Chú Nguồn Gốc',
+      'Trạng Thái',
+      'Tọa Độ Vĩ Độ (Lat)',
+      'Tọa Độ Kinh Độ (Lng)',
+    ];
+
+    const rows = declaredList.map((p, idx) => {
+      const decl = declarationsMap[p.ma_thua] || {};
+      const chuHo = decl.chu_dat_ten || p.chu_ho || '';
+      const cccd = decl.chu_dat_cccd || p.cccd || '';
+      const ngaySinh = decl.chu_dat_ngay_sinh || '';
+      const sdt = decl.nguoi_ke_khai_sdt || p.sdt || '';
+      const diaChi = decl.chu_dat_dia_chi || p.thon_xa || '';
+      const nguoiKekhai = decl.nguoi_ke_khai_ten || chuHo;
+      const createdAt = decl.created_at || '';
+      const ghiChu = decl.ghi_chu || '';
+
+      return [
+        idx + 1,
+        `"${p.so_thua || ''}"`,
+        `"${p.to_ban_do || ''}"`,
+        `"${p.ma_thua || ''}"`,
+        `"${(p.thon_xa || '').replace(/"/g, '""')}"`,
+        `"${chuHo.replace(/"/g, '""')}"`,
+        `"${cccd ? `'${cccd}` : ''}"`,
+        `"${ngaySinh}"`,
+        `"${sdt ? `'${sdt}` : ''}"`,
+        `"${diaChi.replace(/"/g, '""')}"`,
+        `"${nguoiKekhai.replace(/"/g, '""')}"`,
+        p.dien_tich || '0',
+        `"${p.loai_dat || ''}"`,
+        `"${createdAt}"`,
+        `"${ghiChu.replace(/"/g, '""')}"`,
+        '"Đã kê khai thực địa"',
+        p.lat || '',
+        p.lng || '',
+      ].join(',');
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Danh_sach_thua_da_ke_khai_Cu_Pui_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // 10. XUẤT TẬP PDF ĐƠN KÊ KHAI HÔM NAY (Trả lời yêu cầu 2 của user)
+  const handleOpenPrintToday = () => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayItems: PrintableDeclarationItem[] = [];
+
+    // Lọc các hồ sơ kê khai có ngày tạo trùng với hôm nay
+    Object.entries(declarationsMap).forEach(([maThua, decl]: [string, any]) => {
+      if (decl.created_at && decl.created_at.startsWith(todayStr)) {
+        const p = computedParcels.find((cp) => cp.ma_thua === maThua);
+        if (p) {
+          todayItems.push({ parcel: p, declaration: decl });
+        }
+      }
+    });
+
+    if (todayItems.length > 0) {
+      setPrintableItems(todayItems);
+      setPrintModalTitle(`Tập Đơn Kê Khai Trong Ngày Hôm Nay (${todayItems.length} thửa)`);
+      setIsPrintModalOpen(true);
+    } else {
+      // Nếu hôm nay chưa có đơn mới, kiểm tra các đơn đã kê khai trước đó
+      const allDeclared: PrintableDeclarationItem[] = [];
+      Object.entries(declarationsMap).forEach(([maThua, decl]: [string, any]) => {
+        const p = computedParcels.find((cp) => cp.ma_thua === maThua);
+        if (p) {
+          allDeclared.push({ parcel: p, declaration: decl });
+        }
+      });
+
+      if (allDeclared.length > 0) {
+        setPrintableItems(allDeclared);
+        setPrintModalTitle(`Tập Đơn Kê Khai Toàn Bộ Đã Thu Thập (${allDeclared.length} thửa)`);
+        setIsPrintModalOpen(true);
+      } else {
+        alert(
+          'Hôm nay chưa có thửa nào được kê khai mới trên thiết bị này.\n\n👉 Bạn hãy tích chọn các thửa cần in từ bảng danh sách bên dưới rồi bấm "Xuất Tập PDF Được Chọn".'
+        );
+      }
+    }
+  };
+
+  // 11. XUẤT TẬP PDF CHO CÁC THỬA ĐƯỢC CHỌN (Trả lời yêu cầu 2 của user)
+  const handleOpenPrintSelected = () => {
+    if (selectedParcelCodes.size === 0) {
+      alert('Vui lòng tích chọn ít nhất 1 thửa đất trên bảng để xuất tập PDF đơn kê khai.');
+      return;
+    }
+
+    const items: PrintableDeclarationItem[] = [];
+    selectedParcelCodes.forEach((code) => {
+      const p = computedParcels.find((cp) => cp.ma_thua === code);
+      if (p) {
+        items.push({
+          parcel: p,
+          declaration: declarationsMap[code] || {},
+        });
+      }
+    });
+
+    setPrintableItems(items);
+    setPrintModalTitle(`Tập Đơn Kê Khai Đất Đai (${items.length} thửa đã chọn)`);
+    setIsPrintModalOpen(true);
+  };
+
+  // 12. In đơn lẻ cho 1 thửa
+  const handleOpenPrintSingle = (p: Parcel) => {
+    setPrintableItems([
+      {
+        parcel: p,
+        declaration: declarationsMap[p.ma_thua] || {},
+      },
+    ]);
+    setPrintModalTitle(`Đơn Kê Khai Đất Đai - Thửa ${p.so_thua} (Tờ ${p.to_ban_do})`);
+    setIsPrintModalOpen(true);
+  };
+
+  // 13. Xuất file CSV toàn bộ danh sách đang lọc
   const handleExportCsv = () => {
     const headers = [
       'STT',
@@ -430,8 +636,8 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
       {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 shadow-lg">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-3">
+      <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 shadow-lg no-print">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 sm:gap-3">
             <Link
               href="/"
@@ -456,25 +662,47 @@ export default function DashboardPage() {
           </div>
 
           {/* Action buttons */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Nút Xuất Excel Đã Kê Khai */}
+            <button
+              onClick={handleExportDeclaredExcel}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-600/90 hover:bg-amber-600 text-white shadow-md shadow-amber-600/20 transition cursor-pointer"
+              title="Tải về file Excel danh sách các thửa đã kê khai thu thập"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Xuất Excel Đã Kê Khai</span>
+            </button>
+
+            {/* Nút Xuất Tập PDF Hôm Nay */}
+            <button
+              onClick={handleOpenPrintToday}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600/90 hover:bg-purple-600 text-white shadow-md shadow-purple-600/20 transition cursor-pointer"
+              title="Xuất tập PDF các đơn kê khai được tạo trong ngày hôm nay"
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Xuất PDF Hôm Nay</span>
+            </button>
+
+            {/* Nút Xuất Excel lọc hiện tại */}
+            <button
+              onClick={handleExportCsv}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600/90 hover:bg-emerald-600 text-white shadow-md shadow-emerald-700/20 transition cursor-pointer"
+              title="Xuất dữ liệu Excel danh sách đang lọc"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Xuất Excel Lọc</span>
+            </button>
+
+            {/* Đồng bộ GGS */}
             <button
               onClick={() => fetchGgsCodes()}
               disabled={isSyncingGgs}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 transition disabled:opacity-60 shadow-xs"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 transition disabled:opacity-60 shadow-xs cursor-pointer"
               title={lastSyncTime ? `Đồng bộ lúc ${lastSyncTime}` : 'Đồng bộ Google Sheets'}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncingGgs ? 'animate-spin text-cyan-400' : ''}`} />
-              <span className="hidden md:inline">Đồng bộ GGS</span>
+              <span className="hidden md:inline">GGS Live</span>
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            </button>
-
-            <button
-              onClick={handleExportCsv}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600/90 hover:bg-emerald-600 text-white shadow-md shadow-emerald-700/20 transition"
-              title="Xuất dữ liệu Excel (CSV)"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Xuất Excel</span>
             </button>
 
             <Link
@@ -1021,7 +1249,7 @@ export default function DashboardPage() {
                       setSearchQuery('');
                       setCurrentPage(1);
                     }}
-                    className="px-3 py-2 text-xs font-bold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl transition shrink-0"
+                    className="px-3 py-2 text-xs font-bold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl transition shrink-0 cursor-pointer"
                   >
                     Xóa tất cả bộ lọc
                   </button>
@@ -1111,11 +1339,34 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Results count & Page size */}
-            <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800">
-              <div>
-                Tìm thấy <strong>{filteredParcels.length.toLocaleString('vi-VN')}</strong> thửa đất phù hợp
+            {/* Results count & Batch Action Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400 pt-2 border-t border-slate-800">
+              <div className="flex items-center gap-3">
+                <div>
+                  Tìm thấy <strong>{filteredParcels.length.toLocaleString('vi-VN')}</strong> thửa đất phù hợp
+                </div>
+
+                {/* Báo số thửa đang chọn */}
+                {selectedParcelCodes.size > 0 && (
+                  <div className="flex items-center gap-2 bg-blue-950/80 text-blue-300 border border-blue-500/30 px-3 py-1 rounded-xl font-bold animate-in fade-in">
+                    <span>Đang chọn {selectedParcelCodes.size} thửa</span>
+                    <button
+                      onClick={handleOpenPrintSelected}
+                      className="px-2 py-0.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] flex items-center gap-1 shadow-xs cursor-pointer"
+                    >
+                      <Printer className="w-3 h-3" />
+                      Xuất Tập PDF ({selectedParcelCodes.size} đơn)
+                    </button>
+                    <button
+                      onClick={() => setSelectedParcelCodes(new Set())}
+                      className="text-slate-400 hover:text-white text-[10px] underline ml-1 cursor-pointer"
+                    >
+                      Bỏ chọn
+                    </button>
+                  </div>
+                )}
               </div>
+
               <div className="flex items-center gap-2">
                 <span className="text-[11px]">Hiển thị:</span>
                 <select
@@ -1138,6 +1389,16 @@ export default function DashboardPage() {
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-950/80 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider select-none">
                   <tr>
+                    {/* Checkbox All */}
+                    <th className="p-3 w-8 text-center">
+                      <input
+                        type="checkbox"
+                        checked={isAllPageSelected}
+                        onChange={toggleSelectAllPage}
+                        className="rounded border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        title="Chọn tất cả thửa trên trang này"
+                      />
+                    </th>
                     <th
                       onClick={() => handleSort('so_thua')}
                       className="p-3 cursor-pointer hover:text-white transition"
@@ -1184,7 +1445,7 @@ export default function DashboardPage() {
                 <tbody className="divide-y divide-slate-800/60">
                   {paginatedParcels.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="p-8 text-center text-slate-500">
+                      <td colSpan={10} className="p-8 text-center text-slate-500">
                         Không tìm thấy thửa đất nào phù hợp với bộ lọc hiện tại.
                       </td>
                     </tr>
@@ -1193,9 +1454,24 @@ export default function DashboardPage() {
                       const isGreen = p.trang_thai === 'DA_SO_HOA_XANH';
                       const isBlue = p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
                       const isYellow = p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG';
+                      const isChecked = selectedParcelCodes.has(p.ma_thua);
 
                       return (
-                        <tr key={p.ma_thua} className="hover:bg-slate-800/40 transition">
+                        <tr
+                          key={p.ma_thua}
+                          className={`hover:bg-slate-800/40 transition ${
+                            isChecked ? 'bg-blue-950/20' : ''
+                          }`}
+                        >
+                          {/* Checkbox row */}
+                          <td className="p-3 text-center">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleSelectParcel(p.ma_thua)}
+                              className="rounded border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                          </td>
                           <td className="p-3 font-mono font-bold text-white">Thửa {p.so_thua}</td>
                           <td className="p-3 font-mono text-slate-300">Tờ {p.to_ban_do}</td>
                           <td className="p-3">
@@ -1242,14 +1518,27 @@ export default function DashboardPage() {
                             )}
                           </td>
                           <td className="p-3 text-center">
-                            <Link
-                              href={`/?to=${p.to_ban_do}&thua=${p.so_thua}&ma_thua=${p.ma_thua}`}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-600/80 hover:bg-blue-600 text-white transition shadow-xs"
-                              title="Xem thửa này trên bản đồ vệ tinh"
-                            >
-                              <MapPin className="w-3 h-3" />
-                              <span>Bản đồ</span>
-                            </Link>
+                            <div className="flex items-center justify-center gap-1.5">
+                              {/* Nút In đơn kê khai cho thửa này */}
+                              <button
+                                onClick={() => handleOpenPrintSingle(p)}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-purple-300 border border-purple-500/30 transition cursor-pointer"
+                                title="In hoặc xuất PDF Đơn kê khai thửa đất này"
+                              >
+                                <Printer className="w-3 h-3 text-purple-400" />
+                                <span>In đơn</span>
+                              </button>
+
+                              {/* Nút xem trên Bản đồ vệ tinh */}
+                              <Link
+                                href={`/?to=${p.to_ban_do}&thua=${p.so_thua}&ma_thua=${p.ma_thua}`}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-blue-600/80 hover:bg-blue-600 text-white transition shadow-xs"
+                                title="Xem thửa này trên bản đồ vệ tinh"
+                              >
+                                <MapPin className="w-3 h-3" />
+                                <span>Bản đồ</span>
+                              </Link>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1269,14 +1558,14 @@ export default function DashboardPage() {
                 <button
                   onClick={() => setCurrentPage(1)}
                   disabled={currentPage <= 1}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40 disabled:hover:text-slate-300"
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40 disabled:hover:text-slate-300 cursor-pointer"
                 >
                   Đầu
                 </button>
                 <button
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage <= 1}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40"
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
                 >
                   Trước
                 </button>
@@ -1288,14 +1577,14 @@ export default function DashboardPage() {
                 <button
                   onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                   disabled={currentPage >= totalPages}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40"
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
                 >
                   Sau
                 </button>
                 <button
                   onClick={() => setCurrentPage(totalPages)}
                   disabled={currentPage >= totalPages}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40"
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
                 >
                   Cuối
                 </button>
@@ -1306,9 +1595,17 @@ export default function DashboardPage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-800/80 py-4 px-3 sm:px-6 text-center text-xs text-slate-500 mt-auto">
+      <footer className="border-t border-slate-800/80 py-4 px-3 sm:px-6 text-center text-xs text-slate-500 mt-auto no-print">
         <p>Hệ thống Bản đồ Địa chính & Quản trị Tiến độ Số hóa Xã Cư Pui • Dữ liệu cập nhật 2026</p>
       </footer>
+
+      {/* Modal In / Xuất PDF tập đơn kê khai khổ A4 chuẩn */}
+      <DeclarationPrintModal
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        items={printableItems}
+        title={printModalTitle}
+      />
     </div>
   );
 }

@@ -12,6 +12,7 @@ export interface Parcel {
   ten_xa_goc: string;
   chu_ho: string;
   cccd?: string;
+  sdt?: string;
   loai_dat: string;
   dien_tich: string;
   trang_thai: ParcelStatus;

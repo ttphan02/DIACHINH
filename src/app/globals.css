@@ -80,3 +80,41 @@ input, button, select, textarea, optgroup {
   box-shadow: 0 3px 12px rgba(2, 132, 199, 0.7);
 }
 
+/* Định dạng in ấn khổ A4 cho Đơn kê khai đất đai */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm 15mm;
+  }
+  
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 12pt !important;
+  }
+
+  /* Ẩn các thành phần giao diện không cần in */
+  .no-print, header, nav, footer, .leaflet-container {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  /* Mỗi đơn kê khai là 1 trang A4 trọn vẹn */
+  .declaration-a4-sheet {
+    page-break-after: always !important;
+    break-after: page !important;
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+    padding: 10mm 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+}
+
+

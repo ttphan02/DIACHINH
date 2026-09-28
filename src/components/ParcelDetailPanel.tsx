@@ -24,8 +24,10 @@ import {
   AlertTriangle,
   FileEdit,
   Sparkles,
+  Printer,
 } from 'lucide-react';
 import { downloadFile, autoDetectBoundaries, formatBoundaryText } from '@/utils/geo';
+import DeclarationPrintModal from '@/components/DeclarationPrintModal';
 
 interface ParcelDetailPanelProps {
   parcel: Parcel | null;
@@ -118,6 +120,7 @@ export default function ParcelDetailPanel({
   const [lyDoBaoSai, setLyDoBaoSai] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [correctionSuccess, setCorrectionSuccess] = useState(false);
+  const [isSinglePrintOpen, setIsSinglePrintOpen] = useState(false);
 
   // Sync state when parcel changes
   useEffect(() => {
@@ -394,6 +397,17 @@ export default function ParcelDetailPanel({
             Phiếu kê khai
           </button>
         )}
+
+        {/* Nút In đơn kê khai PDF */}
+        <button
+          type="button"
+          onClick={() => setIsSinglePrintOpen(true)}
+          className="ml-auto my-auto px-2.5 py-1 text-[11px] font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg flex items-center gap-1 transition shrink-0 cursor-pointer shadow-2xs"
+          title="In hoặc tải PDF Đơn kê khai thửa đất này"
+        >
+          <Printer className="w-3.5 h-3.5 text-purple-600" />
+          <span>In Đơn PDF</span>
+        </button>
       </div>
 
       {/* Panel Scrollable Body */}
@@ -1196,18 +1210,39 @@ export default function ParcelDetailPanel({
             </div>
 
             {savedSuccess && (
-              <div className="p-2 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-lg flex items-center gap-1.5 font-medium">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                Đã lưu thông tin kê khai thành công!
+              <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-lg flex items-center justify-between font-medium">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  Đã lưu thông tin kê khai thành công!
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSinglePrintOpen(true)}
+                  className="px-2 py-0.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-[11px] font-bold flex items-center gap-1 shadow-xs cursor-pointer"
+                >
+                  <Printer className="w-3 h-3" />
+                  In đơn ngay
+                </button>
               </div>
             )}
 
-            <button
-              type="submit"
-              className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition"
-            >
-              Lưu phiếu kê khai
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer"
+              >
+                Lưu phiếu kê khai
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsSinglePrintOpen(true)}
+                className="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-purple-300 font-bold text-xs rounded-xl border border-purple-500/30 transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                title="Xem trước và in đơn kê khai khổ A4"
+              >
+                <Printer className="w-3.5 h-3.5 text-purple-400" />
+                <span>In Đơn PDF</span>
+              </button>
+            </div>
 
             {/* TIỆN ÍCH KÊ KHAI NHANH CÁC THỬA TIẾP THEO (Chỉ các thửa chưa số hóa) */}
             {(undeclaredSameCccdParcels.length > 0 || undeclaredSameNameParcels.length > 0) && (
@@ -1278,6 +1313,27 @@ export default function ParcelDetailPanel({
           </form>
         )}
       </div>
+
+      {/* Modal Xem trước & In Đơn kê khai A4 */}
+      {parcel && (
+        <DeclarationPrintModal
+          isOpen={isSinglePrintOpen}
+          onClose={() => setIsSinglePrintOpen(false)}
+          items={[
+            {
+              parcel,
+              declaration: {
+                chu_dat_ten: chuDatTen || parcel.chu_ho,
+                chu_dat_cccd: chuDatCccd || parcel.cccd,
+                nguoi_ke_khai_ten: mode === 'SELF' ? (chuDatTen || parcel.chu_ho) : nguoiKeKhaiTen,
+                nguoi_ke_khai_sdt: nguoiKeKhaiSdt,
+                ghi_chu: ghiChu,
+              },
+            },
+          ]}
+          title={`Đơn Kê Khai Đất Đai - Thửa ${parcel.so_thua} (Tờ ${parcel.to_ban_do})`}
+        />
+      )}
     </div>
   );
 }

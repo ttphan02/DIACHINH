@@ -423,6 +423,18 @@ export default function Home() {
         }
         return next;
       });
+
+      // Lưu đầy đủ dữ liệu phiếu kê khai phục vụ xuất Excel và in PDF
+      try {
+        const stored = JSON.parse(localStorage.getItem('diachinh_declarations_map') || '{}');
+        stored[formData.ma_thua] = {
+          ...formData,
+          created_at: new Date().toISOString(),
+        };
+        localStorage.setItem('diachinh_declarations_map', JSON.stringify(stored));
+      } catch (e) {
+        console.error(e);
+      }
     }
 
     // 2. Cập nhật dữ liệu hiển thị của thửa đang chọn
