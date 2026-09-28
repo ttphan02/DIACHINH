@@ -62,6 +62,9 @@ export default function Home() {
 
   // Google Sheets Realtime State
   const [ggsCodes, setGgsCodes] = useState<Set<string>>(new Set());
+  const [ggsParcelsMap, setGgsParcelsMap] = useState<
+    Record<string, { chu_ho?: string; cccd?: string; dien_tich?: string; loai_dat?: string }>
+  >({});
   const [isGgsLoaded, setIsGgsLoaded] = useState(false);
   const [isSyncingGgs, setIsSyncingGgs] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
@@ -93,6 +96,9 @@ export default function Home() {
       const data: any = await res.json();
       if (data && data.success && Array.isArray(data.ggsCodes)) {
         setGgsCodes(new Set(data.ggsCodes));
+        if (data.ggsParcels) {
+          setGgsParcelsMap(data.ggsParcels);
+        }
         setIsGgsLoaded(true);
         setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
       }
@@ -112,9 +118,8 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [fetchGgsCodes]);
 
-  // TÍNH TOÁN TRẠNG THÁI REALTIME CỦA TỪNG THỬA ĐẤT:
-  // TÍNH TOÁN TRẠNG THÁI REALTIME CỦA TỪNG THỬA ĐẤT:
-  // 1. Thửa có trên Google Sheets -> Đã số hóa (Xanh lá)
+  // TÍNH TOÁN TRẠNG THÁI REALTIME VÀ ĐỒNG BỘ THÔNG TIN TỪ GOOGLE SHEETS:
+  // 1. Thửa có trên Google Sheets -> Lấy Tên chủ hộ, CCCD từ GGS (thay thế bất kỳ dữ liệu excel lỗi thời nào)
   // 2. Thửa ĐÃ ĐƯỢC KÊ KHAI trên hệ thống web nhưng CHƯA có trên GGS -> Màu xanh lam
   // 3. Thửa có tên chủ đất (chưa kê khai, chưa có trên GGS) -> Màu vàng
   // 4. Thửa chưa có tên -> Màu trắng
@@ -134,20 +139,59 @@ export default function Home() {
         trang_thai = 'CHUA_CO_TEN_XAM'; // Trắng: Chưa có tên (File tổng trừ đi DSCOTEN)
       }
 
+      // ĐỐI VỚI THỬA ĐÃ CÓ TRÊN GOOGLE SHEETS HOẶC ĐÃ KÊ KHAI:
+      // ƯU TIÊN LẤY TÊN CHỦ THỬA VÀ CCCD TỪ GOOGLE SHEETS (loại bỏ hoàn toàn mã geohash rác w6jp...)
+      const ggsInfo = ggsParcelsMap[p.ma_thua];
+
+      let chu_ho = p.chu_ho;
+      if (ggsInfo?.chu_ho && !ggsInfo.chu_ho.startsWith('w6jp')) {
+        chu_ho = ggsInfo.chu_ho;
+      } else if (chu_ho?.startsWith('w6jp')) {
+        chu_ho = 'Chưa có tên';
+      }
+
+      let cccd = p.cccd;
+      if (ggsInfo?.cccd && ggsInfo.cccd.length >= 9) {
+        cccd = ggsInfo.cccd;
+      }
+
+      let dien_tich = p.dien_tich;
+      if ((!dien_tich || dien_tich.startsWith('w6jp')) && ggsInfo?.dien_tich) {
+        dien_tich = ggsInfo.dien_tich;
+      } else if (dien_tich?.startsWith('w6jp')) {
+        dien_tich = '';
+      }
+
+      let loai_dat = p.loai_dat;
+      if ((!loai_dat || loai_dat.includes('http') || loai_dat.startsWith('w6jp')) && ggsInfo?.loai_dat) {
+        loai_dat = ggsInfo.loai_dat;
+      } else if (loai_dat?.includes('http') || loai_dat?.startsWith('w6jp')) {
+        loai_dat = '';
+      }
+
       return {
         ...p,
+        chu_ho,
+        cccd,
+        dien_tich,
+        loai_dat,
         trang_thai,
         is_on_ggs: isOnGgs || p.trang_thai === 'DA_SO_HOA_XANH',
         is_declared: isLocallyDeclared,
       };
     });
-  }, [parcels, ggsCodes, declaredParcelCodes, isGgsLoaded]);
+  }, [parcels, ggsCodes, ggsParcelsMap, declaredParcelCodes, isGgsLoaded]);
 
   // Cập nhật selectedParcel khi computedParcels thay đổi
   useEffect(() => {
     if (selectedParcel) {
       const updated = computedParcels.find((p) => p.ma_thua === selectedParcel.ma_thua);
-      if (updated && updated.trang_thai !== selectedParcel.trang_thai) {
+      if (
+        updated &&
+        (updated.trang_thai !== selectedParcel.trang_thai ||
+          updated.chu_ho !== selectedParcel.chu_ho ||
+          updated.cccd !== selectedParcel.cccd)
+      ) {
         setSelectedParcel(updated);
       }
     }
