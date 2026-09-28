@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import rawParcels from '@/data/parcels.json';
 import { Parcel, ParcelStatus, NeighborParcel, DeclarationFormData } from '@/types';
 import HeaderStats from '@/components/HeaderStats';
@@ -18,6 +19,7 @@ import {
   MapPin,
   RefreshCw,
   Sparkles,
+  BarChart3,
 } from 'lucide-react';
 
 // Dynamic import Leaflet Map (SSR disabled)
@@ -364,6 +366,26 @@ export default function Home() {
     }, 320);
   };
 
+  // Tự động chọn thửa nếu có query params (từ Dashboard chuyển sang: ?to=4&thua=154 hoặc ?ma_thua=...)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const qMaThua = params.get('ma_thua');
+    const qTo = params.get('to');
+    const qThua = params.get('thua');
+
+    if (qMaThua || (qTo && qThua)) {
+      const found = computedParcels.find((p) => {
+        if (qMaThua && p.ma_thua === qMaThua) return true;
+        if (qTo && qThua && p.to_ban_do === qTo && p.so_thua === qThua) return true;
+        return false;
+      });
+      if (found) {
+        handleSelectParcel(found);
+      }
+    }
+  }, [computedParcels]);
+
   const handleOpenVectorViewer = (
     url: string,
     title: string,
@@ -614,6 +636,16 @@ export default function Home() {
                   <LayoutGrid className="w-3.5 h-3.5" />
                   <span className="hidden xs:inline">DS</span>
                 </button>
+
+                {/* Nút mở Dashboard quản trị & tiến độ */}
+                <Link
+                  href="/dashboard"
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-slate-900 hover:bg-slate-800 text-cyan-300 font-bold rounded-xl transition shrink-0 border border-cyan-500/40 shadow-xs"
+                  title="Mở Dashboard thống kê & tiến độ số hóa"
+                >
+                  <BarChart3 className="w-3.5 h-3.5 text-cyan-400" />
+                  <span className="hidden xs:inline">Dashboard</span>
+                </Link>
               </div>
             </div>
 
@@ -669,6 +701,15 @@ export default function Home() {
                       <LayoutGrid className="w-3.5 h-3.5" />
                       Danh sách
                     </button>
+
+                    <Link
+                      href="/dashboard"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition text-slate-700 hover:text-cyan-700 hover:bg-white"
+                      title="Mở Dashboard quản trị"
+                    >
+                      <BarChart3 className="w-3.5 h-3.5 text-cyan-600" />
+                      Dashboard
+                    </Link>
                   </div>
                 </div>
               </div>
