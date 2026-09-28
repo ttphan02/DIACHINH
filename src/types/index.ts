@@ -52,6 +52,16 @@ export interface AutoBoundariesResult {
 
 export type DeclarationMode = 'SELF' | 'SURVEYOR';
 
+export interface AdditionalParcel {
+  ma_thua: string;
+  to_ban_do: string;
+  so_thua: string;
+  dien_tich: string;
+  loai_dat: string;
+  thon_xa?: string;
+  nguon_goc?: string;
+}
+
 export interface DeclarationFormData {
   ma_thua: string;
   mode: DeclarationMode;
@@ -71,4 +81,6 @@ export interface DeclarationFormData {
   ghi_chu?: string;
   is_correction?: boolean;
   ly_do_sai?: string;
+  thua_kem_theo?: AdditionalParcel[];
 }
+

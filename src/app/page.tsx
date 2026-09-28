@@ -4,7 +4,7 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import rawParcels from '@/data/parcels.json';
-import { Parcel, ParcelStatus, NeighborParcel, DeclarationFormData } from '@/types';
+import { Parcel, ParcelStatus, NeighborParcel, DeclarationFormData, AdditionalParcel } from '@/types';
 import HeaderStats from '@/components/HeaderStats';
 import ParcelDetailPanel from '@/components/ParcelDetailPanel';
 import VectorViewerModal from '@/components/VectorViewerModal';
@@ -74,10 +74,45 @@ export default function Home() {
   // Danh sách các thửa đã kê khai trên hệ thống (lưu trong localStorage để bền vững)
   const [declaredParcelCodes, setDeclaredParcelCodes] = useState<Set<string>>(new Set());
 
+  // Kê khai gộp nhiều thửa đất chung một phiếu
+  const [additionalParcels, setAdditionalParcels] = useState<AdditionalParcel[]>([]);
+  const [isPickingAdditional, setIsPickingAdditional] = useState<boolean>(false);
+  const [pickToast, setPickToast] = useState<string | null>(null);
+
+  const handleAddAdditionalParcel = (p: Parcel) => {
+    if (p.ma_thua === selectedParcel?.ma_thua) return;
+    setAdditionalParcels((prev) => {
+      if (prev.some((ap) => ap.ma_thua === p.ma_thua)) return prev;
+      return [
+        ...prev,
+        {
+          ma_thua: p.ma_thua,
+          so_thua: p.so_thua,
+          to_ban_do: p.to_ban_do,
+          dien_tich: p.dien_tich,
+          loai_dat: p.loai_dat,
+          thon_xa: p.thon_xa,
+          nguon_goc: 'Khai hoang',
+        },
+      ];
+    });
+    setPickToast(`Đã gộp Thửa ${p.so_thua} (Tờ ${p.to_ban_do}) vào phiếu`);
+    setTimeout(() => setPickToast(null), 3000);
+  };
+
+  const handleRemoveAdditionalParcel = (maThua: string) => {
+    setAdditionalParcels((prev) => prev.filter((ap) => ap.ma_thua !== maThua));
+  };
+
+  const handleTogglePickAdditional = () => {
+    setIsPickingAdditional((prev) => !prev);
+  };
+
   // Tải danh sách đã kê khai từ LocalStorage khi khởi tạo
   useEffect(() => {
     try {
       const saved = localStorage.getItem('diachinh_declared_codes');
+
       if (saved) {
         const arr = JSON.parse(saved);
         if (Array.isArray(arr)) {
@@ -334,21 +369,58 @@ export default function Home() {
   }, [sameCccdParcels, sameNameParcels]);
 
   const handleSelectParcel = (p: Parcel) => {
+    const latest = computedParcels.find((cp) => cp.ma_thua === p.ma_thua) || p;
+
+    // Tìm thửa lân cận: luôn cập nhật mạng lưới xung quanh thửa vừa bấm để người dùng quan sát
+    const nbs = findNearbyParcels(latest, computedParcels, 450, 12);
+    setNeighborParcels(nbs);
+
+    // Nếu đang trong chế độ chọn thêm thửa đất vào chung phiếu kê khai
+    if (isPickingAdditional) {
+      if (selectedParcel && latest.ma_thua === selectedParcel.ma_thua) {
+        setPickToast(`Thửa ${latest.so_thua} là thửa gốc đang kê khai`);
+        setTimeout(() => setPickToast(null), 2500);
+        return;
+      }
+
+      setAdditionalParcels((prev) => {
+        const exists = prev.some((ap) => ap.ma_thua === latest.ma_thua);
+        if (exists) {
+          setPickToast(`Đã bỏ Thửa ${latest.so_thua} (Tờ ${latest.to_ban_do}) khỏi phiếu`);
+          setTimeout(() => setPickToast(null), 2500);
+          return prev.filter((ap) => ap.ma_thua !== latest.ma_thua);
+        } else {
+          setPickToast(`✓ Đã thêm Thửa ${latest.so_thua} (Tờ ${latest.to_ban_do}) vào phiếu`);
+          setTimeout(() => setPickToast(null), 2500);
+          return [
+            ...prev,
+            {
+              ma_thua: latest.ma_thua,
+              so_thua: latest.so_thua,
+              to_ban_do: latest.to_ban_do,
+              dien_tich: latest.dien_tich,
+              loai_dat: latest.loai_dat,
+              thon_xa: latest.thon_xa,
+              nguon_goc: 'Khai hoang',
+            },
+          ];
+        }
+      });
+      return;
+    }
+
+    // Khi chọn thửa bình thường:
+    setAdditionalParcels([]);
     if (closeTimerRef.current) {
       clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
     }
-    const latest = computedParcels.find((cp) => cp.ma_thua === p.ma_thua) || p;
     setSelectedParcel(latest);
 
     // Kích hoạt animation trượt vào mượt mà
     requestAnimationFrame(() => {
       setIsPanelOpen(true);
     });
-
-    // Tìm thửa lân cận: tự động tính hướng la bàn và khoảng cách thực tế
-    const nbs = findNearbyParcels(latest, computedParcels, 450, 12);
-    setNeighborParcels(nbs);
 
     if (window.innerWidth < 1024 && panelRef.current) {
       setTimeout(() => {
@@ -359,9 +431,11 @@ export default function Home() {
 
   const handleClosePanel = () => {
     setIsPanelOpen(false);
+    setIsPickingAdditional(false);
     // Đợi hiệu ứng trượt ra (300ms) kết thúc mới dọn dẹp dữ liệu
     closeTimerRef.current = setTimeout(() => {
       setSelectedParcel(null);
+      setAdditionalParcels([]);
       closeTimerRef.current = null;
     }, 320);
   };
@@ -412,10 +486,12 @@ export default function Home() {
         console.error(e);
       }
     } else {
-      // 1. Thêm mã thửa vào danh sách đã kê khai
+      // 1. Thêm tất cả mã thửa (thửa chính + các thửa kèm theo) vào danh sách đã kê khai
+      const allCodes = [formData.ma_thua, ...(formData.thua_kem_theo || []).map((ap) => ap.ma_thua)];
+
       setDeclaredParcelCodes((prev) => {
         const next = new Set(prev);
-        next.add(formData.ma_thua);
+        allCodes.forEach((code) => next.add(code));
         try {
           localStorage.setItem('diachinh_declared_codes', JSON.stringify(Array.from(next)));
         } catch (e) {
@@ -424,18 +500,23 @@ export default function Home() {
         return next;
       });
 
-      // Lưu đầy đủ dữ liệu phiếu kê khai phục vụ xuất Excel và in PDF
+      // Lưu đầy đủ dữ liệu phiếu kê khai cho toàn bộ các thửa này
       try {
         const stored = JSON.parse(localStorage.getItem('diachinh_declarations_map') || '{}');
-        stored[formData.ma_thua] = {
-          ...formData,
-          created_at: new Date().toISOString(),
-        };
+        allCodes.forEach((code) => {
+          stored[code] = {
+            ...formData,
+            created_at: new Date().toISOString(),
+          };
+        });
         localStorage.setItem('diachinh_declarations_map', JSON.stringify(stored));
       } catch (e) {
         console.error(e);
       }
+
+      setIsPickingAdditional(false);
     }
+
 
     // 2. Cập nhật dữ liệu hiển thị của thửa đang chọn
     if (selectedParcel && selectedParcel.ma_thua === formData.ma_thua) {
@@ -479,6 +560,11 @@ export default function Home() {
                     sameCccdParcels={sameCccdParcels}
                     sameNameParcels={sameNameParcels}
                     sameOwnerParcels={sameOwnerParcels}
+                    additionalParcels={additionalParcels}
+                    isPickingAdditional={isPickingAdditional}
+                    onStartPickAdditional={handleTogglePickAdditional}
+                    onAddAdditionalParcel={handleAddAdditionalParcel}
+                    onRemoveAdditionalParcel={handleRemoveAdditionalParcel}
                     onSelectParcel={handleSelectParcel}
                     onClose={handleClosePanel}
                     onOpenVectorViewer={handleOpenVectorViewer}
@@ -488,12 +574,43 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Banner nổi khi đang trong chế độ chọn thêm thửa đất gộp */}
+            {isPickingAdditional && (
+              <div className="absolute top-3 sm:top-5 left-1/2 -translate-x-1/2 z-40 bg-gradient-to-r from-amber-600 to-orange-600 text-white px-4 py-2.5 rounded-2xl shadow-2xl border-2 border-amber-300 flex items-center gap-3 backdrop-blur-md animate-in slide-in-from-top duration-200">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
+                  <span className="text-xs font-black tracking-wide">
+                    ĐANG CHỌN THỬA TRÊN BẢN ĐỒ ({additionalParcels.length} thửa kèm theo)
+                  </span>
+                </div>
+                <span className="text-[11px] text-amber-100 hidden md:inline">
+                  • Nhấp vào thửa trên bản đồ để thêm hoặc bỏ
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsPickingAdditional(false)}
+                  className="px-3 py-1 bg-white hover:bg-amber-50 text-amber-900 rounded-xl text-xs font-black shadow-sm transition cursor-pointer"
+                >
+                  Xong / Xem phiếu
+                </button>
+              </div>
+            )}
+
+            {/* Toast thông báo nhanh khi chọn/bỏ thửa */}
+            {pickToast && (
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 text-white border border-slate-700/80 px-4 py-2 rounded-xl shadow-2xl text-xs font-bold animate-in fade-in flex items-center gap-2 backdrop-blur-md">
+                <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>{pickToast}</span>
+              </div>
+            )}
+
             {/* Cụm button điều khiển nổi: Trạng thái, Realtime GGS & Tìm kiếm */}
             <div
               className={`absolute top-2.5 sm:top-3.5 z-20 flex flex-col gap-1.5 sm:gap-2 transition-all duration-300 left-2.5 right-2.5 lg:right-auto ${
                 isPanelOpen ? 'lg:left-[436px]' : 'lg:left-3.5'
               }`}
             >
+
               {/* Row 1: Các button trạng thái: Tất cả, Đã số hóa (Xanh lá), Đã kê khai (Xanh lam), Có tên (Vàng), Chưa có tên (Trắng) */}
               <div className="flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md p-1 rounded-2xl border border-slate-700/60 shadow-xl overflow-x-auto no-scrollbar w-full sm:w-fit max-w-full">
                 <button

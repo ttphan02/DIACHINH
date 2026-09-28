@@ -539,6 +539,78 @@ export default function DashboardPage() {
     URL.revokeObjectURL(url);
   };
 
+  // 9b. XUẤT FILE EXCEL CHUẨN MẪU ĐÓNG TẬP (EXCEL-MAUNHAP.xlsx)
+  const handleExportExcelMauNhap = () => {
+    // Thu thập tất cả các thửa đã kê khai hoặc các thửa đang được tích chọn
+    let targetParcels = computedParcels.filter(
+      (p) =>
+        declaredParcelCodes.has(p.ma_thua) ||
+        p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM' ||
+        Boolean(declarationsMap[p.ma_thua])
+    );
+
+    if (selectedParcelCodes.size > 0) {
+      targetParcels = computedParcels.filter((p) => selectedParcelCodes.has(p.ma_thua));
+    }
+
+    if (targetParcels.length === 0) {
+      alert('Chưa có thửa đất nào được chọn hoặc đã kê khai để xuất file mẫu đóng tập.');
+      return;
+    }
+
+    const rows: string[] = [];
+
+    targetParcels.forEach((p) => {
+      const decl = declarationsMap[p.ma_thua] || {};
+      const chuHo = decl.chu_dat_ten || p.chu_ho || '';
+      const cccd = decl.chu_dat_cccd || p.cccd || '';
+      const diaChi = decl.chu_dat_dia_chi || (p.thon_xa ? `${p.thon_xa}, Cư Pui` : 'Xã Cư Pui');
+
+      // 1. Dòng cho thửa chính theo chuẩn 9 cột EXCEL-MAUNHAP.xlsx
+      const toThua = `${p.to_ban_do}_${p.so_thua}`;
+      rows.push([
+        `"${toThua}"`,
+        `"${diaChi.replace(/"/g, '""')}"`,
+        `"${chuHo.replace(/"/g, '""')}"`,
+        '""',
+        '""',
+        `"${cccd ? `'${cccd}` : ''}"`,
+        `"${p.loai_dat || 'ONT'}"`,
+        p.dien_tich || '0',
+        `"${decl.ghi_chu ? decl.ghi_chu.replace(/"/g, '""') : 'Khai hoang'}"`,
+      ].join(','));
+
+      // 2. Dòng cho các thửa gộp kèm theo (nếu người đó kê khai nhiều thửa)
+      if (decl.thua_kem_theo && Array.isArray(decl.thua_kem_theo)) {
+        decl.thua_kem_theo.forEach((ap: any) => {
+          const apToThua = `${ap.to_ban_do}_${ap.so_thua}`;
+          rows.push([
+            `"${apToThua}"`,
+            `"${diaChi.replace(/"/g, '""')}"`,
+            `"${chuHo.replace(/"/g, '""')}"`,
+            '""',
+            '""',
+            `"${cccd ? `'${cccd}` : ''}"`,
+            `"${ap.loai_dat || 'CLN'}"`,
+            ap.dien_tich || '0',
+            `"${ap.nguon_goc || 'Khai hoang'}"`,
+          ].join(','));
+        });
+      }
+    });
+
+    const csvContent = '\uFEFF' + rows.join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `EXCEL-MAUNHAP_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   // 10. ĐÓNG TẬP PDF ĐƠN KÊ KHAI HÔM NAY CHO VIỆC IN
   const handleOpenPrintToday = () => {
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -726,6 +798,16 @@ export default function DashboardPage() {
               <span>Xuất Excel Đã Kê Khai</span>
             </button>
 
+            {/* Nút Xuất Excel Chuẩn Mẫu Đóng Tập EXCEL-MAUNHAP */}
+            <button
+              onClick={handleExportExcelMauNhap}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-600/90 hover:bg-teal-600 text-white shadow-md shadow-teal-600/20 transition cursor-pointer"
+              title="Xuất file theo cấu trúc 9 cột chuẩn của EXCEL-MAUNHAP.xlsx để nạp vào PDF_Web_App đóng tập"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Mẫu Nhập Đóng Tập</span>
+            </button>
+
             {/* Nút Đóng tập PDF Hôm Nay */}
             <button
               onClick={handleOpenPrintToday}
@@ -735,6 +817,7 @@ export default function DashboardPage() {
               <Printer className="w-3.5 h-3.5" />
               <span>Đóng Tập PDF Hôm Nay</span>
             </button>
+
 
             {/* Nút Xuất Excel danh sách đang lọc */}
             <button
