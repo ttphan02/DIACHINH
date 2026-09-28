@@ -734,344 +734,113 @@ export default function ParcelDetailPanel({
               </div>
             )}
 
-            {/* Tứ Cận (Đông, Tây, Nam, Bắc) */}
-            <div className="bg-white p-3.5 rounded-2xl border border-gray-200/90 shadow-xs space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <h4 className="text-xs font-black text-gray-800 flex items-center gap-1.5">
-                    <Compass className="w-4 h-4 text-blue-600" />
-                    Tứ cận (Tiếp giáp 4 hướng)
-                  </h4>
-                  <p className="text-[10px] text-gray-400 mt-0.5">
-                    Tự động phân tích hướng tiếp giáp từ tọa độ vệ tinh thực địa
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleAutoDetectBoundaries}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition active:scale-95 shadow-2xs shrink-0"
-                  title="Tự động nhận diện 4 thửa tiếp giáp gần nhất theo hướng Đông, Tây, Nam, Bắc"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
-                  <span>Tự động nhận diện</span>
-                </button>
-              </div>
-
-              {autoDetectToast && (
-                <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 text-[11px] font-semibold flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span>{autoDetectToast}</span>
-                </div>
-              )}
-
-              {/* Sơ đồ La bàn trực quan (Compass Mini-Map) */}
-              <div className="bg-slate-50/90 p-2.5 rounded-xl border border-slate-200/80">
-                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider text-center mb-1.5 flex items-center justify-center gap-1">
-                  <Compass className="w-3 h-3 text-blue-500" /> Sơ đồ vị trí các hướng tiếp giáp
-                </div>
-                <div className="grid grid-cols-3 gap-1.5 text-center items-center">
-                  {/* Hàng 1: Bắc */}
-                  <div></div>
-                  <div
-                    onClick={() => detectedBoundaries.bac && setGiapBac(formatBoundaryText(detectedBoundaries.bac))}
-                    className={`p-1.5 rounded-lg border transition cursor-pointer ${
-                      detectedBoundaries.bac
-                        ? 'bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-900'
-                        : 'bg-gray-100/70 border-gray-200 text-gray-400 cursor-default'
-                    }`}
-                    title={detectedBoundaries.bac ? `Phía Bắc: ${formatBoundaryText(detectedBoundaries.bac)} (Bấm để điền)` : 'Chưa có thửa'}
-                  >
-                    <span className="text-[9px] text-blue-700 block font-black">⬆️ PHÍA BẮC</span>
-                    <span className="text-[10px] font-bold truncate block">
-                      {detectedBoundaries.bac ? `Thửa ${detectedBoundaries.bac.so_thua}` : 'Chưa rõ'}
-                    </span>
-                  </div>
-                  <div></div>
-
-                  {/* Hàng 2: Tây - Thửa đang chọn - Đông */}
-                  <div
-                    onClick={() => detectedBoundaries.tay && setGiapTay(formatBoundaryText(detectedBoundaries.tay))}
-                    className={`p-1.5 rounded-lg border transition cursor-pointer ${
-                      detectedBoundaries.tay
-                        ? 'bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-900'
-                        : 'bg-gray-100/70 border-gray-200 text-gray-400 cursor-default'
-                    }`}
-                    title={detectedBoundaries.tay ? `Phía Tây: ${formatBoundaryText(detectedBoundaries.tay)} (Bấm để điền)` : 'Chưa có thửa'}
-                  >
-                    <span className="text-[9px] text-blue-700 block font-black">⬅️ PHÍA TÂY</span>
-                    <span className="text-[10px] font-bold truncate block">
-                      {detectedBoundaries.tay ? `Thửa ${detectedBoundaries.tay.so_thua}` : 'Chưa rõ'}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-rose-50 border-2 border-rose-300 font-black text-rose-900 shadow-2xs">
-                    <span className="text-[8px] text-rose-600 block uppercase font-black">Đang chọn</span>
-                    <span className="text-xs font-black text-rose-700">Thửa {parcel.so_thua}</span>
-                  </div>
-
-                  <div
-                    onClick={() => detectedBoundaries.dong && setGiapDong(formatBoundaryText(detectedBoundaries.dong))}
-                    className={`p-1.5 rounded-lg border transition cursor-pointer ${
-                      detectedBoundaries.dong
-                        ? 'bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-900'
-                        : 'bg-gray-100/70 border-gray-200 text-gray-400 cursor-default'
-                    }`}
-                    title={detectedBoundaries.dong ? `Phía Đông: ${formatBoundaryText(detectedBoundaries.dong)} (Bấm để điền)` : 'Chưa có thửa'}
-                  >
-                    <span className="text-[9px] text-blue-700 block font-black">➡️ PHÍA ĐÔNG</span>
-                    <span className="text-[10px] font-bold truncate block">
-                      {detectedBoundaries.dong ? `Thửa ${detectedBoundaries.dong.so_thua}` : 'Chưa rõ'}
-                    </span>
-                  </div>
-
-                  {/* Hàng 3: Nam */}
-                  <div></div>
-                  <div
-                    onClick={() => detectedBoundaries.nam && setGiapNam(formatBoundaryText(detectedBoundaries.nam))}
-                    className={`p-1.5 rounded-lg border transition cursor-pointer ${
-                      detectedBoundaries.nam
-                        ? 'bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-900'
-                        : 'bg-gray-100/70 border-gray-200 text-gray-400 cursor-default'
-                    }`}
-                    title={detectedBoundaries.nam ? `Phía Nam: ${formatBoundaryText(detectedBoundaries.nam)} (Bấm để điền)` : 'Chưa có thửa'}
-                  >
-                    <span className="text-[9px] text-blue-700 block font-black">⬇️ PHÍA NAM</span>
-                    <span className="text-[10px] font-bold truncate block">
-                      {detectedBoundaries.nam ? `Thửa ${detectedBoundaries.nam.so_thua}` : 'Chưa rõ'}
-                    </span>
-                  </div>
-                  <div></div>
-                </div>
-              </div>
-
-              {/* 4 Ô Nhập Tứ Cận với Gợi Ý Tự Động */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                {/* Phía Đông */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-bold text-gray-700 flex items-center gap-1">
-                      <span>➡️</span> Phía Đông:
-                    </label>
-                    {detectedBoundaries.dong && !giapDong && (
-                      <button
-                        type="button"
-                        onClick={() => setGiapDong(formatBoundaryText(detectedBoundaries.dong))}
-                        className="text-[10px] text-blue-600 hover:underline font-semibold"
-                      >
-                        Gợi ý: Thửa {detectedBoundaries.dong.so_thua} (+Điền)
-                      </button>
-                    )}
-                  </div>
-                  <input
-                    type="text"
-                    value={giapDong}
-                    onChange={(e) => setGiapDong(e.target.value)}
-                    placeholder="Giáp thửa/đường/suối..."
-                    className="w-full text-xs px-2.5 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  />
-                </div>
-
-                {/* Phía Tây */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-bold text-gray-700 flex items-center gap-1">
-                      <span>⬅️</span> Phía Tây:
-                    </label>
-                    {detectedBoundaries.tay && !giapTay && (
-                      <button
-                        type="button"
-                        onClick={() => setGiapTay(formatBoundaryText(detectedBoundaries.tay))}
-                        className="text-[10px] text-blue-600 hover:underline font-semibold"
-                      >
-                        Gợi ý: Thửa {detectedBoundaries.tay.so_thua} (+Điền)
-                      </button>
-                    )}
-                  </div>
-                  <input
-                    type="text"
-                    value={giapTay}
-                    onChange={(e) => setGiapTay(e.target.value)}
-                    placeholder="Giáp thửa/đường/suối..."
-                    className="w-full text-xs px-2.5 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  />
-                </div>
-
-                {/* Phía Nam */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-bold text-gray-700 flex items-center gap-1">
-                      <span>⬇️</span> Phía Nam:
-                    </label>
-                    {detectedBoundaries.nam && !giapNam && (
-                      <button
-                        type="button"
-                        onClick={() => setGiapNam(formatBoundaryText(detectedBoundaries.nam))}
-                        className="text-[10px] text-blue-600 hover:underline font-semibold"
-                      >
-                        Gợi ý: Thửa {detectedBoundaries.nam.so_thua} (+Điền)
-                      </button>
-                    )}
-                  </div>
-                  <input
-                    type="text"
-                    value={giapNam}
-                    onChange={(e) => setGiapNam(e.target.value)}
-                    placeholder="Giáp thửa/đường/suối..."
-                    className="w-full text-xs px-2.5 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  />
-                </div>
-
-                {/* Phía Bắc */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-bold text-gray-700 flex items-center gap-1">
-                      <span>⬆️</span> Phía Bắc:
-                    </label>
-                    {detectedBoundaries.bac && !giapBac && (
-                      <button
-                        type="button"
-                        onClick={() => setGiapBac(formatBoundaryText(detectedBoundaries.bac))}
-                        className="text-[10px] text-blue-600 hover:underline font-semibold"
-                      >
-                        Gợi ý: Thửa {detectedBoundaries.bac.so_thua} (+Điền)
-                      </button>
-                    )}
-                  </div>
-                  <input
-                    type="text"
-                    value={giapBac}
-                    onChange={(e) => setGiapBac(e.target.value)}
-                    placeholder="Giáp thửa/đường/suối..."
-                    className="w-full text-xs px-2.5 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Thửa Lân Cận Theo Phương Hướng Bản Đồ */}
+            {/* Thửa lân cận */}
             <div className="bg-white p-3 rounded-xl border border-gray-200/80 shadow-xs space-y-2">
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-gray-800 flex items-center gap-1">
-                  <Navigation className="w-3.5 h-3.5 text-emerald-600" />
-                  Thửa xung quanh theo phương hướng
+                <h4 className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                  <Navigation className="w-3.5 h-3.5 text-blue-500" />
+                  Thửa xung quanh
                 </h4>
-                <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold">
-                  {neighbors.length} thửa
+                <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-semibold">
+                  {neighbors.length} thửa gần nhất
                 </span>
               </div>
 
               {neighbors.length === 0 ? (
-                <p className="text-[11px] text-gray-400 py-2.5 text-center">
-                  Không có thửa liền kề xung quanh trong bán kính quét.
+                <p className="text-[11px] text-gray-400 py-2 text-center italic">
+                  Không có thửa nào trong bán kính quét.
                 </p>
               ) : (
-                <div className="divide-y divide-gray-100 max-h-56 overflow-y-auto pr-1">
+                <div className="space-y-0.5 max-h-60 overflow-y-auto pr-1">
                   {neighbors.map((nb) => {
-                    const getNeighborDot = () => {
-                      if (nb.trang_thai === 'DA_SO_HOA_XANH') {
-                        return <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-emerald-300 shrink-0" title="Đã số hóa (GGS)" />;
-                      }
-                      if (nb.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') {
-                        return <span className="w-2.5 h-2.5 rounded-full bg-blue-600 border border-blue-300 shrink-0" title="Đã kê khai (Xanh lam)" />;
-                      }
-                      if (nb.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') {
-                        return <span className="w-2.5 h-2.5 rounded-full bg-amber-500 border border-amber-300 shrink-0" title="Có tên chủ đất (Vàng)" />;
-                      }
-                      return <span className="w-2.5 h-2.5 rounded-full bg-gray-300 border border-gray-400 shrink-0" title="Chưa có tên" />;
-                    };
+                    const statusDot = nb.trang_thai === 'DA_SO_HOA_XANH'
+                      ? <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" title="Đã số hóa" />
+                      : nb.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
+                      ? <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" title="Đã kê khai" />
+                      : nb.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG'
+                      ? <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" title="Có tên chủ" />
+                      : <span className="w-2 h-2 rounded-full bg-gray-300 shrink-0" title="Chưa có tên" />;
 
                     return (
-                      <div key={nb.ma_thua} className="py-2.5 space-y-1.5">
-                        <div className="flex items-center justify-between text-xs">
-                          <button
-                            type="button"
-                            onClick={() => onSelectParcel && onSelectParcel(nb)}
-                            className="font-bold text-gray-900 hover:text-blue-600 flex items-center gap-1.5 transition text-left"
-                            title="Bấm để xem thửa này"
-                          >
-                            {getNeighborDot()}
-                            <span>Thửa {nb.so_thua} (Tờ {nb.to_ban_do})</span>
-                          </button>
-
-                          {/* Badge Phương Hướng & Khoảng cách */}
-                          <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded-md font-semibold flex items-center gap-1 shrink-0">
-                            <span>{nb.arrow || '🧭'}</span>
-                            <span>{nb.directionText || nb.quadrantText || 'Lân cận'}</span>
-                            <span className="text-gray-300">|</span>
-                            <span className="font-mono">~{nb.distanceMeters}m</span>
-                          </span>
-                        </div>
-
-                        <p className="text-[11px] text-gray-600 truncate" title={nb.chu_ho}>
-                          Chủ: <strong className="text-gray-800">{nb.chu_ho || 'Chưa có tên'}</strong>
-                        </p>
-
-                        <div className="flex items-center justify-between pt-0.5">
-                          {(nb.has_cccd && (nb.cccd_url || nb.svg_url)) ? (
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() =>
-                                  onOpenVectorViewer(
-                                    (nb.cccd_url || nb.svg_url)!,
-                                    `Ảnh CCCD - Thửa ${nb.so_thua} (Tờ ${nb.to_ban_do})`,
-                                    nb.chu_ho,
-                                    nb.cccd
-                                  )
-                                }
-                                className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 hover:text-emerald-800 hover:underline"
-                              >
-                                <Eye className="w-3 h-3" /> Xem
-                              </button>
-                              <button
-                                onClick={() =>
-                                  downloadFile(
-                                    (nb.cccd_url || nb.svg_url)!,
-                                    `CCCD_${nb.chu_ho || 'ChuHo'}_Thua_${nb.so_thua}_To_${nb.to_ban_do}.jpg`
-                                  )
-                                }
-                                className="inline-flex items-center gap-0.5 text-[10px] font-bold text-gray-500 hover:text-emerald-700"
-                                title="Tải ảnh CCCD"
-                              >
-                                <Download className="w-3 h-3" /> Tải
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-[10px] text-gray-400 italic">Chưa có ảnh CCCD</span>
-                          )}
-
-                          {/* Cụm hành động điền vào hướng */}
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => handleApplyNeighborToBoundary(nb.quadrant || 'dong', nb)}
-                              className="px-2 py-0.5 text-[10px] bg-blue-600 hover:bg-blue-700 text-white rounded font-bold transition flex items-center gap-1 shadow-2xs"
-                              title={`Điền thửa này vào ${nb.quadrantText || 'Phía Đông'}`}
-                            >
-                              <span>{nb.arrow}</span> Điền {nb.quadrantText || 'Phía Đông'}
-                            </button>
-
-                            {/* Các nút phụ đổi hướng */}
-                            <span className="text-[9px] text-gray-400 ml-1">Đổi:</span>
-                            {(['dong', 'tay', 'nam', 'bac'] as const)
-                              .filter((q) => q !== (nb.quadrant || 'dong'))
-                              .map((q) => (
-                                <button
-                                  key={q}
-                                  type="button"
-                                  onClick={() => handleApplyNeighborToBoundary(q, nb)}
-                                  className="px-1 text-[9px] bg-gray-100 hover:bg-gray-200 text-gray-600 rounded font-medium uppercase"
-                                  title={`Điền vào ${q === 'dong' ? 'Đông' : q === 'tay' ? 'Tây' : q === 'nam' ? 'Nam' : 'Bắc'}`}
-                                >
-                                  {q === 'dong' ? 'Đ' : q === 'tay' ? 'T' : q === 'nam' ? 'N' : 'B'}
-                                </button>
-                              ))}
+                      <button
+                        key={nb.ma_thua}
+                        type="button"
+                        onClick={() => onSelectParcel && onSelectParcel(nb)}
+                        className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg hover:bg-gray-50 transition text-left group"
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          {statusDot}
+                          <div className="min-w-0">
+                            <span className="text-xs font-bold text-gray-800 group-hover:text-blue-600 transition">
+                              Thửa {nb.so_thua} (Tờ {nb.to_ban_do})
+                            </span>
+                            {nb.chu_ho && nb.chu_ho !== 'Chưa có tên' && (
+                              <span className="text-[10px] text-gray-500 block truncate">{nb.chu_ho}</span>
+                            )}
                           </div>
                         </div>
-                      </div>
+                        <span className="text-[10px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">
+                          {nb.arrow} {nb.directionText || nb.quadrantText} · ~{nb.distanceMeters}m
+                        </span>
+                      </button>
                     );
                   })}
                 </div>
               )}
+            </div>
+
+            {/* Tứ Cận (Đông, Tây, Nam, Bắc) — nhập tay */}
+            <div className="bg-white p-3 rounded-xl border border-gray-200/80 shadow-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                  <Compass className="w-3.5 h-3.5 text-blue-600" />
+                  Tứ cận (Tiếp giáp 4 hướng)
+                </h4>
+                <span className="text-[10px] text-gray-400">Nhập mô tả từng hướng</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">➡️ Phía Đông:</label>
+                  <input
+                    type="text"
+                    value={giapDong}
+                    onChange={(e) => setGiapDong(e.target.value)}
+                    placeholder="Giáp thửa/đường..."
+                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">⬅️ Phía Tây:</label>
+                  <input
+                    type="text"
+                    value={giapTay}
+                    onChange={(e) => setGiapTay(e.target.value)}
+                    placeholder="Giáp thửa/đường..."
+                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">⬇️ Phía Nam:</label>
+                  <input
+                    type="text"
+                    value={giapNam}
+                    onChange={(e) => setGiapNam(e.target.value)}
+                    placeholder="Giáp thửa/đường..."
+                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">⬆️ Phía Bắc:</label>
+                  <input
+                    type="text"
+                    value={giapBac}
+                    onChange={(e) => setGiapBac(e.target.value)}
+                    placeholder="Giáp thửa/đường..."
+                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
             </div>
           </>
         ) : activeTab === 'correction' ? (
