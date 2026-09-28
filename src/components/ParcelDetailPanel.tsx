@@ -6,7 +6,6 @@ import {
   X,
   MapPin,
   ExternalLink,
-  Compass,
   User,
   Users,
   FileText,
@@ -368,7 +367,7 @@ export default function ParcelDetailPanel({
               : 'border-transparent text-gray-500 hover:text-gray-800'
           }`}
         >
-          Thông tin & Tứ cận
+          Thông tin thửa đất
         </button>
         {isAlreadyOnGgs ? (
           <button
@@ -774,60 +773,6 @@ export default function ParcelDetailPanel({
                 </div>
               )}
             </div>
-
-            {/* Tứ Cận (Đông, Tây, Nam, Bắc) — nhập tay */}
-            <div className="bg-white p-3 rounded-xl border border-gray-200/80 shadow-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
-                  <Compass className="w-3.5 h-3.5 text-blue-600" />
-                  Tứ cận (Tiếp giáp 4 hướng)
-                </h4>
-                <span className="text-[10px] text-gray-400">Nhập mô tả từng hướng</span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">➡️ Phía Đông:</label>
-                  <input
-                    type="text"
-                    value={giapDong}
-                    onChange={(e) => setGiapDong(e.target.value)}
-                    placeholder="Giáp thửa/đường..."
-                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">⬅️ Phía Tây:</label>
-                  <input
-                    type="text"
-                    value={giapTay}
-                    onChange={(e) => setGiapTay(e.target.value)}
-                    placeholder="Giáp thửa/đường..."
-                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">⬇️ Phía Nam:</label>
-                  <input
-                    type="text"
-                    value={giapNam}
-                    onChange={(e) => setGiapNam(e.target.value)}
-                    placeholder="Giáp thửa/đường..."
-                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">⬆️ Phía Bắc:</label>
-                  <input
-                    type="text"
-                    value={giapBac}
-                    onChange={(e) => setGiapBac(e.target.value)}
-                    placeholder="Giáp thửa/đường..."
-                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-            </div>
           </>
         ) : activeTab === 'correction' ? (
           /* Phiếu Báo Sai & Bổ Sung Thông Tin Thửa Đã Số Hóa */
@@ -948,66 +893,6 @@ export default function ParcelDetailPanel({
                     onChange={(e) => setChuDatCccd(e.target.value)}
                     placeholder="Số CCCD chuẩn"
                     className="w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Tứ cận cập nhật nếu có sai lệch */}
-            <div className="bg-white p-3 rounded-xl border border-gray-200 text-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-gray-800 block text-[11px]">
-                  Tứ cận chuẩn xác (nếu cần sửa):
-                </span>
-                <button
-                  type="button"
-                  onClick={handleAutoDetectBoundaries}
-                  className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-lg transition"
-                  title="Tự động nhận diện 4 hướng tiếp giáp từ tọa độ thực địa"
-                >
-                  <Sparkles className="w-3 h-3 text-amber-500 fill-amber-400" />
-                  <span>Tự động nhận diện</span>
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <label className="text-[10px] text-gray-500 block">Đông:</label>
-                  <input
-                    type="text"
-                    value={giapDong}
-                    onChange={(e) => setGiapDong(e.target.value)}
-                    placeholder="Giáp..."
-                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-gray-500 block">Tây:</label>
-                  <input
-                    type="text"
-                    value={giapTay}
-                    onChange={(e) => setGiapTay(e.target.value)}
-                    placeholder="Giáp..."
-                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-gray-500 block">Nam:</label>
-                  <input
-                    type="text"
-                    value={giapNam}
-                    onChange={(e) => setGiapNam(e.target.value)}
-                    placeholder="Giáp..."
-                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-gray-500 block">Bắc:</label>
-                  <input
-                    type="text"
-                    value={giapBac}
-                    onChange={(e) => setGiapBac(e.target.value)}
-                    placeholder="Giáp..."
-                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
                   />
                 </div>
               </div>
@@ -1297,67 +1182,6 @@ export default function ParcelDetailPanel({
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* Tứ Cận (Đông, Tây, Nam, Bắc) */}
-            <div className="bg-gray-50/80 p-2.5 rounded-xl border border-gray-200 text-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-gray-800 block text-[11px] flex items-center gap-1">
-                  <Compass className="w-3.5 h-3.5 text-blue-600" />
-                  Tứ cận (Tiếp giáp 4 hướng):
-                </span>
-                <button
-                  type="button"
-                  onClick={handleAutoDetectBoundaries}
-                  className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-100/70 hover:bg-blue-200/80 px-2 py-0.5 rounded-lg transition"
-                  title="Tự động nhận diện 4 hướng tiếp giáp từ tọa độ thực địa"
-                >
-                  <Sparkles className="w-3 h-3 text-amber-500 fill-amber-400" />
-                  <span>Tự động nhận diện</span>
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <label className="text-[10px] text-gray-500 block">Đông:</label>
-                  <input
-                    type="text"
-                    value={giapDong}
-                    onChange={(e) => setGiapDong(e.target.value)}
-                    placeholder="Giáp thửa/đường..."
-                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-gray-500 block">Tây:</label>
-                  <input
-                    type="text"
-                    value={giapTay}
-                    onChange={(e) => setGiapTay(e.target.value)}
-                    placeholder="Giáp thửa/đường..."
-                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-gray-500 block">Nam:</label>
-                  <input
-                    type="text"
-                    value={giapNam}
-                    onChange={(e) => setGiapNam(e.target.value)}
-                    placeholder="Giáp thửa/đường..."
-                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-gray-500 block">Bắc:</label>
-                  <input
-                    type="text"
-                    value={giapBac}
-                    onChange={(e) => setGiapBac(e.target.value)}
-                    placeholder="Giáp thửa/đường..."
-                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  />
-                </div>
-              </div>
             </div>
 
             {/* Ghi chú */}
