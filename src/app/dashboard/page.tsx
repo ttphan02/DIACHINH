@@ -6,6 +6,8 @@ import rawParcels from '@/data/parcels.json';
 import { Parcel, ParcelStatus } from '@/types';
 import { removeVietnameseTones } from '@/utils/geo';
 import DeclarationPrintModal, { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
+import DashboardParcelModal from '@/components/DashboardParcelModal';
+import VectorViewerModal from '@/components/VectorViewerModal';
 import {
   Map as MapIcon,
   BarChart3,
@@ -37,6 +39,8 @@ import {
   Calendar,
   CheckSquare,
   Square,
+  Eye,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -63,7 +67,7 @@ export default function DashboardPage() {
   const [pageSize, setPageSize] = useState<number>(25);
 
   // Active view tab in Dashboard
-  const [activeTab, setActiveTab] = useState<'overview' | 'villages' | 'landTypes' | 'table'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'villages' | 'landTypes' | 'table'>('table');
 
   // Checkbox Selection state for Batch PDF Export
   const [selectedParcelCodes, setSelectedParcelCodes] = useState<Set<string>>(new Set());
@@ -72,6 +76,20 @@ export default function DashboardPage() {
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printModalTitle, setPrintModalTitle] = useState('Tập Đơn Kê Khai Đất Đai');
   const [printableItems, setPrintableItems] = useState<PrintableDeclarationItem[]>([]);
+
+  // Parcel Detail Modal state
+  const [activeParcelDetail, setActiveParcelDetail] = useState<Parcel | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+
+  // Image Viewer Modal state
+  const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
+  const [viewerData, setViewerData] = useState<{
+    url: string;
+    urls?: string[];
+    title: string;
+    owner?: string;
+    cccd?: string;
+  }>({ url: '', title: '' });
 
   // 1. Tải danh sách kê khai và dữ liệu chi tiết từ LocalStorage
   useEffect(() => {
@@ -191,6 +209,7 @@ export default function DashboardPage() {
     let digitizedAreaM2 = 0;
     let hasGpsCount = 0;
     let hasCccdCount = 0;
+    let withImagesCount = 0;
     const ownersSet = new Set<string>();
 
     computedParcels.forEach((p) => {
@@ -209,6 +228,17 @@ export default function DashboardPage() {
 
       if (p.lat && p.lng) hasGpsCount++;
       if (p.cccd) hasCccdCount++;
+
+      const decl = declarationsMap[p.ma_thua];
+      const hasImg =
+        Boolean(p.cccd_url) ||
+        Boolean(p.svg_url) ||
+        (Array.isArray(p.gcn_urls) && p.gcn_urls.length > 0) ||
+        Boolean(decl?.anh_cccd_truoc) ||
+        Boolean(decl?.anh_cccd_sau) ||
+        Boolean(decl?.anh_gcn);
+      if (hasImg) withImagesCount++;
+
       if (
         p.chu_ho &&
         p.chu_ho !== 'Chưa có tên' &&
@@ -236,9 +266,10 @@ export default function DashboardPage() {
       completionRate,
       hasGpsCount,
       hasCccdCount,
+      withImagesCount,
       uniqueOwnersCount: ownersSet.size,
     };
-  }, [computedParcels]);
+  }, [computedParcels, declarationsMap]);
 
   // 6. Thống kê theo Thôn / Buôn
   const villageStats = useMemo(() => {
@@ -422,7 +453,7 @@ export default function DashboardPage() {
     });
   };
 
-  // 9. XUẤT EXCEL DANH SÁCH THỬA ĐÃ KÊ KHAI (Trả lời yêu cầu 1 của user)
+  // 9. XUẤT EXCEL DANH SÁCH THỬA ĐÃ KÊ KHAI
   const handleExportDeclaredExcel = () => {
     const declaredList = computedParcels.filter(
       (p) =>
@@ -432,7 +463,7 @@ export default function DashboardPage() {
     );
 
     if (declaredList.length === 0) {
-      alert('Hiện chưa có thửa đất nào được kê khai trên hệ thống. Hãy mở form trên bản đồ để kê khai thử trước.');
+      alert('Hiện chưa có thửa đất nào được kê khai trên hệ thống.');
       return;
     }
 
@@ -453,6 +484,8 @@ export default function DashboardPage() {
       'Ngày Giờ Kê Khai',
       'Ghi Chú Nguồn Gốc',
       'Trạng Thái',
+      'Có Ảnh CCCD?',
+      'Có Ảnh GCN?',
       'Tọa Độ Vĩ Độ (Lat)',
       'Tọa Độ Kinh Độ (Lng)',
     ];
@@ -467,6 +500,8 @@ export default function DashboardPage() {
       const nguoiKekhai = decl.nguoi_ke_khai_ten || chuHo;
       const createdAt = decl.created_at || '';
       const ghiChu = decl.ghi_chu || '';
+      const hasCccdImg = Boolean(decl.anh_cccd_truoc || p.cccd_url) ? 'Có' : 'Chưa';
+      const hasGcnImg = Boolean(decl.anh_gcn || (p.gcn_urls && p.gcn_urls.length > 0)) ? 'Có' : 'Chưa';
 
       return [
         idx + 1,
@@ -485,6 +520,8 @@ export default function DashboardPage() {
         `"${createdAt}"`,
         `"${ghiChu.replace(/"/g, '""')}"`,
         '"Đã kê khai thực địa"',
+        `"${hasCccdImg}"`,
+        `"${hasGcnImg}"`,
         p.lat || '',
         p.lng || '',
       ].join(',');
@@ -502,12 +539,11 @@ export default function DashboardPage() {
     URL.revokeObjectURL(url);
   };
 
-  // 10. XUẤT TẬP PDF ĐƠN KÊ KHAI HÔM NAY (Trả lời yêu cầu 2 của user)
+  // 10. ĐÓNG TẬP PDF ĐƠN KÊ KHAI HÔM NAY CHO VIỆC IN
   const handleOpenPrintToday = () => {
     const todayStr = new Date().toISOString().slice(0, 10);
     const todayItems: PrintableDeclarationItem[] = [];
 
-    // Lọc các hồ sơ kê khai có ngày tạo trùng với hôm nay
     Object.entries(declarationsMap).forEach(([maThua, decl]: [string, any]) => {
       if (decl.created_at && decl.created_at.startsWith(todayStr)) {
         const p = computedParcels.find((cp) => cp.ma_thua === maThua);
@@ -522,7 +558,6 @@ export default function DashboardPage() {
       setPrintModalTitle(`Tập Đơn Kê Khai Trong Ngày Hôm Nay (${todayItems.length} thửa)`);
       setIsPrintModalOpen(true);
     } else {
-      // Nếu hôm nay chưa có đơn mới, kiểm tra các đơn đã kê khai trước đó
       const allDeclared: PrintableDeclarationItem[] = [];
       Object.entries(declarationsMap).forEach(([maThua, decl]: [string, any]) => {
         const p = computedParcels.find((cp) => cp.ma_thua === maThua);
@@ -537,16 +572,16 @@ export default function DashboardPage() {
         setIsPrintModalOpen(true);
       } else {
         alert(
-          'Hôm nay chưa có thửa nào được kê khai mới trên thiết bị này.\n\n👉 Bạn hãy tích chọn các thửa cần in từ bảng danh sách bên dưới rồi bấm "Xuất Tập PDF Được Chọn".'
+          'Hôm nay chưa có đơn kê khai mới.\n\n👉 Bạn hãy tích chọn các thửa cần in từ bảng danh sách bên dưới rồi bấm "Đóng Tập PDF Được Chọn".'
         );
       }
     }
   };
 
-  // 11. XUẤT TẬP PDF CHO CÁC THỬA ĐƯỢC CHỌN (Trả lời yêu cầu 2 của user)
+  // 11. ĐÓNG TẬP PDF CHO CÁC THỬA ĐƯỢC CHỌN
   const handleOpenPrintSelected = () => {
     if (selectedParcelCodes.size === 0) {
-      alert('Vui lòng tích chọn ít nhất 1 thửa đất trên bảng để xuất tập PDF đơn kê khai.');
+      alert('Vui lòng tích chọn ít nhất 1 thửa đất trên bảng để xuất tập PDF.');
       return;
     }
 
@@ -578,7 +613,25 @@ export default function DashboardPage() {
     setIsPrintModalOpen(true);
   };
 
-  // 13. Xuất file CSV toàn bộ danh sách đang lọc
+  // 13. Mở Modal chi tiết thửa đất
+  const handleOpenDetailModal = (parcel: Parcel) => {
+    setActiveParcelDetail(parcel);
+    setIsDetailModalOpen(true);
+  };
+
+  // 14. Mở Lightbox xem ảnh lớn
+  const handleOpenImageViewer = (url: string, urls?: string[], title?: string) => {
+    setViewerData({
+      url,
+      urls: urls && urls.length > 0 ? urls : [url],
+      title: title || 'Hình ảnh hồ sơ thửa đất',
+      owner: activeParcelDetail?.chu_ho,
+      cccd: activeParcelDetail?.cccd,
+    });
+    setIsImageViewerOpen(true);
+  };
+
+  // 15. Xuất file CSV toàn bộ danh sách đang lọc
   const handleExportCsv = () => {
     const headers = [
       'STT',
@@ -602,8 +655,8 @@ export default function DashboardPage() {
           : p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
           ? 'Đã kê khai (Chưa lên GGS)'
           : p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG'
-          ? 'Có tên chủ đất'
-          : 'Chưa cập nhật / Không có DL';
+          ? 'Chưa kê khai - Có tên'
+          : 'Chưa kê khai - Không có tên';
 
       return [
         idx + 1,
@@ -673,17 +726,17 @@ export default function DashboardPage() {
               <span>Xuất Excel Đã Kê Khai</span>
             </button>
 
-            {/* Nút Xuất Tập PDF Hôm Nay */}
+            {/* Nút Đóng tập PDF Hôm Nay */}
             <button
               onClick={handleOpenPrintToday}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600/90 hover:bg-purple-600 text-white shadow-md shadow-purple-600/20 transition cursor-pointer"
-              title="Xuất tập PDF các đơn kê khai được tạo trong ngày hôm nay"
+              title="Đóng tập PDF các đơn kê khai được tạo trong ngày hôm nay cho việc in"
             >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Xuất PDF Hôm Nay</span>
+              <Printer className="w-3.5 h-3.5" />
+              <span>Đóng Tập PDF Hôm Nay</span>
             </button>
 
-            {/* Nút Xuất Excel lọc hiện tại */}
+            {/* Nút Xuất Excel danh sách đang lọc */}
             <button
               onClick={handleExportCsv}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600/90 hover:bg-emerald-600 text-white shadow-md shadow-emerald-700/20 transition cursor-pointer"
@@ -738,7 +791,13 @@ export default function DashboardPage() {
           </div>
 
           {/* Card 2: Đã Số Hóa GGS (Xanh lá) */}
-          <div className="bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-4 shadow-sm hover:border-emerald-500/50 transition relative overflow-hidden group">
+          <div
+            onClick={() => {
+              setStatusFilter('DA_SO_HOA_XANH');
+              setActiveTab('table');
+            }}
+            className="bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-4 shadow-sm hover:border-emerald-500/50 transition relative overflow-hidden group cursor-pointer"
+          >
             <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl group-hover:bg-emerald-500/20 transition" />
             <div className="flex items-center justify-between text-emerald-400 text-xs mb-2">
               <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
@@ -757,13 +816,19 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Card 3: Có Tên Chủ, Chưa Số Hóa (Vàng) */}
-          <div className="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-4 shadow-sm hover:border-amber-500/50 transition relative overflow-hidden group">
+          {/* Card 3: Chưa kê khai - Có tên chủ (Vàng) */}
+          <div
+            onClick={() => {
+              setStatusFilter('CO_TEN_CHUA_SO_HOA_VANG');
+              setActiveTab('table');
+            }}
+            className="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-4 shadow-sm hover:border-amber-500/50 transition relative overflow-hidden group cursor-pointer"
+          >
             <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 rounded-full blur-2xl group-hover:bg-amber-500/20 transition" />
             <div className="flex items-center justify-between text-amber-400 text-xs mb-2">
               <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                Có Tên (Chờ Số Hóa)
+                Chưa Kê Khai - Có Tên
               </span>
               <Users className="w-4 h-4 text-amber-400" />
             </div>
@@ -772,20 +837,26 @@ export default function DashboardPage() {
               <span className="text-xs font-normal text-slate-400 ml-1.5">thửa</span>
             </div>
             <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/80">
-              <span>Đã có chủ sở hữu:</span>
+              <span>Chờ thu thập hồ sơ:</span>
               <strong className="text-amber-400 font-bold">
                 {Math.round((globalStats.yellow / globalStats.total) * 1000) / 10}%
               </strong>
             </div>
           </div>
 
-          {/* Card 4: Chưa Có Dữ Liệu / Chưa Rõ (Trắng/Xám) */}
-          <div className="bg-slate-900/90 border border-slate-700/60 rounded-2xl p-4 shadow-sm hover:border-slate-600 transition relative overflow-hidden group">
+          {/* Card 4: Chưa kê khai - Không có tên (Trắng/Xám) */}
+          <div
+            onClick={() => {
+              setStatusFilter('CHUA_CO_TEN_XAM');
+              setActiveTab('table');
+            }}
+            className="bg-slate-900/90 border border-slate-700/60 rounded-2xl p-4 shadow-sm hover:border-slate-600 transition relative overflow-hidden group cursor-pointer"
+          >
             <div className="absolute top-0 right-0 w-24 h-24 bg-slate-500/10 rounded-full blur-2xl group-hover:bg-slate-500/20 transition" />
             <div className="flex items-center justify-between text-slate-400 text-xs mb-2">
               <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-slate-300"></span>
-                Chưa Cập Nhật DL
+                Chưa Kê Khai - Không Tên
               </span>
               <Clock className="w-4 h-4 text-slate-400" />
             </div>
@@ -815,18 +886,22 @@ export default function DashboardPage() {
                 • Quy mô {globalStats.digitizedAreaHa} ha / {globalStats.totalAreaHa} ha
               </p>
             </div>
-            <div className="flex items-center gap-3 text-xs">
+            <div className="flex flex-wrap items-center gap-3 text-xs">
               <div className="flex items-center gap-1.5 text-emerald-400">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                Đã lên GGS ({globalStats.completionRate}%)
+                Đã số hóa ({globalStats.completionRate}%)
+              </div>
+              <div className="flex items-center gap-1.5 text-blue-400">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                Đã kê khai ({globalStats.blue} thửa)
               </div>
               <div className="flex items-center gap-1.5 text-amber-400">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                Có tên ({Math.round((globalStats.yellow / globalStats.total) * 1000) / 10}%)
+                Chưa kê khai - Có tên ({Math.round((globalStats.yellow / globalStats.total) * 1000) / 10}%)
               </div>
               <div className="flex items-center gap-1.5 text-slate-400">
                 <span className="w-2.5 h-2.5 rounded-full bg-slate-300"></span>
-                Chưa có DL ({Math.round((globalStats.gray / globalStats.total) * 1000) / 10}%)
+                Không có tên ({Math.round((globalStats.gray / globalStats.total) * 1000) / 10}%)
               </div>
             </div>
           </div>
@@ -848,12 +923,12 @@ export default function DashboardPage() {
             <div
               style={{ width: `${(globalStats.yellow / globalStats.total) * 100}%` }}
               className="h-full bg-amber-500 transition-all duration-500 hover:brightness-110"
-              title={`Có tên chủ đất: ${globalStats.yellow} thửa`}
+              title={`Chưa kê khai - Có tên: ${globalStats.yellow} thửa`}
             />
             <div
               style={{ width: `${(globalStats.gray / globalStats.total) * 100}%` }}
               className="h-full bg-slate-400 rounded-r-full transition-all duration-500 hover:brightness-110"
-              title={`Chưa có dữ liệu: ${globalStats.gray} thửa`}
+              title={`Chưa kê khai - Không có tên: ${globalStats.gray} thửa`}
             />
           </div>
 
@@ -869,18 +944,30 @@ export default function DashboardPage() {
               <strong className="text-slate-200 text-sm">{globalStats.hasCccdCount.toLocaleString('vi-VN')} thửa</strong>
             </div>
             <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60">
-              <span className="block text-[10px] text-slate-500">Chủ hộ độc nhất thu thập:</span>
-              <strong className="text-slate-200 text-sm">{globalStats.uniqueOwnersCount.toLocaleString('vi-VN')} người</strong>
+              <span className="block text-[10px] text-slate-500">Hồ sơ có ảnh scan / upload:</span>
+              <strong className="text-purple-300 text-sm">{globalStats.withImagesCount.toLocaleString('vi-VN')} hồ sơ</strong>
             </div>
             <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60">
-              <span className="block text-[10px] text-slate-500">Số tờ bản đồ địa chính:</span>
-              <strong className="text-slate-200 text-sm">{uniqueSheets.length} tờ bản đồ</strong>
+              <span className="block text-[10px] text-slate-500">Chủ hộ độc nhất thu thập:</span>
+              <strong className="text-slate-200 text-sm">{globalStats.uniqueOwnersCount.toLocaleString('vi-VN')} người</strong>
             </div>
           </div>
         </section>
 
         {/* Tab Navigation for Analytics */}
         <div className="flex border-b border-slate-800 gap-2 sm:gap-4 overflow-x-auto no-scrollbar">
+          <button
+            onClick={() => setActiveTab('table')}
+            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 ${
+              activeTab === 'table'
+                ? 'border-blue-500 text-blue-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            Tra Cứu & Quản Lý Kê Khai ({filteredParcels.length.toLocaleString('vi-VN')})
+          </button>
+
           <button
             onClick={() => setActiveTab('overview')}
             className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 ${
@@ -916,298 +1003,89 @@ export default function DashboardPage() {
             <PieChart className="w-4 h-4" />
             Cơ Cấu Loại Đất ({landTypeStats.length})
           </button>
-
-          <button
-            onClick={() => setActiveTab('table')}
-            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 ${
-              activeTab === 'table'
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            Tra Cứu & Lọc Chi Tiết ({filteredParcels.length.toLocaleString('vi-VN')})
-          </button>
         </div>
 
-        {/* TAB 1: BẢNG TỔNG QUAN & TOP THÔN */}
-        {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            {/* Cột trái: Top Thôn có số lượng thửa lớn nhất */}
-            <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <Building2 className="w-4 h-4 text-blue-400" />
-                    Tiến Độ Số Hóa Tại Các Thôn / Buôn Trọng Điểm
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">Xếp hạng theo số lượng thửa đất cần quản lý</p>
-                </div>
-                <button
-                  onClick={() => setActiveTab('villages')}
-                  className="text-xs text-blue-400 hover:text-blue-300 font-semibold"
-                >
-                  Xem tất cả ({villageStats.length}) →
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {villageStats.slice(0, 7).map((v, i) => (
-                  <div
-                    key={v.name}
-                    className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 hover:border-slate-700 transition"
-                  >
-                    <div className="flex items-center justify-between text-xs mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded-md bg-slate-800 text-slate-300 text-[10px] font-bold flex items-center justify-center shrink-0">
-                          {i + 1}
-                        </span>
-                        <strong className="text-slate-100 font-semibold truncate max-w-[200px] sm:max-w-none">
-                          {v.name}
-                        </strong>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-slate-400">
-                          <strong className="text-emerald-400">{v.green}</strong>/{v.total} thửa
-                        </span>
-                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold text-[11px]">
-                          {v.rate}%
-                        </span>
-                      </div>
-                    </div>
-                    {/* Mini progress bar */}
-                    <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden flex">
-                      <div style={{ width: `${v.rate}%` }} className="bg-emerald-500 h-full rounded-l-full" />
-                      <div
-                        style={{ width: `${v.total > 0 ? (v.yellow / v.total) * 100 : 0}%` }}
-                        className="bg-amber-500 h-full"
-                      />
-                      <div
-                        style={{ width: `${v.total > 0 ? (v.gray / v.total) * 100 : 0}%` }}
-                        className="bg-slate-700 h-full rounded-r-full"
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-slate-500 mt-1">
-                      <span>Diện tích: {v.totalAreaHa} ha</span>
-                      <span>Chờ số hóa: {v.yellow + v.gray} thửa</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Cột phải: Top Loại Đất Phổ Biến Nhất */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <PieChart className="w-4 h-4 text-amber-400" />
-                    Cơ Cấu Loại Đất Chính
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">Phân bổ mục đích sử dụng đất</p>
-                </div>
-                <button
-                  onClick={() => setActiveTab('landTypes')}
-                  className="text-xs text-amber-400 hover:text-amber-300 font-semibold"
-                >
-                  Chi tiết →
-                </button>
-              </div>
-
-              <div className="space-y-2.5">
-                {landTypeStats.slice(0, 6).map((lt) => (
-                  <div
-                    key={lt.code}
-                    className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex items-center justify-between text-xs"
-                  >
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-mono font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded text-[11px] border border-amber-400/20">
-                          {lt.code}
-                        </span>
-                        <span className="text-slate-300 font-medium">
-                          {lt.code === 'LUK'
-                            ? 'Đất trồng lúa nước còn lại'
-                            : lt.code === 'NHK'
-                            ? 'Đất nương rẫy trồng cây hàng năm'
-                            : lt.code === 'ONT'
-                            ? 'Đất ở tại nông thôn'
-                            : lt.code === 'LUC'
-                            ? 'Đất chuyên trồng lúa nước'
-                            : lt.code === 'CLN'
-                            ? 'Đất trồng cây lâu năm'
-                            : lt.code === 'BHK'
-                            ? 'Đất bằng trồng cây hàng năm khác'
-                            : 'Đất nông nghiệp / chuyên dùng'}
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-slate-500 mt-0.5 block">
-                        Quy mô: {lt.totalAreaHa} ha
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <strong className="text-slate-200 block">{lt.count.toLocaleString('vi-VN')}</strong>
-                      <span className="text-[10px] text-slate-400">{lt.percentCount}%</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="pt-2 border-t border-slate-800/80 text-center">
-                <Link
-                  href="/"
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-400 hover:text-blue-300 transition"
-                >
-                  <MapIcon className="w-3.5 h-3.5" />
-                  Mở bản đồ số trực quan 5.943 thửa đất →
-                </Link>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: DANH SÁCH CHI TIẾT TẤT CẢ THÔN / BUÔN */}
-        {activeTab === 'villages' && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Building2 className="w-4 h-4 text-blue-400" />
-                  Tiến Độ Số Hóa Từng Thôn / Buôn ({villageStats.length} địa bàn)
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Bấm vào thôn bất kỳ để xem danh sách các thửa đất tương ứng
-                </p>
-              </div>
-              <span className="text-xs text-slate-400 bg-slate-800 px-3 py-1 rounded-xl">
-                Tổng quản lý: <strong>{globalStats.total.toLocaleString('vi-VN')} thửa</strong>
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {villageStats.map((v) => (
-                <div
-                  key={v.name}
-                  onClick={() => {
-                    setVillageFilter(v.name);
-                    setActiveTab('table');
-                  }}
-                  className="bg-slate-950/70 hover:bg-slate-950 p-4 rounded-xl border border-slate-800 hover:border-blue-500/50 transition cursor-pointer group"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <strong className="text-sm font-bold text-white group-hover:text-blue-300 transition truncate max-w-[200px]">
-                      {v.name}
-                    </strong>
-                    <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                      {v.rate}% GGS
-                    </span>
-                  </div>
-
-                  {/* Progress bar */}
-                  <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden flex my-2">
-                    <div style={{ width: `${v.rate}%` }} className="bg-emerald-500 h-full rounded-l-full" />
-                    <div
-                      style={{ width: `${v.total > 0 ? (v.yellow / v.total) * 100 : 0}%` }}
-                      className="bg-amber-500 h-full"
-                    />
-                    <div
-                      style={{ width: `${v.total > 0 ? (v.gray / v.total) * 100 : 0}%` }}
-                      className="bg-slate-700 h-full rounded-r-full"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-1 text-[11px] text-slate-400 mt-2 pt-2 border-t border-slate-800/60">
-                    <div>
-                      <span className="block text-[10px] text-slate-500">Tổng thửa:</span>
-                      <strong className="text-slate-200">{v.total}</strong>
-                    </div>
-                    <div>
-                      <span className="block text-[10px] text-emerald-500">Đã số hóa:</span>
-                      <strong className="text-emerald-400">{v.green}</strong>
-                    </div>
-                    <div>
-                      <span className="block text-[10px] text-amber-500">Có tên:</span>
-                      <strong className="text-amber-400">{v.yellow}</strong>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 text-[10px] text-blue-400 group-hover:underline flex items-center justify-between">
-                    <span>Quy mô: {v.totalAreaHa} ha</span>
-                    <span>Xem danh sách →</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: PHÂN BỔ LOẠI ĐẤT TOÀN XÃ */}
-        {activeTab === 'landTypes' && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
-            <div>
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <PieChart className="w-4 h-4 text-amber-400" />
-                Cơ Cấu & Diện Tích Phân Bổ Theo Mục Đích Sử Dụng Đất
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Toàn xã có {landTypeStats.length} mã loại đất với tổng diện tích {globalStats.totalAreaHa} ha
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {landTypeStats.map((lt) => (
-                <div
-                  key={lt.code}
-                  onClick={() => {
-                    setLandTypeFilter(lt.code);
-                    setActiveTab('table');
-                  }}
-                  className="bg-slate-950/70 hover:bg-slate-950 p-4 rounded-xl border border-slate-800 hover:border-amber-500/50 transition cursor-pointer group"
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="font-mono font-bold text-sm text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-lg border border-amber-400/20">
-                      {lt.code}
-                    </span>
-                    <span className="text-xs font-bold text-slate-300">{lt.percentCount}%</span>
-                  </div>
-
-                  <strong className="text-xs text-white block truncate mb-1">
-                    {lt.code === 'LUK'
-                      ? 'Đất trồng lúa nước còn lại'
-                      : lt.code === 'NHK'
-                      ? 'Đất nương rẫy trồng cây hàng năm'
-                      : lt.code === 'ONT'
-                      ? 'Đất ở tại nông thôn'
-                      : lt.code === 'LUC'
-                      ? 'Đất chuyên trồng lúa nước'
-                      : lt.code === 'CLN'
-                      ? 'Đất trồng cây lâu năm'
-                      : lt.code === 'BHK'
-                      ? 'Đất bằng trồng cây hàng năm khác'
-                      : lt.code === 'BCS'
-                      ? 'Đất bằng chưa sử dụng'
-                      : lt.code === 'HNK'
-                      ? 'Đất trồng cây hàng năm khác'
-                      : lt.code === 'RSX'
-                      ? 'Đất rừng sản xuất'
-                      : lt.code === 'NTS'
-                      ? 'Đất nuôi trồng thủy sản'
-                      : 'Mục đích sử dụng khác'}
-                  </strong>
-
-                  <div className="flex items-center justify-between text-xs text-slate-400 mt-3 pt-2 border-t border-slate-800/60">
-                    <span>Số lượng: <strong className="text-white">{lt.count.toLocaleString('vi-VN')} thửa</strong></span>
-                    <span>Diện tích: <strong className="text-amber-400">{lt.totalAreaHa} ha</strong></span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 4: BẢNG DỮ LIỆU & BỘ LỌC CHI TIẾT */}
+        {/* TAB 1: BẢNG DỮ LIỆU & QUẢN LÝ KÊ KHAI (MẶC ĐỊNH) */}
         {activeTab === 'table' && (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+            {/* 4 NÚT LỌC NHANH TRẠNG THÁI THEO ĐÚNG YÊU CẦU */}
+            <div className="flex flex-wrap items-center gap-2 pb-1">
+              <span className="text-xs text-slate-400 font-semibold mr-1">Lọc nhanh:</span>
+              <button
+                onClick={() => {
+                  setStatusFilter('ALL');
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  statusFilter === 'ALL'
+                    ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                Tất cả ({globalStats.total})
+              </button>
+
+              <button
+                onClick={() => {
+                  setStatusFilter('DA_SO_HOA_XANH');
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  statusFilter === 'DA_SO_HOA_XANH'
+                    ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400'
+                    : 'bg-slate-800 text-emerald-300 hover:bg-slate-700 border border-emerald-500/30'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                Đã số hóa ({globalStats.green})
+              </button>
+
+              <button
+                onClick={() => {
+                  setStatusFilter('DA_KE_KHAI_CHUA_SO_HOA_LAM');
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  statusFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
+                    ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400'
+                    : 'bg-slate-800 text-blue-300 hover:bg-slate-700 border border-blue-500/30'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+                Đã kê khai ({globalStats.blue})
+              </button>
+
+              <button
+                onClick={() => {
+                  setStatusFilter('CO_TEN_CHUA_SO_HOA_VANG');
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG'
+                    ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-400'
+                    : 'bg-slate-800 text-amber-300 hover:bg-slate-700 border border-amber-500/30'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                Chưa kê khai - Có tên ({globalStats.yellow})
+              </button>
+
+              <button
+                onClick={() => {
+                  setStatusFilter('CHUA_CO_TEN_XAM');
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  statusFilter === 'CHUA_CO_TEN_XAM'
+                    ? 'bg-slate-700 text-white shadow-sm ring-2 ring-slate-400'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-600/30'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-slate-300"></span>
+                Chưa kê khai - Không có tên ({globalStats.gray})
+              </button>
+            </div>
+
             {/* Filter Toolbar */}
             <div className="space-y-3">
               <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
@@ -1258,25 +1136,6 @@ export default function DashboardPage() {
 
               {/* Filter Dropdowns row */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                {/* Trạng thái */}
-                <div>
-                  <label className="text-[10px] text-slate-400 mb-1 block">Trạng thái số hóa:</label>
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => {
-                      setStatusFilter(e.target.value as any);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full p-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="ALL">Tất cả trạng thái ({globalStats.total})</option>
-                    <option value="DA_SO_HOA_XANH">🟢 Đã số hóa GGS ({globalStats.green})</option>
-                    <option value="DA_KE_KHAI_CHUA_SO_HOA_LAM">🔵 Đã kê khai thực địa ({globalStats.blue})</option>
-                    <option value="CO_TEN_CHUA_SO_HOA_VANG">🟡 Có tên chủ đất ({globalStats.yellow})</option>
-                    <option value="CHUA_CO_TEN_XAM">⚪ Chưa có dữ liệu ({globalStats.gray})</option>
-                  </select>
-                </div>
-
                 {/* Thôn / Buôn */}
                 <div>
                   <label className="text-[10px] text-slate-400 mb-1 block">Thôn / Buôn:</label>
@@ -1336,6 +1195,15 @@ export default function DashboardPage() {
                     ))}
                   </select>
                 </div>
+
+                {/* Bộ lọc có ảnh hồ sơ */}
+                <div>
+                  <label className="text-[10px] text-slate-400 mb-1 block">Tài liệu ảnh:</label>
+                  <div className="p-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 flex items-center justify-between">
+                    <span>Hồ sơ có ảnh:</span>
+                    <strong className="text-purple-300">{globalStats.withImagesCount}</strong>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1346,16 +1214,16 @@ export default function DashboardPage() {
                   Tìm thấy <strong>{filteredParcels.length.toLocaleString('vi-VN')}</strong> thửa đất phù hợp
                 </div>
 
-                {/* Báo số thửa đang chọn */}
+                {/* Báo số thửa đang chọn & Nút Đóng tập PDF */}
                 {selectedParcelCodes.size > 0 && (
                   <div className="flex items-center gap-2 bg-blue-950/80 text-blue-300 border border-blue-500/30 px-3 py-1 rounded-xl font-bold animate-in fade-in">
                     <span>Đang chọn {selectedParcelCodes.size} thửa</span>
                     <button
                       onClick={handleOpenPrintSelected}
-                      className="px-2 py-0.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] flex items-center gap-1 shadow-xs cursor-pointer"
+                      className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] flex items-center gap-1 shadow-md cursor-pointer"
                     >
-                      <Printer className="w-3 h-3" />
-                      Xuất Tập PDF ({selectedParcelCodes.size} đơn)
+                      <Printer className="w-3.5 h-3.5" />
+                      Đóng Tập PDF ({selectedParcelCodes.size} đơn)
                     </button>
                     <button
                       onClick={() => setSelectedParcelCodes(new Set())}
@@ -1396,7 +1264,7 @@ export default function DashboardPage() {
                         checked={isAllPageSelected}
                         onChange={toggleSelectAllPage}
                         className="rounded border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                        title="Chọn tất cả thửa trên trang này"
+                        title="Chọn tất cả thửa trên trang này để đóng tập PDF"
                       />
                     </th>
                     <th
@@ -1438,6 +1306,7 @@ export default function DashboardPage() {
                         <ArrowUpDown className="w-3 h-3" />
                       </div>
                     </th>
+                    <th className="p-3 text-center">Hồ Sơ Ảnh</th>
                     <th className="p-3 text-center">Trạng Thái</th>
                     <th className="p-3 text-center">Thao Tác</th>
                   </tr>
@@ -1445,7 +1314,7 @@ export default function DashboardPage() {
                 <tbody className="divide-y divide-slate-800/60">
                   {paginatedParcels.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="p-8 text-center text-slate-500">
+                      <td colSpan={11} className="p-8 text-center text-slate-500">
                         Không tìm thấy thửa đất nào phù hợp với bộ lọc hiện tại.
                       </td>
                     </tr>
@@ -1455,6 +1324,15 @@ export default function DashboardPage() {
                       const isBlue = p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
                       const isYellow = p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG';
                       const isChecked = selectedParcelCodes.has(p.ma_thua);
+
+                      const decl = declarationsMap[p.ma_thua];
+                      const hasImg =
+                        Boolean(p.cccd_url) ||
+                        Boolean(p.svg_url) ||
+                        (Array.isArray(p.gcn_urls) && p.gcn_urls.length > 0) ||
+                        Boolean(decl?.anh_cccd_truoc) ||
+                        Boolean(decl?.anh_cccd_sau) ||
+                        Boolean(decl?.anh_gcn);
 
                       return (
                         <tr
@@ -1472,13 +1350,38 @@ export default function DashboardPage() {
                               className="rounded border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
                             />
                           </td>
-                          <td className="p-3 font-mono font-bold text-white">Thửa {p.so_thua}</td>
-                          <td className="p-3 font-mono text-slate-300">Tờ {p.to_ban_do}</td>
-                          <td className="p-3">
-                            <strong className="text-white font-medium block">
-                              {p.chu_ho || <span className="text-slate-500 italic">Chưa có tên</span>}
-                            </strong>
+
+                          {/* Số thửa - Bấm để mở Modal xem chi tiết */}
+                          <td className="p-3 font-mono font-bold text-white">
+                            <button
+                              onClick={() => handleOpenDetailModal(p)}
+                              className="hover:text-blue-400 hover:underline transition font-bold text-left cursor-pointer"
+                              title="Bấm để xem chi tiết thửa đất & hồ sơ kê khai"
+                            >
+                              Thửa {p.so_thua}
+                            </button>
                           </td>
+
+                          <td className="p-3 font-mono text-slate-300">Tờ {p.to_ban_do}</td>
+
+                          {/* Chủ hộ */}
+                          <td className="p-3">
+                            <button
+                              onClick={() => handleOpenDetailModal(p)}
+                              className="text-left group cursor-pointer"
+                            >
+                              <strong className="text-white font-medium block group-hover:text-blue-300 transition">
+                                {p.chu_ho || <span className="text-slate-500 italic">Chưa có tên</span>}
+                              </strong>
+                              {decl?.created_at && (
+                                <span className="text-[10px] text-blue-400 flex items-center gap-1 mt-0.5">
+                                  <Clock className="w-2.5 h-2.5" />
+                                  Đã kê khai {new Date(decl.created_at).toLocaleDateString('vi-VN')}
+                                </span>
+                              )}
+                            </button>
+                          </td>
+
                           <td className="p-3 font-mono text-[11px] text-slate-400">
                             {p.cccd ? (
                               <span className="text-slate-300">{p.cccd}</span>
@@ -1486,15 +1389,36 @@ export default function DashboardPage() {
                               <span className="text-slate-600">---</span>
                             )}
                           </td>
+
                           <td className="p-3 text-slate-300 truncate max-w-[160px]">{p.thon_xa}</td>
+
                           <td className="p-3">
                             <span className="font-mono px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 text-[11px] border border-slate-700">
                               {p.loai_dat || '---'}
                             </span>
                           </td>
+
                           <td className="p-3 text-right font-mono font-semibold text-slate-200">
                             {p.dien_tich ? `${p.dien_tich} m²` : '---'}
                           </td>
+
+                          {/* Cột Hồ sơ ảnh */}
+                          <td className="p-3 text-center">
+                            {hasImg ? (
+                              <button
+                                onClick={() => handleOpenDetailModal(p)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30 hover:bg-purple-500/25 transition cursor-pointer"
+                                title="Bấm để xem ảnh CCCD / Giấy chứng nhận"
+                              >
+                                <ImageIcon className="w-3 h-3 text-purple-400" />
+                                <span>Có ảnh</span>
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-slate-600">---</span>
+                            )}
+                          </td>
+
+                          {/* Trạng thái */}
                           <td className="p-3 text-center">
                             {isGreen ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
@@ -1513,13 +1437,25 @@ export default function DashboardPage() {
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-700/40 text-slate-400 border border-slate-600/30">
-                                Chưa có DL
+                                Không có tên
                               </span>
                             )}
                           </td>
+
+                          {/* Cột Thao Tác: Chi tiết, In đơn, Bản đồ */}
                           <td className="p-3 text-center">
                             <div className="flex items-center justify-center gap-1.5">
-                              {/* Nút In đơn kê khai cho thửa này */}
+                              {/* Xem chi tiết */}
+                              <button
+                                onClick={() => handleOpenDetailModal(p)}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-blue-300 border border-blue-500/30 transition cursor-pointer"
+                                title="Xem chi tiết thửa đất và hồ sơ kê khai"
+                              >
+                                <Eye className="w-3 h-3 text-blue-400" />
+                                <span>Chi tiết</span>
+                              </button>
+
+                              {/* In đơn */}
                               <button
                                 onClick={() => handleOpenPrintSingle(p)}
                                 className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-purple-300 border border-purple-500/30 transition cursor-pointer"
@@ -1529,7 +1465,7 @@ export default function DashboardPage() {
                                 <span>In đơn</span>
                               </button>
 
-                              {/* Nút xem trên Bản đồ vệ tinh */}
+                              {/* Bản đồ */}
                               <Link
                                 href={`/?to=${p.to_ban_do}&thua=${p.so_thua}&ma_thua=${p.ma_thua}`}
                                 className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-blue-600/80 hover:bg-blue-600 text-white transition shadow-xs"
@@ -1592,12 +1528,307 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+
+        {/* TAB 2: BẢNG TỔNG QUAN & TOP THÔN */}
+        {activeTab === 'overview' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-blue-400" />
+                    Tiến Độ Số Hóa Tại Các Thôn / Buôn Trọng Điểm
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Xếp hạng theo số lượng thửa đất cần quản lý</p>
+                </div>
+                <button
+                  onClick={() => setActiveTab('villages')}
+                  className="text-xs text-blue-400 hover:text-blue-300 font-semibold cursor-pointer"
+                >
+                  Xem tất cả ({villageStats.length}) →
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {villageStats.slice(0, 7).map((v, i) => (
+                  <div
+                    key={v.name}
+                    className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 hover:border-slate-700 transition"
+                  >
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-md bg-slate-800 text-slate-300 text-[10px] font-bold flex items-center justify-center shrink-0">
+                          {i + 1}
+                        </span>
+                        <strong className="text-slate-100 font-semibold truncate max-w-[200px] sm:max-w-none">
+                          {v.name}
+                        </strong>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-slate-400">
+                          <strong className="text-emerald-400">{v.green}</strong>/{v.total} thửa
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold text-[11px]">
+                          {v.rate}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden flex">
+                      <div style={{ width: `${v.rate}%` }} className="bg-emerald-500 h-full rounded-l-full" />
+                      <div
+                        style={{ width: `${v.total > 0 ? (v.yellow / v.total) * 100 : 0}%` }}
+                        className="bg-amber-500 h-full"
+                      />
+                      <div
+                        style={{ width: `${v.total > 0 ? (v.gray / v.total) * 100 : 0}%` }}
+                        className="bg-slate-700 h-full rounded-r-full"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 mt-1">
+                      <span>Diện tích: {v.totalAreaHa} ha</span>
+                      <span>Chờ số hóa: {v.yellow + v.gray} thửa</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <PieChart className="w-4 h-4 text-amber-400" />
+                    Cơ Cấu Loại Đất Chính
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Phân bổ mục đích sử dụng đất</p>
+                </div>
+                <button
+                  onClick={() => setActiveTab('landTypes')}
+                  className="text-xs text-amber-400 hover:text-amber-300 font-semibold cursor-pointer"
+                >
+                  Chi tiết →
+                </button>
+              </div>
+
+              <div className="space-y-2.5">
+                {landTypeStats.slice(0, 6).map((lt) => (
+                  <div
+                    key={lt.code}
+                    className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex items-center justify-between text-xs"
+                  >
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded text-[11px] border border-amber-400/20">
+                          {lt.code}
+                        </span>
+                        <span className="text-slate-300 font-medium">
+                          {lt.code === 'LUK'
+                            ? 'Đất trồng lúa nước còn lại'
+                            : lt.code === 'NHK'
+                            ? 'Đất nương rẫy trồng cây hàng năm'
+                            : lt.code === 'ONT'
+                            ? 'Đất ở tại nông thôn'
+                            : lt.code === 'LUC'
+                            ? 'Đất chuyên trồng lúa nước'
+                            : lt.code === 'CLN'
+                            ? 'Đất trồng cây lâu năm'
+                            : lt.code === 'BHK'
+                            ? 'Đất bằng trồng cây hàng năm khác'
+                            : 'Đất nông nghiệp / chuyên dùng'}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-500 mt-0.5 block">
+                        Quy mô: {lt.totalAreaHa} ha
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <strong className="text-slate-200 block">{lt.count.toLocaleString('vi-VN')}</strong>
+                      <span className="text-[10px] text-slate-400">{lt.percentCount}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="pt-2 border-t border-slate-800/80 text-center">
+                <Link
+                  href="/"
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-400 hover:text-blue-300 transition"
+                >
+                  <MapIcon className="w-3.5 h-3.5" />
+                  Mở bản đồ số trực quan 5.943 thửa đất →
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: DANH SÁCH CHI TIẾT TẤT CẢ THÔN / BUÔN */}
+        {activeTab === 'villages' && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-blue-400" />
+                  Tiến Độ Số Hóa Từng Thôn / Buôn ({villageStats.length} địa bàn)
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Bấm vào thôn bất kỳ để xem danh sách các thửa đất tương ứng
+                </p>
+              </div>
+              <span className="text-xs text-slate-400 bg-slate-800 px-3 py-1 rounded-xl">
+                Tổng quản lý: <strong>{globalStats.total.toLocaleString('vi-VN')} thửa</strong>
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {villageStats.map((v) => (
+                <div
+                  key={v.name}
+                  onClick={() => {
+                    setVillageFilter(v.name);
+                    setActiveTab('table');
+                  }}
+                  className="bg-slate-950/70 hover:bg-slate-950 p-4 rounded-xl border border-slate-800 hover:border-blue-500/50 transition cursor-pointer group"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <strong className="text-sm font-bold text-white group-hover:text-blue-300 transition truncate max-w-[200px]">
+                      {v.name}
+                    </strong>
+                    <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                      {v.rate}% GGS
+                    </span>
+                  </div>
+
+                  <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden flex my-2">
+                    <div style={{ width: `${v.rate}%` }} className="bg-emerald-500 h-full rounded-l-full" />
+                    <div
+                      style={{ width: `${v.total > 0 ? (v.yellow / v.total) * 100 : 0}%` }}
+                      className="bg-amber-500 h-full"
+                    />
+                    <div
+                      style={{ width: `${v.total > 0 ? (v.gray / v.total) * 100 : 0}%` }}
+                      className="bg-slate-700 h-full rounded-r-full"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1 text-[11px] text-slate-400 mt-2 pt-2 border-t border-slate-800/60">
+                    <div>
+                      <span className="block text-[10px] text-slate-500">Tổng thửa:</span>
+                      <strong className="text-slate-200">{v.total}</strong>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] text-emerald-500">Đã số hóa:</span>
+                      <strong className="text-emerald-400">{v.green}</strong>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] text-amber-500">Có tên:</span>
+                      <strong className="text-amber-400">{v.yellow}</strong>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 text-[10px] text-blue-400 group-hover:underline flex items-center justify-between">
+                    <span>Quy mô: {v.totalAreaHa} ha</span>
+                    <span>Xem danh sách →</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: PHÂN BỔ LOẠI ĐẤT TOÀN XÃ */}
+        {activeTab === 'landTypes' && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <PieChart className="w-4 h-4 text-amber-400" />
+                Cơ Cấu & Diện Tích Phân Bổ Theo Mục Đích Sử Dụng Đất
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Toàn xã có {landTypeStats.length} mã loại đất với tổng diện tích {globalStats.totalAreaHa} ha
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {landTypeStats.map((lt) => (
+                <div
+                  key={lt.code}
+                  onClick={() => {
+                    setLandTypeFilter(lt.code);
+                    setActiveTab('table');
+                  }}
+                  className="bg-slate-950/70 hover:bg-slate-950 p-4 rounded-xl border border-slate-800 hover:border-amber-500/50 transition cursor-pointer group"
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-mono font-bold text-sm text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-lg border border-amber-400/20">
+                      {lt.code}
+                    </span>
+                    <span className="text-xs font-bold text-slate-300">{lt.percentCount}%</span>
+                  </div>
+
+                  <strong className="text-xs text-white block truncate mb-1">
+                    {lt.code === 'LUK'
+                      ? 'Đất trồng lúa nước còn lại'
+                      : lt.code === 'NHK'
+                      ? 'Đất nương rẫy trồng cây hàng năm'
+                      : lt.code === 'ONT'
+                      ? 'Đất ở tại nông thôn'
+                      : lt.code === 'LUC'
+                      ? 'Đất chuyên trồng lúa nước'
+                      : lt.code === 'CLN'
+                      ? 'Đất trồng cây lâu năm'
+                      : lt.code === 'BHK'
+                      ? 'Đất bằng trồng cây hàng năm khác'
+                      : lt.code === 'BCS'
+                      ? 'Đất bằng chưa sử dụng'
+                      : lt.code === 'HNK'
+                      ? 'Đất trồng cây hàng năm khác'
+                      : lt.code === 'RSX'
+                      ? 'Đất rừng sản xuất'
+                      : lt.code === 'NTS'
+                      ? 'Đất nuôi trồng thủy sản'
+                      : 'Mục đích sử dụng khác'}
+                  </strong>
+
+                  <div className="flex items-center justify-between text-xs text-slate-400 mt-3 pt-2 border-t border-slate-800/60">
+                    <span>Số lượng: <strong className="text-white">{lt.count.toLocaleString('vi-VN')} thửa</strong></span>
+                    <span>Diện tích: <strong className="text-amber-400">{lt.totalAreaHa} ha</strong></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Footer */}
       <footer className="border-t border-slate-800/80 py-4 px-3 sm:px-6 text-center text-xs text-slate-500 mt-auto no-print">
         <p>Hệ thống Bản đồ Địa chính & Quản trị Tiến độ Số hóa Xã Cư Pui • Dữ liệu cập nhật 2026</p>
       </footer>
+
+      {/* Modal Xem chi tiết Thửa đất & Hồ sơ kê khai thực địa */}
+      <DashboardParcelModal
+        isOpen={isDetailModalOpen}
+        onClose={() => setIsDetailModalOpen(false)}
+        parcel={activeParcelDetail}
+        declaration={activeParcelDetail ? declarationsMap[activeParcelDetail.ma_thua] : null}
+        onPrintDeclaration={(p, decl) => {
+          setIsDetailModalOpen(false);
+          handleOpenPrintSingle(p);
+        }}
+        onOpenImageViewer={handleOpenImageViewer}
+      />
+
+      {/* Modal Phóng to & Tải ảnh CCCD / Giấy chứng nhận */}
+      <VectorViewerModal
+        isOpen={isImageViewerOpen}
+        onClose={() => setIsImageViewerOpen(false)}
+        svgUrl={viewerData.url}
+        urls={viewerData.urls}
+        title={viewerData.title}
+        ownerName={viewerData.owner}
+        cccdNumber={viewerData.cccd}
+      />
 
       {/* Modal In / Xuất PDF tập đơn kê khai khổ A4 chuẩn */}
       <DeclarationPrintModal
