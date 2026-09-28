@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { ZoomIn, ZoomOut, RotateCcw, X, ShieldCheck, Download } from 'lucide-react';
-import { getResolvedSvgUrl } from '@/utils/geo';
+import { ZoomIn, ZoomOut, RotateCcw, X, ShieldCheck, Download, ChevronLeft, ChevronRight, FileText, AlertCircle } from 'lucide-react';
+import { getResolvedImageUrl } from '@/utils/geo';
 
 interface VectorViewerModalProps {
   isOpen: boolean;
   onClose: () => void;
   svgUrl: string;
+  urls?: string[];
   title: string;
   ownerName?: string;
   cccdNumber?: string;
@@ -17,18 +18,48 @@ export default function VectorViewerModal({
   isOpen,
   onClose,
   svgUrl,
+  urls,
   title,
   ownerName,
   cccdNumber,
 }: VectorViewerModalProps) {
   const [scale, setScale] = useState(1);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [imgError, setImgError] = useState(false);
+  const [retryWithProxy, setRetryWithProxy] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Reset scale when opening a new SVG
+  // Danh sách các ảnh cần hiển thị (nếu có urls thì lấy urls, ngược lại lấy [svgUrl])
+  const imageList = urls && urls.length > 0 ? urls : [svgUrl];
+  const currentPath = imageList[activeIdx] || svgUrl;
+
+  // Tính URL thực tế
+  const getImgSrc = () => {
+    if (!currentPath) return '';
+    if (retryWithProxy) {
+      const cleanPath = currentPath.startsWith('/') ? currentPath : `/${currentPath}`;
+      return `/api/image${cleanPath}`;
+    }
+    return getResolvedImageUrl(currentPath);
+  };
+
+  // Reset scale và trạng thái khi mở modal hoặc đổi ảnh
   useEffect(() => {
     if (isOpen) {
       setScale(1);
+      setActiveIdx(0);
+      setImgError(false);
+      setRetryWithProxy(false);
+      setIsLoading(true);
     }
-  }, [isOpen, svgUrl]);
+  }, [isOpen, svgUrl, urls]);
+
+  useEffect(() => {
+    setScale(1);
+    setImgError(false);
+    setRetryWithProxy(false);
+    setIsLoading(true);
+  }, [activeIdx]);
 
   // Handle ESC key to close
   useEffect(() => {
@@ -47,8 +78,24 @@ export default function VectorViewerModal({
   const handleZoomOut = () => setScale((prev) => Math.max(prev - 0.3, 0.5));
   const handleReset = () => setScale(1);
 
+  const handleImageError = () => {
+    if (!retryWithProxy) {
+      // Thử lại qua đường truyền proxy API nếu CDN R2 trực tiếp bị chặn
+      console.warn('Lỗi tải CDN trực tiếp, đang thử kết nối qua proxy API...');
+      setRetryWithProxy(true);
+      setIsLoading(true);
+    } else {
+      setImgError(true);
+      setIsLoading(false);
+    }
+  };
+
+  const handleImageLoad = () => {
+    setIsLoading(false);
+    setImgError(false);
+  };
+
   return (
-    /* z-[99999] ĐẢM BẢO NỔI TUYỆT ĐỐI LÊN TRÊN BẢN ĐỒ LEAFLET (Leaflet dùng z-index từ 400 đến 1000) */
     <div
       className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/85 p-2 sm:p-6 backdrop-blur-md animate-in fade-in duration-200"
       onClick={(e) => {
@@ -61,9 +108,11 @@ export default function VectorViewerModal({
           <div>
             <div className="flex items-center gap-1.5 sm:gap-2">
               <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600 shrink-0" />
-              <h3 className="text-sm sm:text-lg font-black text-gray-900 truncate max-w-[180px] sm:max-w-none">{title}</h3>
+              <h3 className="text-sm sm:text-lg font-black text-gray-900 truncate max-w-[200px] sm:max-w-none">
+                {title}
+              </h3>
               <span className="hidden xs:inline px-2 py-0.5 text-[10px] sm:text-[11px] font-extrabold bg-emerald-100 text-emerald-800 rounded-full border border-emerald-200 shrink-0">
-                Ảnh rõ nét
+                Ảnh gốc sắc nét
               </span>
             </div>
             {ownerName && (
@@ -102,7 +151,7 @@ export default function VectorViewerModal({
             </button>
 
             <a
-              href={getResolvedSvgUrl(svgUrl)}
+              href={getImgSrc()}
               download
               target="_blank"
               rel="noreferrer"
@@ -125,25 +174,99 @@ export default function VectorViewerModal({
           </div>
         </div>
 
+        {/* Thanh chọn trang (Nếu có nhiều hơn 1 trang, ví dụ GCN nhiều trang) */}
+        {imageList.length > 1 && (
+          <div className="flex items-center justify-between px-4 py-2 bg-slate-800 border-b border-slate-700 text-xs text-white shrink-0">
+            <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
+              <span className="text-gray-400 text-[11px] mr-1 hidden sm:inline">Chọn trang:</span>
+              {imageList.map((_, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setActiveIdx(idx)}
+                  className={`px-3 py-1 rounded-lg font-bold text-xs transition ${
+                    activeIdx === idx
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-700/80 text-gray-300 hover:bg-slate-600'
+                  }`}
+                >
+                  Trang {idx + 1}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                disabled={activeIdx === 0}
+                onClick={() => setActiveIdx((prev) => Math.max(0, prev - 1))}
+                className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-40 transition"
+                title="Trang trước"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-[11px] text-gray-300 px-1">
+                {activeIdx + 1} / {imageList.length}
+              </span>
+              <button
+                disabled={activeIdx === imageList.length - 1}
+                onClick={() => setActiveIdx((prev) => Math.min(imageList.length - 1, prev + 1))}
+                className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-40 transition"
+                title="Trang sau"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Content Viewer (Scrollable) */}
         <div
-          className="flex-1 overflow-auto bg-slate-900/90 p-6 flex items-start justify-center cursor-grab active:cursor-grabbing"
+          className="flex-1 overflow-auto bg-slate-900/90 p-4 sm:p-6 flex items-start justify-center cursor-grab active:cursor-grabbing relative"
           onWheel={(e) => {
             if (e.deltaY < 0) handleZoomIn();
             else handleZoomOut();
           }}
         >
-          <div
-            className="transition-transform duration-100 ease-out origin-top shadow-2xl rounded-xl overflow-hidden bg-white"
-            style={{ transform: `scale(${scale})` }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={getResolvedSvgUrl(svgUrl)}
-              alt="CCCD Vector Preview"
-              className="w-[720px] max-w-none h-auto select-none pointer-events-none"
-            />
-          </div>
+          {/* Skeleton loading indicator */}
+          {isLoading && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/60 z-10">
+              <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-2" />
+              <p className="text-xs text-blue-200 font-semibold">Đang tải ảnh hồ sơ scan...</p>
+            </div>
+          )}
+
+          {imgError ? (
+            <div className="flex flex-col items-center justify-center p-8 bg-white/10 rounded-2xl border border-white/20 text-white max-w-md text-center my-auto">
+              <AlertCircle className="w-12 h-12 text-amber-400 mb-3" />
+              <h4 className="text-sm font-bold">Không thể tải ảnh hồ sơ scan</h4>
+              <p className="text-xs text-gray-300 mt-1 mb-4">
+                Vui lòng kiểm tra lại kết nối mạng hoặc thử mở lại.
+              </p>
+              <button
+                onClick={() => {
+                  setImgError(false);
+                  setIsLoading(true);
+                  setRetryWithProxy(!retryWithProxy);
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition"
+              >
+                Thử lại
+              </button>
+            </div>
+          ) : (
+            <div
+              className="transition-transform duration-100 ease-out origin-top shadow-2xl rounded-xl overflow-hidden bg-white max-w-full"
+              style={{ transform: `scale(${scale})` }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={getImgSrc()}
+                alt={title}
+                onError={handleImageError}
+                onLoad={handleImageLoad}
+                className="w-full max-w-[850px] h-auto select-none pointer-events-none object-contain"
+              />
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -152,7 +275,7 @@ export default function VectorViewerModal({
             Thu phóng: <strong className="text-blue-600 font-extrabold">{Math.round(scale * 100)}%</strong> (Dùng con lăn chuột hoặc nút bấm để zoom)
           </span>
           <span className="text-emerald-600 font-bold hidden sm:inline">
-            ✓ Định dạng đồ họa Vector SVG: Phóng to không bao giờ bị vỡ hạt
+            ✓ Ảnh scan chất lượng cao từ Cloudflare R2
           </span>
         </div>
       </div>

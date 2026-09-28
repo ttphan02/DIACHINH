@@ -23,7 +23,10 @@ export interface Parcel {
   giap_nam?: string;
   giap_bac?: string;
   has_cccd?: boolean;
+  cccd_url?: string | null;
   svg_url?: string | null;
+  has_gcn?: boolean;
+  gcn_urls?: string[];
   is_on_ggs?: boolean;
   is_declared?: boolean;
 }

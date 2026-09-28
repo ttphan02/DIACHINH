@@ -26,7 +26,7 @@ interface ParcelDetailPanelProps {
   sameOwnerParcels?: Parcel[];
   onSelectParcel?: (parcel: Parcel) => void;
   onClose: () => void;
-  onOpenVectorViewer: (svgUrl: string, title: string, owner?: string, cccd?: string) => void;
+  onOpenVectorViewer: (svgUrl: string, title: string, owner?: string, cccd?: string, urls?: string[]) => void;
   onSaveDeclaration: (data: DeclarationFormData) => void;
 }
 
@@ -203,41 +203,71 @@ export default function ParcelDetailPanel({
       <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
         {activeTab === 'info' ? (
           <>
-            {/* NÚT XEM CCCD CHỦ ĐẤT */}
-            {parcel.has_cccd && parcel.svg_url ? (
-              <div className="p-3 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-xl text-white shadow-md flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <ShieldCheck className="w-6 h-6 text-emerald-100" />
-                  <div>
-                    <h5 className="text-xs font-black">Đã có ảnh CCCD</h5>
-                    <p className="text-[11px] text-emerald-100">Bản vẽ vector rõ nét</p>
+            {/* NÚT XEM CCCD VÀ GCN QUYỀN SỬ DỤNG ĐẤT */}
+            {(parcel.has_cccd || parcel.has_gcn) ? (
+              <div className="space-y-2">
+                {parcel.has_cccd && (parcel.cccd_url || parcel.svg_url) && (
+                  <div className="p-3 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-xl text-white shadow-md flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <ShieldCheck className="w-5 h-5 text-emerald-100 shrink-0" />
+                      <div>
+                        <h5 className="text-xs font-black">Hồ sơ CCCD chủ hộ</h5>
+                        <p className="text-[11px] text-emerald-100">Ảnh scan rõ nét</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() =>
+                        onOpenVectorViewer(
+                          parcel.cccd_url || parcel.svg_url!,
+                          `Ảnh CCCD - Thửa ${parcel.so_thua} (Tờ ${parcel.to_ban_do})`,
+                          parcel.chu_ho,
+                          parcel.cccd
+                        )
+                      }
+                      className="px-3 py-1.5 bg-white text-emerald-700 hover:bg-emerald-50 rounded-lg text-xs font-extrabold shadow-sm transition flex items-center gap-1 shrink-0"
+                    >
+                      <Eye className="w-3.5 h-3.5" /> Xem CCCD
+                    </button>
                   </div>
-                </div>
-                <button
-                  onClick={() =>
-                    onOpenVectorViewer(
-                      parcel.svg_url!,
-                      `Ảnh CCCD - Thửa ${parcel.so_thua} (Tờ ${parcel.to_ban_do})`,
-                      parcel.chu_ho,
-                      parcel.cccd
-                    )
-                  }
-                  className="px-3 py-1.5 bg-white text-emerald-700 hover:bg-emerald-50 rounded-lg text-xs font-extrabold shadow-sm transition flex items-center gap-1"
-                >
-                  <Eye className="w-3.5 h-3.5" /> Xem CCCD
-                </button>
+                )}
+
+                {parcel.has_gcn && parcel.gcn_urls && parcel.gcn_urls.length > 0 && (
+                  <div className="p-3 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl text-white shadow-md flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <FileText className="w-5 h-5 text-blue-100 shrink-0" />
+                      <div>
+                        <h5 className="text-xs font-black">Giấy chứng nhận SD đất</h5>
+                        <p className="text-[11px] text-blue-100">{parcel.gcn_urls.length} trang hồ sơ scan</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() =>
+                        onOpenVectorViewer(
+                          parcel.gcn_urls![0],
+                          `Giấy chứng nhận SD đất - Thửa ${parcel.so_thua} (Tờ ${parcel.to_ban_do})`,
+                          parcel.chu_ho,
+                          parcel.cccd,
+                          parcel.gcn_urls
+                        )
+                      }
+                      className="px-3 py-1.5 bg-white text-blue-700 hover:bg-blue-50 rounded-lg text-xs font-extrabold shadow-sm transition flex items-center gap-1 shrink-0"
+                    >
+                      <Eye className="w-3.5 h-3.5" /> Xem GCN
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="p-2.5 bg-amber-50/80 border border-amber-200/80 rounded-xl text-amber-900 text-xs flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-amber-600" />
-                  <span>Chưa có ảnh CCCD của thửa này</span>
+                  <span>Chưa có hồ sơ scan (CCCD/GCN)</span>
                 </div>
                 <button
                   onClick={() => setActiveTab('declare')}
                   className="text-[11px] font-bold text-blue-600 hover:underline"
                 >
-                  Thêm ảnh
+                  Kê khai ngay
                 </button>
               </div>
             )}
@@ -454,11 +484,11 @@ export default function ParcelDetailPanel({
                         </p>
 
                       <div className="flex items-center justify-between pt-0.5">
-                        {nb.has_cccd && nb.svg_url ? (
+                        {(nb.has_cccd && (nb.cccd_url || nb.svg_url)) ? (
                           <button
                             onClick={() =>
                               onOpenVectorViewer(
-                                nb.svg_url!,
+                                (nb.cccd_url || nb.svg_url)!,
                                 `Ảnh CCCD - Thửa ${nb.so_thua} (Tờ ${nb.to_ban_do})`,
                                 nb.chu_ho,
                                 nb.cccd

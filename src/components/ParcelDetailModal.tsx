@@ -21,7 +21,7 @@ interface ParcelDetailModalProps {
   parcel: Parcel | null;
   neighbors: NeighborParcel[];
   onClose: () => void;
-  onOpenVectorViewer: (svgUrl: string, title: string, owner?: string, cccd?: string) => void;
+  onOpenVectorViewer: (svgUrl: string, title: string, owner?: string, cccd?: string, urls?: string[]) => void;
   onSaveDeclaration: (data: DeclarationFormData) => void;
 }
 

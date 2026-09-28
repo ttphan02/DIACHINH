@@ -98,21 +98,23 @@ export function removeVietnameseTones(str: string): string {
   return str.trim();
 }
 
+const DEFAULT_R2_URL = 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
+
 /**
- * Lấy URL ảnh scan SVG:
- * Nếu có cấu hình Cloudflare R2 (NEXT_PUBLIC_CLOUDFLARE_R2_URL), ảnh sẽ được tải trực tiếp từ CDN R2
- * Nếu không có hoặc đang chạy local, sẽ dùng đường dẫn cục bộ /svgs/
+ * Lấy URL ảnh scan CCCD / GCN:
+ * Tải trực tiếp từ Cloudflare R2 CDN siêu tốc
  */
-export function getResolvedSvgUrl(path?: string | null): string {
+export function getResolvedImageUrl(path?: string | null): string {
   if (!path) return '';
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path;
   }
-  const r2Url = process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL;
-  if (r2Url) {
-    const cleanR2 = r2Url.replace(/\/+$/, '');
-    const cleanPath = path.startsWith('/') ? path : `/${path}`;
-    return `${cleanR2}${cleanPath}`;
-  }
-  return path;
+  const r2Url = process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL || DEFAULT_R2_URL;
+  const cleanR2 = r2Url.replace(/\/+$/, '');
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${cleanR2}${cleanPath}`;
+}
+
+export function getResolvedSvgUrl(path?: string | null): string {
+  return getResolvedImageUrl(path);
 }

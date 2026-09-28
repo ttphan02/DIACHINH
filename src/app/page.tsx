@@ -47,9 +47,15 @@ export default function Home() {
   const [neighborParcels, setNeighborParcels] = useState<NeighborParcel[]>([]);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Vector SVG Viewer Modal State
+  // Vector SVG / Image Viewer Modal State
   const [isSvgOpen, setIsSvgOpen] = useState(false);
-  const [svgData, setSvgData] = useState<{ url: string; title: string; owner?: string; cccd?: string }>({
+  const [svgData, setSvgData] = useState<{
+    url: string;
+    urls?: string[];
+    title: string;
+    owner?: string;
+    cccd?: string;
+  }>({
     url: '',
     title: '',
   });
@@ -273,8 +279,14 @@ export default function Home() {
     }, 320);
   };
 
-  const handleOpenVectorViewer = (url: string, title: string, owner?: string, cccd?: string) => {
-    setSvgData({ url, title, owner, cccd });
+  const handleOpenVectorViewer = (
+    url: string,
+    title: string,
+    owner?: string,
+    cccd?: string,
+    urls?: string[]
+  ) => {
+    setSvgData({ url, title, owner, cccd, urls });
     setIsSvgOpen(true);
   };
 
@@ -742,11 +754,12 @@ export default function Home() {
         )}
       </div>
 
-      {/* Vector SVG Modal */}
+      {/* Vector SVG / Image Modal */}
       <VectorViewerModal
         isOpen={isSvgOpen}
         onClose={() => setIsSvgOpen(false)}
         svgUrl={svgData.url}
+        urls={svgData.urls}
         title={svgData.title}
         ownerName={svgData.owner}
         cccdNumber={svgData.cccd}
