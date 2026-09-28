@@ -29,8 +29,20 @@ import {
   RotateCw,
   Plus,
   ListPlus,
+  LocateFixed,
+  Locate,
+  Compass,
 } from 'lucide-react';
-import { downloadFile, autoDetectBoundaries, formatBoundaryText } from '@/utils/geo';
+import {
+  downloadFile,
+  autoDetectBoundaries,
+  formatBoundaryText,
+  calculateDistanceMeters,
+  calculateBearing,
+  getCompassInfo,
+  formatDistance,
+  getDirectionsUrl,
+} from '@/utils/geo';
 import DeclarationPrintModal from '@/components/DeclarationPrintModal';
 import CccdImageEditorModal from '@/components/CccdImageEditorModal';
 import { AdditionalParcel } from '@/types';
@@ -51,6 +63,8 @@ interface ParcelDetailPanelProps {
   onClose: () => void;
   onOpenVectorViewer: (svgUrl: string, title: string, owner?: string, cccd?: string, urls?: string[]) => void;
   onSaveDeclaration: (data: DeclarationFormData) => void;
+  userLocation?: { lat: number; lng: number; accuracy: number } | null;
+  onToggleLocation?: () => void;
 }
 
 export default function ParcelDetailPanel({
@@ -69,11 +83,27 @@ export default function ParcelDetailPanel({
   onClose,
   onOpenVectorViewer,
   onSaveDeclaration,
+  userLocation,
+  onToggleLocation,
 }: ParcelDetailPanelProps) {
 
   const [activeTab, setActiveTab] = useState<'info' | 'declare' | 'correction'>('info');
   const [mode, setMode] = useState<DeclarationMode>('SELF');
   const [downloadingItem, setDownloadingItem] = useState<string | null>(null);
+
+  // Tính khoảng cách và hướng la bàn từ vị trí GPS của cán bộ đến thửa đất này
+  const userDistanceInfo = useMemo(() => {
+    if (!userLocation || !parcel?.lat || !parcel?.lng) return null;
+    const dist = calculateDistanceMeters(userLocation.lat, userLocation.lng, parcel.lat, parcel.lng);
+    const bearing = calculateBearing(userLocation.lat, userLocation.lng, parcel.lat, parcel.lng);
+    const compass = getCompassInfo(bearing);
+    return {
+      distanceMeters: dist,
+      formattedDistance: formatDistance(dist),
+      compass,
+    };
+  }, [userLocation, parcel?.lat, parcel?.lng]);
+
 
   // Kiểm tra xem thửa này đã có trên Google Sheets chưa (đã được số hóa)
   const isAlreadyOnGgs = Boolean(parcel?.is_on_ggs || parcel?.trang_thai === 'DA_SO_HOA_XANH');
@@ -614,6 +644,49 @@ export default function ParcelDetailPanel({
                 )}
               </div>
             </div>
+
+            {/* CHỈ ĐƯỜNG & ĐỊNH VỊ THỰC ĐỊA CHO CÁN BỘ */}
+            {parcel.lat && parcel.lng && (
+              <div className="bg-gradient-to-br from-sky-50 to-blue-50/80 border border-sky-200 rounded-xl p-3 space-y-2.5 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-xs text-sky-950 flex items-center gap-1.5">
+                    <Navigation className="w-3.5 h-3.5 text-blue-600" />
+                    Chỉ đường thực địa cho cán bộ:
+                  </span>
+                  {userDistanceInfo && (
+                    <span className="text-[10px] font-bold bg-white text-blue-700 px-2 py-0.5 rounded-full border border-blue-200 shadow-2xs font-mono">
+                      {userDistanceInfo.compass.arrow} Cách: {userDistanceInfo.formattedDistance} ({userDistanceInfo.compass.directionText})
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <a
+                    href={getDirectionsUrl(parcel.lat, parcel.lng, userLocation?.lat, userLocation?.lng)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer text-center"
+                    title="Mở Google Maps trên điện thoại để dẫn đường từng ngã rẽ bằng giọng nói"
+                  >
+                    <Navigation className="w-3.5 h-3.5" />
+                    <span>Dẫn đường Google Maps</span>
+                    <ExternalLink className="w-3 h-3 opacity-70" />
+                  </a>
+
+                  {!userLocation && onToggleLocation && (
+                    <button
+                      type="button"
+                      onClick={onToggleLocation}
+                      className="py-2 px-2.5 bg-white hover:bg-sky-100 text-sky-700 border border-sky-300 rounded-lg text-xs font-semibold transition flex items-center gap-1 shrink-0 cursor-pointer"
+                      title="Bật GPS để đo khoảng cách thực tế từ vị trí bạn"
+                    >
+                      <LocateFixed className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Bật GPS</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* 1. THỬA KHÁC CÙNG CHỦ THEO CCCD (CHÍNH XÁC DUY NHẤT) */}
             {resolvedSameCccdParcels.length > 0 && (

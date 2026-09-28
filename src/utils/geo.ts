@@ -384,3 +384,28 @@ export async function downloadFile(urlOrPath: string, customFilename?: string): 
   }
 }
 
+/**
+ * Định dạng khoảng cách hiển thị dễ đọc (mét hoặc km)
+ */
+export function formatDistance(meters: number): string {
+  if (meters < 1000) {
+    return `${Math.round(meters)} m`;
+  }
+  return `${(meters / 1000).toFixed(2)} km`;
+}
+
+/**
+ * Tạo liên kết điều hướng Google Maps chỉ đường từng ngã rẽ (Turn-by-turn navigation)
+ */
+export function getDirectionsUrl(
+  destLat: number,
+  destLng: number,
+  originLat?: number,
+  originLng?: number
+): string {
+  if (originLat && originLng) {
+    return `https://www.google.com/maps/dir/?api=1&origin=${originLat},${originLng}&destination=${destLat},${destLng}&travelmode=driving`;
+  }
+  return `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}&travelmode=driving`;
+}
+

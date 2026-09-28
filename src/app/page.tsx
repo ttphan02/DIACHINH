@@ -9,7 +9,7 @@ import HeaderStats from '@/components/HeaderStats';
 import ParcelDetailPanel from '@/components/ParcelDetailPanel';
 import VectorViewerModal from '@/components/VectorViewerModal';
 import MapSheetMultiSelect from '@/components/MapSheetMultiSelect';
-import { findNearbyParcels, removeVietnameseTones } from '@/utils/geo';
+import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
 import {
   Search,
   Layers,
@@ -78,6 +78,21 @@ export default function Home() {
   const [additionalParcels, setAdditionalParcels] = useState<AdditionalParcel[]>([]);
   const [isPickingAdditional, setIsPickingAdditional] = useState<boolean>(false);
   const [pickToast, setPickToast] = useState<string | null>(null);
+
+  // Định vị GPS thực địa cho cán bộ
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
+  const [isTracking, setIsTracking] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const watchIdRef = useRef<number | null>(null);
+
+  // Dọn dẹp watchPosition khi unmount
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, []);
 
   const handleAddAdditionalParcel = (p: Parcel) => {
     if (p.ma_thua === selectedParcel?.ma_thua) return;
@@ -440,6 +455,100 @@ export default function Home() {
     }, 320);
   };
 
+  // Bật/tắt theo dõi vị trí GPS thực địa trực tiếp
+  const handleToggleLocation = useCallback(() => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      alert('Trình duyệt hoặc thiết bị của bạn không hỗ trợ định vị GPS.');
+      return;
+    }
+
+    if (isTracking) {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      setIsTracking(false);
+      setIsLocating(false);
+      setUserLocation(null);
+      setPickToast('Đã dừng định vị GPS');
+      setTimeout(() => setPickToast(null), 2500);
+      return;
+    }
+
+    setIsLocating(true);
+    setPickToast('Đang kết nối vệ tinh GPS...');
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        setUserLocation({
+          lat: latitude,
+          lng: longitude,
+          accuracy: Math.round(accuracy),
+        });
+        setIsTracking(true);
+        setIsLocating(false);
+        setPickToast(`✓ GPS hoạt động (Độ chính xác: ±${Math.round(accuracy)}m)`);
+        setTimeout(() => setPickToast(null), 3000);
+      },
+      (err) => {
+        console.warn('Lỗi định vị GPS:', err.message);
+        setIsLocating(false);
+        let msg = 'Không thể lấy vị trí GPS';
+        if (err.code === 1) {
+          msg = 'Vui lòng cấp quyền truy cập vị trí (GPS) cho trang web này';
+        } else if (err.code === 2) {
+          msg = 'Tín hiệu GPS yếu hoặc không khả dụng';
+        } else if (err.code === 3) {
+          msg = 'Hết thời gian chờ nhận tín hiệu GPS';
+        }
+        setPickToast(`⚠️ ${msg}`);
+        setTimeout(() => setPickToast(null), 4000);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      }
+    );
+
+    watchIdRef.current = watchId;
+  }, [isTracking]);
+
+  // Tìm và chọn thửa đất gần nhất với vị trí cán bộ đang đứng
+  const handleFindNearestParcel = useCallback(() => {
+    if (!userLocation) {
+      handleToggleLocation();
+      setPickToast('Đang bật GPS để xác định thửa đất bạn đang đứng...');
+      return;
+    }
+
+    const validParcels = computedParcels.filter((p) => p.lat && p.lng);
+    if (validParcels.length === 0) {
+      setPickToast('Không tìm thấy dữ liệu tọa độ thửa đất nào');
+      setTimeout(() => setPickToast(null), 3000);
+      return;
+    }
+
+    let closestParcel: Parcel | null = null;
+    let minDistance = Infinity;
+
+    for (const p of validParcels) {
+      const dist = calculateDistanceMeters(userLocation.lat, userLocation.lng, p.lat!, p.lng!);
+      if (dist < minDistance) {
+        minDistance = dist;
+        closestParcel = p;
+      }
+    }
+
+    if (closestParcel) {
+      handleSelectParcel(closestParcel);
+      const distText = formatDistance(minDistance);
+      setPickToast(`🎯 Đã chọn Thửa ${closestParcel.so_thua} (Tờ ${closestParcel.to_ban_do}) - Cách bạn ${distText}`);
+      setTimeout(() => setPickToast(null), 4000);
+    }
+  }, [userLocation, computedParcels, handleToggleLocation, handleSelectParcel]);
+
   // Tự động chọn thửa nếu có query params (từ Dashboard chuyển sang: ?to=4&thua=154 hoặc ?ma_thua=...)
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -569,6 +678,8 @@ export default function Home() {
                     onClose={handleClosePanel}
                     onOpenVectorViewer={handleOpenVectorViewer}
                     onSaveDeclaration={handleSaveDeclaration}
+                    userLocation={userLocation}
+                    onToggleLocation={handleToggleLocation}
                   />
                 )}
               </div>
@@ -784,6 +895,11 @@ export default function Home() {
               onSelectParcel={handleSelectParcel}
               selectedParcel={selectedParcel}
               neighborParcels={neighborParcels}
+              userLocation={userLocation}
+              isTracking={isTracking}
+              isLocating={isLocating}
+              onToggleLocation={handleToggleLocation}
+              onFindNearestParcel={handleFindNearestParcel}
             />
           </div>
         ) : (

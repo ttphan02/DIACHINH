@@ -117,4 +117,80 @@ input, button, select, textarea, optgroup {
   }
 }
 
+/* User Location GPS Beacon */
+.user-gps-beacon-wrapper {
+  background: transparent !important;
+  border: none !important;
+}
+
+.user-gps-beacon {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+}
+
+.user-gps-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  background: #2563eb;
+  border: 2.5px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 12px rgba(37, 99, 235, 0.9);
+  z-index: 2;
+}
+
+.user-gps-pulse {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 42px;
+  height: 42px;
+  margin: -21px 0 0 -21px;
+  background: rgba(59, 130, 246, 0.35);
+  border: 1.5px solid rgba(59, 130, 246, 0.7);
+  border-radius: 50%;
+  animation: gpsRadarPulse 2s ease-out infinite;
+  z-index: 1;
+}
+
+@keyframes gpsRadarPulse {
+  0% {
+    transform: scale(0.35);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+/* Badge khoảng cách lộ trình dẫn đường */
+.nav-route-badge-wrapper {
+  background: transparent !important;
+  border: none !important;
+}
+
+.nav-route-badge {
+  transform: translate(-50%, -50%);
+  background: #0f172a;
+  color: #38bdf8;
+  font-weight: 800;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  border: 1.5px solid #38bdf8;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  letter-spacing: 0.2px;
+}
+
 
