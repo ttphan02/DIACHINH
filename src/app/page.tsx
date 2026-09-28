@@ -118,20 +118,20 @@ export default function Home() {
       const isLocallyDeclared = declaredParcelCodes.has(p.ma_thua);
 
       let trang_thai: ParcelStatus;
-      if (isOnGgs) {
-        trang_thai = 'DA_SO_HOA_XANH'; // Xanh lá: Đã số hóa (Có trên GGS)
+      if (isOnGgs || p.trang_thai === 'DA_SO_HOA_XANH') {
+        trang_thai = 'DA_SO_HOA_XANH'; // Xanh lá: Đã số hóa (Có trên GGS hoặc đã được đánh dấu xanh trong Excel tổng)
       } else if (isLocallyDeclared) {
         trang_thai = 'DA_KE_KHAI_CHUA_SO_HOA_LAM'; // Xanh lam: Vừa kê khai trên web, chưa số hóa lên GGS
-      } else if (p.chu_ho && p.chu_ho !== 'Chưa có tên') {
-        trang_thai = 'CO_TEN_CHUA_SO_HOA_VANG'; // Vàng: Có tên chủ đất
+      } else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') {
+        trang_thai = 'CO_TEN_CHUA_SO_HOA_VANG'; // Vàng: Có tên chủ đất (từ danh sách DSCOTEN)
       } else {
-        trang_thai = 'CHUA_CO_TEN_XAM'; // Trắng: Chưa có tên
+        trang_thai = 'CHUA_CO_TEN_XAM'; // Trắng: Chưa có tên (File tổng trừ đi DSCOTEN)
       }
 
       return {
         ...p,
         trang_thai,
-        is_on_ggs: isOnGgs,
+        is_on_ggs: isOnGgs || p.trang_thai === 'DA_SO_HOA_XANH',
         is_declared: isLocallyDeclared,
       };
     });
