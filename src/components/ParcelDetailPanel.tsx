@@ -22,6 +22,8 @@ import {
   Loader2,
   Camera,
   Trash2,
+  AlertTriangle,
+  FileEdit,
 } from 'lucide-react';
 import { downloadFile } from '@/utils/geo';
 
@@ -48,7 +50,7 @@ export default function ParcelDetailPanel({
   onOpenVectorViewer,
   onSaveDeclaration,
 }: ParcelDetailPanelProps) {
-  const [activeTab, setActiveTab] = useState<'info' | 'declare'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'declare' | 'correction'>('info');
   const [mode, setMode] = useState<DeclarationMode>('SELF');
   const [downloadingItem, setDownloadingItem] = useState<string | null>(null);
 
@@ -95,13 +97,15 @@ export default function ParcelDetailPanel({
   const [giapNam, setGiapNam] = useState('');
   const [giapBac, setGiapBac] = useState('');
 
-  // Declaration form state
+  // Declaration & Correction form state
   const [nguoiKeKhaiTen, setNguoiKeKhaiTen] = useState('');
   const [nguoiKeKhaiSdt, setNguoiKeKhaiSdt] = useState('');
   const [chuDatTen, setChuDatTen] = useState('');
   const [chuDatCccd, setChuDatCccd] = useState('');
   const [ghiChu, setGhiChu] = useState('');
+  const [lyDoBaoSai, setLyDoBaoSai] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [correctionSuccess, setCorrectionSuccess] = useState(false);
 
   // Sync state when parcel changes
   useEffect(() => {
@@ -112,14 +116,16 @@ export default function ParcelDetailPanel({
       setGiapBac(parcel.giap_bac || '');
       setChuDatTen(parcel.chu_ho && parcel.chu_ho !== 'Chưa có tên' ? parcel.chu_ho : '');
       setChuDatCccd(parcel.cccd || '');
+      setLyDoBaoSai('');
       setSavedSuccess(false);
+      setCorrectionSuccess(false);
+      setCccdUploadedFiles([]);
+      setGcnUploadedFiles([]);
 
-      // Nếu thửa đã có trên Google Sheets -> chỉ xem thông tin, không kê khai
-      if (isAlreadyOnGgs) {
-        setActiveTab('info');
-      }
+      // Mặc định về tab thông tin khi đổi thửa
+      setActiveTab('info');
     }
-  }, [parcel, isAlreadyOnGgs]);
+  }, [parcel?.ma_thua]);
 
   const handleCccdFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -210,6 +216,33 @@ export default function ParcelDetailPanel({
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 
+  const handleCorrectionSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSaveDeclaration({
+      ma_thua: parcel.ma_thua,
+      mode,
+      nguoi_ke_khai_ten: mode === 'SELF' ? chuDatTen : nguoiKeKhaiTen,
+      nguoi_ke_khai_sdt: nguoiKeKhaiSdt,
+      chu_dat_ten: chuDatTen,
+      chu_dat_cccd: chuDatCccd,
+      giap_dong: giapDong,
+      giap_tay: giapTay,
+      giap_nam: giapNam,
+      giap_bac: giapBac,
+      anh_cccd_truoc: cccdUploadedFiles[0]?.url,
+      anh_cccd_sau: cccdUploadedFiles[1]?.url,
+      anh_gcn: gcnUploadedFiles[0]?.url,
+      ghi_chu: `[BÁO SAI / BỔ SUNG THỬA GGS: ${lyDoBaoSai}] ${ghiChu}`.trim(),
+      is_correction: true,
+      ly_do_sai: lyDoBaoSai,
+    });
+    setCorrectionSuccess(true);
+    setTimeout(() => {
+      setCorrectionSuccess(false);
+      setActiveTab('info');
+    }, 2500);
+  };
+
   return (
     <div className="h-full w-full flex flex-col bg-white overflow-hidden">
       {/* Mobile Drag Handle */}
@@ -260,18 +293,55 @@ export default function ParcelDetailPanel({
         </button>
       </div>
 
-      {/* Tab Navigation: Nếu thửa đã có trên Google Sheets thì chỉ hiện thông tin, không cần kê khai */}
+      {/* Tab Navigation: Nếu thửa đã có trên Google Sheets thì hiện Tab Thông tin & Tab Sai thông tin/Bổ sung */}
       {isAlreadyOnGgs ? (
-        <div className="flex items-center justify-between px-3.5 py-2.5 bg-emerald-50/90 border-b border-emerald-100 text-xs">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span className="font-bold text-emerald-900">
-              Thửa đã có trên Google Sheet (Đã số hóa)
-            </span>
+        <div>
+          {/* Banner thửa đã số hóa + Nút bấm nhanh Sai thông tin */}
+          <div className="flex items-center justify-between px-3.5 py-2 bg-emerald-50/90 border-b border-emerald-100 text-xs gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="font-bold text-emerald-950 truncate">
+                Đã có trên Google Sheet (Đã số hóa)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab(activeTab === 'correction' ? 'info' : 'correction')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 shadow-2xs border ${
+                activeTab === 'correction'
+                  ? 'bg-amber-600 text-white border-amber-600'
+                  : 'bg-white hover:bg-amber-50 text-amber-800 border-amber-300'
+              }`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+              {activeTab === 'correction' ? 'Xem thông tin' : 'Sai thông tin?'}
+            </button>
           </div>
-          <span className="text-[10px] font-bold bg-emerald-200/90 text-emerald-900 px-2 py-0.5 rounded-full shrink-0">
-            Chỉ xem thông tin
-          </span>
+
+          {/* Tab bar để người dùng chuyển đổi dễ dàng */}
+          <div className="flex border-b border-gray-100 bg-white px-3">
+            <button
+              onClick={() => setActiveTab('info')}
+              className={`py-2 px-3 font-bold text-xs border-b-2 transition ${
+                activeTab === 'info'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-800'
+              }`}
+            >
+              Thông tin & Tứ cận
+            </button>
+            <button
+              onClick={() => setActiveTab('correction')}
+              className={`py-2 px-3 font-bold text-xs border-b-2 transition flex items-center gap-1.5 ${
+                activeTab === 'correction'
+                  ? 'border-amber-600 text-amber-700 bg-amber-50/40 font-extrabold'
+                  : 'border-transparent text-amber-700 hover:text-amber-900'
+              }`}
+            >
+              <FileEdit className="w-3.5 h-3.5 text-amber-600" />
+              Sai thông tin / Bổ sung
+            </button>
+          </div>
         </div>
       ) : (
         <div className="flex border-b border-gray-100 bg-white px-3">
@@ -303,6 +373,23 @@ export default function ParcelDetailPanel({
       <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
         {activeTab === 'info' ? (
           <>
+            {/* Gợi ý Báo sai thông tin nếu phát hiện sai sót */}
+            {isAlreadyOnGgs && (
+              <div className="p-2.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 rounded-xl text-amber-900 text-xs flex items-center justify-between gap-2 shadow-2xs">
+                <div className="flex items-center gap-2 min-w-0">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span className="truncate text-[11px] font-medium">Phát hiện thông tin thửa đất có sai sót?</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('correction')}
+                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] shadow-xs transition shrink-0 flex items-center gap-1"
+                >
+                  <FileEdit className="w-3.5 h-3.5" /> Sai thông tin / Bổ sung
+                </button>
+              </div>
+            )}
+
             {/* NÚT XEM VÀ TẢI CCCD VÀ GCN QUYỀN SỬ DỤNG ĐẤT */}
             {(parcel.has_cccd || parcel.has_gcn) ? (
               <div className="space-y-2">
@@ -789,8 +876,290 @@ export default function ParcelDetailPanel({
               )}
             </div>
           </>
+        ) : activeTab === 'correction' ? (
+          /* Phiếu Báo Sai & Bổ Sung Thông Tin Thửa Đã Số Hóa */
+          <form onSubmit={handleCorrectionSubmit} className="space-y-3.5 animate-in fade-in duration-200">
+            {/* Callout hướng dẫn */}
+            <div className="p-3 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl space-y-1.5 text-xs text-amber-950">
+              <div className="flex items-center gap-2 font-black text-amber-900 text-xs">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Báo sai lệch & Bổ sung thông tin thửa đất</span>
+              </div>
+              <p className="text-[11px] text-amber-900 leading-snug">
+                Thửa <strong className="font-extrabold text-blue-700">{parcel.so_thua}</strong> (Tờ <strong className="font-extrabold text-blue-700">{parcel.to_ban_do}</strong>) đã được số hóa trên Google Sheets. Nếu thông tin bị sai (tên chủ, CCCD, tứ cận, diện tích) hoặc cần bổ sung giấy tờ mới, vui lòng điền nội dung bên dưới:
+              </p>
+            </div>
+
+            {/* Ô nhập nội dung sai lệch cụ thể */}
+            <div className="space-y-1 text-xs">
+              <label className="font-bold text-gray-800 flex items-center justify-between">
+                <span>Nội dung sai lệch cần điều chỉnh / bổ sung <span className="text-red-500">*</span></span>
+              </label>
+              <textarea
+                rows={2}
+                required
+                value={lyDoBaoSai}
+                onChange={(e) => setLyDoBaoSai(e.target.value)}
+                placeholder="VD: Tên đúng là Trần Văn B chứ không phải A; Số CCCD đúng là 0600...; hoặc Cần bổ sung trang 2 Sổ đỏ..."
+                className="w-full text-xs px-2.5 py-1.5 border border-amber-300 rounded-lg bg-amber-50/20 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 transition"
+              />
+            </div>
+
+            {/* Chế độ phản ánh */}
+            <div className="flex p-1 bg-gray-100 rounded-xl text-xs">
+              <button
+                type="button"
+                onClick={() => setMode('SELF')}
+                className={`flex-1 py-1.5 font-bold rounded-lg transition flex items-center justify-center gap-1 ${
+                  mode === 'SELF'
+                    ? 'bg-white text-amber-800 shadow-xs'
+                    : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                <User className="w-3 h-3" /> Chủ đất báo sai
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('SURVEYOR')}
+                className={`flex-1 py-1.5 font-bold rounded-lg transition flex items-center justify-center gap-1 ${
+                  mode === 'SURVEYOR'
+                    ? 'bg-white text-amber-800 shadow-xs'
+                    : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                <Users className="w-3 h-3" /> Cán bộ khảo sát
+              </button>
+            </div>
+
+            {/* Người gửi phản ánh */}
+            {mode === 'SURVEYOR' ? (
+              <div className="p-2.5 bg-blue-50/70 border border-blue-100 rounded-xl space-y-2 text-xs">
+                <span className="font-bold text-blue-900 block text-[11px]">
+                  Cán bộ thực địa ghi nhận:
+                </span>
+                <div className="space-y-1.5">
+                  <input
+                    type="text"
+                    required
+                    value={nguoiKeKhaiTen}
+                    onChange={(e) => setNguoiKeKhaiTen(e.target.value)}
+                    placeholder="Họ tên cán bộ *"
+                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <input
+                    type="tel"
+                    required
+                    value={nguoiKeKhaiSdt}
+                    onChange={(e) => setNguoiKeKhaiSdt(e.target.value)}
+                    placeholder="Số điện thoại cán bộ *"
+                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1 text-xs">
+                <label className="font-bold text-gray-700 block">Số điện thoại liên hệ của chủ hộ:</label>
+                <input
+                  type="tel"
+                  required
+                  value={nguoiKeKhaiSdt}
+                  onChange={(e) => setNguoiKeKhaiSdt(e.target.value)}
+                  placeholder="Nhập số điện thoại để liên hệ xác minh *"
+                  className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+            )}
+
+            {/* Thông tin chuẩn xác đề xuất cập nhật */}
+            <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl space-y-2 text-xs">
+              <span className="font-bold text-gray-900 block text-[11px]">
+                Thông tin chuẩn xác đề xuất cập nhật:
+              </span>
+              <div className="space-y-1.5">
+                <div>
+                  <label className="text-[10px] text-gray-500 block mb-0.5">Họ và tên chủ đất chuẩn:</label>
+                  <input
+                    type="text"
+                    required
+                    value={chuDatTen}
+                    onChange={(e) => setChuDatTen(e.target.value)}
+                    placeholder="Họ và tên chủ đất chuẩn *"
+                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 block mb-0.5">Số CCCD chuẩn:</label>
+                  <input
+                    type="text"
+                    value={chuDatCccd}
+                    onChange={(e) => setChuDatCccd(e.target.value)}
+                    placeholder="Số CCCD chuẩn"
+                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Tứ cận cập nhật nếu có sai lệch */}
+            <div className="bg-white p-3 rounded-xl border border-gray-200 text-xs space-y-2">
+              <span className="font-bold text-gray-800 block text-[11px]">
+                Tứ cận chuẩn xác (nếu cần sửa):
+              </span>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <label className="text-[10px] text-gray-500 block">Đông:</label>
+                  <input
+                    type="text"
+                    value={giapDong}
+                    onChange={(e) => setGiapDong(e.target.value)}
+                    placeholder="Giáp..."
+                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 block">Tây:</label>
+                  <input
+                    type="text"
+                    value={giapTay}
+                    onChange={(e) => setGiapTay(e.target.value)}
+                    placeholder="Giáp..."
+                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 block">Nam:</label>
+                  <input
+                    type="text"
+                    value={giapNam}
+                    onChange={(e) => setGiapNam(e.target.value)}
+                    placeholder="Giáp..."
+                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 block">Bắc:</label>
+                  <input
+                    type="text"
+                    value={giapBac}
+                    onChange={(e) => setGiapBac(e.target.value)}
+                    placeholder="Giáp..."
+                    className="w-full text-xs px-2 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Chụp / Tải ảnh bổ sung để chứng minh */}
+            <div className="space-y-2 text-xs">
+              <span className="font-bold text-gray-800 block text-[11px]">
+                Chụp / Tải ảnh hồ sơ bổ sung (CCCD / Giấy chứng nhận):
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => cccdInputRef.current?.click()}
+                  className="p-2.5 border-2 border-dashed border-gray-200 hover:border-blue-400 hover:bg-blue-50/30 rounded-xl bg-white text-center cursor-pointer transition select-none flex flex-col items-center justify-center"
+                >
+                  <Upload className="w-4 h-4 text-blue-500 mb-0.5" />
+                  <span className="font-bold text-gray-800 block text-[11px]">Chụp/Tải CCCD mới</span>
+                  <span className="text-[10px] text-gray-400">
+                    {cccdUploadedFiles.length > 0 ? `Đã chọn ${cccdUploadedFiles.length} ảnh` : 'Bổ sung CCCD'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => gcnInputRef.current?.click()}
+                  className="p-2.5 border-2 border-dashed border-gray-200 hover:border-emerald-400 hover:bg-emerald-50/30 rounded-xl bg-white text-center cursor-pointer transition select-none flex flex-col items-center justify-center"
+                >
+                  <Upload className="w-4 h-4 text-emerald-500 mb-0.5" />
+                  <span className="font-bold text-gray-800 block text-[11px]">Chụp/Tải Sổ đỏ mới</span>
+                  <span className="text-[10px] text-gray-400">
+                    {gcnUploadedFiles.length > 0 ? `Đã chọn ${gcnUploadedFiles.length} ảnh` : 'Bổ sung giấy tờ'}
+                  </span>
+                </button>
+              </div>
+
+              {/* Previews */}
+              {cccdUploadedFiles.length > 0 && (
+                <div className="p-2 bg-blue-50/60 rounded-lg space-y-1">
+                  <span className="text-[10px] font-bold text-blue-900 block">Ảnh CCCD bổ sung:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {cccdUploadedFiles.map((file, idx) => (
+                      <div key={idx} className="relative group w-14 h-14 rounded-lg overflow-hidden border border-blue-200">
+                        <img src={file.url} alt="CCCD" className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => removeCccdFile(idx)}
+                          className="absolute inset-0 bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                          title="Xóa ảnh này"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {gcnUploadedFiles.length > 0 && (
+                <div className="p-2 bg-emerald-50/60 rounded-lg space-y-1">
+                  <span className="text-[10px] font-bold text-emerald-900 block">Ảnh Sổ đỏ bổ sung:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {gcnUploadedFiles.map((file, idx) => (
+                      <div key={idx} className="relative group w-14 h-14 rounded-lg overflow-hidden border border-emerald-200">
+                        <img src={file.url} alt="GCN" className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => removeGcnFile(idx)}
+                          className="absolute inset-0 bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                          title="Xóa ảnh này"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Ghi chú thêm */}
+            <div>
+              <textarea
+                rows={2}
+                value={ghiChu}
+                onChange={(e) => setGhiChu(e.target.value)}
+                placeholder="Ghi chú thêm về nguồn gốc, tranh chấp hoặc thông tin khác..."
+                className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+
+            {correctionSuccess && (
+              <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-lg flex items-center gap-1.5 font-bold animate-in fade-in">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                Đã ghi nhận báo sai & bổ sung thành công! Dữ liệu đã được lưu lại.
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setActiveTab('info')}
+                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition"
+              >
+                Hủy / Quay lại
+              </button>
+              <button
+                type="submit"
+                className="flex-2 py-2 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Gửi báo sai & Bổ sung
+              </button>
+            </div>
+          </form>
         ) : (
-          /* Phiếu Kê Khai (Tab 2) */
+          /* Phiếu Kê Khai (Tab 2 cho thửa chưa số hóa) */
           <form onSubmit={handleSubmit} className="space-y-3">
             {/* Chế độ kê khai */}
             <div className="flex p-1 bg-gray-100 rounded-xl text-xs">

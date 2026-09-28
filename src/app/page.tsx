@@ -313,31 +313,44 @@ export default function Home() {
   };
 
   const handleSaveDeclaration = (formData: DeclarationFormData) => {
-    console.log('Phiếu kê khai đã lưu:', formData);
+    console.log('Phiếu kê khai / báo sai đã lưu:', formData);
 
-    // 1. Thêm mã thửa vào danh sách đã kê khai
-    setDeclaredParcelCodes((prev) => {
-      const next = new Set(prev);
-      next.add(formData.ma_thua);
+    if (formData.is_correction) {
       try {
-        localStorage.setItem('diachinh_declared_codes', JSON.stringify(Array.from(next)));
+        const stored = JSON.parse(localStorage.getItem('diachinh_corrections') || '[]');
+        stored.push({
+          ...formData,
+          created_at: new Date().toISOString(),
+        });
+        localStorage.setItem('diachinh_corrections', JSON.stringify(stored));
       } catch (e) {
         console.error(e);
       }
-      return next;
-    });
+    } else {
+      // 1. Thêm mã thửa vào danh sách đã kê khai
+      setDeclaredParcelCodes((prev) => {
+        const next = new Set(prev);
+        next.add(formData.ma_thua);
+        try {
+          localStorage.setItem('diachinh_declared_codes', JSON.stringify(Array.from(next)));
+        } catch (e) {
+          console.error(e);
+        }
+        return next;
+      });
+    }
 
-    // 2. Chuyển ngay trạng thái của thửa đang chọn sang Xanh lam nếu chưa có trên GGS
+    // 2. Cập nhật dữ liệu hiển thị của thửa đang chọn
     if (selectedParcel && selectedParcel.ma_thua === formData.ma_thua) {
-      const isOnGgs = ggsCodes.has(formData.ma_thua);
+      const isOnGgs = ggsCodes.has(formData.ma_thua) || selectedParcel.trang_thai === 'DA_SO_HOA_XANH';
       setSelectedParcel({
         ...selectedParcel,
         chu_ho: formData.chu_dat_ten || selectedParcel.chu_ho,
         cccd: formData.chu_dat_cccd || selectedParcel.cccd,
-        giap_dong: formData.giap_dong,
-        giap_tay: formData.giap_tay,
-        giap_nam: formData.giap_nam,
-        giap_bac: formData.giap_bac,
+        giap_dong: formData.giap_dong || selectedParcel.giap_dong,
+        giap_tay: formData.giap_tay || selectedParcel.giap_tay,
+        giap_nam: formData.giap_nam || selectedParcel.giap_nam,
+        giap_bac: formData.giap_bac || selectedParcel.giap_bac,
         trang_thai: isOnGgs ? 'DA_SO_HOA_XANH' : 'DA_KE_KHAI_CHUA_SO_HOA_LAM',
         is_declared: true,
       });

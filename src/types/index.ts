@@ -54,4 +54,6 @@ export interface DeclarationFormData {
   anh_cccd_sau?: string;
   anh_gcn?: string;
   ghi_chu?: string;
+  is_correction?: boolean;
+  ly_do_sai?: string;
 }
