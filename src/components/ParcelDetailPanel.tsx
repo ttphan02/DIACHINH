@@ -63,8 +63,18 @@ export default function ParcelDetailPanel({
   // File upload state & refs
   const cccdInputRef = useRef<HTMLInputElement>(null);
   const gcnInputRef = useRef<HTMLInputElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [cccdUploadedFiles, setCccdUploadedFiles] = useState<{ name: string; url: string }[]>([]);
   const [gcnUploadedFiles, setGcnUploadedFiles] = useState<{ name: string; url: string }[]>([]);
+
+  const handleNeighborClick = (nb: NeighborParcel) => {
+    if (onSelectParcel) {
+      onSelectParcel(nb);
+    }
+    setTimeout(() => {
+      contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 50);
+  };
 
   // 1. Thửa khác cùng chủ CHÍNH XÁC theo CCCD (duy nhất)
   const resolvedSameCccdParcels = useMemo(() => {
@@ -127,6 +137,9 @@ export default function ParcelDetailPanel({
 
       // Mặc định về tab thông tin khi đổi thửa
       setActiveTab('info');
+
+      // Tự động cuộn lên đầu panel khi chọn hoặc đổi sang thửa mới
+      contentRef.current?.scrollTo({ top: 0, behavior: 'instant' });
     }
   }, [parcel?.ma_thua]);
 
@@ -333,68 +346,31 @@ export default function ParcelDetailPanel({
         </button>
       </div>
 
-      {/* Tab Navigation: Nếu thửa đã có trên Google Sheets thì hiện Tab Thông tin & Tab Sai thông tin/Bổ sung */}
-      {isAlreadyOnGgs ? (
-        <div>
-          {/* Banner thửa đã số hóa + Nút bấm nhanh Sai thông tin */}
-          <div className="flex items-center justify-between px-3.5 py-2 bg-emerald-50/90 border-b border-emerald-100 text-xs gap-2">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span className="font-bold text-emerald-950 truncate">
-                Đã có trên Google Sheet (Đã số hóa)
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setActiveTab(activeTab === 'correction' ? 'info' : 'correction')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shrink-0 shadow-2xs border ${
-                activeTab === 'correction'
-                  ? 'bg-amber-600 text-white border-amber-600'
-                  : 'bg-white hover:bg-amber-50 text-amber-800 border-amber-300'
-              }`}
-            >
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-              {activeTab === 'correction' ? 'Xem thông tin' : 'Sai thông tin?'}
-            </button>
-          </div>
-
-          {/* Tab bar để người dùng chuyển đổi dễ dàng */}
-          <div className="flex border-b border-gray-100 bg-white px-3">
-            <button
-              onClick={() => setActiveTab('info')}
-              className={`py-2 px-3 font-bold text-xs border-b-2 transition ${
-                activeTab === 'info'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-800'
-              }`}
-            >
-              Thông tin & Tứ cận
-            </button>
-            <button
-              onClick={() => setActiveTab('correction')}
-              className={`py-2 px-3 font-bold text-xs border-b-2 transition flex items-center gap-1.5 ${
-                activeTab === 'correction'
-                  ? 'border-amber-600 text-amber-700 bg-amber-50/40 font-extrabold'
-                  : 'border-transparent text-amber-700 hover:text-amber-900'
-              }`}
-            >
-              <FileEdit className="w-3.5 h-3.5 text-amber-600" />
-              Sai thông tin / Bổ sung
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex border-b border-gray-100 bg-white px-3">
+      {/* Tab Navigation: Thiết kế gọn gàng, đồng bộ */}
+      <div className="flex border-b border-gray-100 bg-white px-3">
+        <button
+          onClick={() => setActiveTab('info')}
+          className={`py-2 px-3 font-bold text-xs border-b-2 transition ${
+            activeTab === 'info'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-800'
+          }`}
+        >
+          Thông tin & Tứ cận
+        </button>
+        {isAlreadyOnGgs ? (
           <button
-            onClick={() => setActiveTab('info')}
-            className={`py-2 px-3 font-bold text-xs border-b-2 transition ${
-              activeTab === 'info'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-800'
+            onClick={() => setActiveTab('correction')}
+            className={`py-2 px-3 font-medium text-xs border-b-2 transition flex items-center gap-1 ${
+              activeTab === 'correction'
+                ? 'border-blue-600 text-blue-600 font-bold'
+                : 'border-transparent text-gray-400 hover:text-gray-700'
             }`}
           >
-            Thông tin & Tứ cận
+            <FileEdit className="w-3.5 h-3.5" />
+            Bổ sung / Báo sai
           </button>
+        ) : (
           <button
             onClick={() => setActiveTab('declare')}
             className={`py-2 px-3 font-bold text-xs border-b-2 transition flex items-center gap-1.5 ${
@@ -406,29 +382,13 @@ export default function ParcelDetailPanel({
             <FileText className="w-3.5 h-3.5" />
             Phiếu kê khai
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Panel Scrollable Body */}
-      <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
+      <div ref={contentRef} className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
         {activeTab === 'info' ? (
           <>
-            {/* Gợi ý Báo sai thông tin nếu phát hiện sai sót */}
-            {isAlreadyOnGgs && (
-              <div className="p-2.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 rounded-xl text-amber-900 text-xs flex items-center justify-between gap-2 shadow-2xs">
-                <div className="flex items-center gap-2 min-w-0">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span className="truncate text-[11px] font-medium">Phát hiện thông tin thửa đất có sai sót?</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('correction')}
-                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] shadow-xs transition shrink-0 flex items-center gap-1"
-                >
-                  <FileEdit className="w-3.5 h-3.5" /> Sai thông tin / Bổ sung
-                </button>
-              </div>
-            )}
 
             {/* NÚT XEM VÀ TẢI CCCD VÀ GCN QUYỀN SỬ DỤNG ĐẤT */}
             {(parcel.has_cccd || parcel.has_gcn) ? (
@@ -751,38 +711,52 @@ export default function ParcelDetailPanel({
                   Không có thửa nào trong bán kính quét.
                 </p>
               ) : (
-                <div className="space-y-0.5 max-h-60 overflow-y-auto pr-1">
+                <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
                   {neighbors.map((nb) => {
                     const statusDot = nb.trang_thai === 'DA_SO_HOA_XANH'
-                      ? <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" title="Đã số hóa" />
+                      ? <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" title="Đã số hóa" />
                       : nb.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
-                      ? <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" title="Đã kê khai" />
+                      ? <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" title="Đã kê khai" />
                       : nb.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG'
-                      ? <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" title="Có tên chủ" />
-                      : <span className="w-2 h-2 rounded-full bg-gray-300 shrink-0" title="Chưa có tên" />;
+                      ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" title="Có tên chủ" />
+                      : <span className="w-2.5 h-2.5 rounded-full bg-gray-300 shrink-0" title="Chưa có tên" />;
 
                     return (
-                      <button
+                      <div
                         key={nb.ma_thua}
-                        type="button"
-                        onClick={() => onSelectParcel && onSelectParcel(nb)}
-                        className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg hover:bg-gray-50 transition text-left group"
+                        onClick={() => handleNeighborClick(nb)}
+                        className="w-full flex items-center justify-between gap-2 p-2 rounded-lg hover:bg-blue-50/70 border border-gray-100 hover:border-blue-200 transition cursor-pointer text-left group shadow-2xs bg-white"
                       >
-                        <div className="flex items-center gap-1.5 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
                           {statusDot}
                           <div className="min-w-0">
-                            <span className="text-xs font-bold text-gray-800 group-hover:text-blue-600 transition">
+                            <span className="text-xs font-bold text-gray-800 group-hover:text-blue-600 transition block">
                               Thửa {nb.so_thua} (Tờ {nb.to_ban_do})
                             </span>
                             {nb.chu_ho && nb.chu_ho !== 'Chưa có tên' && (
-                              <span className="text-[10px] text-gray-500 block truncate">{nb.chu_ho}</span>
+                              <span className="text-[10px] text-gray-500 block truncate">
+                                {nb.chu_ho}
+                              </span>
                             )}
                           </div>
                         </div>
-                        <span className="text-[10px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">
-                          {nb.arrow} {nb.directionText || nb.quadrantText} · ~{nb.distanceMeters}m
-                        </span>
-                      </button>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[10px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded whitespace-nowrap">
+                            {nb.arrow} {nb.directionText || nb.quadrantText} · ~{nb.distanceMeters}m
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleNeighborClick(nb);
+                            }}
+                            className="px-2 py-0.5 text-[10px] font-bold bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200 hover:border-blue-600 rounded transition flex items-center gap-0.5"
+                          >
+                            <Eye className="w-3 h-3" /> Xem
+                          </button>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
@@ -846,29 +820,29 @@ export default function ParcelDetailPanel({
         ) : activeTab === 'correction' ? (
           /* Phiếu Báo Sai & Bổ Sung Thông Tin Thửa Đã Số Hóa */
           <form onSubmit={handleCorrectionSubmit} className="space-y-3.5 animate-in fade-in duration-200">
-            {/* Callout hướng dẫn */}
-            <div className="p-3 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl space-y-1.5 text-xs text-amber-950">
-              <div className="flex items-center gap-2 font-black text-amber-900 text-xs">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>Báo sai lệch & Bổ sung thông tin thửa đất</span>
+            {/* Hướng dẫn ngắn gọn */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-xs text-slate-700">
+              <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs">
+                <FileEdit className="w-4 h-4 text-blue-600 shrink-0" />
+                <span>Bổ sung / Báo sai thông tin thửa đất</span>
               </div>
-              <p className="text-[11px] text-amber-900 leading-snug">
-                Thửa <strong className="font-extrabold text-blue-700">{parcel.so_thua}</strong> (Tờ <strong className="font-extrabold text-blue-700">{parcel.to_ban_do}</strong>) đã được số hóa trên Google Sheets. Nếu thông tin bị sai (tên chủ, CCCD, tứ cận, diện tích) hoặc cần bổ sung giấy tờ mới, vui lòng điền nội dung bên dưới:
+              <p className="text-[11px] text-slate-500 leading-snug">
+                Thửa <strong className="font-bold text-slate-800">{parcel.so_thua}</strong> (Tờ <strong className="font-bold text-slate-800">{parcel.to_ban_do}</strong>) đã được số hóa. Nếu thông tin có sai sót hoặc cần bổ sung giấy tờ, vui lòng ghi nội dung bên dưới:
               </p>
             </div>
 
             {/* Ô nhập nội dung sai lệch cụ thể */}
             <div className="space-y-1 text-xs">
-              <label className="font-bold text-gray-800 flex items-center justify-between">
-                <span>Nội dung sai lệch cần điều chỉnh / bổ sung <span className="text-red-500">*</span></span>
+              <label className="font-semibold text-gray-700 flex items-center justify-between">
+                <span>Nội dung cần điều chỉnh / bổ sung <span className="text-red-500">*</span></span>
               </label>
               <textarea
                 rows={2}
                 required
                 value={lyDoBaoSai}
                 onChange={(e) => setLyDoBaoSai(e.target.value)}
-                placeholder="VD: Tên đúng là Trần Văn B chứ không phải A; Số CCCD đúng là 0600...; hoặc Cần bổ sung trang 2 Sổ đỏ..."
-                className="w-full text-xs px-2.5 py-1.5 border border-amber-300 rounded-lg bg-amber-50/20 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 transition"
+                placeholder="VD: Cập nhật tên chủ hộ đúng, số CCCD chuẩn, hoặc bổ sung ảnh GCN..."
+                className="w-full text-xs px-2.5 py-1.5 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
               />
             </div>
 

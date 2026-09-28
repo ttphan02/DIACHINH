@@ -240,36 +240,44 @@ export default function CadastralMap({
             weight: 2,
             dashArray: '4, 5',
             opacity: 0.85,
+            interactive: false, // Không chặn click chuột vào các chấm thửa đất
           }
         );
+        line.addTo(group);
 
         const dirLabel = nb.quadrantText || nb.directionText || 'Lân cận';
         const arrow = nb.arrow || '🧭';
         const owner = nb.chu_ho && nb.chu_ho !== 'Chưa có tên' ? ` (${nb.chu_ho})` : '';
 
-        line.bindTooltip(
+        // Vẽ vòng tròn nhấn mạnh quanh thửa lân cận, bấm vào sẽ chọn thửa lân cận đó
+        const ring = L.circleMarker([nb.lat, nb.lng], {
+          radius: 10,
+          color: '#0284c7',
+          fillColor: '#38bdf8',
+          fillOpacity: 0.15,
+          weight: 2,
+          dashArray: '3, 3',
+        });
+
+        ring.bindTooltip(
           `
             <div style="font-size: 11px; font-weight: bold; color: #fff;">
-              ${arrow} <b>${dirLabel}</b>: Thửa ${nb.so_thua} <span style="font-size: 10px; opacity: 0.85;">~${nb.distanceMeters}m</span>
+              ${arrow} <b>${dirLabel}</b>: Thửa ${nb.so_thua} (Tờ ${nb.to_ban_do}) <span style="font-size: 10px; opacity: 0.85;">~${nb.distanceMeters}m</span>
             </div>
             <div style="font-size: 10px; color: #bae6fd;">${owner}</div>
+            <div style="font-size: 10px; color: #cbd5e1; font-style: italic; margin-top: 2px;">👉 Bấm để xem thửa này</div>
           `,
           {
             className: 'custom-map-tooltip',
-            sticky: true,
+            direction: 'top',
+            offset: [0, -10],
           }
         );
 
-        line.addTo(group);
-
-        // Vẽ vòng tròn nhấn mạnh quanh thửa lân cận
-        const ring = L.circleMarker([nb.lat, nb.lng], {
-          radius: 9,
-          color: '#38bdf8',
-          fillColor: 'transparent',
-          weight: 1.5,
-          dashArray: '2, 3',
+        ring.on('click', () => {
+          onSelectParcel(nb);
         });
+
         ring.addTo(group);
       });
     });
