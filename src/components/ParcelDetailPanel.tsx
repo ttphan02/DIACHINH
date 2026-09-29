@@ -24,26 +24,12 @@ import {
   AlertTriangle,
   FileEdit,
   Sparkles,
-  Printer,
   Crop,
   RotateCw,
   Plus,
   ListPlus,
-  LocateFixed,
-  Locate,
-  Compass,
 } from 'lucide-react';
-import {
-  downloadFile,
-  autoDetectBoundaries,
-  formatBoundaryText,
-  calculateDistanceMeters,
-  calculateBearing,
-  getCompassInfo,
-  formatDistance,
-  getDirectionsUrl,
-} from '@/utils/geo';
-import DeclarationPrintModal from '@/components/DeclarationPrintModal';
+import { downloadFile, autoDetectBoundaries, formatBoundaryText } from '@/utils/geo';
 import CccdImageEditorModal from '@/components/CccdImageEditorModal';
 import { AdditionalParcel } from '@/types';
 
@@ -91,18 +77,6 @@ export default function ParcelDetailPanel({
   const [mode, setMode] = useState<DeclarationMode>('SELF');
   const [downloadingItem, setDownloadingItem] = useState<string | null>(null);
 
-  // Tính khoảng cách và hướng la bàn từ vị trí GPS của cán bộ đến thửa đất này
-  const userDistanceInfo = useMemo(() => {
-    if (!userLocation || !parcel?.lat || !parcel?.lng) return null;
-    const dist = calculateDistanceMeters(userLocation.lat, userLocation.lng, parcel.lat, parcel.lng);
-    const bearing = calculateBearing(userLocation.lat, userLocation.lng, parcel.lat, parcel.lng);
-    const compass = getCompassInfo(bearing);
-    return {
-      distanceMeters: dist,
-      formattedDistance: formatDistance(dist),
-      compass,
-    };
-  }, [userLocation, parcel?.lat, parcel?.lng]);
 
 
   // Kiểm tra xem thửa này đã có trên Google Sheets chưa (đã được số hóa)
@@ -167,7 +141,6 @@ export default function ParcelDetailPanel({
   const [lyDoBaoSai, setLyDoBaoSai] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [correctionSuccess, setCorrectionSuccess] = useState(false);
-  const [isSinglePrintOpen, setIsSinglePrintOpen] = useState(false);
 
   // CCCD Image Editor State
   const [isCccdEditorOpen, setIsCccdEditorOpen] = useState(false);
@@ -468,17 +441,6 @@ export default function ParcelDetailPanel({
             Phiếu kê khai
           </button>
         )}
-
-        {/* Nút In đơn kê khai PDF */}
-        <button
-          type="button"
-          onClick={() => setIsSinglePrintOpen(true)}
-          className="ml-auto my-auto px-2.5 py-1 text-[11px] font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg flex items-center gap-1 transition shrink-0 cursor-pointer shadow-2xs"
-          title="In hoặc tải PDF Đơn kê khai thửa đất này"
-        >
-          <Printer className="w-3.5 h-3.5 text-purple-600" />
-          <span>In Đơn PDF</span>
-        </button>
       </div>
 
       {/* Panel Scrollable Body */}
@@ -644,49 +606,6 @@ export default function ParcelDetailPanel({
                 )}
               </div>
             </div>
-
-            {/* CHỈ ĐƯỜNG & ĐỊNH VỊ THỰC ĐỊA CHO CÁN BỘ */}
-            {parcel.lat && parcel.lng && (
-              <div className="bg-gradient-to-br from-sky-50 to-blue-50/80 border border-sky-200 rounded-xl p-3 space-y-2.5 shadow-2xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-extrabold text-xs text-sky-950 flex items-center gap-1.5">
-                    <Navigation className="w-3.5 h-3.5 text-blue-600" />
-                    Chỉ đường thực địa cho cán bộ:
-                  </span>
-                  {userDistanceInfo && (
-                    <span className="text-[10px] font-bold bg-white text-blue-700 px-2 py-0.5 rounded-full border border-blue-200 shadow-2xs font-mono">
-                      {userDistanceInfo.compass.arrow} Cách: {userDistanceInfo.formattedDistance} ({userDistanceInfo.compass.directionText})
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <a
-                    href={getDirectionsUrl(parcel.lat, parcel.lng, userLocation?.lat, userLocation?.lng)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex-1 py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer text-center"
-                    title="Mở Google Maps trên điện thoại để dẫn đường từng ngã rẽ bằng giọng nói"
-                  >
-                    <Navigation className="w-3.5 h-3.5" />
-                    <span>Dẫn đường Google Maps</span>
-                    <ExternalLink className="w-3 h-3 opacity-70" />
-                  </a>
-
-                  {!userLocation && onToggleLocation && (
-                    <button
-                      type="button"
-                      onClick={onToggleLocation}
-                      className="py-2 px-2.5 bg-white hover:bg-sky-100 text-sky-700 border border-sky-300 rounded-lg text-xs font-semibold transition flex items-center gap-1 shrink-0 cursor-pointer"
-                      title="Bật GPS để đo khoảng cách thực tế từ vị trí bạn"
-                    >
-                      <LocateFixed className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Bật GPS</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
 
             {/* 1. THỬA KHÁC CÙNG CHỦ THEO CCCD (CHÍNH XÁC DUY NHẤT) */}
             {resolvedSameCccdParcels.length > 0 && (
@@ -1438,39 +1357,18 @@ export default function ParcelDetailPanel({
             </div>
 
             {savedSuccess && (
-              <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-lg flex items-center justify-between font-medium">
-                <div className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  Đã lưu thông tin kê khai thành công!
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsSinglePrintOpen(true)}
-                  className="px-2 py-0.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-[11px] font-bold flex items-center gap-1 shadow-xs cursor-pointer"
-                >
-                  <Printer className="w-3 h-3" />
-                  In đơn ngay
-                </button>
+              <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-lg flex items-center gap-1.5 font-medium">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Đã lưu thông tin kê khai thành công!</span>
               </div>
             )}
 
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer"
-              >
-                Lưu phiếu kê khai
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsSinglePrintOpen(true)}
-                className="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-purple-300 font-bold text-xs rounded-xl border border-purple-500/30 transition flex items-center gap-1.5 shadow-xs cursor-pointer"
-                title="Xem trước và in đơn kê khai khổ A4"
-              >
-                <Printer className="w-3.5 h-3.5 text-purple-400" />
-                <span>In Đơn PDF</span>
-              </button>
-            </div>
+            <button
+              type="submit"
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer"
+            >
+              Lưu phiếu kê khai
+            </button>
 
             {/* TIỆN ÍCH KÊ KHAI NHANH CÁC THỬA TIẾP THEO (Chỉ các thửa chưa số hóa) */}
             {(undeclaredSameCccdParcels.length > 0 || undeclaredSameNameParcels.length > 0) && (
@@ -1541,31 +1439,6 @@ export default function ParcelDetailPanel({
           </form>
         )}
       </div>
-
-      {/* Modal Xem trước & In Đơn kê khai A4 */}
-      {parcel && (
-        <DeclarationPrintModal
-          isOpen={isSinglePrintOpen}
-          onClose={() => setIsSinglePrintOpen(false)}
-          items={[
-            {
-              parcel,
-              declaration: {
-                chu_dat_ten: chuDatTen || parcel.chu_ho,
-                chu_dat_cccd: chuDatCccd || parcel.cccd,
-                nguoi_ke_khai_ten: mode === 'SELF' ? (chuDatTen || parcel.chu_ho) : nguoiKeKhaiTen,
-                nguoi_ke_khai_sdt: nguoiKeKhaiSdt,
-                ghi_chu: ghiChu,
-                anh_cccd_truoc: cccdUploadedFiles[0]?.url,
-                anh_cccd_sau: cccdUploadedFiles[1]?.url,
-                anh_gcn: gcnUploadedFiles[0]?.url,
-                thua_kem_theo: additionalParcels,
-              },
-            },
-          ]}
-          title={`Đơn Kê Khai Đất Đai - Thửa ${parcel.so_thua} (Tờ ${parcel.to_ban_do})`}
-        />
-      )}
 
       {/* Modal Chỉnh sửa, Cắt, Xoay, Tinh chỉnh ảnh CCCD */}
       <CccdImageEditorModal

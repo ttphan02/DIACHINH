@@ -141,8 +141,40 @@ export default function Home() {
     };
   }, [isTracking]);
 
-  // Dọn dẹp watchPosition khi unmount
+  // Tự động kích hoạt định vị GPS liên tục khi tải trang (Always-on GPS)
   useEffect(() => {
+    if (typeof window === 'undefined' || !navigator.geolocation) return;
+
+    setIsLocating(true);
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy, heading: gpsHeading, speed } = pos.coords;
+        setUserLocation((prev) => ({
+          lat: latitude,
+          lng: longitude,
+          accuracy: Math.round(accuracy),
+          heading: typeof gpsHeading === 'number' && !isNaN(gpsHeading) ? Math.round(gpsHeading) : prev?.heading,
+          speed: typeof speed === 'number' && !isNaN(speed) ? Math.round(speed * 3.6) : null,
+        }));
+        if (typeof gpsHeading === 'number' && !isNaN(gpsHeading)) {
+          setUserHeading((prev) => (prev === null ? Math.round(gpsHeading) : prev));
+        }
+        setIsTracking(true);
+        setIsLocating(false);
+      },
+      (err) => {
+        console.warn('GPS auto-watch note:', err.message);
+        setIsLocating(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      }
+    );
+
+    watchIdRef.current = watchId;
+
     return () => {
       if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
         navigator.geolocation.clearWatch(watchIdRef.current);
@@ -511,14 +543,14 @@ export default function Home() {
     }, 320);
   };
 
-  // Bật/tắt theo dõi vị trí GPS thực địa trực tiếp
+  // Kích hoạt / lấy lại vị trí GPS
   const handleToggleLocation = useCallback(() => {
     if (typeof window === 'undefined' || !navigator.geolocation) {
       alert('Trình duyệt hoặc thiết bị của bạn không hỗ trợ định vị GPS.');
       return;
     }
 
-    // Xin quyền cảm biến la bàn trên iOS 13+ (Bắt buộc phải gọi trực tiếp trong sự kiện bấm nút của người dùng)
+    // Xin quyền cảm biến la bàn trên iOS 13+ nếu có
     if (
       typeof window !== 'undefined' &&
       typeof (DeviceOrientationEvent as any) !== 'undefined' &&
@@ -531,22 +563,13 @@ export default function Home() {
       }
     }
 
-    if (isTracking) {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-        watchIdRef.current = null;
-      }
-      setIsTracking(false);
-      setIsLocating(false);
-      setUserLocation(null);
-      setUserHeading(null);
-      setPickToast('Đã dừng định vị GPS & la bàn');
-      setTimeout(() => setPickToast(null), 2500);
-      return;
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
     }
 
     setIsLocating(true);
-    setPickToast('Đang kết nối vệ tinh GPS & la bàn...');
+    setPickToast('Đang kết nối vị trí GPS...');
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
@@ -563,8 +586,8 @@ export default function Home() {
         }
         setIsTracking(true);
         setIsLocating(false);
-        setPickToast(`✓ GPS hoạt động (Độ chính xác: ±${Math.round(accuracy)}m)`);
-        setTimeout(() => setPickToast(null), 3000);
+        setPickToast('✓ Đã định vị thành công');
+        setTimeout(() => setPickToast(null), 2500);
       },
       (err) => {
         console.warn('Lỗi định vị GPS:', err.message);
@@ -572,13 +595,9 @@ export default function Home() {
         let msg = 'Không thể lấy vị trí GPS';
         if (err.code === 1) {
           msg = 'Vui lòng cấp quyền truy cập vị trí (GPS) cho trang web này';
-        } else if (err.code === 2) {
-          msg = 'Tín hiệu GPS yếu hoặc không khả dụng';
-        } else if (err.code === 3) {
-          msg = 'Hết thời gian chờ nhận tín hiệu GPS';
         }
         setPickToast(`⚠️ ${msg}`);
-        setTimeout(() => setPickToast(null), 4000);
+        setTimeout(() => setPickToast(null), 3500);
       },
       {
         enableHighAccuracy: true,
@@ -588,41 +607,7 @@ export default function Home() {
     );
 
     watchIdRef.current = watchId;
-  }, [isTracking]);
-
-  // Tìm và chọn thửa đất gần nhất với vị trí cán bộ đang đứng
-  const handleFindNearestParcel = useCallback(() => {
-    if (!userLocation) {
-      handleToggleLocation();
-      setPickToast('Đang bật GPS để xác định thửa đất bạn đang đứng...');
-      return;
-    }
-
-    const validParcels = computedParcels.filter((p) => p.lat && p.lng);
-    if (validParcels.length === 0) {
-      setPickToast('Không tìm thấy dữ liệu tọa độ thửa đất nào');
-      setTimeout(() => setPickToast(null), 3000);
-      return;
-    }
-
-    let closestParcel: Parcel | null = null;
-    let minDistance = Infinity;
-
-    for (const p of validParcels) {
-      const dist = calculateDistanceMeters(userLocation.lat, userLocation.lng, p.lat!, p.lng!);
-      if (dist < minDistance) {
-        minDistance = dist;
-        closestParcel = p;
-      }
-    }
-
-    if (closestParcel) {
-      handleSelectParcel(closestParcel);
-      const distText = formatDistance(minDistance);
-      setPickToast(`🎯 Đã chọn Thửa ${closestParcel.so_thua} (Tờ ${closestParcel.to_ban_do}) - Cách bạn ${distText}`);
-      setTimeout(() => setPickToast(null), 4000);
-    }
-  }, [userLocation, computedParcels, handleToggleLocation, handleSelectParcel]);
+  }, []);
 
   // Tự động chọn thửa nếu có query params (từ Dashboard chuyển sang: ?to=4&thua=154 hoặc ?ma_thua=...)
   useEffect(() => {
@@ -975,7 +960,6 @@ export default function Home() {
               isTracking={isTracking}
               isLocating={isLocating}
               onToggleLocation={handleToggleLocation}
-              onFindNearestParcel={handleFindNearestParcel}
             />
           </div>
         ) : (

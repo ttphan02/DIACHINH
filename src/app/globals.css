@@ -173,56 +173,66 @@ input, button, select, textarea, optgroup {
   filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.5));
 }
 
-/* LA BÀN THỰC ĐỊA REALTIME TẠI VỊ TRÍ ĐANG ĐỨNG (In-situ Cadastral Compass) */
-.user-cadastral-compass-wrapper {
+/* Google Maps Style Clean Location & 60-degree Heading Cone */
+.user-ggm-wrapper {
   background: transparent !important;
   border: none !important;
 }
 
-.user-cadastral-compass {
+.user-ggm-location {
   position: relative;
-  width: 130px;
-  height: 130px;
+  width: 100px;
+  height: 100px;
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
 
-.compass-dial-ring {
+.user-ggm-heading-beam {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  pointer-events: none;
-  filter: drop-shadow(0 3px 10px rgba(0, 0, 0, 0.7));
-}
-
-.compass-rotating-layer {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
   transform-origin: 50% 50%;
   transition: transform 0.12s cubic-bezier(0.15, 0.85, 0.25, 1);
   will-change: transform;
 }
 
-.compass-degree-badge {
+.user-ggm-dot {
   position: absolute;
-  bottom: -4px;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
-  background: rgba(15, 23, 42, 0.95);
-  border: 1px solid rgba(56, 189, 248, 0.7);
-  padding: 1.5px 7px;
-  border-radius: 9999px;
-  font-size: 9.5px;
-  font-weight: 900;
-  color: #38bdf8;
-  white-space: nowrap;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.7);
-  letter-spacing: 0.2px;
-  z-index: 10;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  background: #2563eb;
+  border: 2.5px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(37, 99, 235, 0.8);
+  z-index: 2;
+}
+
+.user-ggm-pulse {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 36px;
+  height: 36px;
+  margin: -18px 0 0 -18px;
+  background: rgba(59, 130, 246, 0.25);
+  border-radius: 50%;
+  animation: ggmPulse 2s ease-out infinite;
+  z-index: 1;
+}
+
+@keyframes ggmPulse {
+  0% {
+    transform: scale(0.4);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
 }
 
 @keyframes gpsRadarPulse {
