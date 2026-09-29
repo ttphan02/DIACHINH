@@ -244,16 +244,16 @@ export default function Home() {
         cccd = ggsInfo.cccd;
       }
 
-      let dien_tich = p.dien_tich;
+      let dien_tich = p.dien_tich ? String(p.dien_tich) : '';
       if ((!dien_tich || dien_tich.startsWith('w6jp')) && ggsInfo?.dien_tich) {
-        dien_tich = ggsInfo.dien_tich;
+        dien_tich = String(ggsInfo.dien_tich);
       } else if (dien_tich?.startsWith('w6jp')) {
         dien_tich = '';
       }
 
-      let loai_dat = p.loai_dat;
+      let loai_dat = p.loai_dat ? String(p.loai_dat) : '';
       if ((!loai_dat || loai_dat.includes('http') || loai_dat.startsWith('w6jp')) && ggsInfo?.loai_dat) {
-        loai_dat = ggsInfo.loai_dat;
+        loai_dat = String(ggsInfo.loai_dat);
       } else if (loai_dat?.includes('http') || loai_dat?.startsWith('w6jp')) {
         loai_dat = '';
       }
