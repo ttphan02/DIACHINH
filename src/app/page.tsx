@@ -518,6 +518,19 @@ export default function Home() {
       return;
     }
 
+    // Xin quyền cảm biến la bàn trên iOS 13+ (Bắt buộc phải gọi trực tiếp trong sự kiện bấm nút của người dùng)
+    if (
+      typeof window !== 'undefined' &&
+      typeof (DeviceOrientationEvent as any) !== 'undefined' &&
+      typeof (DeviceOrientationEvent as any).requestPermission === 'function'
+    ) {
+      try {
+        (DeviceOrientationEvent as any).requestPermission().catch(() => {});
+      } catch (e) {
+        // ignore
+      }
+    }
+
     if (isTracking) {
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);

@@ -55,6 +55,7 @@ export default function CadastralMap({
   const neighborsLayerRef = useRef<LayerGroup | null>(null);
   const userLocationLayerRef = useRef<LayerGroup | null>(null);
   const navigationLayerRef = useRef<LayerGroup | null>(null);
+  const compassMarkerRef = useRef<any>(null);
   const tileLayerRef = useRef<any>(null);
   const [mapType, setMapType] = useState<'hybrid' | 'streets'>('hybrid');
   const [dotsCount, setDotsCount] = useState(0);
@@ -351,11 +352,12 @@ export default function CadastralMap({
     };
   }, [map, selectedParcel, neighborParcels, onSelectParcel]);
 
-  // 5. Vẽ dấu định vị GPS người dùng (Pulsing Beacon & Accuracy Circle)
+  // 5. Vẽ LA BÀN THỰC ĐỊA REALTIME TẠI VỊ TRÍ ĐANG ĐỨNG (In-situ Cadastral Compass & Accuracy Circle)
   useEffect(() => {
     if (!map || !userLocationLayerRef.current) return;
     const group = userLocationLayerRef.current;
     group.clearLayers();
+    compassMarkerRef.current = null;
 
     if (!userLocation) return;
 
@@ -369,9 +371,9 @@ export default function CadastralMap({
       if (accuracy && accuracy > 0) {
         const circle = L.circle([lat, lng], {
           radius: Math.min(accuracy, 150),
-          color: '#2563eb',
-          fillColor: '#3b82f6',
-          fillOpacity: 0.12,
+          color: '#0284c7',
+          fillColor: '#38bdf8',
+          fillOpacity: 0.1,
           weight: 1.5,
           dashArray: '3, 4',
           interactive: false,
@@ -379,44 +381,79 @@ export default function CadastralMap({
         circle.addTo(group);
       }
 
-      // 2. Chấm xanh phát xung (Radar Pulse Beacon) kèm nón chỉ hướng nhìn (Heading Cone)
+      // 2. LA BÀN ĐỊA CHÍNH THỰC ĐỊA TẠI VỊ TRÍ ĐANG ĐỨNG
       const hasHeading = typeof userHeading === 'number' && !isNaN(userHeading);
-      const headingConeHtml = hasHeading
-        ? `
-          <svg class="user-gps-heading-cone" style="transform: rotate(${userHeading}deg);" viewBox="0 0 100 100">
-            <defs>
-              <radialGradient id="userHeadingBeam" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
-                <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.9" />
-                <stop offset="65%" stop-color="#0284c7" stop-opacity="0.35" />
-                <stop offset="100%" stop-color="#0284c7" stop-opacity="0" />
-              </radialGradient>
-            </defs>
-            <path d="M 50 50 L 22 8 A 50 50 0 0 1 78 8 Z" fill="url(#userHeadingBeam)" />
-            <polygon points="50,10 46,22 54,22" fill="#38bdf8" opacity="0.95" />
+      const curHeading = hasHeading ? Math.round(userHeading) : 0;
+      const dirInfo = getCompassInfo(curHeading);
+
+      const compassHtml = `
+        <div class="user-cadastral-compass">
+          <!-- Vành la bàn địa chính chuẩn (Cố định theo hướng Bắc bản đồ: North-Up) -->
+          <svg class="compass-dial-ring" viewBox="0 0 130 130">
+            <!-- Vành ngoài chia độ mờ phát quang -->
+            <circle cx="65" cy="65" r="54" fill="rgba(15, 23, 42, 0.65)" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="2, 4" opacity="0.85" />
+            <circle cx="65" cy="65" r="46" fill="rgba(15, 23, 42, 0.35)" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" />
+            
+            <!-- 4 Hướng chính chuẩn địa hình: B - Đ - N - T -->
+            <!-- Hướng BẮC (Đỏ tươi + Tam giác chỉ Bắc) -->
+            <polygon points="65,7 60,18 70,18" fill="#ef4444" filter="drop-shadow(0 0 4px #ef4444)" />
+            <text x="65" y="29" text-anchor="middle" font-size="11" font-weight="900" fill="#ef4444" font-family="system-ui, sans-serif">B</text>
+            
+            <!-- Hướng ĐÔNG -->
+            <text x="113" y="69" text-anchor="middle" font-size="10" font-weight="900" fill="#38bdf8" font-family="system-ui, sans-serif">Đ</text>
+            
+            <!-- Hướng NAM -->
+            <text x="65" y="112" text-anchor="middle" font-size="10" font-weight="900" fill="#94a3b8" font-family="system-ui, sans-serif">N</text>
+            
+            <!-- Hướng TÂY -->
+            <text x="17" y="69" text-anchor="middle" font-size="10" font-weight="900" fill="#38bdf8" font-family="system-ui, sans-serif">T</text>
+            
+            <!-- 4 Vạch góc phần tư 45 độ (ĐB, ĐN, TN, TB) -->
+            <line x1="97" y1="33" x2="92" y2="38" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
+            <line x1="97" y1="97" x2="92" y2="92" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
+            <line x1="33" y1="97" x2="38" y2="92" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
+            <line x1="33" y1="33" x2="38" y2="38" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
           </svg>
-        `
-        : '';
+
+          <!-- Lớp chùm tia & kim la bàn xoay trực tiếp theo cảm biến xoay điện thoại -->
+          <div class="compass-rotating-layer" style="transform: rotate(${curHeading}deg);">
+            <svg viewBox="0 0 130 130" style="width: 100%; height: 100%; overflow: visible;">
+              <defs>
+                <radialGradient id="cadastralBeamGrad" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+                  <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.95" />
+                  <stop offset="60%" stop-color="#0284c7" stop-opacity="0.35" />
+                  <stop offset="100%" stop-color="#0284c7" stop-opacity="0" />
+                </radialGradient>
+              </defs>
+              <!-- Chùm tia nón 65 độ tỏa về phía trước mũi điện thoại -->
+              <path d="M 65 65 L 34 10 A 60 60 0 0 1 96 10 Z" fill="url(#cadastralBeamGrad)" />
+              <!-- Mũi kim chỉ hướng nhìn công nghệ cao -->
+              <polygon points="65,12 59,36 65,30 71,36" fill="#38bdf8" stroke="#ffffff" stroke-width="1.5" filter="drop-shadow(0 0 5px #0ea5e9)" />
+              <line x1="65" y1="30" x2="65" y2="52" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round" />
+              <!-- Đuôi kim đối xứng phía sau -->
+              <polygon points="65,96 61,84 65,88 69,84" fill="#64748b" opacity="0.75" />
+            </svg>
+          </div>
+
+          <!-- Chấm GPS Radar ở tâm -->
+          <div class="user-gps-pulse"></div>
+          <div class="user-gps-dot"></div>
+
+          <!-- Badge độ la bàn trực tiếp dưới chân -->
+          <div class="compass-degree-badge">
+            🧭 ${hasHeading ? `${curHeading}° ${dirInfo.directionText}` : 'La bàn GPS'}
+          </div>
+        </div>
+      `;
 
       const beaconMarker = L.marker([lat, lng], {
         icon: L.divIcon({
-          className: 'user-gps-beacon-wrapper',
-          html: `
-            <div class="user-gps-beacon">
-              ${headingConeHtml}
-              <div class="user-gps-pulse"></div>
-              <div class="user-gps-dot"></div>
-            </div>
-          `,
+          className: 'user-cadastral-compass-wrapper',
+          html: compassHtml,
           iconSize: [0, 0],
         }),
         zIndexOffset: 2000,
       });
-
-      const headingText = hasHeading
-        ? `<div style="font-size: 10px; color: #38bdf8; margin-top: 2px;">
-            🧭 Hướng nhìn: <strong>${Math.round(userHeading!)}° ${getCompassInfo(userHeading!).directionText} ${getCompassInfo(userHeading!).arrow}</strong>
-          </div>`
-        : '';
 
       beaconMarker.bindTooltip(
         `
@@ -426,22 +463,45 @@ export default function CadastralMap({
         <div style="font-size: 10px; color: #93c5fd;">
           Độ chính xác: ±${Math.round(accuracy)}m
         </div>
-        ${headingText}
+        <div style="font-size: 10px; color: #38bdf8; margin-top: 2px;">
+          🧭 Hướng nhìn: <strong>${curHeading}° ${dirInfo.directionText} ${dirInfo.arrow}</strong>
+        </div>
       `,
         {
           className: 'custom-map-tooltip',
           direction: 'top',
-          offset: [0, -12],
+          offset: [0, -16],
         }
       );
 
       beaconMarker.addTo(group);
+      compassMarkerRef.current = beaconMarker;
     });
 
     return () => {
       isMounted = false;
     };
-  }, [map, userLocation, userHeading]);
+  }, [map, userLocation]);
+
+  // 5b. Cập nhật góc xoay la bàn siêu mượt (60fps) ngay trên DOM khi cán bộ xoay điện thoại
+  useEffect(() => {
+    if (!compassMarkerRef.current) return;
+    const el = compassMarkerRef.current.getElement();
+    if (!el) return;
+
+    if (typeof userHeading === 'number' && !isNaN(userHeading)) {
+      const curHeading = Math.round(userHeading);
+      const rotLayer = el.querySelector('.compass-rotating-layer') as HTMLElement | null;
+      if (rotLayer) {
+        rotLayer.style.transform = `rotate(${curHeading}deg)`;
+      }
+      const badge = el.querySelector('.compass-degree-badge') as HTMLElement | null;
+      if (badge) {
+        const dirInfo = getCompassInfo(curHeading);
+        badge.innerHTML = `🧭 ${curHeading}° ${dirInfo.directionText}`;
+      }
+    }
+  }, [userHeading]);
 
   // 6. Vẽ lộ trình điều hướng & đường chỉ dẫn từ vị trí người dùng đến thửa đất
   const navInfo = useMemo(() => {
@@ -616,6 +676,46 @@ export default function CadastralMap({
           Hiển thị: <strong className="text-emerald-400 font-black">{dotsCount.toLocaleString('vi-VN')}</strong> thửa
         </span>
       </div>
+
+      {/* FLOATING DIGITAL COMPASS WIDGET (Mặt đồng hồ la bàn điện tử nổi) */}
+      {isTracking && (
+        <div className="absolute top-16 right-3 sm:top-16 sm:right-4 z-[999] flex items-center gap-2 bg-slate-950/90 backdrop-blur-md border border-cyan-500/50 rounded-2xl p-2 shadow-2xl text-white animate-in fade-in duration-200">
+          {/* Mặt đồng hồ la bàn xoay */}
+          <div className="relative w-10 h-10 rounded-full bg-slate-900 border-2 border-cyan-500/60 flex items-center justify-center shrink-0 overflow-hidden shadow-inner">
+            <div
+              className="w-full h-full flex items-center justify-center transition-transform duration-100 ease-out"
+              style={{
+                transform: `rotate(${typeof userHeading === 'number' ? -userHeading : 0}deg)`,
+              }}
+            >
+              <span className="absolute top-0.5 text-[8px] font-black text-rose-500">B</span>
+              <span className="absolute right-1 text-[7px] font-bold text-sky-400">Đ</span>
+              <span className="absolute bottom-0.5 text-[7px] font-bold text-slate-400">N</span>
+              <span className="absolute left-1 text-[7px] font-bold text-sky-400">T</span>
+              <div className="w-0.5 h-4 bg-gradient-to-t from-transparent via-rose-500 to-rose-400 rounded-full" />
+            </div>
+            {/* Đỉnh mũi tên cố định chỉ thẳng hướng nhìn của điện thoại */}
+            <div className="absolute top-0 w-2 h-2 border-l-2 border-t-2 border-amber-400 rotate-45" />
+          </div>
+
+          <div className="flex flex-col pr-1">
+            <div className="text-[10px] text-slate-400 font-bold flex items-center gap-1.5">
+              <span>LA BÀN THỰC ĐỊA</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+            </div>
+            <div className="text-xs font-black text-cyan-300">
+              {typeof userHeading === 'number' && !isNaN(userHeading)
+                ? `${Math.round(userHeading)}° ${getCompassInfo(userHeading).directionText}`
+                : 'Xoay điện thoại...'}
+            </div>
+            {userLocation && (
+              <div className="text-[9px] text-slate-400 font-mono">
+                ±{userLocation.accuracy}m {userLocation.speed ? `• ${userLocation.speed} km/h` : ''}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Mobile Floating Action Buttons (Màn hình điện thoại < lg) */}
       <div className="absolute top-28 right-2.5 z-[1000] lg:hidden flex flex-col gap-2">
