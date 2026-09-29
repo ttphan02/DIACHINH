@@ -154,13 +154,13 @@ export default function CadastralMap({
         let weight = 2;
 
         if (p.trang_thai === 'DA_SO_HOA_XANH') {
-          color = '#1e3a8a';
-          fillColor = '#2563eb'; // Xanh lam: Đã số hóa (Có trên GGS)
+          color = '#064e3b';
+          fillColor = '#10b981'; // Xanh lá: Đã số hóa (Có trên GGS)
           radius = 6.5;
           weight = 1.5;
         } else if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') {
-          color = '#064e3b';
-          fillColor = '#10b981'; // Xanh lá: Đã kê khai (Chờ số hóa lên GGS)
+          color = '#1e3a8a';
+          fillColor = '#2563eb'; // Xanh lam: Đã kê khai, chưa số hóa GGS
           radius = 6.5;
           weight = 1.5;
         } else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') {
@@ -198,9 +198,9 @@ export default function CadastralMap({
         const ownerDisplay = p.chu_ho || 'Không có trong dữ liệu';
         const statusLabel =
           p.trang_thai === 'DA_SO_HOA_XANH'
-            ? '🔵 Đã số hóa (GGS)'
+            ? '🟢 Đã số hóa (GGS)'
             : p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
-            ? '🟢 Đã kê khai (Chờ số hóa)'
+            ? '🔵 Đã kê khai (Chưa lên GGS)'
             : p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG'
             ? '🟡 Có tên'
             : '⚪ Chưa cập nhật / Không có DL';
@@ -552,11 +552,11 @@ export default function CadastralMap({
             <span className="w-2.5 h-2.5 rounded-full bg-orange-500 ring-2 ring-white" /> Thửa gộp ({additionalParcels.length})
           </span>
         )}
-        <span className="flex items-center gap-1 text-blue-300">
-          <span className="w-2 h-2 rounded-full bg-blue-500" /> Đã số hóa (GGS)
-        </span>
         <span className="flex items-center gap-1 text-emerald-300">
-          <span className="w-2 h-2 rounded-full bg-emerald-500" /> Đã kê khai
+          <span className="w-2 h-2 rounded-full bg-emerald-500" /> Đã số hóa (GGS)
+        </span>
+        <span className="flex items-center gap-1 text-blue-300">
+          <span className="w-2 h-2 rounded-full bg-blue-500" /> Đã kê khai
         </span>
         <span className="flex items-center gap-1 text-amber-300">
           <span className="w-2 h-2 rounded-full bg-amber-500" /> Có tên

@@ -55,14 +55,14 @@ export default function ParcelDetailModal({
     switch (parcel.trang_thai) {
       case 'DA_SO_HOA_XANH':
         return (
-          <span className="px-2.5 py-1 text-xs font-semibold bg-blue-100 text-blue-800 rounded-full border border-blue-200 flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-blue-600"></span> 🔵 Đã số hóa (GGS)
+          <span className="px-2.5 py-1 text-xs font-semibold bg-emerald-100 text-emerald-800 rounded-full border border-emerald-200 flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-emerald-500"></span> 🟢 Đã số hóa (GGS)
           </span>
         );
       case 'DA_KE_KHAI_CHUA_SO_HOA_LAM':
         return (
-          <span className="px-2.5 py-1 text-xs font-semibold bg-emerald-100 text-emerald-800 rounded-full border border-emerald-200 flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-500"></span> 🟢 Đã kê khai (Chờ số hóa)
+          <span className="px-2.5 py-1 text-xs font-semibold bg-blue-100 text-blue-800 rounded-full border border-blue-200 flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-blue-600"></span> 🔵 Đã kê khai (Chưa lên GGS)
           </span>
         );
       case 'CO_TEN_CHUA_SO_HOA_VANG':

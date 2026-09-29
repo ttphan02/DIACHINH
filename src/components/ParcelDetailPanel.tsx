@@ -244,14 +244,14 @@ export default function ParcelDetailPanel({
     switch (parcel.trang_thai) {
       case 'DA_SO_HOA_XANH':
         return (
-          <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-800 rounded-full border border-blue-200 inline-flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span> 🔵 Đã số hóa (GGS)
+          <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 rounded-full border border-emerald-200 inline-flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 🟢 Đã số hóa (GGS)
           </span>
         );
       case 'DA_KE_KHAI_CHUA_SO_HOA_LAM':
         return (
-          <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 rounded-full border border-emerald-200 inline-flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 🟢 Đã kê khai (Chờ số hóa)
+          <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-800 rounded-full border border-blue-200 inline-flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span> 🔵 Đã kê khai (Chưa lên GGS)
           </span>
         );
       case 'CO_TEN_CHUA_SO_HOA_VANG':
@@ -662,12 +662,12 @@ export default function ParcelDetailPanel({
                             Thửa {op.so_thua} • Tờ {op.to_ban_do}
                           </span>
                           {op.trang_thai === 'DA_SO_HOA_XANH' ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-100 text-blue-800">
-                              <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span> Đã số hóa
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Đã số hóa
                             </span>
                           ) : op.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM' ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Đã kê khai
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-100 text-blue-800">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span> Đã kê khai
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-800">
@@ -734,12 +734,12 @@ export default function ParcelDetailPanel({
                             Thửa {op.so_thua} • Tờ {op.to_ban_do}
                           </span>
                           {op.trang_thai === 'DA_SO_HOA_XANH' ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-100 text-blue-800">
-                              <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span> Đã số hóa
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Đã số hóa
                             </span>
                           ) : op.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM' ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Đã kê khai
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-100 text-blue-800">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span> Đã kê khai
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-800">
@@ -806,9 +806,9 @@ export default function ParcelDetailPanel({
                 <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
                   {neighbors.map((nb) => {
                     const statusDot = nb.trang_thai === 'DA_SO_HOA_XANH'
-                      ? <span className="w-2.5 h-2.5 rounded-full bg-blue-600 shrink-0" title="Đã số hóa (GGS)" />
+                      ? <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" title="Đã số hóa (GGS)" />
                       : nb.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
-                      ? <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" title="Đã kê khai" />
+                      ? <span className="w-2.5 h-2.5 rounded-full bg-blue-600 shrink-0" title="Đã kê khai" />
                       : nb.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG'
                       ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" title="Có tên chủ" />
                       : <span className="w-2.5 h-2.5 rounded-full bg-gray-300 shrink-0" title="Chưa có tên" />;
