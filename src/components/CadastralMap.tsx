@@ -324,7 +324,36 @@ export default function CadastralMap({
     };
   }, [map, selectedParcel, neighborParcels, onSelectParcel]);
 
-  // 5. VỊ TRÍ ĐANG ĐỨNG & HƯỚNG NHÌN 60 ĐỘ CHUẨN GOOGLE MAPS (Không vẽ bán kính, không vẽ vành la bàn)
+  const userHeadingRef = useRef<number | null>(userHeading ?? null);
+  const lastAngleRef = useRef<number>(0);
+
+  // Cập nhật nón hướng nhìn 60 độ siêu mượt khi xoay điện thoại
+  const applyHeadingRotation = useCallback((heading: number | null | undefined) => {
+    if (!userMarkerRef.current) return;
+    const el = userMarkerRef.current.getElement();
+    if (!el) return;
+
+    const beam = el.querySelector('.user-ggm-heading-beam') as HTMLElement | null;
+    if (beam) {
+      if (typeof heading === 'number' && !isNaN(heading)) {
+        beam.style.display = 'block';
+        const prev = lastAngleRef.current;
+        let diff = (heading - prev) % 360;
+        if (diff > 180) diff -= 360;
+        if (diff < -180) diff += 360;
+        const unwrapped = prev + diff;
+        lastAngleRef.current = unwrapped;
+        beam.style.transform = `rotate(${unwrapped}deg)`;
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    userHeadingRef.current = userHeading ?? null;
+    applyHeadingRotation(userHeading);
+  }, [userHeading, applyHeadingRotation]);
+
+  // 5. VỊ TRÍ ĐANG ĐỨNG & HƯỚNG NHÌN 60 ĐỘ CHUẨN GOOGLE MAPS
   useEffect(() => {
     if (!map || !userLocationLayerRef.current) return;
     const group = userLocationLayerRef.current;
@@ -338,8 +367,10 @@ export default function CadastralMap({
       if (!isMounted) return;
 
       const { lat, lng } = userLocation;
-      const hasHeading = typeof userHeading === 'number' && !isNaN(userHeading);
-      const curHeading = hasHeading ? Math.round(userHeading) : 0;
+      const currentHeading = userHeadingRef.current;
+      const hasHeading = typeof currentHeading === 'number' && !isNaN(currentHeading);
+      const curHeading = hasHeading ? Math.round(currentHeading) : 0;
+      lastAngleRef.current = curHeading;
 
       // Nón hướng nhìn 60 độ Google Maps + Chấm xanh định vị
       const locationHtml = `
@@ -349,13 +380,17 @@ export default function CadastralMap({
       };">
             <svg viewBox="0 0 100 100" style="width: 100%; height: 100%; overflow: visible;">
               <defs>
-                <radialGradient id="ggmConeGrad" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+                <radialGradient id="ggmConeGrad" cx="50" cy="50" r="48" fx="50" fy="50" gradientUnits="userSpaceOnUse">
                   <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.85" />
-                  <stop offset="50%" stop-color="#0284c7" stop-opacity="0.35" />
+                  <stop offset="35%" stop-color="#0284c7" stop-opacity="0.5" />
+                  <stop offset="85%" stop-color="#0284c7" stop-opacity="0.08" />
                   <stop offset="100%" stop-color="#0284c7" stop-opacity="0" />
                 </radialGradient>
               </defs>
-              <path d="M 50 50 L 25 7 A 50 50 0 0 1 75 7 Z" fill="url(#ggmConeGrad)" />
+              <!-- Chùm tia nón 60 độ tỏa từ tâm (50, 50) -->
+              <path d="M 50 50 L 25 7 A 50 50 0 0 1 75 7 Z" fill="url(#ggmConeGrad)" stroke="rgba(56, 189, 248, 0.45)" stroke-width="0.8" />
+              <!-- Tia chỉ tâm hướng nhìn -->
+              <line x1="50" y1="50" x2="50" y2="10" stroke="rgba(56, 189, 248, 0.9)" stroke-width="1.5" stroke-linecap="round" />
             </svg>
           </div>
           <div class="user-ggm-pulse"></div>
@@ -394,27 +429,13 @@ export default function CadastralMap({
 
       beaconMarker.addTo(group);
       userMarkerRef.current = beaconMarker;
+      applyHeadingRotation(userHeadingRef.current);
     });
 
     return () => {
       isMounted = false;
     };
-  }, [map, userLocation]);
-
-  // Cập nhật nón hướng nhìn 60 độ siêu mượt khi xoay điện thoại
-  useEffect(() => {
-    if (!userMarkerRef.current) return;
-    const el = userMarkerRef.current.getElement();
-    if (!el) return;
-
-    const beam = el.querySelector('.user-ggm-heading-beam') as HTMLElement | null;
-    if (beam) {
-      if (typeof userHeading === 'number' && !isNaN(userHeading)) {
-        beam.style.display = 'block';
-        beam.style.transform = `rotate(${Math.round(userHeading)}deg)`;
-      }
-    }
-  }, [userHeading]);
+  }, [map, userLocation, applyHeadingRotation]);
 
   // Thu phóng vừa toàn bộ các thửa
   const handleFitBounds = useCallback(() => {
@@ -430,13 +451,13 @@ export default function CadastralMap({
     });
   }, [map, parcels]);
 
-  // Bay về vị trí người dùng
+  // Bay về vị trí người dùng & kích hoạt xin quyền cảm biến la bàn
   const handleFlyToUserLocation = useCallback(() => {
-    if (!map) return;
-    if (userLocation?.lat && userLocation?.lng) {
-      map.flyTo([userLocation.lat, userLocation.lng], 18, { animate: true, duration: 1 });
-    } else if (onToggleLocation) {
+    if (onToggleLocation) {
       onToggleLocation();
+    }
+    if (map && userLocation?.lat && userLocation?.lng) {
+      map.flyTo([userLocation.lat, userLocation.lng], 18, { animate: true, duration: 1 });
     }
   }, [map, userLocation, onToggleLocation]);
 

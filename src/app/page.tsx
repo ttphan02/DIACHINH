@@ -92,54 +92,116 @@ export default function Home() {
   const [isLocating, setIsLocating] = useState(false);
   const watchIdRef = useRef<number | null>(null);
 
-  // Lắng nghe cảm biến la bàn từ trường (Device Orientation / Compass) để xoay nón hướng nhìn
-  useEffect(() => {
-    if (!isTracking) {
-      setUserHeading(null);
-      return;
+  // Tính góc la bàn chuẩn W3C từ alpha, beta, gamma (hoạt động chính xác cả khi cầm nghiêng điện thoại)
+  const calculateCompassHeading = (alpha: number, beta: number, gamma: number): number => {
+    const degToRad = Math.PI / 180;
+    const a = alpha * degToRad;
+    const b = beta * degToRad;
+    const g = gamma * degToRad;
+
+    const cA = Math.cos(a), sA = Math.sin(a);
+    const cB = Math.cos(b), sB = Math.sin(b);
+    const cG = Math.cos(g), sG = Math.sin(g);
+
+    const rA = -cA * sG - sA * sB * cG;
+    const rB = -sA * sG + cA * sB * cG;
+
+    let heading = Math.atan2(rA, rB);
+    if (heading < 0) {
+      heading += 2 * Math.PI;
+    }
+    let deg = heading * (180 / Math.PI);
+
+    // Bù trừ góc xoay màn hình nếu người dùng cầm ngang máy (landscape)
+    if (typeof window !== 'undefined') {
+      const screenAngle =
+        window.screen?.orientation?.angle ??
+        (typeof (window as any).orientation === 'number' ? (window as any).orientation : 0);
+      deg = (deg + screenAngle) % 360;
     }
 
-    const handleOrientation = (e: any) => {
-      let compassHeading: number | null = null;
-      // 1. iOS Safari (webkitCompassHeading: 0° là Hướng Bắc thật)
-      if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading)) {
-        compassHeading = e.webkitCompassHeading;
-      }
-      // 2. Android Chrome (alpha với absolute = true)
-      else if (e.absolute && typeof e.alpha === 'number' && !isNaN(e.alpha)) {
-        compassHeading = (360 - e.alpha) % 360;
-      } else if (typeof e.alpha === 'number' && !isNaN(e.alpha)) {
-        compassHeading = (360 - e.alpha) % 360;
-      }
+    return Math.round(deg);
+  };
 
-      if (compassHeading !== null) {
-        setUserHeading(Math.round(compassHeading));
-      }
-    };
-
-    // Kiểm tra và xin quyền truy cập cảm biến trên iOS 13+ nếu cần
+  // Xin quyền cảm biến la bàn trên iOS 13+ khi người dùng tương tác chạm
+  const requestCompassPermission = useCallback(async () => {
     if (
+      typeof window !== 'undefined' &&
       typeof (DeviceOrientationEvent as any) !== 'undefined' &&
       typeof (DeviceOrientationEvent as any).requestPermission === 'function'
     ) {
-      (DeviceOrientationEvent as any)
-        .requestPermission()
-        .then((permission: string) => {
-          if (permission === 'granted') {
-            window.addEventListener('deviceorientation', handleOrientation, true);
-          }
-        })
-        .catch((err: any) => console.log('Không thể xin quyền cảm biến la bàn:', err));
-    } else {
-      window.addEventListener('deviceorientationabsolute', handleOrientation, true);
-      window.addEventListener('deviceorientation', handleOrientation, true);
+      try {
+        const res = await (DeviceOrientationEvent as any).requestPermission();
+        if (res === 'granted') {
+          return true;
+        }
+      } catch (err) {
+        console.warn('Lỗi xin quyền la bàn iOS:', err);
+      }
     }
+    return false;
+  }, []);
+
+  // Lắng nghe cảm biến la bàn từ trường (Device Orientation / Compass)
+  useEffect(() => {
+    let hasAbsoluteListener = false;
+
+    const handleAbsoluteOrientation = (e: any) => {
+      let compassHeading: number | null = null;
+      // 1. iOS Safari
+      if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading)) {
+        compassHeading = e.webkitCompassHeading;
+      }
+      // 2. Android Chrome Absolute
+      else if (e.alpha !== null && typeof e.alpha === 'number') {
+        if (e.beta !== null && e.gamma !== null && typeof e.beta === 'number' && typeof e.gamma === 'number') {
+          compassHeading = calculateCompassHeading(e.alpha, e.beta, e.gamma);
+        } else {
+          compassHeading = (360 - e.alpha) % 360;
+        }
+      }
+      if (compassHeading !== null && !isNaN(compassHeading)) {
+        setUserHeading(Math.round((compassHeading + 360) % 360));
+      }
+    };
+
+    const handleStandardOrientation = (e: any) => {
+      if (e.absolute === false && hasAbsoluteListener) return;
+      let compassHeading: number | null = null;
+      if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading)) {
+        compassHeading = e.webkitCompassHeading;
+      } else if (e.alpha !== null && typeof e.alpha === 'number') {
+        if (e.beta !== null && e.gamma !== null && typeof e.beta === 'number' && typeof e.gamma === 'number') {
+          compassHeading = calculateCompassHeading(e.alpha, e.beta, e.gamma);
+        } else {
+          compassHeading = (360 - e.alpha) % 360;
+        }
+      }
+      if (compassHeading !== null && !isNaN(compassHeading)) {
+        setUserHeading(Math.round((compassHeading + 360) % 360));
+      }
+    };
+
+    if ('ondeviceorientationabsolute' in window) {
+      window.addEventListener('deviceorientationabsolute', handleAbsoluteOrientation, true);
+      hasAbsoluteListener = true;
+    }
+    window.addEventListener('deviceorientation', handleStandardOrientation, true);
+
+    // Đối với iOS 13+: Xin quyền tự động ngay lần đầu người dùng chạm vào màn hình
+    const handleFirstUserTouch = () => {
+      requestCompassPermission();
+    };
+    window.addEventListener('click', handleFirstUserTouch, { once: true });
+    window.addEventListener('touchend', handleFirstUserTouch, { once: true });
 
     return () => {
-      window.removeEventListener('deviceorientationabsolute', handleOrientation, true);
-      window.removeEventListener('deviceorientation', handleOrientation, true);
+      window.removeEventListener('deviceorientationabsolute', handleAbsoluteOrientation, true);
+      window.removeEventListener('deviceorientation', handleStandardOrientation, true);
+      window.removeEventListener('click', handleFirstUserTouch);
+      window.removeEventListener('touchend', handleFirstUserTouch);
     };
-  }, [isTracking]);
+  }, [requestCompassPermission]);
 
   // Tự động kích hoạt định vị GPS liên tục khi tải trang (Always-on GPS)
   useEffect(() => {
@@ -550,18 +612,8 @@ export default function Home() {
       return;
     }
 
-    // Xin quyền cảm biến la bàn trên iOS 13+ nếu có
-    if (
-      typeof window !== 'undefined' &&
-      typeof (DeviceOrientationEvent as any) !== 'undefined' &&
-      typeof (DeviceOrientationEvent as any).requestPermission === 'function'
-    ) {
-      try {
-        (DeviceOrientationEvent as any).requestPermission().catch(() => {});
-      } catch (e) {
-        // ignore
-      }
-    }
+    // Xin quyền cảm biến la bàn trên iOS 13+ khi người dùng bấm nút
+    requestCompassPermission();
 
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
