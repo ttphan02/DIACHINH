@@ -12,48 +12,9 @@ interface CadastralMapProps {
   selectedParcel: Parcel | null;
   neighborParcels?: NeighborParcel[];
   userLocation?: { lat: number; lng: number; accuracy: number; heading?: number | null; speed?: number | null } | null;
-  userHeading?: number | null;
   isTracking?: boolean;
   isLocating?: boolean;
   onToggleLocation?: () => void;
-}
-
-// Hàm tính góc la bàn chuẩn W3C từ 3 góc alpha, beta, gamma (bù trừ độ nghiêng khi cầm điện thoại)
-function computeCompassHeading(alpha: number, beta: number, gamma: number): number {
-  const degToRad = Math.PI / 180;
-  const _x = beta ? beta * degToRad : 0;
-  const _y = gamma ? gamma * degToRad : 0;
-  const _z = alpha ? alpha * degToRad : 0;
-
-  const cA = Math.cos(_z), sA = Math.sin(_z);
-  const cB = Math.cos(_x), sB = Math.sin(_x);
-  const cG = Math.cos(_y), sG = Math.sin(_y);
-
-  const rA = -cA * sG - sA * sB * cG;
-  const rB = -sA * sG + cA * sB * cG;
-
-  if (Math.abs(rA) < 1e-5 && Math.abs(rB) < 1e-5) {
-    return (360 - alpha) % 360;
-  }
-
-  let compass = Math.atan2(rA, rB);
-  if (compass < 0) {
-    compass += 2 * Math.PI;
-  }
-
-  let deg = compass * (180 / Math.PI);
-  if (isNaN(deg) || !isFinite(deg)) {
-    return (360 - alpha) % 360;
-  }
-
-  if (typeof window !== 'undefined') {
-    const screenAngle =
-      window.screen?.orientation?.angle ??
-      (typeof (window as any).orientation === 'number' ? (window as any).orientation : 0);
-    deg = (deg + screenAngle) % 360;
-  }
-
-  return (deg + 360) % 360;
 }
 
 export default function CadastralMap({
@@ -62,7 +23,6 @@ export default function CadastralMap({
   selectedParcel,
   neighborParcels = [],
   userLocation,
-  userHeading,
   isTracking = false,
   isLocating = false,
   onToggleLocation,
@@ -75,30 +35,6 @@ export default function CadastralMap({
   const userMarkerRef = useRef<any>(null);
   const lastCenteredParcelRef = useRef<string | null>(null);
   const [dotsCount, setDotsCount] = useState(0);
-
-  // Tham chiếu la bàn realtime 60fps mượt mà như Google Maps (không thông qua React state để tránh lag)
-  const targetHeadingRef = useRef<number | null>(null);
-  const displayedHeadingRef = useRef<number>(0);
-  const hasHeadingRef = useRef<boolean>(false);
-  const rafIdRef = useRef<number | null>(null);
-
-  // Đồng bộ prop userHeading từ bên ngoài nếu có
-  useEffect(() => {
-    if (typeof userHeading === 'number' && !isNaN(userHeading)) {
-      targetHeadingRef.current = (userHeading + 360) % 360;
-      if (!hasHeadingRef.current) {
-        hasHeadingRef.current = true;
-        displayedHeadingRef.current = targetHeadingRef.current;
-      }
-    }
-  }, [userHeading]);
-
-  // Đồng bộ GPS heading khi di chuyển nếu chưa có cảm biến la bàn
-  useEffect(() => {
-    if (userLocation?.heading && typeof userLocation.heading === 'number' && !hasHeadingRef.current) {
-      targetHeadingRef.current = (userLocation.heading + 360) % 360;
-    }
-  }, [userLocation]);
 
   // 1. Khởi tạo Leaflet Map với lớp ảnh vệ tinh Google Hybrid vĩnh viễn
   useEffect(() => {
@@ -386,7 +322,7 @@ export default function CadastralMap({
     };
   }, [map, selectedParcel, neighborParcels, onSelectParcel]);
 
-  // 5. VỊ TRÍ ĐANG ĐỨNG & HƯỚNG NHÌN 60 ĐỘ CHUẨN GOOGLE MAPS
+  // 5. VỊ TRÍ ĐANG ĐỨNG CHUẨN GOOGLE MAPS (CHẤM XANH PHÁT XUNG)
   useEffect(() => {
     if (!map || !userLocationLayerRef.current) return;
     const group = userLocationLayerRef.current;
@@ -400,30 +336,10 @@ export default function CadastralMap({
       if (!isMounted) return;
 
       const { lat, lng } = userLocation;
-      const initialHeading = displayedHeadingRef.current;
-      const isVisible = targetHeadingRef.current !== null || hasHeadingRef.current;
 
-      // Nón hướng nhìn 60 độ Google Maps + Chấm xanh định vị
+      // Chấm định vị xanh chuẩn Google Maps kèm hiệu ứng phát xung radar nhẹ nhàng
       const locationHtml = `
         <div class="user-ggm-location">
-          <div class="user-ggm-heading-beam" style="transform: rotate(${initialHeading.toFixed(1)}deg); display: ${
-        isVisible ? 'block' : 'none'
-      };">
-            <svg viewBox="0 0 100 100" style="width: 100%; height: 100%; overflow: visible;">
-              <defs>
-                <radialGradient id="ggmConeGrad" cx="50" cy="50" r="48" fx="50" fy="50" gradientUnits="userSpaceOnUse">
-                  <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.85" />
-                  <stop offset="35%" stop-color="#0284c7" stop-opacity="0.5" />
-                  <stop offset="85%" stop-color="#0284c7" stop-opacity="0.08" />
-                  <stop offset="100%" stop-color="#0284c7" stop-opacity="0" />
-                </radialGradient>
-              </defs>
-              <!-- Chùm tia nón 60 độ tỏa từ tâm (50, 50) -->
-              <path d="M 50 50 L 25 7 A 50 50 0 0 1 75 7 Z" fill="url(#ggmConeGrad)" stroke="rgba(56, 189, 248, 0.45)" stroke-width="0.8" />
-              <!-- Tia chỉ tâm hướng nhìn -->
-              <line x1="50" y1="50" x2="50" y2="10" stroke="rgba(56, 189, 248, 0.9)" stroke-width="1.5" stroke-linecap="round" />
-            </svg>
-          </div>
           <div class="user-ggm-pulse"></div>
           <div class="user-ggm-dot"></div>
         </div>
@@ -460,121 +376,6 @@ export default function CadastralMap({
     };
   }, [map, userLocation]);
 
-  // 6. CẢM BIẾN XOAY LA BÀN TỐC ĐỘ CAO (HIGH-FREQUENCY SENSOR LISTENER)
-  // Lắng nghe trực tiếp từ phần cứng điện thoại mà không làm re-render toàn bộ trang React
-  useEffect(() => {
-    let hasAbsolute = false;
-
-    const handleOrientationData = (e: any, isAbsolute = false) => {
-      let heading: number | null = null;
-
-      // 1. iOS Safari: webkitCompassHeading là chuẩn xác nhất theo từ trường Trái Đất
-      if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading)) {
-        heading = e.webkitCompassHeading;
-      }
-      // 2. Android Chrome
-      else if (e.alpha !== null && typeof e.alpha === 'number') {
-        if (e.beta !== null && e.gamma !== null && typeof e.beta === 'number' && typeof e.gamma === 'number') {
-          heading = computeCompassHeading(e.alpha, e.beta, e.gamma);
-        } else {
-          heading = (360 - e.alpha) % 360;
-        }
-      }
-
-      if (heading !== null && !isNaN(heading)) {
-        const normalized = (heading + 360) % 360;
-        if (!hasHeadingRef.current) {
-          hasHeadingRef.current = true;
-          displayedHeadingRef.current = normalized;
-        }
-        targetHeadingRef.current = normalized;
-      }
-    };
-
-    const onAbsoluteEvent = (e: any) => handleOrientationData(e, true);
-    const onStandardEvent = (e: any) => {
-      if (hasAbsolute && e.absolute === false) return;
-      handleOrientationData(e, false);
-    };
-
-    if ('ondeviceorientationabsolute' in window) {
-      window.addEventListener('deviceorientationabsolute', onAbsoluteEvent, true);
-      hasAbsolute = true;
-    }
-    window.addEventListener('deviceorientation', onStandardEvent, true);
-
-    // Kích hoạt xin quyền la bàn trên iOS khi người dùng chạm vào màn hình
-    const requestIosPermission = async () => {
-      if (
-        typeof window !== 'undefined' &&
-        typeof (DeviceOrientationEvent as any) !== 'undefined' &&
-        typeof (DeviceOrientationEvent as any).requestPermission === 'function'
-      ) {
-        try {
-          await (DeviceOrientationEvent as any).requestPermission();
-        } catch (err) {
-          // ignore
-        }
-      }
-    };
-
-    window.addEventListener('click', requestIosPermission, { once: true });
-    window.addEventListener('touchend', requestIosPermission, { once: true });
-
-    return () => {
-      window.removeEventListener('deviceorientationabsolute', onAbsoluteEvent, true);
-      window.removeEventListener('deviceorientation', onStandardEvent, true);
-      window.removeEventListener('click', requestIosPermission);
-      window.removeEventListener('touchend', requestIosPermission);
-    };
-  }, []);
-
-  // 7. VÒNG LẶP NỘI SUY MƯỢT MÀ CHUẨN GOOGLE MAPS (60FPS - 120FPS REQUESTANIMATIONFRAME)
-  // Sử dụng bộ lọc thông thấp (Low-pass filter / EMA) để triệt tiêu hoàn toàn rung lắc và quay mượt mà
-  useEffect(() => {
-    const smoothingFactor = 0.22; // Hệ số mượt mà Google Maps
-
-    const loop = () => {
-      if (targetHeadingRef.current !== null && userMarkerRef.current) {
-        const target = targetHeadingRef.current;
-        let current = displayedHeadingRef.current;
-
-        // Tính góc delta ngắn nhất trên vòng tròn 360 độ (tránh quay ngược 359 -> 0)
-        let delta = (target - current) % 360;
-        if (delta > 180) delta -= 360;
-        if (delta < -180) delta += 360;
-
-        // Chỉ cập nhật DOM nếu có sự dịch chuyển thực tế
-        if (Math.abs(delta) > 0.05) {
-          current = (current + delta * smoothingFactor + 360) % 360;
-          displayedHeadingRef.current = current;
-
-          const el = userMarkerRef.current.getElement();
-          if (el) {
-            const beam = el.querySelector('.user-ggm-heading-beam') as HTMLElement | null;
-            if (beam) {
-              if (beam.style.display !== 'block') {
-                beam.style.display = 'block';
-              }
-              // Canh chuyển động mượt trực tiếp bằng GPU
-              beam.style.transform = `rotate(${current.toFixed(1)}deg)`;
-            }
-          }
-        }
-      }
-
-      rafIdRef.current = requestAnimationFrame(loop);
-    };
-
-    rafIdRef.current = requestAnimationFrame(loop);
-
-    return () => {
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-      }
-    };
-  }, []);
-
   // Thu phóng vừa toàn bộ các thửa
   const handleFitBounds = useCallback(() => {
     if (!map) return;
@@ -589,22 +390,10 @@ export default function CadastralMap({
     });
   }, [map, parcels]);
 
-  // Bay về vị trí người dùng & kích hoạt xin quyền cảm biến la bàn
+  // Bay về vị trí người dùng
   const handleFlyToUserLocation = useCallback(() => {
     if (onToggleLocation) {
       onToggleLocation();
-    }
-    // Xin quyền cảm biến iOS nếu chưa có
-    if (
-      typeof window !== 'undefined' &&
-      typeof (DeviceOrientationEvent as any) !== 'undefined' &&
-      typeof (DeviceOrientationEvent as any).requestPermission === 'function'
-    ) {
-      try {
-        (DeviceOrientationEvent as any).requestPermission().catch(() => {});
-      } catch (e) {
-        // ignore
-      }
     }
     if (map && userLocation?.lat && userLocation?.lng) {
       map.flyTo([userLocation.lat, userLocation.lng], 18, { animate: true, duration: 0.8 });
