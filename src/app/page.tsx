@@ -365,21 +365,23 @@ export default function Home() {
 
   const totalPages = Math.ceil(filteredParcels.length / pageSize);
 
-  // 1. Danh sách các thửa đất cùng chủ CHÍNH XÁC theo CCCD (duy nhất)
+  // 1. Danh sách các thửa đất cùng chủ CHÍNH XÁC theo CCCD (duy nhất) - Loại bỏ các thửa đã chọn gộp
   const sameCccdParcels = useMemo(() => {
     if (!selectedParcel || !selectedParcel.cccd || selectedParcel.cccd.trim().length < 9) {
       return [];
     }
     const cleanCccd = selectedParcel.cccd.trim();
+    const additionalCodes = new Set(additionalParcels.map((ap) => ap.ma_thua));
     return computedParcels.filter(
       (p) =>
         p.ma_thua !== selectedParcel.ma_thua &&
+        !additionalCodes.has(p.ma_thua) &&
         p.cccd &&
         p.cccd.trim() === cleanCccd
     );
-  }, [selectedParcel, computedParcels]);
+  }, [selectedParcel, computedParcels, additionalParcels]);
 
-  // 2. Danh sách các thửa đất khác có cùng Tên (trừ các thửa đã trùng CCCD) - "Có thể chủ hộ này còn sở hữu"
+  // 2. Danh sách các thửa đất khác có cùng Tên (trừ các thửa đã trùng CCCD) - "Có thể chủ hộ này còn sở hữu" - Loại bỏ các thửa đã chọn gộp
   const sameNameParcels = useMemo(() => {
     const nonPersonPlaceholders = [
       'Chưa có tên',
@@ -405,16 +407,18 @@ export default function Home() {
     }
     const cleanOwner = selectedParcel.chu_ho.trim().toLowerCase();
     const cccdMatchedCodes = new Set(sameCccdParcels.map((p) => p.ma_thua));
+    const additionalCodes = new Set(additionalParcels.map((ap) => ap.ma_thua));
 
     return computedParcels.filter(
       (p) =>
         p.ma_thua !== selectedParcel.ma_thua &&
+        !additionalCodes.has(p.ma_thua) &&
         !cccdMatchedCodes.has(p.ma_thua) &&
         p.chu_ho &&
         !nonPersonPlaceholders.some((np) => p.chu_ho.toLowerCase().includes(np.toLowerCase())) &&
         p.chu_ho.trim().toLowerCase() === cleanOwner
     );
-  }, [selectedParcel, computedParcels, sameCccdParcels]);
+  }, [selectedParcel, computedParcels, sameCccdParcels, additionalParcels]);
 
   const sameOwnerParcels = useMemo(() => {
     return [...sameCccdParcels, ...sameNameParcels];

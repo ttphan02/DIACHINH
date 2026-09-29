@@ -91,19 +91,22 @@ export async function GET(request: Request) {
       const line = lines[i];
       if (!line) continue;
       const row = parseCsvLine(line);
-      if (row.length < 5) continue;
+      if (row.length < 3) continue;
 
+      const colC = (row[2] || '').trim();
       let ma_thua = '';
 
-      // 1. Kiểm tra các cột mã (Col 57, 59, 61, 56, 58)
-      for (const c of [57, 59, 61, 56, 58]) {
-        if (c < row.length && /^\d+_\d+$/.test(row[c])) {
-          ma_thua = row[c];
-          break;
+      // 1. Ưu tiên hàng đầu: Trích xuất mã thửa từ Cột C (ví dụ: CHUACOGIAY_24478_263_58 -> 263_58)
+      if (colC) {
+        const mColC = colC.match(/_(\d+_\d+)$/);
+        if (mColC) {
+          ma_thua = mColC[1];
+        } else if (/^\d+_\d+$/.test(colC)) {
+          ma_thua = colC;
         }
       }
 
-      // 2. Kiểm tra cột tờ và thửa
+      // 2. Nếu Cột C không chứa chuỗi X_Y, kiểm tra Cột V (Tờ - index 21) và Cột W (Thửa - index 22)
       if (!ma_thua) {
         if (row.length > 22 && /^\d+$/.test(row[21]) && /^\d+$/.test(row[22])) {
           ma_thua = `${row[21]}_${row[22]}`;
@@ -112,12 +115,11 @@ export async function GET(request: Request) {
         }
       }
 
-      // 3. Chuỗi CHUACOGIAY_24478_to_thua
+      // 3. Fallback kiểm tra các cột mã phụ (Col 57, 59, 61, 56, 58) nếu vẫn chưa tìm thấy
       if (!ma_thua) {
-        for (const cell of row) {
-          const m = cell.match(/CHUACOGIAY_\d+_(\d+)_(\d+)/);
-          if (m) {
-            ma_thua = `${m[1]}_${m[2]}`;
+        for (const c of [57, 59, 61, 56, 58]) {
+          if (c < row.length && /^\d+_\d+$/.test(row[c])) {
+            ma_thua = row[c];
             break;
           }
         }
@@ -126,67 +128,75 @@ export async function GET(request: Request) {
       if (!ma_thua) continue;
       codeSet.add(ma_thua);
 
-      // Tìm tên chủ hộ
-      let chu_ho = '';
-      for (const c of [7, 9, 8, 14, 5]) {
-        if (c < row.length) {
-          const val = row[c];
-          if (val && !/^\d+$/.test(val) && !/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(val)) {
-            if (val !== 'Nam' && val !== 'Nữ' && val !== 'Cá nhân' && val !== 'Hộ gia đình' && val.length >= 2) {
-              if (!val.includes('UBND')) {
-                chu_ho = val;
-                break;
-              } else if (!chu_ho) {
-                chu_ho = val;
-              }
-            }
-          }
+      // Lấy Họ và tên chủ sử dụng: Trực tiếp từ Cột H (index 7)
+      let chu_ho = (row[7] || '').trim();
+      // Nếu Cột H trống, lấy tên người sử dụng hiện tại từ Cột O (index 14)
+      if (!chu_ho && row.length > 14) {
+        const altName = (row[14] || '').trim();
+        if (altName && altName !== 'Chung' && altName !== 'Cá nhân') {
+          chu_ho = altName;
         }
       }
 
-      // Tìm CCCD
+      // Lấy Số CCCD / Số định danh: Trực tiếp từ Cột K (index 10)
       let cccd = '';
-      for (const c of [10, 12, 11, 15, 6]) {
-        if (c < row.length) {
-          const val = row[c];
-          if (/^\d{9,12}$/.test(val)) {
-            cccd = val;
-            break;
-          }
-        }
+      const rawCccd = (row[10] || '').trim();
+      if (/^\d{9,15}$/.test(rawCccd)) {
+        cccd = rawCccd;
+      } else if (row.length > 15 && /^\d{9,15}$/.test((row[15] || '').trim())) {
+        cccd = (row[15] || '').trim(); // Cột P (index 15): CCCD người sử dụng hiện tại
       }
 
-      // Tìm diện tích
+      // Tìm diện tích: Cột Y (index 24)
       let dien_tich = '';
-      for (const c of [24, 26, 28, 20]) {
-        if (c < row.length) {
-          const val = row[c].replace(',', '.');
-          if (/^\d+(\.\d+)?$/.test(val) && parseFloat(val) > 0) {
-            dien_tich = val;
-            break;
-          }
+      if (row.length > 24) {
+        const val = row[24].trim().replace(',', '.');
+        if (/^\d+(\.\d+)?$/.test(val) && parseFloat(val) > 0) {
+          dien_tich = val;
         }
       }
 
-      // Tìm loại đất
+      // Tìm loại đất: Cột Z (index 25)
       let loai_dat = '';
-      for (const c of [25, 27, 29]) {
-        if (c < row.length) {
-          const val = row[c];
-          if (val && val.length <= 10 && /^[A-Z0-9]+$/.test(val)) {
-            loai_dat = val;
-            break;
-          }
+      if (row.length > 25) {
+        const val = row[25].trim();
+        if (val && val.length <= 15) {
+          loai_dat = val;
         }
       }
+
+      // Lưu trữ dữ liệu thửa đất
+      const parcelData: GgsParcelData = {
+        chu_ho: chu_ho || ggsParcels[ma_thua]?.chu_ho || '',
+        cccd: cccd || ggsParcels[ma_thua]?.cccd || undefined,
+        dien_tich: dien_tich || ggsParcels[ma_thua]?.dien_tich || undefined,
+        loai_dat: loai_dat || ggsParcels[ma_thua]?.loai_dat || undefined,
+      };
 
       if (!ggsParcels[ma_thua] || (chu_ho && !ggsParcels[ma_thua].chu_ho)) {
-        ggsParcels[ma_thua] = {
-          chu_ho,
-          cccd: cccd || undefined,
-          dien_tich: dien_tich || undefined,
-          loai_dat: loai_dat || undefined,
-        };
+        ggsParcels[ma_thua] = parcelData;
+      } else {
+        if (!ggsParcels[ma_thua].cccd && cccd) {
+          ggsParcels[ma_thua].cccd = cccd;
+        }
+        if (!ggsParcels[ma_thua].dien_tich && dien_tich) {
+          ggsParcels[ma_thua].dien_tich = dien_tich;
+        }
+        if (!ggsParcels[ma_thua].loai_dat && loai_dat) {
+          ggsParcels[ma_thua].loai_dat = loai_dat;
+        }
+      }
+
+      // Hỗ trợ cả key đảo ngược (to_thua và thua_to) để tra cứu luôn chính xác 100%
+      if (ma_thua.includes('_')) {
+        const [p1, p2] = ma_thua.split('_');
+        if (p1 && p2) {
+          const revKey = `${p2}_${p1}`;
+          codeSet.add(revKey);
+          if (!ggsParcels[revKey] || (chu_ho && !ggsParcels[revKey].chu_ho)) {
+            ggsParcels[revKey] = parcelData;
+          }
+        }
       }
     }
 

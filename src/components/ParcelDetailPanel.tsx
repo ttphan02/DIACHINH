@@ -102,24 +102,30 @@ export default function ParcelDetailPanel({
     }, 50);
   };
 
-  // 1. Thửa khác cùng chủ CHÍNH XÁC theo CCCD (duy nhất)
+  // 1. Thửa khác cùng chủ CHÍNH XÁC theo CCCD (duy nhất) - Loại bỏ thửa chính và các thửa đã chọn gộp
   const resolvedSameCccdParcels = useMemo(() => {
+    const additionalCodes = new Set((additionalParcels || []).map((ap) => ap.ma_thua));
     if (sameCccdParcels && sameCccdParcels.length > 0) {
-      return sameCccdParcels.filter((p) => p.ma_thua !== parcel?.ma_thua);
+      return sameCccdParcels.filter(
+        (p) => p.ma_thua !== parcel?.ma_thua && !additionalCodes.has(p.ma_thua)
+      );
     }
     return [];
-  }, [sameCccdParcels, parcel]);
+  }, [sameCccdParcels, parcel, additionalParcels]);
 
-  // 2. Thửa khác có cùng Tên (trừ các thửa đã trùng CCCD) - "Có thể chủ hộ này còn sở hữu"
+  // 2. Thửa khác có cùng Tên (trừ các thửa đã trùng CCCD) - "Có thể chủ hộ này còn sở hữu" - Loại bỏ các thửa đã chọn gộp
   const resolvedSameNameParcels = useMemo(() => {
+    const additionalCodes = new Set((additionalParcels || []).map((ap) => ap.ma_thua));
+    const filterFn = (p: Parcel) => p.ma_thua !== parcel?.ma_thua && !additionalCodes.has(p.ma_thua);
+
     if (sameNameParcels && sameNameParcels.length > 0) {
-      return sameNameParcels.filter((p) => p.ma_thua !== parcel?.ma_thua);
+      return sameNameParcels.filter(filterFn);
     }
     if (sameOwnerParcels && sameOwnerParcels.length > 0) {
-      return sameOwnerParcels.filter((p) => p.ma_thua !== parcel?.ma_thua);
+      return sameOwnerParcels.filter(filterFn);
     }
     return [];
-  }, [sameNameParcels, sameOwnerParcels, parcel]);
+  }, [sameNameParcels, sameOwnerParcels, parcel, additionalParcels]);
 
   // Lọc chỉ các thửa chưa số hóa để hiển thị trong mục "Thửa tiếp theo cần kê khai"
   const undeclaredSameCccdParcels = useMemo(() => {
