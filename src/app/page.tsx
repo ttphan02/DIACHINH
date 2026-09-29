@@ -14,6 +14,7 @@ import {
   Search,
   Layers,
   ChevronRight,
+  ChevronUp,
   Map as MapIcon,
   LayoutGrid,
   MapPin,
@@ -45,6 +46,7 @@ export default function Home() {
   // Selected Parcel & Slide Animation State
   const [selectedParcel, setSelectedParcel] = useState<Parcel | null>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const closeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [neighborParcels, setNeighborParcels] = useState<NeighborParcel[]>([]);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -466,6 +468,7 @@ export default function Home() {
       closeTimerRef.current = null;
     }
     setSelectedParcel(latest);
+    setIsPanelCollapsed(false);
 
     // Kích hoạt animation trượt vào mượt mà
     requestAnimationFrame(() => {
@@ -481,6 +484,7 @@ export default function Home() {
 
   const handleClosePanel = () => {
     setIsPanelOpen(false);
+    setIsPanelCollapsed(false);
     setIsPickingAdditional(false);
     // Đợi hiệu ứng trượt ra (300ms) kết thúc mới dọn dẹp dữ liệu
     closeTimerRef.current = setTimeout(() => {
@@ -642,12 +646,14 @@ export default function Home() {
         {viewMode === 'map' ? (
           /* CHẾ ĐỘ BẢN ĐỒ VỆ TINH TOÀN MÀN HÌNH */
           <div className="w-full h-full relative overflow-hidden">
-            {/* Form chi tiết: Trượt từ trái qua (Desktop toàn chiều cao) hoặc Bottom Sheet trượt từ dưới lên (Mobile không làm mờ map) */}
+            {/* Form chi tiết: Trượt từ trái qua (Desktop) hoặc từ dưới lên (Mobile); Có thể thu gọn qua trái (Desktop) hoặc xuống dưới (Mobile) */}
             <div
               ref={panelRef}
               className={`absolute z-30 bg-white transition-all duration-300 ease-in-out shadow-2xl overflow-hidden ${
                 isPanelOpen && selectedParcel
-                  ? 'w-full lg:w-[420px] h-[65vh] max-h-[85vh] lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-100 translate-y-0 lg:translate-x-0 rounded-t-3xl lg:rounded-none border-t lg:border-t-0 lg:border-r border-gray-200 pointer-events-auto'
+                  ? isPanelCollapsed
+                    ? 'w-full lg:w-[420px] h-[65vh] max-h-[85vh] lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-0 translate-y-full lg:-translate-x-full border-0 pointer-events-none'
+                    : 'w-full lg:w-[420px] h-[65vh] max-h-[85vh] lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-100 translate-y-0 lg:translate-x-0 rounded-t-3xl lg:rounded-none border-t lg:border-t-0 lg:border-r border-gray-200 pointer-events-auto'
                   : 'w-full lg:w-0 h-0 lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-0 translate-y-full lg:-translate-x-full border-0 pointer-events-none'
               }`}
             >
@@ -671,10 +677,37 @@ export default function Home() {
                     onSaveDeclaration={handleSaveDeclaration}
                     userLocation={userLocation}
                     onToggleLocation={handleToggleLocation}
+                    onToggleCollapse={() => setIsPanelCollapsed((prev) => !prev)}
                   />
                 )}
               </div>
             </div>
+
+            {/* Nút mở lại bảng chi tiết khi đang thu gọn trên Desktop (nằm ở mép trái bản đồ) */}
+            {isPanelOpen && selectedParcel && isPanelCollapsed && (
+              <button
+                type="button"
+                onClick={() => setIsPanelCollapsed(false)}
+                className="absolute top-20 left-0 z-30 hidden lg:flex items-center gap-1.5 bg-white/95 backdrop-blur-md text-slate-800 hover:text-blue-600 hover:bg-blue-50 px-3 py-2.5 rounded-r-2xl shadow-2xl border-y border-r border-gray-200 font-bold text-xs transition-all active:scale-95 cursor-pointer animate-in slide-in-from-left duration-200"
+                title="Mở lại bảng chi tiết thửa đất"
+              >
+                <ChevronRight className="w-4 h-4 text-blue-600" />
+                <span>Thửa {selectedParcel.so_thua} (Tờ {selectedParcel.to_ban_do})</span>
+              </button>
+            )}
+
+            {/* Nút mở lại bảng chi tiết khi đang thu gọn trên Điện thoại (nằm ở đáy màn hình) */}
+            {isPanelOpen && selectedParcel && isPanelCollapsed && (
+              <button
+                type="button"
+                onClick={() => setIsPanelCollapsed(false)}
+                className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 lg:hidden flex items-center gap-2 bg-white/95 backdrop-blur-md text-slate-800 px-4 py-2.5 rounded-full shadow-2xl border border-gray-200 font-extrabold text-xs transition-all active:scale-95 cursor-pointer animate-in slide-in-from-bottom duration-200"
+                title="Mở lại bảng chi tiết thửa đất"
+              >
+                <ChevronUp className="w-4 h-4 text-blue-600 animate-bounce" />
+                <span>Xem Thửa {selectedParcel.so_thua} • Tờ {selectedParcel.to_ban_do}</span>
+              </button>
+            )}
 
             {/* Banner nổi khi đang trong chế độ chọn thêm thửa đất gộp */}
             {isPickingAdditional && (
@@ -706,10 +739,12 @@ export default function Home() {
               </div>
             )}
 
-            {/* Cụm button điều khiển nổi: Trạng thái, Realtime GGS & Tìm kiếm */}
+            {/* Cụm button điều khiển nổi: Trạng thái, Realtime GGS & Tìm kiếm (Tự động trượt lên ẩn khỏi khung hình khi chọn thửa) */}
             <div
-              className={`absolute top-2.5 sm:top-3.5 z-20 flex flex-col gap-1.5 sm:gap-2 transition-all duration-300 left-2.5 right-2.5 lg:right-auto ${
-                isPanelOpen ? 'lg:left-[436px]' : 'lg:left-3.5'
+              className={`absolute top-2.5 sm:top-3.5 z-20 flex flex-col gap-1.5 sm:gap-2 transition-all duration-300 ease-in-out left-2.5 right-2.5 lg:left-3.5 lg:right-auto ${
+                isPanelOpen && selectedParcel
+                  ? '-translate-y-[170%] opacity-0 pointer-events-none'
+                  : 'translate-y-0 opacity-100 pointer-events-auto'
               }`}
             >
 

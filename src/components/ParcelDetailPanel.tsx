@@ -17,6 +17,8 @@ import {
   AlertCircle,
   Layers,
   ChevronRight,
+  ChevronLeft,
+  ChevronDown,
   Download,
   Loader2,
   Camera,
@@ -51,6 +53,7 @@ interface ParcelDetailPanelProps {
   onSaveDeclaration: (data: DeclarationFormData) => void;
   userLocation?: { lat: number; lng: number; accuracy: number } | null;
   onToggleLocation?: () => void;
+  onToggleCollapse?: () => void;
 }
 
 export default function ParcelDetailPanel({
@@ -71,6 +74,7 @@ export default function ParcelDetailPanel({
   onSaveDeclaration,
   userLocation,
   onToggleLocation,
+  onToggleCollapse,
 }: ParcelDetailPanelProps) {
 
   const [activeTab, setActiveTab] = useState<'info' | 'declare' | 'correction'>('info');
@@ -395,13 +399,29 @@ export default function ParcelDetailPanel({
           </p>
         </div>
 
-        <button
-          onClick={onClose}
-          className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 rounded-xl transition"
-          title="Đóng bảng chi tiết"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Nút mũi tên thu gọn: máy tính thu qua trái, điện thoại thu xuống dưới */}
+          {onToggleCollapse && (
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50/80 rounded-xl transition border border-gray-200/80 shadow-2xs cursor-pointer flex items-center justify-center"
+              title="Thu gọn bảng chi tiết để xem bản đồ"
+            >
+              <ChevronLeft className="w-4 h-4 hidden lg:block" />
+              <ChevronDown className="w-4 h-4 block lg:hidden" />
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 rounded-xl transition cursor-pointer"
+            title="Đóng bảng chi tiết"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Tab Navigation: Thiết kế gọn gàng, đồng bộ */}
