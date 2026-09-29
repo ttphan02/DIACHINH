@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Parcel, NeighborParcel } from '@/types';
+import { Parcel, NeighborParcel, AdditionalParcel } from '@/types';
 import { extractShortOwnerName } from '@/utils/geo';
 import { Maximize2, LocateFixed, Loader2 } from 'lucide-react';
 import type { Map as LeafletMap, LayerGroup } from 'leaflet';
@@ -10,6 +10,7 @@ interface CadastralMapProps {
   parcels: Parcel[];
   onSelectParcel: (parcel: Parcel) => void;
   selectedParcel: Parcel | null;
+  additionalParcels?: AdditionalParcel[];
   neighborParcels?: NeighborParcel[];
   userLocation?: { lat: number; lng: number; accuracy: number; heading?: number | null; speed?: number | null } | null;
   isTracking?: boolean;
@@ -21,6 +22,7 @@ export default function CadastralMap({
   parcels,
   onSelectParcel,
   selectedParcel,
+  additionalParcels = [],
   neighborParcels = [],
   userLocation,
   isTracking = false,
@@ -31,6 +33,7 @@ export default function CadastralMap({
   const [map, setMap] = useState<LeafletMap | null>(null);
   const layerGroupRef = useRef<LayerGroup | null>(null);
   const neighborsLayerRef = useRef<LayerGroup | null>(null);
+  const selectionPulseLayerRef = useRef<LayerGroup | null>(null);
   const userLocationLayerRef = useRef<LayerGroup | null>(null);
   const userMarkerRef = useRef<any>(null);
   const lastCenteredParcelRef = useRef<string | null>(null);
@@ -72,6 +75,10 @@ export default function CadastralMap({
       // LayerGroup cho mạng lưới thửa lân cận
       const neighborsLayer = L.layerGroup().addTo(leafletMap);
       neighborsLayerRef.current = neighborsLayer;
+
+      // LayerGroup cho hiệu ứng radar pulse thửa đang chọn kê khai (thửa chính + thửa gộp)
+      const selectionPulseLayer = L.layerGroup().addTo(leafletMap);
+      selectionPulseLayerRef.current = selectionPulseLayer;
 
       // LayerGroup cho vị trí GPS người dùng (Google Maps style)
       const userLocationLayer = L.layerGroup().addTo(leafletMap);
@@ -132,6 +139,11 @@ export default function CadastralMap({
 
       if (validParcels.length === 0) return;
 
+      const additionalMap = new Map<string, number>();
+      (additionalParcels || []).forEach((ap, idx) => {
+        additionalMap.set(ap.ma_thua, idx + 1);
+      });
+
       validParcels.forEach((p) => {
         const lat = p.lat as number;
         const lng = p.lng as number;
@@ -159,10 +171,19 @@ export default function CadastralMap({
         }
 
         const isSelected = selectedParcel?.ma_thua === p.ma_thua;
+        const additionalIndex = additionalMap.get(p.ma_thua);
+        const isAdditional = additionalIndex !== undefined;
+
+        // Màu sắc riêng biệt, rực rỡ và dễ nhận biết nhất cho các thửa đang chọn để kê khai:
         if (isSelected) {
           color = '#ffffff';
-          fillColor = '#f43f5e'; // Hồng đỏ rực rỡ để nổi bật
-          radius = 11;
+          fillColor = '#dc2626'; // Đỏ cờ tươi rực rỡ cho thửa đất chính đang kê khai
+          radius = 12;
+          weight = 3.5;
+        } else if (isAdditional) {
+          color = '#ffffff';
+          fillColor = '#f97316'; // Cam neon rực rỡ cho các thửa được chọn gộp thêm vào phiếu
+          radius = 10;
           weight = 3;
         }
 
@@ -170,7 +191,7 @@ export default function CadastralMap({
           radius,
           color,
           fillColor,
-          fillOpacity: 0.95,
+          fillOpacity: 0.98,
           weight,
         });
 
@@ -184,7 +205,23 @@ export default function CadastralMap({
             ? '🟡 Có tên'
             : '⚪ Chưa cập nhật / Không có DL';
 
+        let headerBadge = '';
+        if (isSelected) {
+          headerBadge = `
+            <div style="display: inline-flex; align-items: center; gap: 4px; background: #dc2626; color: #fff; font-size: 10px; font-weight: 800; padding: 2.5px 7px; border-radius: 5px; margin-bottom: 5px; box-shadow: 0 2px 6px rgba(220, 38, 38, 0.4);">
+              <span>🔴</span> ĐANG CHỌN KÊ KHAI (THỬA GỐC)
+            </div>
+          `;
+        } else if (isAdditional) {
+          headerBadge = `
+            <div style="display: inline-flex; align-items: center; gap: 4px; background: #ea580c; color: #fff; font-size: 10px; font-weight: 800; padding: 2.5px 7px; border-radius: 5px; margin-bottom: 5px; box-shadow: 0 2px 6px rgba(234, 88, 12, 0.4);">
+              <span>🟠</span> ĐANG CHỌN KÊ KHAI (THỬA GỘP #${additionalIndex})
+            </div>
+          `;
+        }
+
         const tooltipContent = `
+          ${headerBadge}
           <div style="font-weight: 800; font-size: 13px; color: #fff; margin-bottom: 2px;">
             Thửa ${p.so_thua} • Tờ ${p.to_ban_do}
           </div>
@@ -198,7 +235,7 @@ export default function CadastralMap({
             ${p.loai_dat || '---'} • ${p.dien_tich ? p.dien_tich + ' m²' : '---'}
           </div>
           <div style="color: #cbd5e1; font-size: 10px; margin-top: 4px; font-style: italic;">
-            👉 Bấm để xem và kê khai
+            ${isSelected ? '✓ Đang xem thông tin & kê khai' : isAdditional ? '✓ Đã gộp trong phiếu kê khai' : '👉 Bấm để xem và kê khai'}
           </div>
         `;
 
@@ -213,13 +250,99 @@ export default function CadastralMap({
         });
 
         marker.addTo(layerGroup);
+
+        if (isSelected || isAdditional) {
+          marker.bringToFront();
+        }
       });
     });
 
     return () => {
       isMounted = false;
     };
-  }, [map, parcels, selectedParcel, onSelectParcel]);
+  }, [map, parcels, selectedParcel, additionalParcels, onSelectParcel]);
+
+  // 4. HIỆU ỨNG RADAR PULSE VÀ ĐƯỜNG NỐI CHO CÁC THỬA ĐANG ĐƯỢC CHỌN KÊ KHAI
+  useEffect(() => {
+    if (!map || !selectionPulseLayerRef.current) return;
+    const group = selectionPulseLayerRef.current;
+    group.clearLayers();
+
+    if (!selectedParcel?.lat || !selectedParcel?.lng) return;
+
+    let isMounted = true;
+    import('leaflet').then((L) => {
+      if (!isMounted) return;
+
+      const centerLat = selectedParcel.lat as number;
+      const centerLng = selectedParcel.lng as number;
+
+      // 1. Radar pulse màu đỏ rực rỡ cho thửa chính đang kê khai
+      const mainPulseHtml = `
+        <div class="parcel-selected-pulse-wrapper">
+          <div class="parcel-selected-pulse"></div>
+        </div>
+      `;
+      const mainPulseMarker = L.marker([centerLat, centerLng], {
+        icon: L.divIcon({
+          className: 'parcel-pulse-div-icon',
+          html: mainPulseHtml,
+          iconSize: [0, 0],
+          iconAnchor: [0, 0],
+        }),
+        interactive: false,
+        zIndexOffset: 1200,
+      });
+      mainPulseMarker.addTo(group);
+
+      // 2. Đường nối đứt nét màu cam và pulse cho các thửa gộp kèm theo
+      if (additionalParcels && additionalParcels.length > 0) {
+        additionalParcels.forEach((ap, idx) => {
+          const match = parcels.find((p) => p.ma_thua === ap.ma_thua);
+          if (!match?.lat || !match?.lng) return;
+
+          // Đường nối đứt nét từ thửa chính tới thửa kèm theo
+          const connLine = L.polyline(
+            [
+              [centerLat, centerLng],
+              [match.lat, match.lng],
+            ],
+            {
+              color: '#f97316',
+              weight: 2.5,
+              dashArray: '5, 5',
+              opacity: 0.95,
+              interactive: false,
+            }
+          );
+          connLine.addTo(group);
+
+          // Pulse màu cam kèm huy hiệu số thứ tự (+1, +2...)
+          const addPulseHtml = `
+            <div class="parcel-additional-pulse-wrapper">
+              <div class="parcel-additional-pulse"></div>
+              <span class="parcel-additional-badge">+${idx + 1}</span>
+            </div>
+          `;
+          const addMarker = L.marker([match.lat, match.lng], {
+            icon: L.divIcon({
+              className: 'parcel-pulse-div-icon',
+              html: addPulseHtml,
+              iconSize: [0, 0],
+              iconAnchor: [0, 0],
+            }),
+            interactive: false,
+            zIndexOffset: 1100,
+          });
+          addMarker.addTo(group);
+        });
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [map, selectedParcel, additionalParcels, parcels]);
 
   // 4. Vẽ mạng lưới thửa lân cận xung quanh thửa được chọn
   useEffect(() => {
@@ -419,6 +542,30 @@ export default function CadastralMap({
         </span>
       </div>
 
+      {/* Bảng chú thích màu sắc trạng thái thửa đất trên bản đồ */}
+      <div className="absolute top-[96px] right-3.5 z-[1000] hidden lg:flex items-center gap-3 bg-slate-950/85 backdrop-blur-md px-3.5 py-1.5 rounded-2xl shadow-xl border border-slate-700/60 text-[11px] text-slate-200 pointer-events-none select-none">
+        <span className="flex items-center gap-1.5 font-bold text-red-400">
+          <span className="w-2.5 h-2.5 rounded-full bg-red-600 ring-2 ring-white animate-pulse" /> Đang chọn kê khai
+        </span>
+        {additionalParcels && additionalParcels.length > 0 && (
+          <span className="flex items-center gap-1.5 font-bold text-orange-400">
+            <span className="w-2.5 h-2.5 rounded-full bg-orange-500 ring-2 ring-white" /> Thửa gộp ({additionalParcels.length})
+          </span>
+        )}
+        <span className="flex items-center gap-1 text-emerald-300">
+          <span className="w-2 h-2 rounded-full bg-emerald-500" /> Đã số hóa
+        </span>
+        <span className="flex items-center gap-1 text-blue-300">
+          <span className="w-2 h-2 rounded-full bg-blue-500" /> Đã kê khai
+        </span>
+        <span className="flex items-center gap-1 text-amber-300">
+          <span className="w-2 h-2 rounded-full bg-amber-500" /> Có tên
+        </span>
+        <span className="flex items-center gap-1 text-slate-300">
+          <span className="w-2 h-2 rounded-full bg-white border border-gray-400" /> Chưa có tên
+        </span>
+      </div>
+
       {/* NÚT TRÒN ĐỊNH VỊ VỊ TRÍ ĐANG ĐỨNG (GOOGLE MAPS STYLE) */}
       <div className="absolute bottom-20 right-3.5 sm:bottom-24 sm:right-4 z-[1000] flex flex-col items-center gap-2">
         <button
@@ -435,10 +582,22 @@ export default function CadastralMap({
         </button>
       </div>
 
-      {/* Mobile Dot Count Badge */}
-      <div className="absolute bottom-4 left-3 z-[1000] lg:hidden bg-slate-950/85 backdrop-blur-md px-2.5 py-1 rounded-full text-[11px] font-bold text-white border border-slate-700/60 shadow-lg pointer-events-none flex items-center gap-1.5">
-        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-        <span>{dotsCount.toLocaleString('vi-VN')} thửa</span>
+      {/* Mobile Dot Count & Selection Badge */}
+      <div className="absolute bottom-4 left-3 z-[1000] lg:hidden bg-slate-950/85 backdrop-blur-md px-2.5 py-1 rounded-full text-[11px] font-bold text-white border border-slate-700/60 shadow-lg pointer-events-none flex items-center gap-2">
+        {selectedParcel ? (
+          <span className="flex items-center gap-1.5 text-red-400">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-600 ring-2 ring-white animate-pulse" />
+            <span>Thửa {selectedParcel.so_thua} (Đang chọn)</span>
+            {additionalParcels && additionalParcels.length > 0 && (
+              <span className="text-orange-400 ml-1">+{additionalParcels.length} thửa gộp</span>
+            )}
+          </span>
+        ) : (
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>{dotsCount.toLocaleString('vi-VN')} thửa</span>
+          </span>
+        )}
       </div>
     </div>
   );

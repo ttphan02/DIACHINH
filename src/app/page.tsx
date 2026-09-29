@@ -920,6 +920,7 @@ export default function Home() {
               parcels={filteredParcels}
               onSelectParcel={handleSelectParcel}
               selectedParcel={selectedParcel}
+              additionalParcels={additionalParcels}
               neighborParcels={neighborParcels}
               userLocation={userLocation}
               isTracking={isTracking}

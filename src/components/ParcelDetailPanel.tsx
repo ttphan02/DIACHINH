@@ -1143,17 +1143,18 @@ export default function ParcelDetailPanel({
               </div>
 
               {/* Thửa chính */}
-              <div className="p-2 bg-white rounded-lg border border-blue-200 flex items-center justify-between shadow-2xs">
+              <div className="p-2 bg-white rounded-lg border border-red-200 flex items-center justify-between shadow-2xs">
                 <div>
-                  <span className="font-bold text-gray-900 block text-xs">
+                  <span className="font-bold text-gray-900 block text-xs flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-600 ring-2 ring-red-200 shrink-0 animate-pulse" />
                     Thửa {parcel.so_thua} • Tờ {parcel.to_ban_do} (Thửa gốc)
                   </span>
                   <span className="text-[10px] text-gray-500 font-mono">
                     {parcel.dien_tich ? `${parcel.dien_tich} m²` : '---'} • {parcel.loai_dat || 'Chưa rõ loại'} • {parcel.thon_xa}
                   </span>
                 </div>
-                <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
-                  Chính
+                <span className="text-[10px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded border border-red-200">
+                  🔴 Thửa chính
                 </span>
               </div>
 
@@ -1161,24 +1162,30 @@ export default function ParcelDetailPanel({
               {additionalParcels && additionalParcels.length > 0 && (
                 <div className="space-y-1.5">
                   <span className="text-[10px] font-bold text-gray-600 block">Các thửa kèm theo:</span>
-                  {additionalParcels.map((ap) => (
-                    <div key={ap.ma_thua} className="p-2 bg-white rounded-lg border border-indigo-100 flex items-center justify-between shadow-2xs">
+                  {additionalParcels.map((ap, idx) => (
+                    <div key={ap.ma_thua} className="p-2 bg-white rounded-lg border border-orange-200 flex items-center justify-between shadow-2xs">
                       <div>
-                        <span className="font-bold text-indigo-950 block text-xs">
+                        <span className="font-bold text-orange-950 block text-xs flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-orange-500 ring-2 ring-orange-200 shrink-0" />
                           Thửa {ap.so_thua} • Tờ {ap.to_ban_do}
                         </span>
                         <span className="text-[10px] text-gray-500 font-mono">
                           {ap.dien_tich ? `${ap.dien_tich} m²` : '---'} • {ap.loai_dat || 'Đất'}
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => onRemoveAdditionalParcel && onRemoveAdditionalParcel(ap.ma_thua)}
-                        className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition"
-                        title="Bỏ thửa này khỏi phiếu"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded border border-orange-200">
+                          🟠 Thửa #{idx + 1}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onRemoveAdditionalParcel && onRemoveAdditionalParcel(ap.ma_thua)}
+                          className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition"
+                          title="Bỏ thửa này khỏi phiếu"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
