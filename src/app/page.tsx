@@ -87,121 +87,9 @@ export default function Home() {
     heading?: number | null;
     speed?: number | null;
   } | null>(null);
-  const [userHeading, setUserHeading] = useState<number | null>(null);
   const [isTracking, setIsTracking] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const watchIdRef = useRef<number | null>(null);
-
-  // Tính góc la bàn chuẩn W3C từ alpha, beta, gamma (hoạt động chính xác cả khi cầm nghiêng điện thoại)
-  const calculateCompassHeading = (alpha: number, beta: number, gamma: number): number => {
-    const degToRad = Math.PI / 180;
-    const a = alpha * degToRad;
-    const b = beta * degToRad;
-    const g = gamma * degToRad;
-
-    const cA = Math.cos(a), sA = Math.sin(a);
-    const cB = Math.cos(b), sB = Math.sin(b);
-    const cG = Math.cos(g), sG = Math.sin(g);
-
-    const rA = -cA * sG - sA * sB * cG;
-    const rB = -sA * sG + cA * sB * cG;
-
-    let heading = Math.atan2(rA, rB);
-    if (heading < 0) {
-      heading += 2 * Math.PI;
-    }
-    let deg = heading * (180 / Math.PI);
-
-    // Bù trừ góc xoay màn hình nếu người dùng cầm ngang máy (landscape)
-    if (typeof window !== 'undefined') {
-      const screenAngle =
-        window.screen?.orientation?.angle ??
-        (typeof (window as any).orientation === 'number' ? (window as any).orientation : 0);
-      deg = (deg + screenAngle) % 360;
-    }
-
-    return Math.round(deg);
-  };
-
-  // Xin quyền cảm biến la bàn trên iOS 13+ khi người dùng tương tác chạm
-  const requestCompassPermission = useCallback(async () => {
-    if (
-      typeof window !== 'undefined' &&
-      typeof (DeviceOrientationEvent as any) !== 'undefined' &&
-      typeof (DeviceOrientationEvent as any).requestPermission === 'function'
-    ) {
-      try {
-        const res = await (DeviceOrientationEvent as any).requestPermission();
-        if (res === 'granted') {
-          return true;
-        }
-      } catch (err) {
-        console.warn('Lỗi xin quyền la bàn iOS:', err);
-      }
-    }
-    return false;
-  }, []);
-
-  // Lắng nghe cảm biến la bàn từ trường (Device Orientation / Compass)
-  useEffect(() => {
-    let hasAbsoluteListener = false;
-
-    const handleAbsoluteOrientation = (e: any) => {
-      let compassHeading: number | null = null;
-      // 1. iOS Safari
-      if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading)) {
-        compassHeading = e.webkitCompassHeading;
-      }
-      // 2. Android Chrome Absolute
-      else if (e.alpha !== null && typeof e.alpha === 'number') {
-        if (e.beta !== null && e.gamma !== null && typeof e.beta === 'number' && typeof e.gamma === 'number') {
-          compassHeading = calculateCompassHeading(e.alpha, e.beta, e.gamma);
-        } else {
-          compassHeading = (360 - e.alpha) % 360;
-        }
-      }
-      if (compassHeading !== null && !isNaN(compassHeading)) {
-        setUserHeading(Math.round((compassHeading + 360) % 360));
-      }
-    };
-
-    const handleStandardOrientation = (e: any) => {
-      if (e.absolute === false && hasAbsoluteListener) return;
-      let compassHeading: number | null = null;
-      if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading)) {
-        compassHeading = e.webkitCompassHeading;
-      } else if (e.alpha !== null && typeof e.alpha === 'number') {
-        if (e.beta !== null && e.gamma !== null && typeof e.beta === 'number' && typeof e.gamma === 'number') {
-          compassHeading = calculateCompassHeading(e.alpha, e.beta, e.gamma);
-        } else {
-          compassHeading = (360 - e.alpha) % 360;
-        }
-      }
-      if (compassHeading !== null && !isNaN(compassHeading)) {
-        setUserHeading(Math.round((compassHeading + 360) % 360));
-      }
-    };
-
-    if ('ondeviceorientationabsolute' in window) {
-      window.addEventListener('deviceorientationabsolute', handleAbsoluteOrientation, true);
-      hasAbsoluteListener = true;
-    }
-    window.addEventListener('deviceorientation', handleStandardOrientation, true);
-
-    // Đối với iOS 13+: Xin quyền tự động ngay lần đầu người dùng chạm vào màn hình
-    const handleFirstUserTouch = () => {
-      requestCompassPermission();
-    };
-    window.addEventListener('click', handleFirstUserTouch, { once: true });
-    window.addEventListener('touchend', handleFirstUserTouch, { once: true });
-
-    return () => {
-      window.removeEventListener('deviceorientationabsolute', handleAbsoluteOrientation, true);
-      window.removeEventListener('deviceorientation', handleStandardOrientation, true);
-      window.removeEventListener('click', handleFirstUserTouch);
-      window.removeEventListener('touchend', handleFirstUserTouch);
-    };
-  }, [requestCompassPermission]);
 
   // Tự động kích hoạt định vị GPS liên tục khi tải trang (Always-on GPS)
   useEffect(() => {
@@ -218,9 +106,6 @@ export default function Home() {
           heading: typeof gpsHeading === 'number' && !isNaN(gpsHeading) ? Math.round(gpsHeading) : prev?.heading,
           speed: typeof speed === 'number' && !isNaN(speed) ? Math.round(speed * 3.6) : null,
         }));
-        if (typeof gpsHeading === 'number' && !isNaN(gpsHeading)) {
-          setUserHeading((prev) => (prev === null ? Math.round(gpsHeading) : prev));
-        }
         setIsTracking(true);
         setIsLocating(false);
       },
@@ -612,9 +497,6 @@ export default function Home() {
       return;
     }
 
-    // Xin quyền cảm biến la bàn trên iOS 13+ khi người dùng bấm nút
-    requestCompassPermission();
-
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
@@ -633,9 +515,6 @@ export default function Home() {
           heading: typeof gpsHeading === 'number' && !isNaN(gpsHeading) ? Math.round(gpsHeading) : prev?.heading,
           speed: typeof speed === 'number' && !isNaN(speed) ? Math.round(speed * 3.6) : null,
         }));
-        if (typeof gpsHeading === 'number' && !isNaN(gpsHeading)) {
-          setUserHeading((prev) => (prev === null ? Math.round(gpsHeading) : prev));
-        }
         setIsTracking(true);
         setIsLocating(false);
         setPickToast('✓ Đã định vị thành công');
@@ -1008,7 +887,6 @@ export default function Home() {
               selectedParcel={selectedParcel}
               neighborParcels={neighborParcels}
               userLocation={userLocation}
-              userHeading={userHeading ?? userLocation?.heading ?? null}
               isTracking={isTracking}
               isLocating={isLocating}
               onToggleLocation={handleToggleLocation}
