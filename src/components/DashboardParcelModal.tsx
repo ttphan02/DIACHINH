@@ -130,12 +130,12 @@ export default function DashboardParcelModal({
                   Thửa {parcel.so_thua} • Tờ BĐ {parcel.to_ban_do}
                 </h3>
                 {isGreen ? (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                    🟢 Đã số hóa (GGS)
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                    🔵 Đã số hóa (GGS)
                   </span>
                 ) : isBlue ? (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                    🔵 Đã kê khai thực địa
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    🟢 Đã kê khai thực địa
                   </span>
                 ) : isYellow ? (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">

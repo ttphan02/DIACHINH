@@ -48,49 +48,49 @@ export default function HeaderStats({
         </span>
       </button>
 
-      {/* Đã số hóa (Xanh lá) */}
+      {/* Đã số hóa (Xanh lam) */}
       <button
         onClick={() => onSelectFilter('DA_SO_HOA_XANH')}
         className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border text-left transition-all ${
           currentFilter === 'DA_SO_HOA_XANH'
-            ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-300'
-            : 'bg-white text-gray-800 border-gray-100 hover:border-emerald-200 shadow-sm'
-        }`}
-      >
-        <div className="flex items-center justify-between">
-          <span className={`text-[11px] sm:text-xs font-semibold ${currentFilter === 'DA_SO_HOA_XANH' ? 'text-emerald-100' : 'text-gray-500'}`}>
-            Đã số hóa (GGS)
-          </span>
-          <CheckCircle2 className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${currentFilter === 'DA_SO_HOA_XANH' ? 'text-emerald-200' : 'text-emerald-600'}`} />
-        </div>
-        <p className="text-xl sm:text-2xl font-black mt-1 text-emerald-500">
-          {greenCount.toLocaleString('vi-VN')}
-        </p>
-        <span className={`text-[10px] sm:text-[11px] ${currentFilter === 'DA_SO_HOA_XANH' ? 'text-emerald-100' : 'text-gray-400'}`}>
-          Đạt {Math.round((greenCount / total) * 100)}% tổng số
-        </span>
-      </button>
-
-      {/* Đã kê khai chưa số hóa (Xanh lam) */}
-      <button
-        onClick={() => onSelectFilter('DA_KE_KHAI_CHUA_SO_HOA_LAM')}
-        className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border text-left transition-all ${
-          currentFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
             ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-300'
             : 'bg-white text-gray-800 border-gray-100 hover:border-blue-200 shadow-sm'
         }`}
       >
         <div className="flex items-center justify-between">
-          <span className={`text-[11px] sm:text-xs font-semibold ${currentFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM' ? 'text-blue-100' : 'text-gray-500'}`}>
-            Đã kê khai
+          <span className={`text-[11px] sm:text-xs font-semibold ${currentFilter === 'DA_SO_HOA_XANH' ? 'text-blue-100' : 'text-gray-500'}`}>
+            Đã số hóa (GGS)
           </span>
-          <Clock className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${currentFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM' ? 'text-blue-200' : 'text-blue-600'}`} />
+          <CheckCircle2 className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${currentFilter === 'DA_SO_HOA_XANH' ? 'text-blue-200' : 'text-blue-600'}`} />
         </div>
         <p className="text-xl sm:text-2xl font-black mt-1 text-blue-600">
+          {greenCount.toLocaleString('vi-VN')}
+        </p>
+        <span className={`text-[10px] sm:text-[11px] ${currentFilter === 'DA_SO_HOA_XANH' ? 'text-blue-200' : 'text-gray-400'}`}>
+          Đạt {Math.round((greenCount / total) * 100)}% tổng số
+        </span>
+      </button>
+
+      {/* Đã kê khai chưa số hóa (Xanh lá) */}
+      <button
+        onClick={() => onSelectFilter('DA_KE_KHAI_CHUA_SO_HOA_LAM')}
+        className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border text-left transition-all ${
+          currentFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
+            ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-300'
+            : 'bg-white text-gray-800 border-gray-100 hover:border-emerald-200 shadow-sm'
+        }`}
+      >
+        <div className="flex items-center justify-between">
+          <span className={`text-[11px] sm:text-xs font-semibold ${currentFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM' ? 'text-emerald-100' : 'text-gray-500'}`}>
+            Đã kê khai
+          </span>
+          <Clock className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${currentFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM' ? 'text-emerald-200' : 'text-emerald-600'}`} />
+        </div>
+        <p className="text-xl sm:text-2xl font-black mt-1 text-emerald-600">
           {blueCount.toLocaleString('vi-VN')}
         </p>
-        <span className={`text-[10px] sm:text-[11px] ${currentFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM' ? 'text-blue-200' : 'text-gray-400'}`}>
-          Chưa lên GGS
+        <span className={`text-[10px] sm:text-[11px] ${currentFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM' ? 'text-emerald-200' : 'text-gray-400'}`}>
+          Chờ số hóa lên GGS
         </span>
       </button>
 

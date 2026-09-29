@@ -768,7 +768,7 @@ export default function Home() {
                   Tất cả ({stats.total.toLocaleString('vi-VN')})
                 </button>
 
-                {/* Đã số hóa (Xanh lá - Có trên GGS) */}
+                {/* Đã số hóa (Xanh lam - Có trên GGS) */}
                 <button
                   onClick={() => {
                     setStatusFilter('DA_SO_HOA_XANH');
@@ -776,16 +776,16 @@ export default function Home() {
                   }}
                   className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs shrink-0 ${
                     statusFilter === 'DA_SO_HOA_XANH'
-                      ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400'
-                      : 'bg-slate-800/80 text-emerald-300 hover:bg-slate-700/80 border border-emerald-500/30'
+                      ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400'
+                      : 'bg-slate-800/80 text-blue-300 hover:bg-slate-700/80 border border-blue-500/30'
                   }`}
                   title="Thửa đã số hóa (có trên Google Sheets)"
                 >
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-emerald-300"></span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 border border-blue-300"></span>
                   Đã số hóa ({stats.green.toLocaleString('vi-VN')})
                 </button>
 
-                {/* Đã kê khai (Xanh lam - Chưa có trên GGS) */}
+                {/* Đã kê khai (Xanh lá - Chờ số hóa lên GGS) */}
                 <button
                   onClick={() => {
                     setStatusFilter('DA_KE_KHAI_CHUA_SO_HOA_LAM');
@@ -793,12 +793,12 @@ export default function Home() {
                   }}
                   className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs shrink-0 ${
                     statusFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
-                      ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400'
-                      : 'bg-slate-800/80 text-blue-300 hover:bg-slate-700/80 border border-blue-500/30'
+                      ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400'
+                      : 'bg-slate-800/80 text-emerald-300 hover:bg-slate-700/80 border border-emerald-500/30'
                   }`}
-                  title="Thửa đã được kê khai nhưng chưa số hóa lên Google Sheets"
+                  title="Thửa đã được kê khai trên web, đang chờ số hóa lên Google Sheets"
                 >
-                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 border border-blue-300"></span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-emerald-300"></span>
                   Đã kê khai ({stats.blue.toLocaleString('vi-VN')})
                 </button>
 
@@ -1063,8 +1063,8 @@ export default function Home() {
               {/* Lưới danh sách thửa đất */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                 {paginatedParcels.map((p) => {
-                  const isGreen = p.trang_thai === 'DA_SO_HOA_XANH';
-                  const isBlue = p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
+                  const isDigitized = p.trang_thai === 'DA_SO_HOA_XANH';
+                  const isDeclared = p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
                   const isYellow = p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG';
 
                   return (
@@ -1080,10 +1080,10 @@ export default function Home() {
                         <div className="flex items-start justify-between gap-2 mb-2">
                           <span
                             className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                              isGreen
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : isBlue
+                              isDigitized
                                 ? 'bg-blue-100 text-blue-800'
+                                : isDeclared
+                                ? 'bg-emerald-100 text-emerald-800'
                                 : isYellow
                                 ? 'bg-amber-100 text-amber-800'
                                 : 'bg-gray-100 text-gray-600'
@@ -1091,18 +1091,18 @@ export default function Home() {
                           >
                             <span
                               className={`w-1.5 h-1.5 rounded-full ${
-                                isGreen
-                                  ? 'bg-emerald-500'
-                                  : isBlue
+                                isDigitized
                                   ? 'bg-blue-600'
+                                  : isDeclared
+                                  ? 'bg-emerald-500'
                                   : isYellow
                                   ? 'bg-amber-500'
                                   : 'bg-gray-400'
                               }`}
                             ></span>
-                            {isGreen
+                            {isDigitized
                               ? 'Đã số hóa (GGS)'
-                              : isBlue
+                              : isDeclared
                               ? 'Đã kê khai'
                               : isYellow
                               ? 'Có tên chủ'
