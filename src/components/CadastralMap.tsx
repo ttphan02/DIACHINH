@@ -29,7 +29,8 @@ interface CadastralMapProps {
   onSelectParcel: (parcel: Parcel) => void;
   selectedParcel: Parcel | null;
   neighborParcels?: NeighborParcel[];
-  userLocation?: { lat: number; lng: number; accuracy: number } | null;
+  userLocation?: { lat: number; lng: number; accuracy: number; heading?: number | null; speed?: number | null } | null;
+  userHeading?: number | null;
   isTracking?: boolean;
   isLocating?: boolean;
   onToggleLocation?: () => void;
@@ -42,6 +43,7 @@ export default function CadastralMap({
   selectedParcel,
   neighborParcels = [],
   userLocation,
+  userHeading,
   isTracking = false,
   isLocating = false,
   onToggleLocation,
@@ -377,12 +379,30 @@ export default function CadastralMap({
         circle.addTo(group);
       }
 
-      // 2. Chấm xanh phát xung (Radar Pulse Beacon)
+      // 2. Chấm xanh phát xung (Radar Pulse Beacon) kèm nón chỉ hướng nhìn (Heading Cone)
+      const hasHeading = typeof userHeading === 'number' && !isNaN(userHeading);
+      const headingConeHtml = hasHeading
+        ? `
+          <svg class="user-gps-heading-cone" style="transform: rotate(${userHeading}deg);" viewBox="0 0 100 100">
+            <defs>
+              <radialGradient id="userHeadingBeam" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+                <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.9" />
+                <stop offset="65%" stop-color="#0284c7" stop-opacity="0.35" />
+                <stop offset="100%" stop-color="#0284c7" stop-opacity="0" />
+              </radialGradient>
+            </defs>
+            <path d="M 50 50 L 22 8 A 50 50 0 0 1 78 8 Z" fill="url(#userHeadingBeam)" />
+            <polygon points="50,10 46,22 54,22" fill="#38bdf8" opacity="0.95" />
+          </svg>
+        `
+        : '';
+
       const beaconMarker = L.marker([lat, lng], {
         icon: L.divIcon({
           className: 'user-gps-beacon-wrapper',
           html: `
             <div class="user-gps-beacon">
+              ${headingConeHtml}
               <div class="user-gps-pulse"></div>
               <div class="user-gps-dot"></div>
             </div>
@@ -392,6 +412,12 @@ export default function CadastralMap({
         zIndexOffset: 2000,
       });
 
+      const headingText = hasHeading
+        ? `<div style="font-size: 10px; color: #38bdf8; margin-top: 2px;">
+            🧭 Hướng nhìn: <strong>${Math.round(userHeading!)}° ${getCompassInfo(userHeading!).directionText} ${getCompassInfo(userHeading!).arrow}</strong>
+          </div>`
+        : '';
+
       beaconMarker.bindTooltip(
         `
         <div style="font-size: 11px; font-weight: 800; color: #fff;">
@@ -400,6 +426,7 @@ export default function CadastralMap({
         <div style="font-size: 10px; color: #93c5fd;">
           Độ chính xác: ±${Math.round(accuracy)}m
         </div>
+        ${headingText}
       `,
         {
           className: 'custom-map-tooltip',
@@ -414,7 +441,7 @@ export default function CadastralMap({
     return () => {
       isMounted = false;
     };
-  }, [map, userLocation]);
+  }, [map, userLocation, userHeading]);
 
   // 6. Vẽ lộ trình điều hướng & đường chỉ dẫn từ vị trí người dùng đến thửa đất
   const navInfo = useMemo(() => {
@@ -662,8 +689,14 @@ export default function CadastralMap({
                   <span>{navInfo.formattedDistance}</span>
                 </div>
                 <div className="text-[10px] font-semibold text-slate-400">
-                  Hướng {navInfo.compass.directionText}
+                  Thửa ở hướng {navInfo.compass.directionText}
                 </div>
+                {typeof userHeading === 'number' && !isNaN(userHeading) && (
+                  <div className="text-[9px] font-bold text-sky-400 flex items-center gap-1 justify-end">
+                    <span>🧭</span>
+                    <span>Bạn nhìn: {Math.round(userHeading)}° {getCompassInfo(userHeading).directionText}</span>
+                  </div>
+                )}
               </div>
             ) : (
               <button

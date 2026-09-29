@@ -79,11 +79,67 @@ export default function Home() {
   const [isPickingAdditional, setIsPickingAdditional] = useState<boolean>(false);
   const [pickToast, setPickToast] = useState<string | null>(null);
 
-  // Định vị GPS thực địa cho cán bộ
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
+  // Định vị GPS thực địa và La bàn hướng nhìn cho cán bộ
+  const [userLocation, setUserLocation] = useState<{
+    lat: number;
+    lng: number;
+    accuracy: number;
+    heading?: number | null;
+    speed?: number | null;
+  } | null>(null);
+  const [userHeading, setUserHeading] = useState<number | null>(null);
   const [isTracking, setIsTracking] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const watchIdRef = useRef<number | null>(null);
+
+  // Lắng nghe cảm biến la bàn từ trường (Device Orientation / Compass) để xoay nón hướng nhìn
+  useEffect(() => {
+    if (!isTracking) {
+      setUserHeading(null);
+      return;
+    }
+
+    const handleOrientation = (e: any) => {
+      let compassHeading: number | null = null;
+      // 1. iOS Safari (webkitCompassHeading: 0° là Hướng Bắc thật)
+      if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading)) {
+        compassHeading = e.webkitCompassHeading;
+      }
+      // 2. Android Chrome (alpha với absolute = true)
+      else if (e.absolute && typeof e.alpha === 'number' && !isNaN(e.alpha)) {
+        compassHeading = (360 - e.alpha) % 360;
+      } else if (typeof e.alpha === 'number' && !isNaN(e.alpha)) {
+        compassHeading = (360 - e.alpha) % 360;
+      }
+
+      if (compassHeading !== null) {
+        setUserHeading(Math.round(compassHeading));
+      }
+    };
+
+    // Kiểm tra và xin quyền truy cập cảm biến trên iOS 13+ nếu cần
+    if (
+      typeof (DeviceOrientationEvent as any) !== 'undefined' &&
+      typeof (DeviceOrientationEvent as any).requestPermission === 'function'
+    ) {
+      (DeviceOrientationEvent as any)
+        .requestPermission()
+        .then((permission: string) => {
+          if (permission === 'granted') {
+            window.addEventListener('deviceorientation', handleOrientation, true);
+          }
+        })
+        .catch((err: any) => console.log('Không thể xin quyền cảm biến la bàn:', err));
+    } else {
+      window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+      window.addEventListener('deviceorientation', handleOrientation, true);
+    }
+
+    return () => {
+      window.removeEventListener('deviceorientationabsolute', handleOrientation, true);
+      window.removeEventListener('deviceorientation', handleOrientation, true);
+    };
+  }, [isTracking]);
 
   // Dọn dẹp watchPosition khi unmount
   useEffect(() => {
@@ -470,22 +526,28 @@ export default function Home() {
       setIsTracking(false);
       setIsLocating(false);
       setUserLocation(null);
-      setPickToast('Đã dừng định vị GPS');
+      setUserHeading(null);
+      setPickToast('Đã dừng định vị GPS & la bàn');
       setTimeout(() => setPickToast(null), 2500);
       return;
     }
 
     setIsLocating(true);
-    setPickToast('Đang kết nối vệ tinh GPS...');
+    setPickToast('Đang kết nối vệ tinh GPS & la bàn...');
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        const { latitude, longitude, accuracy } = pos.coords;
-        setUserLocation({
+        const { latitude, longitude, accuracy, heading: gpsHeading, speed } = pos.coords;
+        setUserLocation((prev) => ({
           lat: latitude,
           lng: longitude,
           accuracy: Math.round(accuracy),
-        });
+          heading: typeof gpsHeading === 'number' && !isNaN(gpsHeading) ? Math.round(gpsHeading) : prev?.heading,
+          speed: typeof speed === 'number' && !isNaN(speed) ? Math.round(speed * 3.6) : null,
+        }));
+        if (typeof gpsHeading === 'number' && !isNaN(gpsHeading)) {
+          setUserHeading((prev) => (prev === null ? Math.round(gpsHeading) : prev));
+        }
         setIsTracking(true);
         setIsLocating(false);
         setPickToast(`✓ GPS hoạt động (Độ chính xác: ±${Math.round(accuracy)}m)`);
@@ -896,6 +958,7 @@ export default function Home() {
               selectedParcel={selectedParcel}
               neighborParcels={neighborParcels}
               userLocation={userLocation}
+              userHeading={userHeading ?? userLocation?.heading ?? null}
               isTracking={isTracking}
               isLocating={isLocating}
               onToggleLocation={handleToggleLocation}
