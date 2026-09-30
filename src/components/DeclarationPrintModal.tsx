@@ -239,19 +239,19 @@ export default function DeclarationPrintModal({
               {/* TRANG 1: CHỈ CẦN HÌNH ẢNH CCCD MẶT TRƯỚC, KHÔNG CÓ BẤT KỲ CHỮ NÀO KHÁC */}
               {/* ======================================================== */}
               <div
-                className="declaration-a4-sheet bg-white text-black w-full max-w-[210mm] min-h-[297mm] p-8 sm:p-12 shadow-2xl rounded-sm font-serif relative flex flex-col items-center justify-center"
+                className="declaration-a4-sheet bg-white text-black w-full max-w-[210mm] min-h-[297mm] p-6 sm:p-10 shadow-2xl rounded-sm font-serif relative flex flex-col items-center justify-center"
                 style={{ fontFamily: '"Times New Roman", Times, serif', pageBreakAfter: 'always' }}
               >
                 {frontCccd ? (
-                  <div className="w-full max-w-[480px] max-h-[320px] flex items-center justify-center">
+                  <div className="w-full max-w-[680px] max-h-[460px] flex items-center justify-center p-2">
                     <img
                       src={frontCccd}
                       alt=""
-                      className="w-full h-auto object-contain max-h-[320px] rounded shadow-sm"
+                      className="w-full h-auto object-contain max-h-[460px] rounded shadow-md"
                     />
                   </div>
                 ) : (
-                  <div className="border border-dashed border-gray-300 w-full max-w-[480px] h-[300px] rounded-xl flex items-center justify-center text-gray-300">
+                  <div className="border-2 border-dashed border-gray-300 w-full max-w-[620px] h-[390px] rounded-2xl flex items-center justify-center text-gray-300">
                     {/* Hoàn toàn không có chữ theo đúng yêu cầu người dùng */}
                   </div>
                 )}
