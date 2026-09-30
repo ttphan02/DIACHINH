@@ -157,27 +157,48 @@ export default function ParcelDetailPanel({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [correctionSuccess, setCorrectionSuccess] = useState(false);
 
-  // CCCD Image Editor State
-  const [isCccdEditorOpen, setIsCccdEditorOpen] = useState(false);
-  const [editingCccdIndex, setEditingCccdIndex] = useState<number>(0);
+  // Image Editor State (CCCD & GCN)
+  const [isImageEditorOpen, setIsImageEditorOpen] = useState(false);
+  const [editingImageTarget, setEditingImageTarget] = useState<{ type: 'cccd' | 'gcn'; index: number } | null>(null);
   const [editingImageUrl, setEditingImageUrl] = useState<string>('');
+  const [editingImageTitle, setEditingImageTitle] = useState<string>('');
+  const [editingDefaultAspect, setEditingDefaultAspect] = useState<'cccd' | 'a4' | 'free' | 'square'>('cccd');
 
-  const handleOpenCccdEditor = (index: number) => {
-    if (cccdUploadedFiles[index]) {
-      setEditingCccdIndex(index);
-      setEditingImageUrl(cccdUploadedFiles[index].url);
-      setIsCccdEditorOpen(true);
+  const handleOpenImageEditor = (type: 'cccd' | 'gcn', index: number) => {
+    const list = type === 'cccd' ? cccdUploadedFiles : gcnUploadedFiles;
+    if (list[index]) {
+      setEditingImageTarget({ type, index });
+      setEditingImageUrl(list[index].url);
+      setEditingImageTitle(
+        type === 'cccd'
+          ? `Chỉnh sửa Căn cước công dân (${list[index].name || `Ảnh ${index + 1}`})`
+          : `Chỉnh sửa Giấy chứng nhận QSDĐ (${list[index].name || `Trang ${index + 1}`})`
+      );
+      setEditingDefaultAspect(type === 'cccd' ? 'cccd' : 'a4');
+      setIsImageEditorOpen(true);
     }
   };
 
-  const handleSaveEditedCccd = (newUrl: string) => {
-    setCccdUploadedFiles((prev) => {
-      const copy = [...prev];
-      if (copy[editingCccdIndex]) {
-        copy[editingCccdIndex] = { ...copy[editingCccdIndex], url: newUrl };
-      }
-      return copy;
-    });
+  const handleSaveEditedImage = (newUrl: string) => {
+    if (!editingImageTarget) return;
+    if (editingImageTarget.type === 'cccd') {
+      setCccdUploadedFiles((prev) => {
+        const copy = [...prev];
+        if (copy[editingImageTarget.index]) {
+          copy[editingImageTarget.index] = { ...copy[editingImageTarget.index], url: newUrl };
+        }
+        return copy;
+      });
+    } else {
+      setGcnUploadedFiles((prev) => {
+        const copy = [...prev];
+        if (copy[editingImageTarget.index]) {
+          copy[editingImageTarget.index] = { ...copy[editingImageTarget.index], url: newUrl };
+        }
+        return copy;
+      });
+    }
+    setIsImageEditorOpen(false);
   };
 
   const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
@@ -224,8 +245,35 @@ export default function ParcelDetailPanel({
       setLyDoBaoSai('');
       setSavedSuccess(false);
       setCorrectionSuccess(false);
-      setCccdUploadedFiles([]);
-      setGcnUploadedFiles([]);
+
+      // Tải trước hình ảnh CCCD nếu đã có trong phiếu kê khai hoặc dữ liệu thửa
+      const initialCccd: { name: string; url: string }[] = [];
+      if (currentDeclaration?.anh_cccd_truoc) {
+        initialCccd.push({ name: 'CCCD Mặt trước', url: currentDeclaration.anh_cccd_truoc });
+      }
+      if (currentDeclaration?.anh_cccd_sau) {
+        initialCccd.push({ name: 'CCCD Mặt sau', url: currentDeclaration.anh_cccd_sau });
+      }
+      if (initialCccd.length === 0 && parcel.cccd_url) {
+        initialCccd.push({ name: 'CCCD có sẵn (R2)', url: parcel.cccd_url });
+      }
+      setCccdUploadedFiles(initialCccd);
+
+      // Tải trước hình ảnh Giấy chứng nhận (GCN) nếu đã có
+      const initialGcn: { name: string; url: string }[] = [];
+      if (Array.isArray(currentDeclaration?.anh_gcn_list) && currentDeclaration.anh_gcn_list.length > 0) {
+        currentDeclaration.anh_gcn_list.forEach((u: string, idx: number) => {
+          initialGcn.push({ name: `GCN Trang ${idx + 1}`, url: u });
+        });
+      } else if (currentDeclaration?.anh_gcn) {
+        initialGcn.push({ name: 'Giấy chứng nhận (GCN)', url: currentDeclaration.anh_gcn });
+      } else if (parcel.gcn_urls && parcel.gcn_urls.length > 0) {
+        parcel.gcn_urls.forEach((u, idx) => {
+          initialGcn.push({ name: `GCN Trang ${idx + 1} (R2)`, url: u });
+        });
+      }
+      setGcnUploadedFiles(initialGcn);
+
       setIsConfirmDeleteOpen(false);
 
       // Mặc định về tab thông tin khi đổi thửa
@@ -356,6 +404,7 @@ export default function ParcelDetailPanel({
       anh_cccd_truoc: cccdUploadedFiles[0]?.url,
       anh_cccd_sau: cccdUploadedFiles[1]?.url,
       anh_gcn: gcnUploadedFiles[0]?.url,
+      anh_gcn_list: gcnUploadedFiles.length > 0 ? gcnUploadedFiles.map((f) => f.url) : undefined,
       ghi_chu: ghiChu,
       thua_kem_theo: additionalParcels,
     });
@@ -379,6 +428,7 @@ export default function ParcelDetailPanel({
       anh_cccd_truoc: cccdUploadedFiles[0]?.url,
       anh_cccd_sau: cccdUploadedFiles[1]?.url,
       anh_gcn: gcnUploadedFiles[0]?.url,
+      anh_gcn_list: gcnUploadedFiles.length > 0 ? gcnUploadedFiles.map((f) => f.url) : undefined,
       ghi_chu: `[BÁO SAI / BỔ SUNG THỬA GGS: ${lyDoBaoSai}] ${ghiChu}`.trim(),
       is_correction: true,
       ly_do_sai: lyDoBaoSai,
@@ -1419,8 +1469,8 @@ export default function ParcelDetailPanel({
                     </span>
                     <button
                       type="button"
-                      onClick={() => handleOpenCccdEditor(0)}
-                      className="text-[10px] font-bold text-blue-700 hover:underline flex items-center gap-1"
+                      onClick={() => handleOpenImageEditor('cccd', 0)}
+                      className="text-[10px] font-bold text-blue-700 hover:underline flex items-center gap-1 cursor-pointer"
                     >
                       <Crop className="w-3 h-3 text-blue-600" /> Cắt / Xoay ảnh
                     </button>
@@ -1438,16 +1488,16 @@ export default function ParcelDetailPanel({
                         <div className="w-full flex items-center justify-between gap-1 mt-1 pt-1 border-t border-gray-100">
                           <button
                             type="button"
-                            onClick={() => handleOpenCccdEditor(idx)}
-                            className="flex-1 py-0.5 px-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold rounded flex items-center justify-center gap-1 transition"
-                            title="Cắt, xoay, làm nét"
+                            onClick={() => handleOpenImageEditor('cccd', idx)}
+                            className="flex-1 py-0.5 px-1 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-bold rounded flex items-center justify-center gap-1 transition cursor-pointer"
+                            title="Cắt, xoay, lật, chỉnh nét"
                           >
                             <Crop className="w-3 h-3" /> Sửa ảnh
                           </button>
                           <button
                             type="button"
                             onClick={() => removeCccdFile(idx)}
-                            className="p-1 text-red-500 hover:bg-red-50 rounded transition"
+                            className="p-1 text-red-500 hover:bg-red-50 rounded transition cursor-pointer"
                             title="Xóa ảnh này"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1459,22 +1509,49 @@ export default function ParcelDetailPanel({
                 </div>
               )}
 
-              {/* Danh sách ảnh GCN đã chọn */}
+              {/* Danh sách ảnh GCN đã chọn kèm nút Sửa/Cắt/Xoay */}
               {gcnUploadedFiles.length > 0 && (
-                <div className="p-2 bg-emerald-50/60 rounded-lg space-y-1">
-                  <span className="text-[10px] font-bold text-emerald-900 block">Ảnh Sổ đỏ đã chọn:</span>
-                  <div className="flex flex-wrap gap-1.5">
+                <div className="p-2.5 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-emerald-900 block">
+                      Ảnh Giấy chứng nhận QSDĐ ({gcnUploadedFiles.length} ảnh):
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenImageEditor('gcn', 0)}
+                      className="text-[10px] font-bold text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Crop className="w-3 h-3 text-emerald-600" /> Cắt / Xoay ảnh
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
                     {gcnUploadedFiles.map((file, idx) => (
-                      <div key={idx} className="relative group w-14 h-14 rounded-lg overflow-hidden border border-emerald-200">
-                        <img src={file.url} alt="GCN" className="w-full h-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => removeGcnFile(idx)}
-                          className="absolute inset-0 bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
-                          title="Xóa ảnh này"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                        </button>
+                      <div key={idx} className="relative group bg-white p-1 rounded-lg border border-emerald-200 shadow-2xs flex flex-col items-center">
+                        <div className="w-full h-24 rounded overflow-hidden bg-slate-900 relative">
+                          <img src={file.url} alt="GCN" className="w-full h-full object-contain" />
+                          <div className="absolute top-1 left-1 bg-black/70 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                            Trang {idx + 1}
+                          </div>
+                        </div>
+                        <div className="w-full flex items-center justify-between gap-1 mt-1 pt-1 border-t border-gray-100">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenImageEditor('gcn', idx)}
+                            className="flex-1 py-0.5 px-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded flex items-center justify-center gap-1 transition cursor-pointer"
+                            title="Cắt, xoay, lật khổ A4"
+                          >
+                            <Crop className="w-3 h-3" /> Sửa ảnh
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeGcnFile(idx)}
+                            className="p-1 text-red-500 hover:bg-red-50 rounded transition cursor-pointer"
+                            title="Xóa ảnh này"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1593,13 +1670,14 @@ export default function ParcelDetailPanel({
         )}
       </div>
 
-      {/* Modal Chỉnh sửa, Cắt, Xoay, Tinh chỉnh ảnh CCCD */}
+      {/* Modal Chỉnh sửa, Cắt, Xoay, Tinh chỉnh ảnh (CCCD & GCN) */}
       <CccdImageEditorModal
-        isOpen={isCccdEditorOpen}
+        isOpen={isImageEditorOpen}
         imageUrl={editingImageUrl}
-        title={`Chỉnh sửa ảnh CCCD (${editingCccdIndex === 0 ? 'Mặt trước' : 'Mặt sau'})`}
-        onClose={() => setIsCccdEditorOpen(false)}
-        onSave={handleSaveEditedCccd}
+        title={editingImageTitle}
+        defaultAspect={editingDefaultAspect}
+        onClose={() => setIsImageEditorOpen(false)}
+        onSave={handleSaveEditedImage}
       />
 
       {/* Confirmation Modal when Deleting Declaration */}

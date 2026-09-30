@@ -5,6 +5,7 @@ import {
   RotateCw,
   RotateCcw,
   FlipHorizontal,
+  FlipVertical,
   Crop,
   Sun,
   Contrast,
@@ -18,10 +19,13 @@ import {
   ZoomOut,
 } from 'lucide-react';
 
-interface CccdImageEditorModalProps {
+export type CropAspectRatio = 'cccd' | 'a4' | 'free' | 'square';
+
+export interface CccdImageEditorModalProps {
   isOpen: boolean;
   imageUrl: string;
   title?: string;
+  defaultAspect?: CropAspectRatio;
   onClose: () => void;
   onSave: (editedDataUrl: string) => void;
 }
@@ -30,16 +34,18 @@ export default function CccdImageEditorModal({
   isOpen,
   imageUrl,
   title = 'Chỉnh sửa ảnh Căn cước công dân (CCCD)',
+  defaultAspect = 'cccd',
   onClose,
   onSave,
 }: CccdImageEditorModalProps) {
   const [currentImageSrc, setCurrentImageSrc] = useState<string>(imageUrl);
   const [rotation, setRotation] = useState<number>(0); // 0, 90, 180, 270
   const [flipH, setFlipH] = useState<boolean>(false);
+  const [flipV, setFlipV] = useState<boolean>(false);
   const [brightness, setBrightness] = useState<number>(100); // 50 - 150
   const [contrast, setContrast] = useState<number>(100); // 50 - 200
   const [isDocumentFilter, setIsDocumentFilter] = useState<boolean>(false);
-  const [cropAspect, setCropAspect] = useState<'cccd' | 'free' | 'square'>('cccd');
+  const [cropAspect, setCropAspect] = useState<CropAspectRatio>(defaultAspect);
 
   // Zoom & Pan
   const [zoom, setZoom] = useState<number>(1);
@@ -56,13 +62,15 @@ export default function CccdImageEditorModal({
       setCurrentImageSrc(imageUrl);
       setRotation(0);
       setFlipH(false);
+      setFlipV(false);
       setBrightness(100);
       setContrast(100);
       setIsDocumentFilter(false);
       setZoom(1);
       setPan({ x: 0, y: 0 });
+      setCropAspect(defaultAspect);
     }
-  }, [imageUrl, isOpen]);
+  }, [imageUrl, isOpen, defaultAspect]);
 
   // Load image object
   useEffect(() => {
@@ -89,7 +97,6 @@ export default function CccdImageEditorModal({
     const baseWidth = isRotatedSideways ? img.height : img.width;
     const baseHeight = isRotatedSideways ? img.width : img.height;
 
-    // Standard CCCD ratio is 85.6mm / 53.98mm ~= 1.5857
     let targetW = baseWidth;
     let targetH = baseHeight;
 
@@ -101,6 +108,16 @@ export default function CccdImageEditorModal({
       } else {
         targetW = baseWidth;
         targetH = baseWidth / cccdRatio;
+      }
+    } else if (cropAspect === 'a4') {
+      const isLandscape = baseWidth > baseHeight;
+      const a4Ratio = isLandscape ? 297 / 210 : 210 / 297;
+      if (baseWidth / baseHeight > a4Ratio) {
+        targetW = baseHeight * a4Ratio;
+        targetH = baseHeight;
+      } else {
+        targetW = baseWidth;
+        targetH = baseWidth / a4Ratio;
       }
     } else if (cropAspect === 'square') {
       const minDim = Math.min(baseWidth, baseHeight);
@@ -128,9 +145,7 @@ export default function CccdImageEditorModal({
     ctx.scale(zoom, zoom);
     ctx.translate(pan.x, pan.y);
 
-    if (flipH) {
-      ctx.scale(-1, 1);
-    }
+    ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
     ctx.rotate((rotation * Math.PI) / 180);
 
     // Draw image centered
@@ -143,7 +158,7 @@ export default function CccdImageEditorModal({
     );
 
     ctx.restore();
-  }, [rotation, flipH, brightness, contrast, isDocumentFilter, cropAspect, zoom, pan]);
+  }, [rotation, flipH, flipV, brightness, contrast, isDocumentFilter, cropAspect, zoom, pan]);
 
   useEffect(() => {
     renderPreview();
@@ -160,19 +175,28 @@ export default function CccdImageEditorModal({
     setRotation((prev) => (prev - 90 + 360) % 360);
   };
 
+  const handleRotate180 = () => {
+    setRotation((prev) => (prev + 180) % 360);
+  };
+
   const handleFlipHorizontal = () => {
     setFlipH((prev) => !prev);
+  };
+
+  const handleFlipVertical = () => {
+    setFlipV((prev) => !prev);
   };
 
   const handleReset = () => {
     setRotation(0);
     setFlipH(false);
+    setFlipV(false);
     setBrightness(100);
     setContrast(100);
     setIsDocumentFilter(false);
     setZoom(1);
     setPan({ x: 0, y: 0 });
-    setCropAspect('cccd');
+    setCropAspect(defaultAspect);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -325,37 +349,50 @@ export default function CccdImageEditorModal({
                 <RotateCw className="w-3.5 h-3.5 text-blue-400" />
                 <span>1. Hướng xoay & Lật ảnh</span>
               </label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={handleRotateLeft}
-                  className="flex items-center justify-center gap-1 py-2 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition"
+                  className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition cursor-pointer"
                   title="Xoay trái 90°"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Trái 90°</span>
+                  <span>Xoay trái 90°</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleRotateRight}
-                  className="flex items-center justify-center gap-1 py-2 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition"
+                  className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition cursor-pointer"
                   title="Xoay phải 90°"
                 >
                   <RotateCw className="w-3.5 h-3.5" />
-                  <span>Phải 90°</span>
+                  <span>Xoay phải 90°</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleFlipHorizontal}
-                  className={`flex items-center justify-center gap-1 py-2 px-2.5 rounded-lg text-xs border transition ${
+                  className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs border transition cursor-pointer ${
                     flipH
-                      ? 'bg-blue-600/30 border-blue-500 text-blue-300'
+                      ? 'bg-blue-600/30 border-blue-500 text-blue-300 font-bold'
                       : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
                   }`}
-                  title="Lật ngang (tránh ảnh chụp gương)"
+                  title="Lật gương ngang (tránh ảnh chụp gương)"
                 >
                   <FlipHorizontal className="w-3.5 h-3.5" />
-                  <span>Lật gương</span>
+                  <span>Lật ngang</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleFlipVertical}
+                  className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs border transition cursor-pointer ${
+                    flipV
+                      ? 'bg-blue-600/30 border-blue-500 text-blue-300 font-bold'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                  }`}
+                  title="Lật dọc (nếu chụp lộn đầu)"
+                >
+                  <FlipVertical className="w-3.5 h-3.5" />
+                  <span>Lật dọc</span>
                 </button>
               </div>
             </div>
@@ -366,13 +403,13 @@ export default function CccdImageEditorModal({
                 <Crop className="w-3.5 h-3.5 text-blue-400" />
                 <span>2. Tỉ lệ cắt khung</span>
               </label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => setCropAspect('cccd')}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-medium border text-center transition ${
+                  className={`py-2 px-2 rounded-lg text-xs font-medium border text-center transition cursor-pointer ${
                     cropAspect === 'cccd'
-                      ? 'bg-blue-600 text-white border-blue-500'
+                      ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
                       : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
                   }`}
                 >
@@ -380,21 +417,32 @@ export default function CccdImageEditorModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCropAspect('free')}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-medium border text-center transition ${
-                    cropAspect === 'free'
-                      ? 'bg-blue-600 text-white border-blue-500'
+                  onClick={() => setCropAspect('a4')}
+                  className={`py-2 px-2 rounded-lg text-xs font-medium border text-center transition cursor-pointer ${
+                    cropAspect === 'a4'
+                      ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
                       : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
                   }`}
                 >
-                  Tự do
+                  Khổ A4 / GCN
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCropAspect('free')}
+                  className={`py-2 px-2 rounded-lg text-xs font-medium border text-center transition cursor-pointer ${
+                    cropAspect === 'free'
+                      ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  Tự do (Gốc)
                 </button>
                 <button
                   type="button"
                   onClick={() => setCropAspect('square')}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-medium border text-center transition ${
+                  className={`py-2 px-2 rounded-lg text-xs font-medium border text-center transition cursor-pointer ${
                     cropAspect === 'square'
-                      ? 'bg-blue-600 text-white border-blue-500'
+                      ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
                       : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
                   }`}
                 >

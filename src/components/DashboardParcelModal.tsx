@@ -73,7 +73,15 @@ export default function DashboardParcelModal({
       type: 'upload',
     });
   }
-  if (declaration?.anh_gcn) {
+  if (Array.isArray(declaration?.anh_gcn_list) && declaration.anh_gcn_list.length > 0) {
+    declaration.anh_gcn_list.forEach((u: string, idx: number) => {
+      allImages.push({
+        label: `Giấy chứng nhận QSDĐ - Trang ${idx + 1} (Upload kê khai)`,
+        url: u,
+        type: 'upload',
+      });
+    });
+  } else if (declaration?.anh_gcn) {
     allImages.push({
       label: 'Giấy chứng nhận QSDĐ (Upload kê khai)',
       url: declaration.anh_gcn,
