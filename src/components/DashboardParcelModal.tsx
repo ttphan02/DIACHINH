@@ -23,6 +23,8 @@ import {
   Building2,
   Layers,
   FileSpreadsheet,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { getResolvedImageUrl } from '@/utils/geo';
 
@@ -33,6 +35,8 @@ interface DashboardParcelModalProps {
   declaration: any | null;
   onPrintDeclaration: (parcel: Parcel, declaration?: any) => void;
   onOpenImageViewer: (url: string, urls?: string[], title?: string) => void;
+  onEditDeclaration?: (parcel: Parcel, declaration: any) => void;
+  onDeleteDeclaration?: (parcel: Parcel, declaration: any) => void;
 }
 
 export default function DashboardParcelModal({
@@ -42,6 +46,8 @@ export default function DashboardParcelModal({
   declaration,
   onPrintDeclaration,
   onOpenImageViewer,
+  onEditDeclaration,
+  onDeleteDeclaration,
 }: DashboardParcelModalProps) {
   if (!isOpen || !parcel) return null;
 
@@ -218,17 +224,40 @@ export default function DashboardParcelModal({
           {/* 2. THÔNG TIN CHI TIẾT VỀ VIỆC KÊ KHAI (Được hiển thị nổi bật nếu đã kê khai) */}
           {declaration ? (
             <div className="bg-blue-950/30 border border-blue-500/30 p-4 rounded-2xl space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-blue-300 flex items-center gap-1.5">
-                  <FileText className="w-3.5 h-3.5 text-blue-400" />
-                  Hồ sơ chi tiết kê khai thực địa
-                </h4>
-                {formattedDeclDate && (
-                  <span className="text-[11px] text-blue-300 flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-blue-400" />
-                    Kê khai lúc: <strong>{formattedDeclDate}</strong>
-                  </span>
-                )}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-blue-300 flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-blue-400" />
+                    Hồ sơ chi tiết kê khai thực địa
+                  </h4>
+                  {formattedDeclDate && (
+                    <span className="text-[11px] text-blue-300/80 flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-blue-400" />
+                      {formattedDeclDate}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {onEditDeclaration && (
+                    <button
+                      type="button"
+                      onClick={() => onEditDeclaration(parcel, declaration)}
+                      className="px-2.5 py-1 text-[11px] font-bold bg-blue-600/30 hover:bg-blue-600 text-blue-200 hover:text-white rounded-lg border border-blue-500/40 transition flex items-center gap-1 cursor-pointer"
+                    >
+                      <Pencil className="w-3 h-3" /> Sửa phiếu
+                    </button>
+                  )}
+                  {onDeleteDeclaration && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteDeclaration(parcel, declaration)}
+                      className="px-2.5 py-1 text-[11px] font-bold bg-red-500/20 hover:bg-red-600 text-red-300 hover:text-white rounded-lg border border-red-500/30 transition flex items-center gap-1 cursor-pointer"
+                    >
+                      <Trash2 className="w-3 h-3" /> Xóa phiếu
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">

@@ -3,10 +3,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import rawParcels from '@/data/parcels.json';
-import { Parcel, ParcelStatus } from '@/types';
+import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones } from '@/utils/geo';
+import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration } from '@/utils/declaration';
 import DeclarationPrintModal, { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
 import DashboardParcelModal from '@/components/DashboardParcelModal';
+import DeclarationEditModal from '@/components/DeclarationEditModal';
 import VectorViewerModal from '@/components/VectorViewerModal';
 import {
   Map as MapIcon,
@@ -41,6 +43,8 @@ import {
   Square,
   Eye,
   Image as ImageIcon,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -91,28 +95,46 @@ export default function DashboardPage() {
     cccd?: string;
   }>({ url: '', title: '' });
 
+  // Edit Declaration Modal state
+  const [editingParcel, setEditingParcel] = useState<Parcel | null>(null);
+  const [editingDeclaration, setEditingDeclaration] = useState<any | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+  // Delete Confirmation Modal state
+  const [deletingParcel, setDeletingParcel] = useState<Parcel | null>(null);
+
   // 1. Tải danh sách kê khai và dữ liệu chi tiết từ LocalStorage
   useEffect(() => {
-    try {
-      const savedCodes = localStorage.getItem('diachinh_declared_codes');
-      if (savedCodes) {
-        const arr = JSON.parse(savedCodes);
-        if (Array.isArray(arr)) {
-          setDeclaredParcelCodes(new Set(arr));
-        }
-      }
-
-      const savedMap = localStorage.getItem('diachinh_declarations_map');
-      if (savedMap) {
-        const map = JSON.parse(savedMap);
-        if (map && typeof map === 'object') {
-          setDeclarationsMap(map);
-        }
-      }
-    } catch (e) {
-      console.error('Lỗi đọc LocalStorage:', e);
-    }
+    const { declaredCodes, declarationsMap: map } = getStoredDeclarations();
+    setDeclaredParcelCodes(declaredCodes);
+    setDeclarationsMap(map);
   }, []);
+
+  const handleOpenEditDeclaration = (parcel: Parcel, decl?: any) => {
+    setEditingParcel(parcel);
+    setEditingDeclaration(decl || declarationsMap[parcel.ma_thua] || null);
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveEditedDeclaration = (data: DeclarationFormData) => {
+    const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(data);
+    setDeclaredParcelCodes(new Set(updatedCodes));
+    setDeclarationsMap(updatedMap);
+    setIsEditModalOpen(false);
+    setEditingParcel(null);
+    setEditingDeclaration(null);
+  };
+
+  const handleDeleteDeclaration = (maThua: string) => {
+    const { updatedCodes, updatedMap } = removeDeclaration(maThua);
+    setDeclaredParcelCodes(new Set(updatedCodes));
+    setDeclarationsMap(updatedMap);
+    setDeletingParcel(null);
+    if (activeParcelDetail && activeParcelDetail.ma_thua === maThua) {
+      setIsDetailModalOpen(false);
+      setActiveParcelDetail(null);
+    }
+  };
 
   // 2. Đồng bộ Google Sheets Realtime
   const fetchGgsCodes = useCallback(async () => {
@@ -1538,6 +1560,29 @@ export default function DashboardPage() {
                                 <span>Chi tiết</span>
                               </button>
 
+                              {/* Sửa và Xóa phiếu kê khai nếu thửa đã kê khai */}
+                              {(isBlue || Boolean(decl)) && (
+                                <>
+                                  <button
+                                    onClick={() => handleOpenEditDeclaration(p, decl)}
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 transition cursor-pointer"
+                                    title="Sửa thông tin phiếu kê khai"
+                                  >
+                                    <Pencil className="w-3 h-3 text-amber-400" />
+                                    <span>Sửa</span>
+                                  </button>
+
+                                  <button
+                                    onClick={() => setDeletingParcel(p)}
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-800 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30 transition cursor-pointer"
+                                    title="Xóa phiếu kê khai (quay về trạng thái ban đầu)"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    <span>Xóa</span>
+                                  </button>
+                                </>
+                              )}
+
                               {/* In đơn */}
                               <button
                                 onClick={() => handleOpenPrintSingle(p)}
@@ -1900,7 +1945,81 @@ export default function DashboardPage() {
           handleOpenPrintSingle(p);
         }}
         onOpenImageViewer={handleOpenImageViewer}
+        onEditDeclaration={(p, decl) => {
+          setIsDetailModalOpen(false);
+          handleOpenEditDeclaration(p, decl);
+        }}
+        onDeleteDeclaration={(p) => {
+          setDeletingParcel(p);
+        }}
       />
+
+      {/* Modal Chỉnh Sửa Phiếu Kê Khai */}
+      <DeclarationEditModal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setEditingParcel(null);
+          setEditingDeclaration(null);
+        }}
+        parcel={editingParcel}
+        declaration={editingDeclaration}
+        onSave={handleSaveEditedDeclaration}
+        onDelete={handleDeleteDeclaration}
+      />
+
+      {/* Modal Xác Nhận Xóa Phiếu Kê Khai */}
+      {deletingParcel && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-red-500/30 rounded-2xl max-w-md w-full p-5 shadow-2xl text-slate-100 space-y-4">
+            <div className="flex items-center gap-3 text-red-400">
+              <div className="w-10 h-10 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-500" />
+              </div>
+              <div>
+                <h4 className="font-black text-sm text-white">Xác nhận xóa phiếu kê khai</h4>
+                <p className="text-xs text-slate-400">Hủy bỏ hồ sơ kê khai đã lưu</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-2 text-slate-300">
+              <p>
+                Bạn có chắc chắn muốn xóa phiếu kê khai của thửa{' '}
+                <strong className="text-white">
+                  Thửa {deletingParcel.so_thua} (Tờ {deletingParcel.to_ban_do})
+                </strong>
+                ?
+              </p>
+              {declarationsMap[deletingParcel.ma_thua]?.thua_kem_theo?.length > 0 && (
+                <p className="text-amber-400">
+                  Phiếu này bao gồm <strong>{declarationsMap[deletingParcel.ma_thua].thua_kem_theo.length} thửa kèm theo</strong> ({declarationsMap[deletingParcel.ma_thua].thua_kem_theo.map((t: any) => `Thửa ${t.so_thua}/${t.to_ban_do}`).join(', ')}).
+                </p>
+              )}
+              <p className="text-slate-400 text-[11px]">
+                👉 Toàn bộ các thửa trong phiếu này sẽ <strong>tự động quay trở lại trạng thái ban đầu</strong> (Có tên - Màu Vàng, hoặc Chưa có tên - Màu Trắng/Xám).
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setDeletingParcel(null)}
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteDeclaration(deletingParcel.ma_thua)}
+                className="px-4 py-2 rounded-xl text-xs font-black bg-red-600 hover:bg-red-500 text-white shadow-md shadow-red-600/30 transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Xác nhận xóa</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Phóng to & Tải ảnh CCCD / Giấy chứng nhận */}
       <VectorViewerModal

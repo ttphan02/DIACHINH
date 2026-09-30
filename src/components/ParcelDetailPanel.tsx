@@ -30,6 +30,7 @@ import {
   RotateCw,
   Plus,
   ListPlus,
+  Save,
 } from 'lucide-react';
 import { downloadFile, autoDetectBoundaries, formatBoundaryText } from '@/utils/geo';
 import CccdImageEditorModal from '@/components/CccdImageEditorModal';
@@ -51,6 +52,8 @@ interface ParcelDetailPanelProps {
   onClose: () => void;
   onOpenVectorViewer: (svgUrl: string, title: string, owner?: string, cccd?: string, urls?: string[]) => void;
   onSaveDeclaration: (data: DeclarationFormData) => void;
+  onDeleteDeclaration?: (maThua: string) => void;
+  currentDeclaration?: DeclarationFormData | any;
   userLocation?: { lat: number; lng: number; accuracy: number } | null;
   onToggleLocation?: () => void;
   onToggleCollapse?: () => void;
@@ -72,6 +75,8 @@ export default function ParcelDetailPanel({
   onClose,
   onOpenVectorViewer,
   onSaveDeclaration,
+  onDeleteDeclaration,
+  currentDeclaration,
   userLocation,
   onToggleLocation,
   onToggleCollapse,
@@ -175,32 +180,53 @@ export default function ParcelDetailPanel({
     });
   };
 
-  // Sync state when parcel changes
+  const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
+
+  // Sync state when parcel or currentDeclaration changes
   useEffect(() => {
     if (parcel) {
-      setGiapDong(parcel.giap_dong || '');
-      setGiapTay(parcel.giap_tay || '');
-      setGiapNam(parcel.giap_nam || '');
-      const nonPersonPlaceholders = [
-        'chưa có tên',
-        'không có tên',
-        'không có dữ liệu',
-        'không có dữ liệu cập nhật',
-        'không có trong dữ liệu',
-        'không có trong smk',
-        'hồ ea rớt',
-        'ubnd xã',
-        'ông ..',
-        '..',
-      ];
-      const isPlaceholder = nonPersonPlaceholders.some((ph) => parcel.chu_ho?.toLowerCase().includes(ph));
-      setChuDatTen(parcel.chu_ho && !isPlaceholder ? parcel.chu_ho : '');
-      setChuDatCccd(parcel.cccd || '');
+      if (currentDeclaration) {
+        setMode(currentDeclaration.mode || 'SELF');
+        setNguoiKeKhaiTen(currentDeclaration.nguoi_ke_khai_ten || '');
+        setNguoiKeKhaiSdt(currentDeclaration.nguoi_ke_khai_sdt || '');
+        setChuDatTen(currentDeclaration.chu_dat_ten || parcel.chu_ho || '');
+        setChuDatCccd(currentDeclaration.chu_dat_cccd || parcel.cccd || '');
+        setGiapDong(currentDeclaration.giap_dong || parcel.giap_dong || '');
+        setGiapTay(currentDeclaration.giap_tay || parcel.giap_tay || '');
+        setGiapNam(currentDeclaration.giap_nam || parcel.giap_nam || '');
+        setGiapBac(currentDeclaration.giap_bac || parcel.giap_bac || '');
+        setGhiChu(currentDeclaration.ghi_chu || '');
+      } else {
+        setMode('SELF');
+        setNguoiKeKhaiTen('');
+        setNguoiKeKhaiSdt('');
+        setGiapDong(parcel.giap_dong || '');
+        setGiapTay(parcel.giap_tay || '');
+        setGiapNam(parcel.giap_nam || '');
+        setGiapBac(parcel.giap_bac || '');
+        setGhiChu('');
+        const nonPersonPlaceholders = [
+          'chưa có tên',
+          'không có tên',
+          'không có dữ liệu',
+          'không có dữ liệu cập nhật',
+          'không có trong dữ liệu',
+          'không có trong smk',
+          'hồ ea rớt',
+          'ubnd xã',
+          'ông ..',
+          '..',
+        ];
+        const isPlaceholder = nonPersonPlaceholders.some((ph) => parcel.chu_ho?.toLowerCase().includes(ph));
+        setChuDatTen(parcel.chu_ho && !isPlaceholder ? parcel.chu_ho : '');
+        setChuDatCccd(parcel.cccd || '');
+      }
       setLyDoBaoSai('');
       setSavedSuccess(false);
       setCorrectionSuccess(false);
       setCccdUploadedFiles([]);
       setGcnUploadedFiles([]);
+      setIsConfirmDeleteOpen(false);
 
       // Mặc định về tab thông tin khi đổi thửa
       setActiveTab('info');
@@ -208,7 +234,7 @@ export default function ParcelDetailPanel({
       // Tự động cuộn lên đầu panel khi chọn hoặc đổi sang thửa mới
       contentRef.current?.scrollTo({ top: 0, behavior: 'instant' });
     }
-  }, [parcel?.ma_thua]);
+  }, [parcel?.ma_thua, currentDeclaration]);
 
   const handleCccdFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -464,7 +490,10 @@ export default function ParcelDetailPanel({
             }`}
           >
             <FileText className="w-3.5 h-3.5" />
-            Phiếu kê khai
+            <span>Phiếu kê khai</span>
+            {Boolean(currentDeclaration || parcel.is_declared) && (
+              <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" title="Đã có phiếu kê khai" />
+            )}
           </button>
         )}
       </div>
@@ -473,6 +502,52 @@ export default function ParcelDetailPanel({
       <div ref={contentRef} className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
         {activeTab === 'info' ? (
           <>
+            {/* THÔNG BÁO VÀ THAO TÁC SỬA / XÓA NẾU THỬA ĐÃ ĐƯỢC KÊ KHAI */}
+            {Boolean(currentDeclaration || parcel.is_declared) && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-blue-900 flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-blue-600" />
+                    Thửa đất đã lập phiếu kê khai thực địa
+                  </span>
+                  <span className="text-[10px] font-bold bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full">
+                    Đã kê khai
+                  </span>
+                </div>
+                <div className="text-[11px] text-gray-600 space-y-0.5">
+                  <p>
+                    Chủ hộ kê khai: <strong className="text-gray-900">{currentDeclaration?.chu_dat_ten || parcel.chu_ho}</strong>
+                    {Boolean(currentDeclaration?.chu_dat_cccd || parcel.cccd) && (
+                      <span> • CCCD: <strong className="font-mono text-gray-900">{currentDeclaration?.chu_dat_cccd || parcel.cccd}</strong></span>
+                    )}
+                  </p>
+                  {Boolean(currentDeclaration?.thua_kem_theo?.length) && (
+                    <p className="text-amber-800 font-medium">
+                      Gộp chung {currentDeclaration.thua_kem_theo.length} thửa kèm theo
+                    </p>
+                  )}
+                </div>
+                <div className="pt-1.5 flex items-center gap-2 border-t border-blue-100">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('declare')}
+                    className="flex-1 py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
+                  >
+                    <FileEdit className="w-3.5 h-3.5" /> Sửa thông tin phiếu
+                  </button>
+                  {onDeleteDeclaration && (
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmDeleteOpen(true)}
+                      className="py-1.5 px-2.5 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white border border-red-200 rounded-lg font-bold text-[11px] transition flex items-center gap-1 cursor-pointer"
+                      title="Xóa phiếu kê khai này"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Xóa phiếu
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* NÚT XEM VÀ TẢI CCCD VÀ GCN QUYỀN SỬ DỤNG ĐẤT */}
             {(parcel.has_cccd || parcel.has_gcn) ? (
@@ -1091,6 +1166,28 @@ export default function ParcelDetailPanel({
         ) : (
           /* Phiếu Kê Khai (Tab 2 cho thửa chưa số hóa) */
           <form onSubmit={handleSubmit} className="space-y-3">
+            {/* Banner đang chỉnh sửa phiếu đã kê khai */}
+            {currentDeclaration && (
+              <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                  <div>
+                    <span className="font-bold block">Phiếu kê khai đã lưu</span>
+                    <span className="text-[10px] text-blue-700">Bạn có thể chỉnh sửa thông tin hoặc xóa bỏ phiếu</span>
+                  </div>
+                </div>
+                {onDeleteDeclaration && (
+                  <button
+                    type="button"
+                    onClick={() => setIsConfirmDeleteOpen(true)}
+                    className="px-2 py-1 rounded-lg text-[10px] font-bold bg-red-100 text-red-700 hover:bg-red-600 hover:text-white transition flex items-center gap-1 shrink-0 cursor-pointer"
+                  >
+                    <Trash2 className="w-3 h-3" /> Xóa phiếu
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Chế độ kê khai */}
             <div className="flex p-1 bg-gray-100 rounded-xl text-xs">
               <button
@@ -1404,12 +1501,27 @@ export default function ParcelDetailPanel({
               </div>
             )}
 
-            <button
-              type="submit"
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer"
-            >
-              Lưu phiếu kê khai
-            </button>
+            <div className="flex items-center gap-2">
+              {currentDeclaration && onDeleteDeclaration && (
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmDeleteOpen(true)}
+                  className="py-2.5 px-3 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white border border-red-200 rounded-xl font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                  title="Xóa phiếu kê khai này"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Xóa phiếu</span>
+                </button>
+              )}
+
+              <button
+                type="submit"
+                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Save className="w-4 h-4" />
+                <span>{currentDeclaration ? 'Lưu thay đổi phiếu kê khai' : 'Lưu phiếu kê khai'}</span>
+              </button>
+            </div>
 
             {/* TIỆN ÍCH KÊ KHAI NHANH CÁC THỬA TIẾP THEO (Chỉ các thửa chưa số hóa) */}
             {(undeclaredSameCccdParcels.length > 0 || undeclaredSameNameParcels.length > 0) && (
@@ -1489,6 +1601,60 @@ export default function ParcelDetailPanel({
         onClose={() => setIsCccdEditorOpen(false)}
         onSave={handleSaveEditedCccd}
       />
+
+      {/* Confirmation Modal when Deleting Declaration */}
+      {isConfirmDeleteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-4 shadow-2xl border border-red-200 space-y-3 text-left">
+            <div className="flex items-center gap-2.5 text-red-600">
+              <div className="w-9 h-9 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <h4 className="font-extrabold text-sm text-gray-900">Xác nhận xóa phiếu kê khai</h4>
+                <p className="text-[11px] text-gray-500">Hủy bỏ hồ sơ kê khai đã lưu</p>
+              </div>
+            </div>
+
+            <div className="p-2.5 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-700 space-y-1.5">
+              <p>
+                Bạn có chắc muốn xóa phiếu kê khai của <strong>Thửa {parcel.so_thua} (Tờ {parcel.to_ban_do})</strong>?
+              </p>
+              {additionalParcels && additionalParcels.length > 0 && (
+                <p className="text-amber-800 text-[11px]">
+                  Phiếu này bao gồm <strong>{additionalParcels.length} thửa kèm theo</strong> ({additionalParcels.map(t => `${t.so_thua}/${t.to_ban_do}`).join(', ')}).
+                </p>
+              )}
+              <p className="text-[11px] text-blue-700">
+                👉 Tất cả các thửa trong phiếu sẽ <strong>tự động quay lại trạng thái ban đầu</strong> (Có tên - Màu Vàng, hoặc Chưa có tên - Màu Trắng).
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setIsConfirmDeleteOpen(false)}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-100 transition cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onDeleteDeclaration) {
+                    onDeleteDeclaration(parcel.ma_thua);
+                  }
+                  setIsConfirmDeleteOpen(false);
+                }}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-black bg-red-600 hover:bg-red-700 text-white shadow-xs transition flex items-center gap-1 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Xác nhận xóa</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

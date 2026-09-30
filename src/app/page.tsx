@@ -10,6 +10,7 @@ import ParcelDetailPanel from '@/components/ParcelDetailPanel';
 import VectorViewerModal from '@/components/VectorViewerModal';
 import MapSheetMultiSelect from '@/components/MapSheetMultiSelect';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
+import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration } from '@/utils/declaration';
 import {
   Search,
   Layers,
@@ -75,6 +76,7 @@ export default function Home() {
 
   // Danh sách các thửa đã kê khai trên hệ thống (lưu trong localStorage để bền vững)
   const [declaredParcelCodes, setDeclaredParcelCodes] = useState<Set<string>>(new Set());
+  const [declarationsMap, setDeclarationsMap] = useState<Record<string, any>>({});
 
   // Kê khai gộp nhiều thửa đất chung một phiếu
   const [additionalParcels, setAdditionalParcels] = useState<AdditionalParcel[]>([]);
@@ -162,18 +164,9 @@ export default function Home() {
 
   // Tải danh sách đã kê khai từ LocalStorage khi khởi tạo
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('diachinh_declared_codes');
-
-      if (saved) {
-        const arr = JSON.parse(saved);
-        if (Array.isArray(arr)) {
-          setDeclaredParcelCodes(new Set(arr));
-        }
-      }
-    } catch (e) {
-      console.error('Không thể đọc dữ liệu kê khai đã lưu:', e);
-    }
+    const { declaredCodes, declarationsMap: loadedMap } = getStoredDeclarations();
+    setDeclaredParcelCodes(declaredCodes);
+    setDeclarationsMap(loadedMap);
   }, []);
 
   // Hàm đồng bộ Google Sheets realtime
@@ -231,15 +224,23 @@ export default function Home() {
       // ĐỐI VỚI THỬA ĐÃ CÓ TRÊN GOOGLE SHEETS HOẶC ĐÃ KÊ KHAI:
       // ƯU TIÊN LẤY TÊN CHỦ THỬA VÀ CCCD TỪ GOOGLE SHEETS (loại bỏ hoàn toàn mã geohash rác w6jp...)
       const ggsInfo = ggsParcelsMap[p.ma_thua];
+      const savedDecl = declarationsMap[p.ma_thua];
 
       let chu_ho = p.chu_ho;
+      let cccd = p.cccd;
+
+      // Ưu tiên dữ liệu kê khai thực địa nếu thửa này đã kê khai trên web
+      if (savedDecl) {
+        if (savedDecl.chu_dat_ten) chu_ho = savedDecl.chu_dat_ten;
+        if (savedDecl.chu_dat_cccd) cccd = savedDecl.chu_dat_cccd;
+      }
+
       if (ggsInfo?.chu_ho && !ggsInfo.chu_ho.startsWith('w6jp')) {
         chu_ho = ggsInfo.chu_ho;
       } else if (chu_ho?.startsWith('w6jp') || !chu_ho) {
         chu_ho = 'Không có trong dữ liệu';
       }
 
-      let cccd = p.cccd;
       if (ggsInfo?.cccd && ggsInfo.cccd.length >= 9) {
         cccd = ggsInfo.cccd;
       }
@@ -269,7 +270,7 @@ export default function Home() {
         is_declared: isLocallyDeclared,
       };
     });
-  }, [parcels, ggsCodes, ggsParcelsMap, declaredParcelCodes, isGgsLoaded]);
+  }, [parcels, ggsCodes, ggsParcelsMap, declaredParcelCodes, declarationsMap, isGgsLoaded]);
 
   // Cập nhật selectedParcel khi computedParcels thay đổi
   useEffect(() => {
@@ -465,8 +466,12 @@ export default function Home() {
       return;
     }
 
-    // Khi chọn thửa bình thường:
-    setAdditionalParcels([]);
+    const savedDecl = declarationsMap[latest.ma_thua];
+    if (savedDecl?.thua_kem_theo && Array.isArray(savedDecl.thua_kem_theo)) {
+      setAdditionalParcels(savedDecl.thua_kem_theo);
+    } else {
+      setAdditionalParcels([]);
+    }
     if (closeTimerRef.current) {
       clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
@@ -594,53 +599,53 @@ export default function Home() {
         console.error(e);
       }
     } else {
-      // 1. Thêm tất cả mã thửa (thửa chính + các thửa kèm theo) vào danh sách đã kê khai
-      const allCodes = [formData.ma_thua, ...(formData.thua_kem_theo || []).map((ap) => ap.ma_thua)];
+      const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(formData);
+      setDeclaredParcelCodes(new Set(updatedCodes));
+      setDeclarationsMap(updatedMap);
+      setIsPickingAdditional(false);
 
-      setDeclaredParcelCodes((prev) => {
-        const next = new Set(prev);
-        allCodes.forEach((code) => next.add(code));
-        try {
-          localStorage.setItem('diachinh_declared_codes', JSON.stringify(Array.from(next)));
-        } catch (e) {
-          console.error(e);
-        }
-        return next;
-      });
-
-      // Lưu đầy đủ dữ liệu phiếu kê khai cho toàn bộ các thửa này
-      try {
-        const stored = JSON.parse(localStorage.getItem('diachinh_declarations_map') || '{}');
-        allCodes.forEach((code) => {
-          stored[code] = {
-            ...formData,
-            created_at: new Date().toISOString(),
-          };
+      if (selectedParcel && selectedParcel.ma_thua === formData.ma_thua) {
+        const isOnGgs = ggsCodes.has(formData.ma_thua) || selectedParcel.trang_thai === 'DA_SO_HOA_XANH';
+        setSelectedParcel({
+          ...selectedParcel,
+          chu_ho: formData.chu_dat_ten || selectedParcel.chu_ho,
+          cccd: formData.chu_dat_cccd || selectedParcel.cccd,
+          giap_dong: formData.giap_dong || selectedParcel.giap_dong,
+          giap_tay: formData.giap_tay || selectedParcel.giap_tay,
+          giap_nam: formData.giap_nam || selectedParcel.giap_nam,
+          giap_bac: formData.giap_bac || selectedParcel.giap_bac,
+          trang_thai: isOnGgs ? 'DA_SO_HOA_XANH' : 'DA_KE_KHAI_CHUA_SO_HOA_LAM',
+          is_declared: true,
         });
-        localStorage.setItem('diachinh_declarations_map', JSON.stringify(stored));
-      } catch (e) {
-        console.error(e);
       }
 
-      setIsPickingAdditional(false);
+      setPickToast('✓ Đã lưu phiếu kê khai thành công');
+      setTimeout(() => setPickToast(null), 3000);
+    }
+  };
+
+  const handleDeleteDeclaration = (targetMaThua: string) => {
+    const { removedCodes, updatedCodes, updatedMap } = removeDeclaration(targetMaThua);
+    setDeclaredParcelCodes(new Set(updatedCodes));
+    setDeclarationsMap(updatedMap);
+    setAdditionalParcels([]);
+    setIsPickingAdditional(false);
+
+    // Khôi phục selectedParcel nếu đang chọn thuộc nhóm bị xóa
+    if (selectedParcel && removedCodes.includes(selectedParcel.ma_thua)) {
+      const original = parcels.find((p) => p.ma_thua === selectedParcel.ma_thua);
+      if (original) {
+        const isOnGgs = ggsCodes.has(original.ma_thua) || original.trang_thai === 'DA_SO_HOA_XANH';
+        setSelectedParcel({
+          ...original,
+          trang_thai: isOnGgs ? 'DA_SO_HOA_XANH' : (original.trang_thai as ParcelStatus),
+          is_declared: false,
+        });
+      }
     }
 
-
-    // 2. Cập nhật dữ liệu hiển thị của thửa đang chọn
-    if (selectedParcel && selectedParcel.ma_thua === formData.ma_thua) {
-      const isOnGgs = ggsCodes.has(formData.ma_thua) || selectedParcel.trang_thai === 'DA_SO_HOA_XANH';
-      setSelectedParcel({
-        ...selectedParcel,
-        chu_ho: formData.chu_dat_ten || selectedParcel.chu_ho,
-        cccd: formData.chu_dat_cccd || selectedParcel.cccd,
-        giap_dong: formData.giap_dong || selectedParcel.giap_dong,
-        giap_tay: formData.giap_tay || selectedParcel.giap_tay,
-        giap_nam: formData.giap_nam || selectedParcel.giap_nam,
-        giap_bac: formData.giap_bac || selectedParcel.giap_bac,
-        trang_thai: isOnGgs ? 'DA_SO_HOA_XANH' : 'DA_KE_KHAI_CHUA_SO_HOA_LAM',
-        is_declared: true,
-      });
-    }
+    setPickToast('✓ Đã xóa phiếu kê khai. Các thửa đã quay về trạng thái ban đầu.');
+    setTimeout(() => setPickToast(null), 3500);
   };
 
   return (
@@ -679,6 +684,8 @@ export default function Home() {
                     onClose={handleClosePanel}
                     onOpenVectorViewer={handleOpenVectorViewer}
                     onSaveDeclaration={handleSaveDeclaration}
+                    onDeleteDeclaration={handleDeleteDeclaration}
+                    currentDeclaration={selectedParcel ? declarationsMap[selectedParcel.ma_thua] : undefined}
                     userLocation={userLocation}
                     onToggleLocation={handleToggleLocation}
                     onToggleCollapse={() => setIsPanelCollapsed((prev) => !prev)}
