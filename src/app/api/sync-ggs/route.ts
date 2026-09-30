@@ -186,18 +186,6 @@ export async function GET(request: Request) {
           ggsParcels[ma_thua].loai_dat = loai_dat;
         }
       }
-
-      // Hỗ trợ cả key đảo ngược (to_thua và thua_to) để tra cứu luôn chính xác 100%
-      if (ma_thua.includes('_')) {
-        const [p1, p2] = ma_thua.split('_');
-        if (p1 && p2) {
-          const revKey = `${p2}_${p1}`;
-          codeSet.add(revKey);
-          if (!ggsParcels[revKey] || (chu_ho && !ggsParcels[revKey].chu_ho)) {
-            ggsParcels[revKey] = parcelData;
-          }
-        }
-      }
     }
 
     const ggsCodes = Array.from(codeSet);
