@@ -47,3 +47,6 @@ next-env.d.ts
 /.open-next/
 /.wrangler/
 
+# Scanname local data & API keys
+/public/scanname/data/
+

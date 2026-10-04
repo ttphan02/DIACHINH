@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <base href="/scanname/">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tách File PDF Trực Tuyến - Tải Về Trực Tiếp Ngay Dưới Danh Sách Trang</title>
+  <meta name="description" content="Công cụ tách file PDF trực tuyến miễn phí, xem trước trang đúng tỷ lệ gốc, chọn trang và tải về trực tiếp ngay dưới danh sách trang cực kỳ tiện lợi.">
+  
+  <!-- FontAwesome 6 (Nạp cục bộ siêu tốc từ assets/vendor) -->
+  <link rel="stylesheet" href="assets/vendor/fontawesome/all.min.css">
+  
+  <!-- CSS Modules (100% Cục bộ - Tối ưu 0ms tải trang, không giật lag) -->
+  <link rel="stylesheet" href="assets/css/variables.css">
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/grid.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="header-container">
+      <div class="logo-area">
+        <div class="logo-icon">
+          <i class="fa-solid fa-file-pdf"></i>
+        </div>
+        <div>
+          <h1 class="logo-text">PDF Splitter Pro</h1>
+        </div>
+        <span class="badge-tag">Tải Về Ngay Bên Dưới</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <a href="/" class="action-btn" style="text-decoration: none; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); font-weight: 700; padding: 6px 14px; font-size: 13px;" title="Quay lại Bản đồ Địa chính">
+          <i class="fa-solid fa-map-location-dot"></i> Bản Đồ
+        </a>
+        <button class="action-btn" id="btnManualSaveSession" style="background: rgba(16, 185, 129, 0.18); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; padding: 6px 14px; font-size: 13px;" title="Lưu thủ công toàn bộ trạng thái đang làm việc vào ổ cứng (chống mất dữ liệu)">
+          <i class="fa-solid fa-floppy-disk"></i> Lưu Trạng Thái
+        </button>
+        <button class="action-btn" id="btnManageGeminiKeys" style="background: rgba(236, 72, 153, 0.2); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.4); font-weight: 700; padding: 6px 14px; font-size: 13px;" title="Xem và cập nhật danh sách API Key Gemini">
+          <i class="fa-solid fa-key"></i> Cấu Hình Gemini Keys
+        </button>
+        <span style="font-size: 13px; color: var(--text-muted);"><i class="fa-solid fa-shield-halved" style="color: var(--accent-success); margin-right: 6px;"></i>An toàn & Bảo mật tuyệt đối</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main>
+    
+    <!-- Upload Section -->
+    <div class="upload-card" id="dropZone">
+      <input type="file" id="replaceFileInput" accept="application/pdf,image/*" style="display:none;">
+      <input type="file" id="fileInput" accept="application/pdf">
+      <div class="upload-icon-wrapper">
+        <i class="fa-solid fa-cloud-arrow-up"></i>
+      </div>
+      <h2 class="upload-title">Tải Lên File PDF Của Bạn</h2>
+      <p class="upload-desc">Kéo và thả file PDF vào đây, hoặc nhấn nút bên dưới để chọn file từ máy tính. Xem trước danh sách trang (tối thiểu 8 trang/hàng) và tải về ngay phía dưới vô cùng tiện lợi.</p>
+      <div>
+        <button class="btn-select-file" onclick="document.getElementById('fileInput').click()">
+          <i class="fa-solid fa-folder-open"></i> Chọn File PDF
+        </button>
+        <button class="btn-demo" id="btnDemoPdf">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> Dùng PDF Mẫu Thử Nghiệm
+        </button>
+      </div>
+    </div>
+
+    <!-- Active PDF File Info Bar -->
+    <div class="file-info-bar" id="fileInfoBar" style="display: none;">
+      <div class="file-meta-details">
+        <div class="file-icon-badge">
+          <i class="fa-solid fa-file-pdf"></i>
+        </div>
+        <div>
+          <div class="file-name-text" id="fileNameDisplay">tai-lieu.pdf</div>
+          <div class="file-stats-text" id="fileStatsDisplay">0 MB • 0 trang</div>
+        </div>
+      </div>
+      <div>
+        <button class="action-btn" onclick="document.getElementById('fileInput').click()">
+          <i class="fa-solid fa-arrows-rotate"></i> Đổi File Khác
+        </button>
+      </div>
+    </div>
+
+    <!-- Google Sheet Integration Bar -->
+    <div class="sheet-config-bar" id="sheetConfigBar">
+      <div class="sheet-config-row">
+        <div class="sheet-input-group">
+          <i class="fa-solid fa-table-cells" style="color: #10b981; font-size: 18px;"></i>
+          <label class="sheet-label" for="sheetUrlInput">Google Sheet Công Khai:</label>
+          <input type="text" id="sheetUrlInput" class="sheet-url-input" value="https://docs.google.com/spreadsheets/d/1c2xAknmc1fx-xKBJhLp-EcmZwAAnDIgCPf-pj6wmCHc" placeholder="Dán đường dẫn Google Sheet (Bất kỳ ai có liên kết đều xem được)...">
+        </div>
+        <div class="sheet-sub-inputs">
+          <div class="sheet-input-item">
+            <span>Trang:</span>
+            <input type="text" id="sheetNameInput" value="Trang tính1" style="width: 105px;">
+          </div>
+          <div class="sheet-input-item">
+            <span>Giới hạn:</span>
+            <input type="number" id="sheetLimitInput" value="100" min="10" max="1000" style="width: 65px;" title="Số dòng mới nhất tra ngược từ dưới lên">
+            <span>dòng cuối</span>
+          </div>
+          <div class="sheet-input-item">
+            <span>Thử mã:</span>
+            <input type="text" id="testSearchIdInput" placeholder="Mã 12 số..." style="width: 125px; text-align: left;" title="Nhập mã 12 số để thử tra cứu trực tiếp không cần gom nhóm">
+          </div>
+          <button class="sheet-btn" id="btnTestSheet"><i class="fa-solid fa-rotate"></i> Tra Cứu Sheet</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pages Grid Display Section -->
+    <div class="pages-container" id="pagesContainer" style="display: none;">
+      <div class="grid-header-bar">
+        <div class="grid-title">
+          <i class="fa-solid fa-border-all" style="color: var(--accent-primary);"></i> Xem Trước Từng Trang (Đúng Tỷ Lệ Gốc)
+        </div>
+        <div style="font-size: 13px; color: var(--text-muted);">
+          * Chọn các trang ➔ Bấm <strong>"Gom Nhóm Trang Chọn"</strong> ở thanh ghim bên dưới để phân nhóm
+        </div>
+      </div>
+
+      <!-- Grid Layout - Default 4 per row -->
+      <div class="pages-grid cols-4" id="pagesGrid">
+        <!-- Rendered page cards dynamically inserted here -->
+      </div>
+    </div>
+
+    <!-- STICKY BOTTOM SELECTION & GROUPING TOOLBAR -->
+    <div class="controls-panel" id="controlsPanel" style="display: none;">
+      <div class="controls-row-top">
+        <div class="quick-actions-group">
+          <button class="action-btn" id="btnSelectAll"><i class="fa-solid fa-check-double"></i> Chọn Tất Cả</button>
+          <button class="action-btn" id="btnDeselectAll"><i class="fa-solid fa-xmark"></i> Bỏ Chọn Hết</button>
+          <button class="action-btn" id="btnInvertSelect"><i class="fa-solid fa-rotate"></i> Đảo Chọn</button>
+
+          <button class="action-btn" id="btnCreateGroup" style="background: linear-gradient(135deg, #8b5cf6, #6366f1); color: #fff; font-weight: 700; box-shadow: 0 4px 14px rgba(139, 92, 246, 0.4);">
+            <i class="fa-solid fa-layer-group"></i> Gom Nhóm Trang Chọn
+          </button>
+
+          <button class="action-btn" id="btnScanGeminiCCCD" style="background: linear-gradient(135deg, #ec4899, #8b5cf6); color: #fff; font-weight: 700; box-shadow: 0 4px 14px rgba(236, 72, 153, 0.4);" title="Quét AI Gemini lấy mã 12 số từ trang đầu từng nhóm">
+            <i class="fa-solid fa-microchip"></i> Quét AI (CC-CD 12 Số)
+          </button>
+
+          <button class="action-btn" id="btnExtract12All" style="background: linear-gradient(135deg, #3b82f6, #6366f1); color: #fff; font-weight: 700; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);" title="Trích xuất mã 12 số của tất cả các nhóm & tra Google Sheet">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Trích Xuất 12 Số
+          </button>
+
+          <button class="action-btn" id="btnLoadCccdFolderSticky" style="background: linear-gradient(135deg, #0284c7, #2563eb); color: #fff; font-weight: 700; box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);" title="Chọn thư mục chứa các file scan CCCD để tự động ghép vào trước mỗi đơn tương ứng">
+            <i class="fa-solid fa-id-card"></i> 🪪 Nạp Thư Mục CCCD
+          </button>
+
+          <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: #bae6fd; cursor: pointer; user-select: none;" title="Chèn thêm 1 trang trắng sau CCCD để phục vụ in 2 mặt">
+            <input type="checkbox" id="chkBlankAfterCccd" checked style="accent-color: var(--accent-primary); width: 16px; height: 16px; cursor: pointer;">
+            <span>+Trang Trắng sau CCCD</span>
+          </label>
+
+          <button class="action-btn" id="btnBatchFetchSheetNames" style="background: linear-gradient(135deg, #06b6d4, #3b82f6); color: #fff; font-weight: 700; box-shadow: 0 4px 14px rgba(6, 182, 212, 0.4);" title="Tra cứu tên file từ Google Sheet cho tất cả nhóm (yêu cầu mã 12 số hợp lệ)">
+            <i class="fa-solid fa-file-signature"></i> Lấy Tên Hàng Loạt
+          </button>
+          
+          <button class="action-btn" id="btnDownloadAllGroupsZipSticky" style="background: linear-gradient(135deg, #10b981, #047857); color: #fff; font-weight: 700; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);" title="Tải về tất cả các nhóm dưới dạng 1 file ZIP duy nhất">
+            <i class="fa-solid fa-file-zipper"></i> Tải ZIP Tất Cả Nhóm
+          </button>
+          <button class="action-btn" id="btnDownloadAllGroupsSticky" style="background: linear-gradient(135deg, var(--accent-success), #047857); color: #fff; font-weight: 700; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);" title="Tải về tất cả các nhóm PDF đã gom">
+            <i class="fa-solid fa-cloud-arrow-down"></i> Tải Tất Cả Nhóm
+          </button>
+
+          <button class="action-btn" id="btnSelectEven"><i class="fa-solid fa-list-ol"></i> Trang Chẵn</button>
+          <button class="action-btn" id="btnSelectOdd"><i class="fa-solid fa-list-ul"></i> Trang Lẻ</button>
+          <button class="action-btn" id="btnRotateLeftSelected" title="Xoay trái 90° các trang đã chọn"><i class="fa-solid fa-rotate-left" style="color: #a7f3d0;"></i> Xoay Trái 90°</button>
+          <button class="action-btn" id="btnRotateRightSelected" title="Xoay phải 90° các trang đã chọn"><i class="fa-solid fa-rotate-right" style="color: var(--accent-secondary);"></i> Xoay Phải 90°</button>
+          
+          <div class="range-selector-wrapper">
+            <i class="fa-solid fa-filter" style="font-size: 12px; color: var(--text-muted);"></i>
+            <input type="text" class="range-input" id="rangeInput" placeholder="VD: 1-3, 5, 8-10">
+            <button class="action-btn" id="btnApplyRange" style="padding: 4px 10px; font-size: 12px;">Chọn</button>
+          </div>
+        </div>
+
+        <!-- Selected Counter Badge & Grid Column Picker -->
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <div class="selected-counter-badge" style="font-size: 13px; font-weight: 700; color: var(--text-sub);">
+            Đã chọn: <span id="selectedCountText" style="color: var(--accent-primary); font-size: 17px; font-weight: 800;">0</span> / <span id="totalCountText">0</span> trang
+          </div>
+          <div class="status-pill success" id="totalFilesBadge" style="font-size: 13px; font-weight: 700; color: #34d399; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.35); padding: 5px 14px; border-radius: 20px; display: inline-flex; align-items: center; gap: 6px;" title="Tổng số file PDF xuất">
+            <i class="fa-solid fa-file-pdf" style="color: #10b981;"></i> Tổng file PDF xuất: <span id="totalExportFilesCount" style="color: #fff; font-size: 16px; font-weight: 800;">0</span> file
+          </div>
+          <div class="grid-col-picker">
+            <span>Số trang/hàng:</span>
+            <button class="col-btn active" data-cols="4">4</button>
+            <button class="col-btn" data-cols="6">6</button>
+            <button class="col-btn" data-cols="8">8</button>
+            <button class="col-btn" data-cols="10">10</button>
+            <button class="col-btn" data-cols="12">12</button>
+            <button class="col-btn" data-cols="16">16</button>
+          </div>
+        </div>
+      </div>
+      <!-- Group Status Live Summary Bar -->
+      <div class="group-status-summary-bar" id="groupStatusSummaryBar" style="display: none;"></div>
+    </div>
+
+    <!-- Groups Manager Panel -->
+    <div class="groups-container" id="groupsContainer" style="display: none;">
+      <div class="groups-header-bar">
+        <div class="groups-title">
+          <i class="fa-solid fa-folder-tree" style="color: var(--accent-secondary);"></i> Danh Sách Nhóm Đã Gom (<span id="groupCountText">0</span> Nhóm)
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button class="action-btn" id="btnExtract12AllHeader" style="background: linear-gradient(135deg, #3b82f6, #6366f1); color: #fff; font-weight: 700; padding: 8px 16px;" title="Trích xuất mã 12 số của tất cả các nhóm & tra Google Sheet">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Trích Xuất 12 Số
+          </button>
+          <button class="action-btn" id="btnLoadCccdFolderHeader" style="background: linear-gradient(135deg, #0284c7, #2563eb); color: #fff; font-weight: 700; padding: 8px 16px;" title="Chọn thư mục chứa các file scan CCCD để tự động ghép vào trước mỗi đơn tương ứng">
+            <i class="fa-solid fa-id-card"></i> 🪪 Nạp Thư Mục CCCD
+          </button>
+          <button class="action-btn" id="btnScanGeminiCCCDHeader" style="background: linear-gradient(135deg, #ec4899, #8b5cf6); color: #fff; font-weight: 700; padding: 8px 16px;">
+            <i class="fa-solid fa-microchip"></i> Quét AI (CC-CD 12 Số)
+          </button>
+          <button class="action-btn" id="btnBatchFetchSheetNamesHeader" style="background: linear-gradient(135deg, #06b6d4, #3b82f6); color: #fff; font-weight: 700; padding: 8px 16px;">
+            <i class="fa-solid fa-file-signature"></i> Lấy Tên Hàng Loạt
+          </button>
+          <button class="action-btn" id="btnDownloadAllGroupsZipHeader" style="background: linear-gradient(135deg, #10b981, #047857); color: #fff; font-weight: 700; padding: 8px 18px;" title="Tải về tất cả các nhóm dưới dạng 1 file ZIP duy nhất">
+            <i class="fa-solid fa-file-zipper"></i> Tải ZIP Tất Cả Nhóm
+          </button>
+          <button class="action-btn" id="btnDownloadAllGroups" style="background: linear-gradient(135deg, #8b5cf6, #6366f1); color: #fff; font-weight: 700; padding: 8px 18px;">
+            <i class="fa-solid fa-cloud-arrow-down"></i> Tải Về Tất Cả Các Nhóm
+          </button>
+          <button class="action-btn" id="btnClearAllGroups" style="color: #fca5a5; border-color: rgba(239, 68, 68, 0.35);">
+            <i class="fa-solid fa-trash-can"></i> Xóa Tất Cả Nhóm
+          </button>
+        </div>
+      </div>
+
+      <!-- Hidden CCCD File Pickers -->
+      <input type="file" id="cccdFolderPicker" webkitdirectory directory multiple style="display: none;">
+      <input type="file" id="cccdSinglePicker" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display: none;">
+
+      <div class="groups-cards-wrapper" id="groupsCardsWrapper">
+        <!-- Dynamically rendered group cards go here -->
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Modal Zoom Preview -->
+  <div class="modal-overlay" id="zoomModal">
+    <div class="modal-content">
+      <button class="modal-close-btn" id="btnCloseModal"><i class="fa-solid fa-xmark"></i></button>
+      <h3 id="modalPageTitle" style="font-family: 'Outfit'; font-size: 18px; margin-bottom: 8px;">Xem Chi Tiết Trang</h3>
+      <div class="modal-canvas-container" id="modalCanvasWrapper">
+        <canvas id="modalCanvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Gemini Key Manager -->
+  <div class="modal-overlay" id="geminiKeysModal">
+    <div class="modal-content" style="max-width: 620px; width: 92%;">
+      <button class="modal-close-btn" id="btnCloseGeminiKeysModal"><i class="fa-solid fa-xmark"></i></button>
+      <h3 style="font-family: 'Outfit'; font-size: 18px; margin-bottom: 6px; color: #f472b6;">
+        <i class="fa-solid fa-key"></i> Quản Lý Gemini API Keys
+      </h3>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4;">
+        Nhập danh sách Gemini API Key (mỗi key 1 dòng). Hệ thống sẽ tự động xoay tua từng key khi quét AI. Nếu key bị hết Quota (HTTP 429), hãy dán key mới vào đây và bấm Lưu.
+      </p>
+      <textarea id="geminiKeysTextarea" rows="7" style="width: 100%; background: #0f172a; border: 1px solid var(--border-color); color: #fff; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 13px; line-height: 1.5; resize: vertical;" placeholder="Dán các Gemini API Key vào đây (mỗi key 1 dòng)..."></textarea>
+      <div style="display: flex; gap: 10px; justify-content: flex-end; width: 100%; margin-top: 14px;">
+        <button class="action-btn" id="btnResetDefaultKeys" style="background: rgba(255,255,255,0.08); color: #ccc;">
+          <i class="fa-solid fa-rotate-left"></i> Dùng Key Mặc Định
+        </button>
+        <button class="action-btn" id="btnSaveGeminiKeys" style="background: linear-gradient(135deg, #ec4899, #8b5cf6); color: #fff; font-weight: 700; padding: 8px 20px;">
+          <i class="fa-solid fa-floppy-disk"></i> Lưu API Keys
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Xem & Copy Văn Bản Trang -->
+  <div class="modal-overlay" id="pageTextModal">
+    <div class="modal-content" style="max-width: 650px; width: 92%;">
+      <button class="modal-close-btn" id="btnClosePageTextModal"><i class="fa-solid fa-xmark"></i></button>
+      <h3 id="pageTextModalTitle" style="font-family: 'Outfit'; font-size: 18px; margin-bottom: 6px; color: var(--accent-primary);">
+        <i class="fa-solid fa-copy"></i> Nội Dung Chữ Trang <span id="textModalPageNum">1</span>
+      </h3>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+        Bạn có thể bôi xanh chọn văn bản bên dưới để copy, hoặc bấm nút "Sao Chép Tất Cả".
+      </p>
+      <div id="pageTextContentBox" style="width: 100%; max-height: 50vh; overflow-y: auto; background: #0f172a; border: 1px solid var(--border-color); color: #e2e8f0; border-radius: 8px; padding: 14px; font-family: sans-serif; font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; user-select: text;" title="Bôi đen văn bản tại đây để copy">
+        Đang đọc văn bản trang...
+      </div>
+      <div style="display: flex; gap: 10px; justify-content: flex-end; width: 100%; margin-top: 14px; flex-wrap: wrap;">
+        <button class="action-btn" id="btnOcrGeminiText" style="background: rgba(236, 72, 153, 0.2); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.4);">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> Quét Chữ AI Gemini (Nếu là Ảnh Scan)
+        </button>
+        <button class="action-btn" id="btnCopyAllModalText" style="background: linear-gradient(135deg, var(--accent-success), #047857); color: #fff; font-weight: 700; padding: 8px 20px;">
+          <i class="fa-solid fa-clipboard"></i> Sao Chép Tất Cả
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Spinner Overlay -->
+  <div class="spinner-overlay" id="spinnerOverlay">
+    <div class="spin-ring"></div>
+    <div id="spinnerText" style="font-weight: 600; color: #fff;">Đang xử lý PDF...</div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast-message" id="toastMessage">
+    <i class="fa-solid fa-circle-check" id="toastIcon" style="color: var(--accent-success); font-size: 18px;"></i>
+    <span id="toastText">Thông báo!</span>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    Công cụ Tách File PDF Trực Tuyến &bull; Thanh tải về ngay dưới danh sách trang &bull; Bảo mật 100%
+  </footer>
+
+  <!-- Core Vendor Libraries (Nạp cục bộ) -->
+  <script src="assets/vendor/jszip.min.js"></script>
+  <script src="assets/vendor/pdf.min.js"></script>
+  <script src="assets/vendor/pdf-lib.min.js"></script>
+
+  <!-- Frontend Modular Scripts (Tải theo module, chống nghẽn luồng và chống đơ) -->
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/state.js"></script>
+  <script src="assets/js/utils.js"></script>
+  <script src="assets/js/modules/sheet-service.js"></script>
+  <script src="assets/js/modules/ocr-service.js"></script>
+  <script src="assets/js/modules/gemini-service.js"></script>
+  <script src="assets/js/modules/cccd-service.js"></script>
+  <script src="assets/js/modules/group-manager.js"></script>
+  <script src="assets/js/modules/pdf-engine.js"></script>
+  <script src="assets/js/modules/storage-service.js"></script>
+  <script src="assets/js/app.js"></script>
+
+</body>
+</html>

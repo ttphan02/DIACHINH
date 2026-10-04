@@ -22,6 +22,7 @@ import {
   RefreshCw,
   Sparkles,
   BarChart3,
+  FileText,
 } from 'lucide-react';
 
 // Dynamic import Leaflet Map (SSR disabled)
@@ -923,6 +924,16 @@ export default function Home() {
                   <BarChart3 className="w-3.5 h-3.5 text-cyan-400" />
                   <span className="hidden xs:inline">Dashboard</span>
                 </Link>
+
+                {/* Nút mở công cụ Tách PDF & CCCD ScanName */}
+                <a
+                  href="/scanname"
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-indigo-950 hover:bg-indigo-900 text-indigo-300 font-bold rounded-xl transition shrink-0 border border-indigo-500/40 shadow-xs"
+                  title="Mở công cụ Tách PDF & Quét CCCD ScanName"
+                >
+                  <FileText className="w-3.5 h-3.5 text-indigo-400" />
+                  <span className="hidden xs:inline">Tách PDF</span>
+                </a>
               </div>
             </div>
 
