@@ -84,7 +84,10 @@ async function callGeminiApiForCCCD(base64Image) {
               }
             ]
           }
-        ]
+        ],
+        generationConfig: {
+          thinkingConfig: { thinkingBudget: 0 }
+        }
       };
 
       const response = await fetch(url, {

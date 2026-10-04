@@ -119,16 +119,15 @@ async function extractCCCDFromPage(pageNum) {
 }
 
 async function extractCCCDWithLocalOCR(pageNum) {
-  const isLoaded = await ensureTesseractLoaded();
-  if (!isLoaded || typeof Tesseract === 'undefined' || !currentPdfDoc) return '';
+  if (!currentPdfDoc) return '';
 
   try {
     const page = await currentPdfDoc.getPage(pageNum);
     const userRotation = pageRotationMap.get(pageNum) || 0;
     const totalRotation = (page.rotate + userRotation) % 360;
 
-    // High Resolution (2.5x Scale) for maximum OCR precision
-    const scale = 2.5;
+    // Độ phân giải cao (scale 4.0 tương đương 400 DPI gốc)
+    const scale = 4.0;
     const viewport = page.getViewport({ scale: scale, rotation: totalRotation });
 
     const fullCanvas = document.createElement('canvas');
@@ -139,56 +138,72 @@ async function extractCCCDWithLocalOCR(pageNum) {
     fullCtx.fillRect(0, 0, fullCanvas.width, fullCanvas.height);
     await page.render({ canvasContext: fullCtx, viewport }).promise;
 
-    // Crop ONLY the CCCD line ROI Patch (Y: 18% to 42% from top, X: 10% to 95%)
-    const cropX = Math.floor(viewport.width * 0.10);
-    const cropY = Math.floor(viewport.height * 0.18);
-    const cropW = Math.floor(viewport.width * 0.85);
-    const cropH = Math.floor(viewport.height * 0.24);
+    // Vùng chứa CCCD chuẩn xác (X: 44% -> 66%, Y: 28% -> 35%)
+    const cropX = Math.floor(viewport.width * 0.44);
+    const cropY = Math.floor(viewport.height * 0.28);
+    const cropW = Math.floor(viewport.width * 0.22);
+    const cropH = Math.floor(viewport.height * 0.07);
 
     const cropCanvas = document.createElement('canvas');
     cropCanvas.width = cropW;
     cropCanvas.height = cropH;
     const cropCtx = cropCanvas.getContext('2d', { alpha: false });
-    cropCtx.fillStyle = '#ffffff';
-    cropCtx.fillRect(0, 0, cropW, cropH);
-
-    // Copy ONLY the target CCCD line patch
     cropCtx.drawImage(fullCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
-    const worker = await Tesseract.createWorker('eng');
-    await worker.setParameters({
-      tessedit_char_whitelist: '0123456789'
-    });
-    const ret = await worker.recognize(cropCanvas);
-    await worker.terminate();
+    const dataUrl = cropCanvas.toDataURL('image/png');
 
-    const rawText = ret?.data?.text || '';
-    const match = rawText.match(/\b\d{12}\b/) || rawText.replace(/\D/g, '').match(/\d{12}/);
+    // 1. Ưu tiên máy chủ cục bộ /api/extract12 (Tự động khử nghiêng Deskew + CLAHE + EasyOCR)
+    try {
+      const response = await fetch('/api/extract12', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.code && /^\d{12}$/.test(data.code)) {
+          console.log(`[FastAPI OCR] Đã trích xuất chính xác 12 số CCCD: ${data.code} (Góc nắn: ${data.skew_angle}°)`);
+          return data.code;
+        }
+      }
+    } catch (apiErr) {
+      console.warn('Backend API /api/extract12 không phản hồi, thử giải pháp tiếp theo:', apiErr);
+    }
 
-    if (match && match[0]) return match[0];
+    // 2. Dự phòng AI Gemini Vision nếu có cài đặt API key
+    if (typeof callGeminiApiForCCCD === 'function') {
+      try {
+        const b64 = dataUrl.replace(/^data:image\/[a-z]+;base64,/, '');
+        const aiCode = await callGeminiApiForCCCD(b64);
+        if (aiCode && /^\d{12}$/.test(aiCode)) {
+          console.log(`[Gemini Vision] Đã trích xuất thành công 12 số CCCD: ${aiCode}`);
+          return aiCode;
+        }
+      } catch (aiErr) {
+        console.warn('Gemini Vision AI fallback error:', aiErr);
+      }
+    }
 
-    // Backup Crop: slightly larger Y-range (15% to 48%)
-    const altCropY = Math.floor(viewport.height * 0.15);
-    const altCropH = Math.floor(viewport.height * 0.33);
-    const altCanvas = document.createElement('canvas');
-    altCanvas.width = cropW;
-    altCanvas.height = altCropH;
-    const altCtx = altCanvas.getContext('2d', { alpha: false });
-    altCtx.fillStyle = '#ffffff';
-    altCtx.fillRect(0, 0, cropW, altCropH);
-    altCtx.drawImage(fullCanvas, cropX, altCropY, cropW, altCropH, 0, 0, cropW, altCropH);
+    // 3. Dự phòng Tesseract.js chạy trong trình duyệt trên vùng CCCD xén hẹp chuẩn
+    const isLoaded = await ensureTesseractLoaded();
+    if (isLoaded && typeof Tesseract !== 'undefined') {
+      const worker = await Tesseract.createWorker('eng');
+      await worker.setParameters({
+        tessedit_char_whitelist: '0123456789'
+      });
+      const ret = await worker.recognize(cropCanvas);
+      await worker.terminate();
 
-    const worker2 = await Tesseract.createWorker('eng');
-    await worker2.setParameters({ tessedit_char_whitelist: '0123456789' });
-    const ret2 = await worker2.recognize(altCanvas);
-    await worker2.terminate();
+      const rawText = ret?.data?.text || '';
+      const match = rawText.match(/\b\d{12}\b/) || rawText.replace(/\D/g, '').match(/\d{12}/);
+      if (match && match[0] && match[0].startsWith('066')) {
+        return match[0];
+      }
+    }
 
-    const rawText2 = ret2?.data?.text || '';
-    const match2 = rawText2.match(/\b\d{12}\b/) || rawText2.replace(/\D/g, '').match(/\d{12}/);
-    return match2 ? match2[0] : '';
-
+    return '';
   } catch (err) {
-    console.warn(`Lỗi OCR Tesseract local trang ${pageNum}:`, err);
+    console.warn(`Lỗi OCR local trang ${pageNum}:`, err);
     return '';
   }
 }
