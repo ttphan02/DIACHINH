@@ -10,7 +10,6 @@ import DeclarationPrintModal, { PrintableDeclarationItem } from '@/components/De
 import DashboardParcelModal from '@/components/DashboardParcelModal';
 import DeclarationEditModal from '@/components/DeclarationEditModal';
 import VectorViewerModal from '@/components/VectorViewerModal';
-import { VILLAGE_SHEET_CATEGORIES } from '@/components/MapSheetMultiSelect';
 import {
   Map as MapIcon,
   BarChart3,
@@ -385,46 +384,53 @@ export default function DashboardPage() {
     };
   }, [computedParcels, declarationsMap]);
 
-  // 6. Thống kê theo 16 Thôn / Buôn (tương ứng danh mục Tờ bản đồ)
+  // 6. Thống kê theo Thôn / Buôn
   const villageStats = useMemo(() => {
-    return VILLAGE_SHEET_CATEGORIES.map((cat) => {
-      const sheetSet = new Set(cat.sheets);
-      let total = 0;
-      let green = 0;
-      let blue = 0;
-      let yellow = 0;
-      let gray = 0;
-      let totalAreaM2 = 0;
-
-      for (let i = 0; i < computedParcels.length; i++) {
-        const p = computedParcels[i];
-        if (!sheetSet.has((p.to_ban_do || '').trim())) continue;
-        total++;
-        if (p.trang_thai === 'DA_SO_HOA_XANH') green++;
-        else if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') blue++;
-        else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') yellow++;
-        else gray++;
-
-        const area = parseFloat(p.dien_tich || '0');
-        if (!isNaN(area) && area > 0) {
-          totalAreaM2 += area;
-        }
+    const map: Record<
+      string,
+      {
+        name: string;
+        total: number;
+        green: number;
+        blue: number;
+        yellow: number;
+        gray: number;
+        totalAreaM2: number;
       }
+    > = {};
 
-      return {
-        filterValue: `cat:${cat.id}`,
-        name: `${cat.stt}. ${cat.name}`,
-        sheetsLabel: cat.sheets.join(', '),
-        total,
-        green,
-        blue,
-        yellow,
-        gray,
-        totalAreaM2,
-        totalAreaHa: Math.round((totalAreaM2 / 10000) * 100) / 100,
-        rate: total > 0 ? Math.round((green / total) * 1000) / 10 : 0,
-      };
+    computedParcels.forEach((p) => {
+      const vName = p.thon_xa?.trim() || 'Chưa rõ địa chỉ thôn';
+      if (!map[vName]) {
+        map[vName] = {
+          name: vName,
+          total: 0,
+          green: 0,
+          blue: 0,
+          yellow: 0,
+          gray: 0,
+          totalAreaM2: 0,
+        };
+      }
+      map[vName].total++;
+      if (p.trang_thai === 'DA_SO_HOA_XANH') map[vName].green++;
+      else if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') map[vName].blue++;
+      else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') map[vName].yellow++;
+      else map[vName].gray++;
+
+      const area = parseFloat(p.dien_tich || '0');
+      if (!isNaN(area) && area > 0) {
+        map[vName].totalAreaM2 += area;
+      }
     });
+
+    return Object.values(map)
+      .map((item) => ({
+        ...item,
+        totalAreaHa: Math.round((item.totalAreaM2 / 10000) * 100) / 100,
+        rate: item.total > 0 ? Math.round((item.green / item.total) * 1000) / 10 : 0,
+      }))
+      .sort((a, b) => b.total - a.total);
   }, [computedParcels]);
 
   // 7. Thống kê theo Loại đất
@@ -461,16 +467,7 @@ export default function DashboardPage() {
     }
 
     if (villageFilter !== 'ALL') {
-      if (villageFilter.startsWith('cat:')) {
-        const catId = villageFilter.slice(4);
-        const cat = VILLAGE_SHEET_CATEGORIES.find((c) => c.id === catId);
-        if (cat) {
-          const sheetSet = new Set(cat.sheets);
-          result = result.filter((p) => sheetSet.has((p.to_ban_do || '').trim()));
-        }
-      } else {
-        result = result.filter((p) => p.thon_xa?.trim() === villageFilter);
-      }
+      result = result.filter((p) => p.thon_xa?.trim() === villageFilter);
     }
 
     if (landTypeFilter !== 'ALL') {
@@ -1337,7 +1334,7 @@ export default function DashboardPage() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                 {/* Thôn / Buôn */}
                 <div>
-                  <label className="text-[10px] text-slate-400 mb-1 block">Thôn / Buôn (theo tờ BĐ):</label>
+                  <label className="text-[10px] text-slate-400 mb-1 block">Thôn / Buôn:</label>
                   <select
                     value={villageFilter}
                     onChange={(e) => {
@@ -1346,10 +1343,10 @@ export default function DashboardPage() {
                     }}
                     className="w-full p-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="ALL">Tất cả 16 thôn/buôn</option>
-                    {VILLAGE_SHEET_CATEGORIES.map((cat) => (
-                      <option key={cat.id} value={`cat:${cat.id}`}>
-                        {cat.stt}. {cat.name} ({cat.sheets.length} tờ)
+                    <option value="ALL">Tất cả thôn/buôn ({uniqueVillages.length})</option>
+                    {uniqueVillages.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
                       </option>
                     ))}
                   </select>
@@ -1905,15 +1902,14 @@ export default function DashboardPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {villageStats.map((v) => (
                 <div
-                  key={v.filterValue}
+                  key={v.name}
                   onClick={() => {
-                    setVillageFilter(v.filterValue);
-                    setCurrentPage(1);
+                    setVillageFilter(v.name);
                     setActiveTab('table');
                   }}
                   className="bg-slate-950/70 hover:bg-slate-950 p-4 rounded-xl border border-slate-800 hover:border-blue-500/50 transition cursor-pointer group"
                 >
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center justify-between mb-2">
                     <strong className="text-sm font-bold text-white group-hover:text-blue-300 transition truncate max-w-[200px]">
                       {v.name}
                     </strong>
@@ -1921,9 +1917,6 @@ export default function DashboardPage() {
                       {v.rate}% GGS
                     </span>
                   </div>
-                  <p className="text-[10px] text-slate-400 font-mono truncate mb-2" title={`Tờ: ${v.sheetsLabel}`}>
-                    Tờ BĐ: {v.sheetsLabel}
-                  </p>
 
                   <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden flex my-2">
                     <div style={{ width: `${v.rate}%` }} className="bg-emerald-500 h-full rounded-l-full" />

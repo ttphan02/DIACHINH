@@ -10,7 +10,6 @@ interface CadastralMapProps {
   parcels: Parcel[];
   onSelectParcel: (parcel: Parcel) => void;
   selectedParcel: Parcel | null;
-  selectedSheets?: string[];
   additionalParcels?: AdditionalParcel[];
   neighborParcels?: NeighborParcel[];
   userLocation?: { lat: number; lng: number; accuracy: number; heading?: number | null; speed?: number | null } | null;
@@ -29,7 +28,6 @@ export default function CadastralMap({
   parcels,
   onSelectParcel,
   selectedParcel,
-  selectedSheets = [],
   additionalParcels = [],
   neighborParcels = [],
   userLocation,
@@ -451,7 +449,6 @@ export default function CadastralMap({
   }, [map, selectedParcel]);
 
   // 3. CẬP NHẬT DỮ LIỆU THỬA ĐẤT CHO BATCH CANVAS (SIÊU NHANH < 1ms)
-  const prevSheetsSigRef = useRef<string>('');
   useEffect(() => {
     const validParcels = parcels.filter((p) => p.lat && p.lng);
     validParcelsRef.current = validParcels;
@@ -460,23 +457,7 @@ export default function CadastralMap({
     if (redrawBatchCanvasRef.current) {
       redrawBatchCanvasRef.current();
     }
-
-    // Tự động đưa góc nhìn bản đồ tới vùng Thôn/Buôn hoặc Tờ bản đồ vừa lọc
-    if (map) {
-      const sheetsSig = (selectedSheets || []).slice().sort().join(',');
-      if (sheetsSig !== prevSheetsSigRef.current) {
-        prevSheetsSigRef.current = sheetsSig;
-        if (sheetsSig && validParcels.length > 0 && leafletRef.current) {
-          setIsFollowingUser(false);
-          const L = leafletRef.current;
-          const bounds = L.latLngBounds(
-            validParcels.map((p) => [p.lat as number, p.lng as number])
-          );
-          map.fitBounds(bounds, { padding: [45, 45], maxZoom: 16 });
-        }
-      }
-    }
-  }, [map, parcels, selectedSheets]);
+  }, [map, parcels]);
 
   // 4. LỚP ĐÁNH DẤU THỬA ĐANG CHỌN & THỬA GỘP (SIÊU NHẸ, PHẢN HỒI TỨC THÌ 0.1ms)
   useEffect(() => {
