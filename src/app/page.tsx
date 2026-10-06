@@ -186,7 +186,31 @@ export default function Home() {
         setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
       }
     } catch (err: any) {
-      console.error('Lỗi khi fetch Google Sheets:', err);
+      console.warn('Lỗi kết nối /api/sync-ggs, kích hoạt dự phòng nạp trực tiếp từ Google Sheets:', err);
+      try {
+        const directRes = await fetch(
+          'https://docs.google.com/spreadsheets/d/1c2xAknmc1fx-xKBJhLp-EcmZwAAnDIgCPf-pj6wmCHc/export?format=csv&gid=0'
+        );
+        if (directRes.ok) {
+          const csvText = await directRes.text();
+          const lines = csvText.split(/\r?\n/);
+          const directCodes: string[] = [];
+          for (let i = 2; i < lines.length; i++) {
+            const ggsRowNum = i + 1;
+            if (ggsRowNum >= 7916 && ggsRowNum <= 9250) continue;
+            const line = lines[i];
+            const m = line.match(/CHUACOGIAY_24478_(\d+_\d+)/);
+            if (m) directCodes.push(m[1]);
+          }
+          if (directCodes.length > 0) {
+            setGgsCodes(new Set(directCodes));
+            setIsGgsLoaded(true);
+            setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
+          }
+        }
+      } catch (directErr) {
+        console.error('Lỗi khi fetch trực tiếp GGS:', directErr);
+      }
     } finally {
       setIsSyncingGgs(false);
     }

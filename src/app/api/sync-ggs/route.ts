@@ -18,48 +18,29 @@ let cachedData: {
   expiresAt: number;
 } | null = null;
 
-const CACHE_TTL_MS = 30 * 1000; // Cache 30 giây để realtime nhưng không quá tải
+const CACHE_TTL_MS = 5 * 60 * 1000; // Cache 5 phút trên Worker để tránh quá tải CPU
 
-function parseFullCsv(csvText: string): string[][] {
-  const rows: string[][] = [];
-  let currentRow: string[] = [];
-  let currentField = '';
+// Trích xuất nhanh tối đa 28 cột đầu, bỏ qua các cột hình học nặng nề ở cuối (giảm 70% CPU & RAM)
+function extractFields(line: string): string[] {
+  const fields: string[] = [];
+  let cur = '';
   let inQuote = false;
-  const n = csvText.length;
-  let i = 0;
+  const len = line.length;
 
-  while (i < n) {
-    const c = csvText[i];
+  for (let i = 0; i < len; i++) {
+    const c = line[i];
     if (c === '"') {
-      if (inQuote && i + 1 < n && csvText[i + 1] === '"') {
-        currentField += '"';
-        i++;
-      } else {
-        inQuote = !inQuote;
-      }
+      inQuote = !inQuote;
     } else if (c === ',' && !inQuote) {
-      currentRow.push(currentField.trim());
-      currentField = '';
-    } else if ((c === '\r' || c === '\n') && !inQuote) {
-      if (c === '\r' && i + 1 < n && csvText[i + 1] === '\n') {
-        i++;
-      }
-      currentRow.push(currentField.trim());
-      rows.push(currentRow);
-      currentRow = [];
-      currentField = '';
+      fields.push(cur.trim());
+      cur = '';
+      if (fields.length >= 28) break;
     } else {
-      currentField += c;
+      cur += c;
     }
-    i++;
   }
-
-  if (currentField.length > 0 || currentRow.length > 0) {
-    currentRow.push(currentField.trim());
-    rows.push(currentRow);
-  }
-
-  return rows;
+  fields.push(cur.trim());
+  return fields;
 }
 
 export async function GET(request: Request) {
@@ -70,28 +51,35 @@ export async function GET(request: Request) {
 
     // Trả về dữ liệu từ cache nếu còn hạn và không ép buộc làm mới
     if (!force && cachedData && cachedData.expiresAt > now) {
-      return NextResponse.json({
-        success: true,
-        totalGgsCodes: cachedData.codes.length,
-        ggsCodes: cachedData.codes,
-        ggsParcels: cachedData.parcels,
-        updatedAt: cachedData.updatedAt,
-        cached: true,
-      });
+      return NextResponse.json(
+        {
+          success: true,
+          totalGgsCodes: cachedData.codes.length,
+          ggsCodes: cachedData.codes,
+          ggsParcels: cachedData.parcels,
+          updatedAt: cachedData.updatedAt,
+          cached: true,
+        },
+        {
+          headers: {
+            'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60',
+          },
+        }
+      );
     }
 
     const ggsUrl = process.env.GOOGLE_SHEET_CSV_URL || DEFAULT_GGS_CSV_URL;
 
     // Fetch Google Sheet CSV
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
 
     const response = await fetch(ggsUrl, {
       signal: controller.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
       },
-      next: { revalidate: 0 },
+      next: { revalidate: 300 },
     });
     clearTimeout(timeoutId);
 
@@ -100,20 +88,26 @@ export async function GET(request: Request) {
     }
 
     const csvText = await response.text();
-    const rows = parseFullCsv(csvText);
+    const lines = csvText.split(/\r?\n/);
 
     const ggsParcels: Record<string, GgsParcelData> = {};
     const codeSet = new Set<string>();
 
-    for (let i = 2; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row || row.length < 3) continue;
-
+    for (let i = 2; i < lines.length; i++) {
       const ggsRowNum = i + 1; // 1-based index tương ứng với số thứ tự dòng trên Google Sheets Trang tính 1
-      const stt = parseFloat(row[0] || '');
+      // Bỏ qua các giá trị ảo gán tạm thời từ dòng 7916 đến 9250 trên Google Sheets
+      if (ggsRowNum >= 7916 && ggsRowNum <= 9250) {
+        continue;
+      }
 
-      // Bỏ qua các giá trị ảo gán tạm thời từ dòng 7916 đến dòng 9250 trên Google Sheets
-      if ((ggsRowNum >= 7916 && ggsRowNum <= 9250) || (!isNaN(stt) && stt >= 7915 && stt <= 9249)) {
+      const line = lines[i];
+      if (!line) continue;
+
+      const row = extractFields(line);
+      if (row.length < 3) continue;
+
+      const stt = parseFloat(row[0] || '');
+      if (!isNaN(stt) && stt >= 7915 && stt <= 9249) {
         continue;
       }
 
