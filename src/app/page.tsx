@@ -288,15 +288,20 @@ export default function Home() {
     }
   }, []);
 
-  // Fetch GGS & Cloud Declarations lúc ban đầu và định kỳ realtime giữa Admin & Mobile
+  // Fetch GGS & Cloud Declarations lúc ban đầu và định kỳ realtime giữa Admin & Mobile (Không cần F5)
   useEffect(() => {
     fetchGgsCodes(false);
     fetchCloudDeclarations();
 
-    // Kiểm tra đồng bộ phiếu kê khai (xóa/sửa/thêm) mỗi 8 giây
+    // Kiểm tra đồng bộ phiếu kê khai (xóa/sửa/thêm) mỗi 3 giây (Tự động cập nhật như WebSocket mà không cần F5)
     const declInterval = setInterval(() => {
       fetchCloudDeclarations();
-    }, 8000);
+    }, 3000);
+
+    // Đồng bộ ngay lập tức khi người dùng chuyển tab hoặc mở màn hình điện thoại lên
+    const onInstantSync = () => fetchCloudDeclarations();
+    window.addEventListener('focus', onInstantSync);
+    document.addEventListener('visibilitychange', onInstantSync);
 
     // Đồng bộ Google Sheets mỗi 45 giây
     const ggsInterval = setInterval(() => {
@@ -306,6 +311,8 @@ export default function Home() {
     return () => {
       clearInterval(declInterval);
       clearInterval(ggsInterval);
+      window.removeEventListener('focus', onInstantSync);
+      document.removeEventListener('visibilitychange', onInstantSync);
     };
   }, [fetchGgsCodes, fetchCloudDeclarations]);
 

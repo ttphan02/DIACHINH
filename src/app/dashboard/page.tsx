@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import rawParcels from '@/data/parcels.json';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
@@ -56,6 +56,7 @@ export default function DashboardPage() {
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [declaredParcelCodes, setDeclaredParcelCodes] = useState<Set<string>>(new Set());
   const [declarationsMap, setDeclarationsMap] = useState<Record<string, any>>({});
+  const lastCloudSigRef = useRef<string>('');
 
   // Filter & Search states
   const [searchQuery, setSearchQuery] = useState('');
@@ -103,12 +104,58 @@ export default function DashboardPage() {
   // Delete Confirmation Modal state
   const [deletingParcel, setDeletingParcel] = useState<Parcel | null>(null);
 
-  // 1. Tải danh sách kê khai và dữ liệu chi tiết từ LocalStorage
+  // 1. Đồng bộ danh sách kê khai từ Cloud R2 theo thời gian thực (Không cần F5)
+  const fetchCloudDeclarations = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/declarations?t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache',
+        },
+      });
+      if (res.ok) {
+        const data = (await res.json()) as any;
+        if (data && data.success && Array.isArray(data.declaredCodes)) {
+          const cloudMap = data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {};
+          const sig = JSON.stringify({ codes: data.declaredCodes, map: cloudMap });
+          if (sig === lastCloudSigRef.current) return;
+          lastCloudSigRef.current = sig;
+
+          setDeclaredParcelCodes(new Set<string>(data.declaredCodes));
+          setDeclarationsMap(cloudMap);
+
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem('diachinh_declared_codes', JSON.stringify(data.declaredCodes));
+              localStorage.setItem('diachinh_declarations_map', JSON.stringify(cloudMap));
+            } catch (e) {}
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Lỗi đồng bộ declarations trên Dashboard:', err);
+    }
+  }, []);
+
   useEffect(() => {
     const { declaredCodes, declarationsMap: map } = getStoredDeclarations();
     setDeclaredParcelCodes(declaredCodes);
     setDeclarationsMap(map);
-  }, []);
+    fetchCloudDeclarations();
+
+    // Tự động đồng bộ mỗi 3 giây (tương tự WebSocket, không cần F5)
+    const interval = setInterval(fetchCloudDeclarations, 3000);
+    const onFocus = () => fetchCloudDeclarations();
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [fetchCloudDeclarations]);
 
   const handleOpenEditDeclaration = (parcel: Parcel, decl?: any) => {
     setEditingParcel(parcel);
@@ -118,15 +165,36 @@ export default function DashboardPage() {
 
   const handleSaveEditedDeclaration = (data: DeclarationFormData) => {
     const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(data);
+    lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
     setDeclaredParcelCodes(new Set(updatedCodes));
     setDeclarationsMap(updatedMap);
     setIsEditModalOpen(false);
     setEditingParcel(null);
     setEditingDeclaration(null);
+
+    // Đẩy cập nhật lên máy chủ Cloudflare R2 ngay lập tức
+    fetch('/api/declarations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          const result = (await res.json()) as any;
+          if (result.success && Array.isArray(result.declaredCodes)) {
+            const cloudMap = result.declarationsMap || {};
+            lastCloudSigRef.current = JSON.stringify({ codes: result.declaredCodes, map: cloudMap });
+            setDeclaredParcelCodes(new Set(result.declaredCodes));
+            setDeclarationsMap(cloudMap);
+          }
+        }
+      })
+      .catch((err) => console.warn('Lỗi khi lưu chỉnh sửa lên Cloud:', err));
   };
 
   const handleDeleteDeclaration = (maThua: string) => {
     const { updatedCodes, updatedMap } = removeDeclaration(maThua);
+    lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
     setDeclaredParcelCodes(new Set(updatedCodes));
     setDeclarationsMap(updatedMap);
     setDeletingParcel(null);
@@ -134,6 +202,23 @@ export default function DashboardPage() {
       setIsDetailModalOpen(false);
       setActiveParcelDetail(null);
     }
+
+    // Xóa trên máy chủ Cloudflare R2 để mọi thiết bị khác tự mất ngay lập tức
+    fetch(`/api/declarations?ma_thua=${encodeURIComponent(maThua)}`, {
+      method: 'DELETE',
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          const result = (await res.json()) as any;
+          if (result.success && Array.isArray(result.declaredCodes)) {
+            const cloudMap = result.declarationsMap || {};
+            lastCloudSigRef.current = JSON.stringify({ codes: result.declaredCodes, map: cloudMap });
+            setDeclaredParcelCodes(new Set(result.declaredCodes));
+            setDeclarationsMap(cloudMap);
+          }
+        }
+      })
+      .catch((err) => console.warn('Lỗi khi xóa phiếu trên Cloud:', err));
   };
 
   // 2. Đồng bộ Google Sheets Realtime
