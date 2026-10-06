@@ -460,11 +460,12 @@ export default function Home() {
   // Filtered parcels
   const filteredParcels = useMemo(() => {
     const qClean = removeVietnameseTones(searchQuery.trim());
+    const sheetsSet = selectedSheets.length > 0 ? new Set(selectedSheets) : null;
 
     return computedParcels.filter((p) => {
       if (statusFilter !== 'ALL' && p.trang_thai !== statusFilter) return false;
 
-      if (selectedSheets.length > 0 && !selectedSheets.includes(p.to_ban_do)) {
+      if (sheetsSet && !sheetsSet.has((p.to_ban_do || '').trim())) {
         return false;
       }
 
@@ -1135,6 +1136,7 @@ export default function Home() {
               parcels={filteredParcels}
               onSelectParcel={handleSelectParcel}
               selectedParcel={selectedParcel}
+              selectedSheets={selectedSheets}
               additionalParcels={additionalParcels}
               neighborParcels={neighborParcels}
               userLocation={userLocation}
