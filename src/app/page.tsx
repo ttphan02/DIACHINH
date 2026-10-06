@@ -166,50 +166,51 @@ export default function Home() {
   // Tải danh sách đã kê khai từ LocalStorage và đồng bộ từ Cloudflare R2
   const fetchCloudDeclarations = useCallback(async () => {
     try {
-      let data: any = null;
-      try {
-        const res = await fetch('/api/declarations', { cache: 'no-store' });
-        if (res.ok) {
-          data = await res.json();
-        }
-      } catch (e) {
-        console.warn('API /api/declarations lỗi, chuyển sang R2 direct fallback:', e);
-      }
+      const res = await fetch(`/api/declarations?t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache',
+        },
+      });
 
-      // Fallback: nếu /api/declarations không tải được, đọc trực tiếp từ Cloudflare R2 CDN
-      if (!data || !data.success) {
-        const r2Url = process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL || 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
-        const r2Res = await fetch(`${r2Url}/declarations/all.json?t=${Date.now()}`, { cache: 'no-store' });
-        if (r2Res.ok) {
-          data = await r2Res.json();
-          data.success = true;
-        }
-      }
+      if (res.ok) {
+        const data = (await res.json()) as any;
+        if (data && data.success && Array.isArray(data.declaredCodes)) {
+          const cloudCodes = new Set<string>(data.declaredCodes);
+          const cloudMap = data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {};
 
-      if (data && data.success && Array.isArray(data.declaredCodes)) {
-        setDeclaredParcelCodes((prev) => {
-          const next = new Set(prev);
-          data.declaredCodes.forEach((c: string) => next.add(c));
-          return next;
-        });
-        setDeclarationsMap((prev) => {
-          const updated = { ...prev, ...(data.declarationsMap || {}) };
+          // ĐỒNG BỘ TUYỆT ĐỐI THEO MÁY CHỦ (SOURCE OF TRUTH):
+          // Khi máy tính (Admin) xóa phiếu, máy điện thoại (Client) sẽ tự động gỡ bỏ ngay lập tức
+          setDeclaredParcelCodes(cloudCodes);
+          setDeclarationsMap(cloudMap);
+
           if (typeof window !== 'undefined') {
             try {
-              localStorage.setItem(
-                'diachinh_declared_codes',
-                JSON.stringify(Array.from(new Set([...Object.keys(prev || {}), ...data.declaredCodes])))
-              );
-              localStorage.setItem('diachinh_declarations_map', JSON.stringify(updated));
+              localStorage.setItem('diachinh_declared_codes', JSON.stringify(data.declaredCodes));
+              localStorage.setItem('diachinh_declarations_map', JSON.stringify(cloudMap));
             } catch (e) {}
           }
-          return updated;
-        });
+
+          // Khôi phục selectedParcel nếu đang xem đúng thửa vừa bị xóa trên máy khác
+          setSelectedParcel((curr) => {
+            if (!curr) return null;
+            if (curr.is_declared && !cloudCodes.has(curr.ma_thua)) {
+              const orig = parcels.find((p) => p.ma_thua === curr.ma_thua);
+              return {
+                ...(orig || curr),
+                is_declared: false,
+                trang_thai: (orig?.trang_thai as ParcelStatus) || 'CHUA_CO_TEN_XAM',
+              };
+            }
+            return curr;
+          });
+        }
       }
     } catch (err) {
       console.warn('Lỗi khi fetch declarations từ cloud:', err);
     }
-  }, []);
+  }, [parcels]);
 
   useEffect(() => {
     const { declaredCodes, declarationsMap: loadedMap } = getStoredDeclarations();
@@ -264,15 +265,25 @@ export default function Home() {
     }
   }, []);
 
-  // Fetch GGS & Cloud Declarations lúc ban đầu và định kỳ 25s một lần (Realtime cho Admin & Clients)
+  // Fetch GGS & Cloud Declarations lúc ban đầu và định kỳ realtime giữa Admin & Mobile
   useEffect(() => {
     fetchGgsCodes(false);
     fetchCloudDeclarations();
-    const interval = setInterval(() => {
-      fetchGgsCodes(false);
+
+    // Kiểm tra đồng bộ phiếu kê khai (xóa/sửa/thêm) mỗi 8 giây
+    const declInterval = setInterval(() => {
       fetchCloudDeclarations();
-    }, 25000);
-    return () => clearInterval(interval);
+    }, 8000);
+
+    // Đồng bộ Google Sheets mỗi 45 giây
+    const ggsInterval = setInterval(() => {
+      fetchGgsCodes(false);
+    }, 45000);
+
+    return () => {
+      clearInterval(declInterval);
+      clearInterval(ggsInterval);
+    };
   }, [fetchGgsCodes, fetchCloudDeclarations]);
 
   // TÍNH TOÁN TRẠNG THÁI REALTIME VÀ ĐỒNG BỘ THÔNG TIN TỪ GOOGLE SHEETS:
