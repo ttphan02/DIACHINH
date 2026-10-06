@@ -95,8 +95,10 @@ export default function Home() {
   const [isTracking, setIsTracking] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const watchIdRef = useRef<number | null>(null);
+  const lastCloudSigRef = useRef<string>('');
+  const lastGgsCountRef = useRef<number>(-1);
 
-  // Tự động kích hoạt định vị GPS liên tục khi tải trang (Always-on GPS)
+  // Tự động kích hoạt định vị GPS liên tục khi tải trang (Always-on Realtime GPS)
   useEffect(() => {
     if (typeof window === 'undefined' || !navigator.geolocation) return;
 
@@ -104,13 +106,23 @@ export default function Home() {
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const { latitude, longitude, accuracy, heading: gpsHeading, speed } = pos.coords;
-        setUserLocation((prev) => ({
-          lat: latitude,
-          lng: longitude,
-          accuracy: Math.round(accuracy),
-          heading: typeof gpsHeading === 'number' && !isNaN(gpsHeading) ? Math.round(gpsHeading) : prev?.heading,
-          speed: typeof speed === 'number' && !isNaN(speed) ? Math.round(speed * 3.6) : null,
-        }));
+        setUserLocation((prev) => {
+          // Chống nhiễu GPS (Jitter filter): Nếu đứng yên (dịch chuyển < 1.2m), giữ nguyên tham chiếu để tránh re-render
+          if (
+            prev &&
+            Math.abs(prev.lat - latitude) < 0.000011 &&
+            Math.abs(prev.lng - longitude) < 0.000011
+          ) {
+            return prev;
+          }
+          return {
+            lat: latitude,
+            lng: longitude,
+            accuracy: Math.round(accuracy),
+            heading: typeof gpsHeading === 'number' && !isNaN(gpsHeading) ? Math.round(gpsHeading) : prev?.heading,
+            speed: typeof speed === 'number' && !isNaN(speed) ? Math.round(speed * 3.6) : null,
+          };
+        });
         setIsTracking(true);
         setIsLocating(false);
       },
@@ -121,7 +133,7 @@ export default function Home() {
       {
         enableHighAccuracy: true,
         timeout: 15000,
-        maximumAge: 0,
+        maximumAge: 2000,
       }
     );
 
@@ -177,11 +189,17 @@ export default function Home() {
       if (res.ok) {
         const data = (await res.json()) as any;
         if (data && data.success && Array.isArray(data.declaredCodes)) {
-          const cloudCodes = new Set<string>(data.declaredCodes);
           const cloudMap = data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {};
+          const sig = JSON.stringify({ codes: data.declaredCodes, map: cloudMap });
 
-          // ĐỒNG BỘ TUYỆT ĐỐI THEO MÁY CHỦ (SOURCE OF TRUTH):
-          // Khi máy tính (Admin) xóa phiếu, máy điện thoại (Client) sẽ tự động gỡ bỏ ngay lập tức
+          // CHỈ CẬP NHẬT STATE KHI DỮ LIỆU TRÊN CLOUD THỰC SỰ THAY ĐỔI (Tránh tính toán lại 18.000 thửa không cần thiết)
+          if (sig === lastCloudSigRef.current) {
+            return;
+          }
+          lastCloudSigRef.current = sig;
+
+          const cloudCodes = new Set<string>(data.declaredCodes);
+
           setDeclaredParcelCodes(cloudCodes);
           setDeclarationsMap(cloudMap);
 
@@ -227,11 +245,15 @@ export default function Home() {
       if (!res.ok) throw new Error(`Lỗi HTTP ${res.status}`);
       const data: any = await res.json();
       if (data && data.success && Array.isArray(data.ggsCodes)) {
-        setGgsCodes(new Set(data.ggsCodes));
-        if (data.ggsParcels) {
-          setGgsParcelsMap(data.ggsParcels);
+        // Chỉ tạo Set mới và tính toán lại 18.000 thửa nếu số lượng mã trên GGS thay đổi hoặc người dùng bấm làm mới
+        if (force || data.ggsCodes.length !== lastGgsCountRef.current) {
+          lastGgsCountRef.current = data.ggsCodes.length;
+          setGgsCodes(new Set(data.ggsCodes));
+          if (data.ggsParcels) {
+            setGgsParcelsMap(data.ggsParcels);
+          }
+          setIsGgsLoaded(true);
         }
-        setIsGgsLoaded(true);
         setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
       }
     } catch (err: any) {
@@ -251,7 +273,8 @@ export default function Home() {
             const m = line.match(/CHUACOGIAY_24478_(\d+_\d+)/);
             if (m) directCodes.push(m[1]);
           }
-          if (directCodes.length > 0) {
+          if (directCodes.length > 0 && directCodes.length !== lastGgsCountRef.current) {
+            lastGgsCountRef.current = directCodes.length;
             setGgsCodes(new Set(directCodes));
             setIsGgsLoaded(true);
             setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
@@ -603,21 +626,35 @@ export default function Home() {
 
     setIsLocating(true);
     setPickToast('Đang kết nối vị trí GPS...');
+    let notifiedOnce = false;
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const { latitude, longitude, accuracy, heading: gpsHeading, speed } = pos.coords;
-        setUserLocation((prev) => ({
-          lat: latitude,
-          lng: longitude,
-          accuracy: Math.round(accuracy),
-          heading: typeof gpsHeading === 'number' && !isNaN(gpsHeading) ? Math.round(gpsHeading) : prev?.heading,
-          speed: typeof speed === 'number' && !isNaN(speed) ? Math.round(speed * 3.6) : null,
-        }));
+        setUserLocation((prev) => {
+          if (
+            prev &&
+            notifiedOnce &&
+            Math.abs(prev.lat - latitude) < 0.000011 &&
+            Math.abs(prev.lng - longitude) < 0.000011
+          ) {
+            return prev;
+          }
+          return {
+            lat: latitude,
+            lng: longitude,
+            accuracy: Math.round(accuracy),
+            heading: typeof gpsHeading === 'number' && !isNaN(gpsHeading) ? Math.round(gpsHeading) : prev?.heading,
+            speed: typeof speed === 'number' && !isNaN(speed) ? Math.round(speed * 3.6) : null,
+          };
+        });
         setIsTracking(true);
         setIsLocating(false);
-        setPickToast('✓ Đã định vị thành công');
-        setTimeout(() => setPickToast(null), 2500);
+        if (!notifiedOnce) {
+          notifiedOnce = true;
+          setPickToast('✓ Đã bật định vị bám theo di chuyển');
+          setTimeout(() => setPickToast(null), 2200);
+        }
       },
       (err) => {
         console.warn('Lỗi định vị GPS:', err.message);
@@ -632,7 +669,7 @@ export default function Home() {
       {
         enableHighAccuracy: true,
         timeout: 15000,
-        maximumAge: 0,
+        maximumAge: 2000,
       }
     );
 
@@ -686,6 +723,7 @@ export default function Home() {
       }
     } else {
       const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(formData);
+      lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
       setDeclaredParcelCodes(new Set(updatedCodes));
       setDeclarationsMap(updatedMap);
       setIsPickingAdditional(false);
@@ -717,6 +755,8 @@ export default function Home() {
           if (res.ok) {
             const result = (await res.json()) as any;
             if (result.success && Array.isArray(result.declaredCodes)) {
+              const cloudMap = result.declarationsMap || {};
+              lastCloudSigRef.current = JSON.stringify({ codes: result.declaredCodes, map: cloudMap });
               setDeclaredParcelCodes(new Set(result.declaredCodes));
               if (result.declarationsMap) {
                 setDeclarationsMap(result.declarationsMap);
@@ -740,6 +780,7 @@ export default function Home() {
 
   const handleDeleteDeclaration = (targetMaThua: string) => {
     const { removedCodes, updatedCodes, updatedMap } = removeDeclaration(targetMaThua);
+    lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
     setDeclaredParcelCodes(new Set(updatedCodes));
     setDeclarationsMap(updatedMap);
     setAdditionalParcels([]);
@@ -766,6 +807,8 @@ export default function Home() {
         if (res.ok) {
           const result = (await res.json()) as any;
           if (result.success && Array.isArray(result.declaredCodes)) {
+            const cloudMap = result.declarationsMap || {};
+            lastCloudSigRef.current = JSON.stringify({ codes: result.declaredCodes, map: cloudMap });
             setDeclaredParcelCodes(new Set(result.declaredCodes));
             if (result.declarationsMap) {
               setDeclarationsMap(result.declarationsMap);
