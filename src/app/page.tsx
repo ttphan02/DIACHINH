@@ -163,12 +163,60 @@ export default function Home() {
     setIsPickingAdditional((prev) => !prev);
   };
 
-  // Tải danh sách đã kê khai từ LocalStorage khi khởi tạo
+  // Tải danh sách đã kê khai từ LocalStorage và đồng bộ từ Cloudflare R2
+  const fetchCloudDeclarations = useCallback(async () => {
+    try {
+      let data: any = null;
+      try {
+        const res = await fetch('/api/declarations', { cache: 'no-store' });
+        if (res.ok) {
+          data = await res.json();
+        }
+      } catch (e) {
+        console.warn('API /api/declarations lỗi, chuyển sang R2 direct fallback:', e);
+      }
+
+      // Fallback: nếu /api/declarations không tải được, đọc trực tiếp từ Cloudflare R2 CDN
+      if (!data || !data.success) {
+        const r2Url = process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL || 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
+        const r2Res = await fetch(`${r2Url}/declarations/all.json?t=${Date.now()}`, { cache: 'no-store' });
+        if (r2Res.ok) {
+          data = await r2Res.json();
+          data.success = true;
+        }
+      }
+
+      if (data && data.success && Array.isArray(data.declaredCodes)) {
+        setDeclaredParcelCodes((prev) => {
+          const next = new Set(prev);
+          data.declaredCodes.forEach((c: string) => next.add(c));
+          return next;
+        });
+        setDeclarationsMap((prev) => {
+          const updated = { ...prev, ...(data.declarationsMap || {}) };
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem(
+                'diachinh_declared_codes',
+                JSON.stringify(Array.from(new Set([...Object.keys(prev || {}), ...data.declaredCodes])))
+              );
+              localStorage.setItem('diachinh_declarations_map', JSON.stringify(updated));
+            } catch (e) {}
+          }
+          return updated;
+        });
+      }
+    } catch (err) {
+      console.warn('Lỗi khi fetch declarations từ cloud:', err);
+    }
+  }, []);
+
   useEffect(() => {
     const { declaredCodes, declarationsMap: loadedMap } = getStoredDeclarations();
     setDeclaredParcelCodes(declaredCodes);
     setDeclarationsMap(loadedMap);
-  }, []);
+    fetchCloudDeclarations();
+  }, [fetchCloudDeclarations]);
 
   // Hàm đồng bộ Google Sheets realtime
   const fetchGgsCodes = useCallback(async (force = false) => {
@@ -216,14 +264,16 @@ export default function Home() {
     }
   }, []);
 
-  // Fetch GGS lúc ban đầu và định kỳ 45s một lần (Realtime)
+  // Fetch GGS & Cloud Declarations lúc ban đầu và định kỳ 25s một lần (Realtime cho Admin & Clients)
   useEffect(() => {
     fetchGgsCodes(false);
+    fetchCloudDeclarations();
     const interval = setInterval(() => {
       fetchGgsCodes(false);
-    }, 45000);
+      fetchCloudDeclarations();
+    }, 25000);
     return () => clearInterval(interval);
-  }, [fetchGgsCodes]);
+  }, [fetchGgsCodes, fetchCloudDeclarations]);
 
   // TÍNH TOÁN TRẠNG THÁI REALTIME VÀ ĐỒNG BỘ THÔNG TIN TỪ GOOGLE SHEETS:
   // 1. Thửa có trên Google Sheets -> Lấy Tên chủ hộ, CCCD từ GGS (thay thế bất kỳ dữ liệu excel lỗi thời nào)
@@ -644,8 +694,36 @@ export default function Home() {
         });
       }
 
-      setPickToast('✓ Đã lưu phiếu kê khai thành công');
-      setTimeout(() => setPickToast(null), 3000);
+      setPickToast('✓ Đang đồng bộ phiếu kê khai lên máy chủ...');
+
+      // Gửi đồng bộ lên Cloudflare R2
+      fetch('/api/declarations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      })
+        .then(async (res) => {
+          if (res.ok) {
+            const result = (await res.json()) as any;
+            if (result.success && Array.isArray(result.declaredCodes)) {
+              setDeclaredParcelCodes(new Set(result.declaredCodes));
+              if (result.declarationsMap) {
+                setDeclarationsMap(result.declarationsMap);
+              }
+            }
+            setPickToast('✓ Đã đồng bộ lên máy chủ thành công');
+            setTimeout(() => setPickToast(null), 3000);
+          } else {
+            console.warn('Đồng bộ cloud trả về mã lỗi:', res.status);
+            setPickToast('✓ Đã lưu trên máy (Cloud sẽ đồng bộ sau)');
+            setTimeout(() => setPickToast(null), 3500);
+          }
+        })
+        .catch((err) => {
+          console.warn('Lỗi kết nối khi đồng bộ lên Cloud:', err);
+          setPickToast('✓ Đã lưu trên máy (Đang chờ kết nối)');
+          setTimeout(() => setPickToast(null), 3500);
+        });
     }
   };
 
@@ -669,8 +747,30 @@ export default function Home() {
       }
     }
 
-    setPickToast('✓ Đã xóa phiếu kê khai. Các thửa đã quay về trạng thái ban đầu.');
-    setTimeout(() => setPickToast(null), 3500);
+    setPickToast('✓ Đang xóa trên máy chủ...');
+    fetch(`/api/declarations?ma_thua=${encodeURIComponent(targetMaThua)}`, {
+      method: 'DELETE',
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          const result = (await res.json()) as any;
+          if (result.success && Array.isArray(result.declaredCodes)) {
+            setDeclaredParcelCodes(new Set(result.declaredCodes));
+            if (result.declarationsMap) {
+              setDeclarationsMap(result.declarationsMap);
+            }
+          }
+          setPickToast('✓ Đã xóa phiếu kê khai thành công');
+        } else {
+          setPickToast('✓ Đã xóa cục bộ trên máy');
+        }
+        setTimeout(() => setPickToast(null), 3000);
+      })
+      .catch((err) => {
+        console.warn('Lỗi kết nối khi xóa trên Cloud:', err);
+        setPickToast('✓ Đã xóa cục bộ trên máy');
+        setTimeout(() => setPickToast(null), 3000);
+      });
   };
 
   return (

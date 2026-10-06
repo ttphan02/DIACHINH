@@ -10,6 +10,12 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
+  "r2_buckets": [
+    {
+      "binding": "DIACHINH_STORAGE",
+      "bucket_name": "diachinh-storage"
+    }
+  ],
   "observability": {
     "enabled": true
   }
