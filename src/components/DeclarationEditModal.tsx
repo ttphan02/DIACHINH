@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Parcel, DeclarationFormData, DeclarationMode, AdditionalParcel } from '@/types';
+import { processAndUploadImage, getResolvedImageUrl } from '@/utils/geo';
 import CccdImageEditorModal, { CropAspectRatio } from '@/components/CccdImageEditorModal';
 import {
   X,
@@ -179,29 +180,25 @@ export default function DeclarationEditModal({
     setIsEditorOpen(false);
   };
 
-  // Tải ảnh mới từ thiết bị
-  const handleUploadImageFile = (
+  // Tải ảnh mới từ thiết bị (Tự động nén & đẩy lên Cloudflare R2)
+  const handleUploadImageFile = async (
     e: React.ChangeEvent<HTMLInputElement>,
     target: 'cccd_truoc' | 'cccd_sau' | 'gcn'
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      if (!dataUrl) return;
-
-      if (target === 'cccd_truoc') {
-        setAnhCccdTruoc(dataUrl);
-      } else if (target === 'cccd_sau') {
-        setAnhCccdSau(dataUrl);
-      } else if (target === 'gcn') {
-        setAnhGcnList((prev) => [...prev, dataUrl]);
-      }
-    };
-    reader.readAsDataURL(file);
     e.target.value = '';
+
+    const uploadedUrl = await processAndUploadImage(file, `${target}_${parcel?.ma_thua || 'thua'}`);
+    if (!uploadedUrl) return;
+
+    if (target === 'cccd_truoc') {
+      setAnhCccdTruoc(uploadedUrl);
+    } else if (target === 'cccd_sau') {
+      setAnhCccdSau(uploadedUrl);
+    } else if (target === 'gcn') {
+      setAnhGcnList((prev) => [...prev, uploadedUrl]);
+    }
   };
 
   const handleRemoveGcnImage = (index: number) => {
@@ -446,7 +443,7 @@ export default function DeclarationEditModal({
                   {anhCccdTruoc ? (
                     <div className="relative group rounded-lg overflow-hidden border border-slate-700 bg-black/40 h-28 flex items-center justify-center">
                       <img
-                        src={anhCccdTruoc}
+                        src={getResolvedImageUrl(anhCccdTruoc)}
                         alt="CCCD mặt trước"
                         className="max-h-full max-w-full object-contain"
                       />
@@ -522,7 +519,7 @@ export default function DeclarationEditModal({
                   {anhCccdSau ? (
                     <div className="relative group rounded-lg overflow-hidden border border-slate-700 bg-black/40 h-28 flex items-center justify-center">
                       <img
-                        src={anhCccdSau}
+                        src={getResolvedImageUrl(anhCccdSau)}
                         alt="CCCD mặt sau"
                         className="max-h-full max-w-full object-contain"
                       />
@@ -610,7 +607,7 @@ export default function DeclarationEditModal({
                     >
                       <div className="relative rounded-lg overflow-hidden border border-slate-700 bg-black/40 h-24 flex items-center justify-center">
                         <img
-                          src={url}
+                          src={getResolvedImageUrl(url)}
                           alt={`GCN ${idx + 1}`}
                           className="max-h-full max-w-full object-contain"
                         />

@@ -312,21 +312,106 @@ const DEFAULT_R2_URL = 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
 
 /**
  * Lấy URL ảnh scan CCCD / GCN:
- * Tải trực tiếp từ Cloudflare R2 CDN siêu tốc
+ * Hỗ trợ đầy đủ data: (base64), blob:, /api/image/ và tự động định tuyến qua Cloudflare R2 Binding
  */
 export function getResolvedImageUrl(path?: string | null): string {
   if (!path) return '';
-  if (path.startsWith('http://') || path.startsWith('https://')) {
+  if (path.startsWith('data:') || path.startsWith('blob:') || path.startsWith('/api/')) {
     return path;
   }
-  const r2Url = process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL || DEFAULT_R2_URL;
-  const cleanR2 = r2Url.replace(/\/+$/, '');
-  const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  return `${cleanR2}${cleanPath}`;
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    // Nếu là link .r2.dev bị chặn DNS ở một số nhà mạng, chuyển qua /api/image/ để đọc trực tiếp từ R2 Binding
+    if (path.includes('.r2.dev/')) {
+      const key = path.split('.r2.dev/')[1];
+      if (key) return `/api/image/${key.replace(/^\/+/, '')}`;
+    }
+    return path;
+  }
+  const cleanPath = path.replace(/^\/+/, '');
+  return `/api/image/${cleanPath}`;
 }
 
 export function getResolvedSvgUrl(path?: string | null): string {
   return getResolvedImageUrl(path);
+}
+
+/**
+ * Nén ảnh chụp thực địa (CCCD / GCN) nhẹ nhàng trên trình duyệt và tải lên Cloudflare R2.
+ * Nếu ngoại tuyến thì tự động trả về chuỗi chuẩn Base64 DataURL để xem được trên mọi trang & mọi thiết bị.
+ */
+export async function processAndUploadImage(file: File, prefix = 'hoso'): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const rawDataUrl = ev.target?.result as string;
+      if (!rawDataUrl) {
+        resolve('');
+        return;
+      }
+
+      const img = new Image();
+      img.onload = async () => {
+        try {
+          const maxDim = 1400;
+          let w = img.width;
+          let h = img.height;
+          if (w > maxDim || h > maxDim) {
+            if (w > h) {
+              h = Math.round((h * maxDim) / w);
+              w = maxDim;
+            } else {
+              w = Math.round((w * maxDim) / h);
+              h = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(rawDataUrl);
+            return;
+          }
+          ctx.drawImage(img, 0, 0, w, h);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.78);
+
+          // Thử upload trực tiếp lên Cloudflare R2 qua /api/image/uploads/...
+          canvas.toBlob(
+            async (blob) => {
+              if (blob) {
+                try {
+                  const safeName = `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
+                  const res = await fetch(`/api/image/uploads/${safeName}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'image/jpeg' },
+                    body: blob,
+                  });
+                  if (res.ok) {
+                    const data = (await res.json()) as any;
+                    if (data?.success && data?.url) {
+                      resolve(data.url);
+                      return;
+                    }
+                  }
+                } catch {
+                  // Fallback dùng compressedDataUrl
+                }
+              }
+              resolve(compressedDataUrl);
+            },
+            'image/jpeg',
+            0.78
+          );
+        } catch {
+          resolve(rawDataUrl);
+        }
+      };
+      img.onerror = () => resolve(rawDataUrl);
+      img.src = rawDataUrl;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
 }
 
 /**

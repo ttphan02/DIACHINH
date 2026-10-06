@@ -96,7 +96,9 @@ export default function Home() {
   const [isLocating, setIsLocating] = useState(false);
   const watchIdRef = useRef<number | null>(null);
   const lastCloudSigRef = useRef<string>('');
+  const lastCloudUpdatedAtRef = useRef<string>('');
   const lastGgsCountRef = useRef<number>(-1);
+  const hasHandledUrlQueryRef = useRef<boolean>(false);
 
   // Tự động kích hoạt định vị GPS liên tục khi tải trang (Always-on Realtime GPS)
   useEffect(() => {
@@ -189,14 +191,19 @@ export default function Home() {
       if (res.ok) {
         const data = (await res.json()) as any;
         if (data && data.success && Array.isArray(data.declaredCodes)) {
+          if (data.updatedAt && data.updatedAt === lastCloudUpdatedAtRef.current) {
+            return;
+          }
           const cloudMap = data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {};
           const sig = JSON.stringify({ codes: data.declaredCodes, map: cloudMap });
 
           // CHỈ CẬP NHẬT STATE KHI DỮ LIỆU TRÊN CLOUD THỰC SỰ THAY ĐỔI (Tránh tính toán lại 18.000 thửa không cần thiết)
           if (sig === lastCloudSigRef.current) {
+            if (data.updatedAt) lastCloudUpdatedAtRef.current = data.updatedAt;
             return;
           }
           lastCloudSigRef.current = sig;
+          if (data.updatedAt) lastCloudUpdatedAtRef.current = data.updatedAt;
 
           const cloudCodes = new Set<string>(data.declaredCodes);
 
@@ -685,7 +692,7 @@ export default function Home() {
 
   // Tự động chọn thửa nếu có query params (từ Dashboard chuyển sang: ?to=4&thua=154 hoặc ?ma_thua=...)
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || hasHandledUrlQueryRef.current) return;
     const params = new URLSearchParams(window.location.search);
     const qMaThua = params.get('ma_thua');
     const qTo = params.get('to');
@@ -698,6 +705,7 @@ export default function Home() {
         return false;
       });
       if (found) {
+        hasHandledUrlQueryRef.current = true;
         handleSelectParcel(found);
       }
     }

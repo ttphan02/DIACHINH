@@ -32,7 +32,7 @@ import {
   ListPlus,
   Save,
 } from 'lucide-react';
-import { downloadFile, autoDetectBoundaries, formatBoundaryText } from '@/utils/geo';
+import { downloadFile, autoDetectBoundaries, formatBoundaryText, processAndUploadImage, getResolvedImageUrl } from '@/utils/geo';
 import CccdImageEditorModal from '@/components/CccdImageEditorModal';
 import { AdditionalParcel } from '@/types';
 
@@ -246,12 +246,12 @@ export default function ParcelDetailPanel({
       setSavedSuccess(false);
       setCorrectionSuccess(false);
 
-      // Tải trước hình ảnh CCCD nếu đã có trong phiếu kê khai hoặc dữ liệu thửa
+      // Tải trước hình ảnh CCCD nếu đã có trong phiếu kê khai hoặc dữ liệu thửa (bỏ qua link blob: tạm thời đã chết)
       const initialCccd: { name: string; url: string }[] = [];
-      if (currentDeclaration?.anh_cccd_truoc) {
+      if (currentDeclaration?.anh_cccd_truoc && !String(currentDeclaration.anh_cccd_truoc).startsWith('blob:')) {
         initialCccd.push({ name: 'CCCD Mặt trước', url: currentDeclaration.anh_cccd_truoc });
       }
-      if (currentDeclaration?.anh_cccd_sau) {
+      if (currentDeclaration?.anh_cccd_sau && !String(currentDeclaration.anh_cccd_sau).startsWith('blob:')) {
         initialCccd.push({ name: 'CCCD Mặt sau', url: currentDeclaration.anh_cccd_sau });
       }
       if (initialCccd.length === 0 && parcel.cccd_url) {
@@ -263,9 +263,11 @@ export default function ParcelDetailPanel({
       const initialGcn: { name: string; url: string }[] = [];
       if (Array.isArray(currentDeclaration?.anh_gcn_list) && currentDeclaration.anh_gcn_list.length > 0) {
         currentDeclaration.anh_gcn_list.forEach((u: string, idx: number) => {
-          initialGcn.push({ name: `GCN Trang ${idx + 1}`, url: u });
+          if (u && !String(u).startsWith('blob:')) {
+            initialGcn.push({ name: `GCN Trang ${idx + 1}`, url: u });
+          }
         });
-      } else if (currentDeclaration?.anh_gcn) {
+      } else if (currentDeclaration?.anh_gcn && !String(currentDeclaration.anh_gcn).startsWith('blob:')) {
         initialGcn.push({ name: 'Giấy chứng nhận (GCN)', url: currentDeclaration.anh_gcn });
       } else if (parcel.gcn_urls && parcel.gcn_urls.length > 0) {
         parcel.gcn_urls.forEach((u, idx) => {
@@ -284,24 +286,32 @@ export default function ParcelDetailPanel({
     }
   }, [parcel?.ma_thua, currentDeclaration]);
 
-  const handleCccdFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCccdFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    const newItems = Array.from(files).map((f) => ({
-      name: f.name,
-      url: URL.createObjectURL(f),
-    }));
-    setCccdUploadedFiles((prev) => [...prev, ...newItems]);
+    const fileArr = Array.from(files);
+    e.target.value = '';
+    const uploaded = await Promise.all(
+      fileArr.map(async (f) => ({
+        name: f.name,
+        url: await processAndUploadImage(f, `cccd_${parcel?.ma_thua || 'thua'}`),
+      }))
+    );
+    setCccdUploadedFiles((prev) => [...prev, ...uploaded.filter((item) => Boolean(item.url))]);
   };
 
-  const handleGcnFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleGcnFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    const newItems = Array.from(files).map((f) => ({
-      name: f.name,
-      url: URL.createObjectURL(f),
-    }));
-    setGcnUploadedFiles((prev) => [...prev, ...newItems]);
+    const fileArr = Array.from(files);
+    e.target.value = '';
+    const uploaded = await Promise.all(
+      fileArr.map(async (f) => ({
+        name: f.name,
+        url: await processAndUploadImage(f, `gcn_${parcel?.ma_thua || 'thua'}`),
+      }))
+    );
+    setGcnUploadedFiles((prev) => [...prev, ...uploaded.filter((item) => Boolean(item.url))]);
   };
 
   const removeCccdFile = (index: number) => {
@@ -311,6 +321,15 @@ export default function ParcelDetailPanel({
   const removeGcnFile = (index: number) => {
     setGcnUploadedFiles((prev) => prev.filter((_, i) => i !== index));
   };
+
+  // Tự động nhận diện Tứ cận (Đông, Tây, Nam, Bắc) dựa trên danh sách thửa lân cận đã lọc sẵn (nhanh tức thì)
+  const detectedBoundaries = useMemo(() => {
+    if (!parcel) return {};
+    const pool = neighbors && neighbors.length > 0 ? neighbors : allParcels;
+    return autoDetectBoundaries(parcel, pool, 500);
+  }, [parcel?.ma_thua, neighbors]);
+
+  const [autoDetectToast, setAutoDetectToast] = useState<string | null>(null);
 
   if (!parcel) return null;
 
@@ -342,15 +361,6 @@ export default function ParcelDetailPanel({
         );
     }
   };
-
-  // Tự động nhận diện Tứ cận (Đông, Tây, Nam, Bắc) dựa trên tọa độ bản đồ
-  const detectedBoundaries = useMemo(() => {
-    if (!parcel) return {};
-    const pool = allParcels && allParcels.length > 0 ? allParcels : neighbors;
-    return autoDetectBoundaries(parcel, pool, 500);
-  }, [parcel, allParcels, neighbors]);
-
-  const [autoDetectToast, setAutoDetectToast] = useState<string | null>(null);
 
   const handleAutoDetectBoundaries = () => {
     if (!parcel) return;
@@ -1141,7 +1151,7 @@ export default function ParcelDetailPanel({
                   <div className="flex flex-wrap gap-1.5">
                     {cccdUploadedFiles.map((file, idx) => (
                       <div key={idx} className="relative group w-14 h-14 rounded-lg overflow-hidden border border-blue-200">
-                        <img src={file.url} alt="CCCD" className="w-full h-full object-cover" />
+                        <img src={getResolvedImageUrl(file.url)} alt="CCCD" className="w-full h-full object-cover" />
                         <button
                           type="button"
                           onClick={() => removeCccdFile(idx)}
@@ -1162,7 +1172,7 @@ export default function ParcelDetailPanel({
                   <div className="flex flex-wrap gap-1.5">
                     {gcnUploadedFiles.map((file, idx) => (
                       <div key={idx} className="relative group w-14 h-14 rounded-lg overflow-hidden border border-emerald-200">
-                        <img src={file.url} alt="GCN" className="w-full h-full object-cover" />
+                        <img src={getResolvedImageUrl(file.url)} alt="GCN" className="w-full h-full object-cover" />
                         <button
                           type="button"
                           onClick={() => removeGcnFile(idx)}
@@ -1480,7 +1490,7 @@ export default function ParcelDetailPanel({
                     {cccdUploadedFiles.map((file, idx) => (
                       <div key={idx} className="relative group bg-white p-1 rounded-lg border border-blue-200 shadow-2xs flex flex-col items-center">
                         <div className="w-full h-24 rounded overflow-hidden bg-slate-900 relative">
-                          <img src={file.url} alt="CCCD" className="w-full h-full object-contain" />
+                          <img src={getResolvedImageUrl(file.url)} alt="CCCD" className="w-full h-full object-contain" />
                           <div className="absolute top-1 left-1 bg-black/70 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
                             {idx === 0 ? 'Mặt trước' : 'Mặt sau'}
                           </div>
@@ -1529,7 +1539,7 @@ export default function ParcelDetailPanel({
                     {gcnUploadedFiles.map((file, idx) => (
                       <div key={idx} className="relative group bg-white p-1 rounded-lg border border-emerald-200 shadow-2xs flex flex-col items-center">
                         <div className="w-full h-24 rounded overflow-hidden bg-slate-900 relative">
-                          <img src={file.url} alt="GCN" className="w-full h-full object-contain" />
+                          <img src={getResolvedImageUrl(file.url)} alt="GCN" className="w-full h-full object-contain" />
                           <div className="absolute top-1 left-1 bg-black/70 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
                             Trang {idx + 1}
                           </div>

@@ -326,44 +326,57 @@ export default function DashboardParcelModal({
 
             {allImages.length > 0 ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {allImages.map((img, i) => (
-                  <div
-                    key={i}
-                    onClick={() =>
-                      onOpenImageViewer(
-                        img.url,
-                        allImages.map((item) => item.url),
-                        img.label
-                      )
-                    }
-                    className="group bg-slate-950/80 border border-slate-800 hover:border-blue-500/50 rounded-2xl p-2 transition cursor-pointer flex flex-col justify-between"
-                  >
-                    <div className="relative aspect-4/3 w-full bg-slate-900 rounded-xl overflow-hidden flex items-center justify-center">
-                      <img
-                        src={getResolvedImageUrl(img.url)}
-                        alt={img.label}
-                        className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                        onError={(e) => {
-                          // Fallback nếu ảnh không load trực tiếp
-                          (e.target as any).src = img.url;
-                        }}
-                      />
-                      <div className="absolute inset-0 bg-slate-950/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-1.5 text-white text-xs font-bold">
-                        <Eye className="w-4 h-4 text-blue-400" />
-                        <span>Xem to</span>
+                {allImages.map((img, i) => {
+                  const resolvedSrc = getResolvedImageUrl(img.url);
+                  return (
+                    <div
+                      key={i}
+                      onClick={() =>
+                        onOpenImageViewer(
+                          resolvedSrc,
+                          allImages.map((item) => getResolvedImageUrl(item.url)),
+                          img.label
+                        )
+                      }
+                      className="group bg-slate-950/80 border border-slate-800 hover:border-blue-500/50 rounded-2xl p-2 transition cursor-pointer flex flex-col justify-between"
+                    >
+                      <div className="relative aspect-4/3 w-full bg-slate-900 rounded-xl overflow-hidden flex items-center justify-center">
+                        <img
+                          src={resolvedSrc}
+                          alt={img.label}
+                          className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            target.onerror = null; // Ngăn chặn tuyệt đối vòng lặp onError gây nhấp nháy
+                            target.style.display = 'none';
+                            const parent = target.parentElement;
+                            if (parent && !parent.querySelector('.img-fallback-box')) {
+                              const box = document.createElement('div');
+                              box.className = 'img-fallback-box text-[11px] text-slate-400 text-center p-3 leading-snug';
+                              box.innerText = String(img.url).startsWith('blob:')
+                                ? 'Ảnh tạm từ phiên trước (Vui lòng bấm Sửa phiếu để tải lại ảnh lên Cloud)'
+                                : 'Không thể hiển thị ảnh này';
+                              parent.appendChild(box);
+                            }
+                          }}
+                        />
+                        <div className="absolute inset-0 bg-slate-950/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-1.5 text-white text-xs font-bold">
+                          <Eye className="w-4 h-4 text-blue-400" />
+                          <span>Xem to</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-2">
+                        <span className="text-[11px] font-medium text-slate-300 line-clamp-1 block">
+                          {img.label}
+                        </span>
+                        <span className="text-[9px] text-blue-400 font-bold block">
+                          Bấm để phóng to & tải về
+                        </span>
                       </div>
                     </div>
-
-                    <div className="mt-2">
-                      <span className="text-[11px] font-medium text-slate-300 line-clamp-1 block">
-                        {img.label}
-                      </span>
-                      <span className="text-[9px] text-blue-400 font-bold block">
-                        Bấm để phóng to & tải về
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="p-6 bg-slate-950/40 rounded-2xl border border-slate-800/60 text-center text-xs text-slate-500">

@@ -57,6 +57,7 @@ export default function DashboardPage() {
   const [declaredParcelCodes, setDeclaredParcelCodes] = useState<Set<string>>(new Set());
   const [declarationsMap, setDeclarationsMap] = useState<Record<string, any>>({});
   const lastCloudSigRef = useRef<string>('');
+  const lastCloudUpdatedAtRef = useRef<string>('');
 
   // Filter & Search states
   const [searchQuery, setSearchQuery] = useState('');
@@ -117,10 +118,15 @@ export default function DashboardPage() {
       if (res.ok) {
         const data = (await res.json()) as any;
         if (data && data.success && Array.isArray(data.declaredCodes)) {
+          if (data.updatedAt && data.updatedAt === lastCloudUpdatedAtRef.current) return;
           const cloudMap = data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {};
           const sig = JSON.stringify({ codes: data.declaredCodes, map: cloudMap });
-          if (sig === lastCloudSigRef.current) return;
+          if (sig === lastCloudSigRef.current) {
+            if (data.updatedAt) lastCloudUpdatedAtRef.current = data.updatedAt;
+            return;
+          }
           lastCloudSigRef.current = sig;
+          if (data.updatedAt) lastCloudUpdatedAtRef.current = data.updatedAt;
 
           setDeclaredParcelCodes(new Set<string>(data.declaredCodes));
           setDeclarationsMap(cloudMap);

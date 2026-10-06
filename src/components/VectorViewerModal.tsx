@@ -37,10 +37,6 @@ export default function VectorViewerModal({
   // Tính URL thực tế
   const getImgSrc = () => {
     if (!currentPath) return '';
-    if (retryWithProxy) {
-      const cleanPath = currentPath.startsWith('/') ? currentPath : `/${currentPath}`;
-      return `/api/image${cleanPath}`;
-    }
     return getResolvedImageUrl(currentPath);
   };
 
@@ -88,15 +84,8 @@ export default function VectorViewerModal({
   };
 
   const handleImageError = () => {
-    if (!retryWithProxy) {
-      // Thử lại qua đường truyền proxy API nếu CDN R2 trực tiếp bị chặn
-      console.warn('Lỗi tải CDN trực tiếp, đang thử kết nối qua proxy API...');
-      setRetryWithProxy(true);
-      setIsLoading(true);
-    } else {
-      setImgError(true);
-      setIsLoading(false);
-    }
+    setImgError(true);
+    setIsLoading(false);
   };
 
   const handleImageLoad = () => {
