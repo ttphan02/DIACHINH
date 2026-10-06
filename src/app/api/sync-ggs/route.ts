@@ -20,28 +20,46 @@ let cachedData: {
 
 const CACHE_TTL_MS = 30 * 1000; // Cache 30 giây để realtime nhưng không quá tải
 
-function parseCsvLine(text: string): string[] {
-  const result: string[] = [];
-  let cur = '';
+function parseFullCsv(csvText: string): string[][] {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentField = '';
   let inQuote = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
+  const n = csvText.length;
+  let i = 0;
+
+  while (i < n) {
+    const c = csvText[i];
     if (c === '"') {
-      if (inQuote && text[i + 1] === '"') {
-        cur += '"';
+      if (inQuote && i + 1 < n && csvText[i + 1] === '"') {
+        currentField += '"';
         i++;
       } else {
         inQuote = !inQuote;
       }
     } else if (c === ',' && !inQuote) {
-      result.push(cur.trim());
-      cur = '';
+      currentRow.push(currentField.trim());
+      currentField = '';
+    } else if ((c === '\r' || c === '\n') && !inQuote) {
+      if (c === '\r' && i + 1 < n && csvText[i + 1] === '\n') {
+        i++;
+      }
+      currentRow.push(currentField.trim());
+      rows.push(currentRow);
+      currentRow = [];
+      currentField = '';
     } else {
-      cur += c;
+      currentField += c;
     }
+    i++;
   }
-  result.push(cur.trim());
-  return result;
+
+  if (currentField.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentField.trim());
+    rows.push(currentRow);
+  }
+
+  return rows;
 }
 
 export async function GET(request: Request) {
@@ -82,16 +100,22 @@ export async function GET(request: Request) {
     }
 
     const csvText = await response.text();
-    const lines = csvText.split(/\r?\n/);
+    const rows = parseFullCsv(csvText);
 
     const ggsParcels: Record<string, GgsParcelData> = {};
     const codeSet = new Set<string>();
 
-    for (let i = 2; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line) continue;
-      const row = parseCsvLine(line);
-      if (row.length < 3) continue;
+    for (let i = 2; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length < 3) continue;
+
+      const ggsRowNum = i + 1; // 1-based index tương ứng với số thứ tự dòng trên Google Sheets Trang tính 1
+      const stt = parseFloat(row[0] || '');
+
+      // Bỏ qua các giá trị ảo gán tạm thời từ dòng 7916 đến dòng 9250 trên Google Sheets
+      if ((ggsRowNum >= 7916 && ggsRowNum <= 9250) || (!isNaN(stt) && stt >= 7915 && stt <= 9249)) {
+        continue;
+      }
 
       const colC = (row[2] || '').trim();
       let ma_thua = '';
