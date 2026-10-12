@@ -942,6 +942,32 @@ export default function DashboardPage() {
               <span className="hidden sm:inline">Xuất Excel Lọc</span>
             </button>
 
+            {/* Nút Liên Kết Google Sheets Thửa Có Tên */}
+            <a
+              href="https://docs.google.com/spreadsheets/d/1xZjXOwinSQc7DJceF5TAqirjA1GiYfdZ/edit?usp=sharing"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-600/90 hover:bg-amber-600 text-white shadow-md shadow-amber-600/20 transition cursor-pointer"
+              title="Mở Google Sheets: Danh Sách Thửa Có Tên (Đồng bộ Ổ H: Google Drive)"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span className="hidden lg:inline">GGS Thửa Có Tên</span>
+              <ExternalLink className="w-3 h-3 opacity-70" />
+            </a>
+
+            {/* Nút Liên Kết Google Sheets Thửa Không Tên */}
+            <a
+              href="https://docs.google.com/spreadsheets/d/1arWjEfjUketXTPQQkMXviTb2lbEvRkus/edit?usp=sharing"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600 transition cursor-pointer"
+              title="Mở Google Sheets: Danh Sách Thửa Không Có Tên (Đồng bộ Ổ H: Google Drive)"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span className="hidden lg:inline">GGS Thửa Không Tên</span>
+              <ExternalLink className="w-3 h-3 opacity-70" />
+            </a>
+
             {/* Đồng bộ GGS */}
             <button
               onClick={() => fetchGgsCodes()}
