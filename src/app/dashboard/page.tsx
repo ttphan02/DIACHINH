@@ -10,7 +10,9 @@ import DeclarationPrintModal, { PrintableDeclarationItem } from '@/components/De
 import DashboardParcelModal from '@/components/DashboardParcelModal';
 import DeclarationEditModal from '@/components/DeclarationEditModal';
 import VectorViewerModal from '@/components/VectorViewerModal';
+import CccdSupplementModal from '@/components/CccdSupplementModal';
 import {
+  Camera,
   Map as MapIcon,
   BarChart3,
   PieChart,
@@ -104,6 +106,10 @@ export default function DashboardPage() {
 
   // Delete Confirmation Modal state
   const [deletingParcel, setDeletingParcel] = useState<Parcel | null>(null);
+
+  // CCCD & Scan Supplement Modal state
+  const [isCccdSupplementOpen, setIsCccdSupplementOpen] = useState(false);
+  const [selectedParcelForCccd, setSelectedParcelForCccd] = useState('');
 
   // 1. Đồng bộ danh sách kê khai từ Cloud R2 theo thời gian thực (Không cần F5)
   const fetchCloudDeclarations = useCallback(async () => {
@@ -986,6 +992,19 @@ export default function DashboardPage() {
 
           {/* Action buttons */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Nút Bổ Sung CCCD & Quét AI */}
+            <button
+              onClick={() => {
+                setSelectedParcelForCccd('');
+                setIsCccdSupplementOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition cursor-pointer border border-blue-400/30 ring-2 ring-blue-500/20"
+              title="Bổ sung ảnh CCCD, quét AI tự động, tạo PDF A4 chuẩn và lưu trực tiếp vào R2"
+            >
+              <Camera className="w-3.5 h-3.5 text-yellow-300 animate-pulse" />
+              <span>Bổ Sung CCCD (Quét AI)</span>
+            </button>
+
             {/* Nút Xuất Excel Đã Kê Khai */}
             <button
               onClick={handleExportDeclaredExcel}
@@ -2177,6 +2196,10 @@ export default function DashboardPage() {
         onDeleteDeclaration={(p) => {
           setDeletingParcel(p);
         }}
+        onOpenSupplementCccd={(p) => {
+          setSelectedParcelForCccd(p.ma_thua);
+          setIsCccdSupplementOpen(true);
+        }}
       />
 
       {/* Modal Chỉnh Sửa Phiếu Kê Khai */}
@@ -2263,6 +2286,16 @@ export default function DashboardPage() {
         onClose={() => setIsPrintModalOpen(false)}
         items={printableItems}
         title={printModalTitle}
+      />
+
+      {/* Modal Bổ Sung CCCD (Quét AI) & File Scan Sau Ký */}
+      <CccdSupplementModal
+        isOpen={isCccdSupplementOpen}
+        onClose={() => setIsCccdSupplementOpen(false)}
+        initialParcelCode={selectedParcelForCccd}
+        onSuccess={() => {
+          fetchCloudDeclarations();
+        }}
       />
     </div>
   );

@@ -25,6 +25,7 @@ import {
   FileSpreadsheet,
   Pencil,
   Trash2,
+  Camera,
 } from 'lucide-react';
 import { getResolvedImageUrl } from '@/utils/geo';
 
@@ -37,6 +38,7 @@ interface DashboardParcelModalProps {
   onOpenImageViewer: (url: string, urls?: string[], title?: string) => void;
   onEditDeclaration?: (parcel: Parcel, declaration: any) => void;
   onDeleteDeclaration?: (parcel: Parcel, declaration: any) => void;
+  onOpenSupplementCccd?: (parcel: Parcel) => void;
 }
 
 export default function DashboardParcelModal({
@@ -48,6 +50,7 @@ export default function DashboardParcelModal({
   onOpenImageViewer,
   onEditDeclaration,
   onDeleteDeclaration,
+  onOpenSupplementCccd,
 }: DashboardParcelModalProps) {
   if (!isOpen || !parcel) return null;
 
@@ -409,6 +412,18 @@ export default function DashboardParcelModal({
                 <ExternalLink className="w-3.5 h-3.5" />
                 <span>Google Maps</span>
               </a>
+            )}
+
+            {onOpenSupplementCccd && (
+              <button
+                type="button"
+                onClick={() => onOpenSupplementCccd(parcel)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20 transition cursor-pointer"
+                title="Bổ sung ảnh CCCD và quét AI tự động cho thửa này"
+              >
+                <Camera className="w-3.5 h-3.5 text-yellow-300" />
+                <span>Bổ Sung CCCD</span>
+              </button>
             )}
           </div>
 

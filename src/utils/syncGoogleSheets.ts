@@ -149,21 +149,29 @@ async function getCachedGgsData(): Promise<{
   return { ggsCodes, ggsParcels };
 }
 
-// Lấy danh sách file CCCD trên R2 (nhanh, 1 lần list)
-async function getR2CccdFiles(r2Bucket?: any): Promise<Set<string>> {
-  const files = new Set<string>();
+// Lấy danh sách file CCCD và file SCAN trên R2 (nhanh, 1 lần list)
+async function getR2StorageFiles(r2Bucket?: any): Promise<{ cccdFiles: Set<string>; scanFiles: Set<string> }> {
+  const cccdFiles = new Set<string>();
+  const scanFiles = new Set<string>();
   if (r2Bucket) {
     try {
-      const listRes: any = await r2Bucket.list({ prefix: 'cccd/', limit: 1000 });
-      for (const obj of listRes.objects || []) {
+      const [cccdRes, scanRes]: [any, any] = await Promise.all([
+        r2Bucket.list({ prefix: 'cccd/', limit: 1000 }),
+        r2Bucket.list({ prefix: 'scanhoso/', limit: 1000 }),
+      ]);
+      for (const obj of cccdRes.objects || []) {
         const name = obj.key.replace(/^cccd\//, '');
-        if (name) files.add(name);
+        if (name) cccdFiles.add(name);
+      }
+      for (const obj of scanRes.objects || []) {
+        const name = obj.key.replace(/^scanhoso\//, '');
+        if (name) scanFiles.add(name);
       }
     } catch (e) {
-      console.warn('Lỗi list R2 cccd:', e);
+      console.warn('Lỗi list R2 storage files:', e);
     }
   }
-  return files;
+  return { cccdFiles, scanFiles };
 }
 
 // Hàm chính đồng bộ toàn bộ bảng tính
@@ -174,10 +182,10 @@ export async function executeSyncToGoogleSheet(
   try {
     console.log('>>> Cloudflare Sync: Bắt đầu tối ưu...');
 
-    // 1. Lấy mã GGS và danh sách file CCCD từ R2
-    const [{ ggsCodes, ggsParcels }, cccdFiles] = await Promise.all([
+    // 1. Lấy mã GGS và danh sách file CCCD & SCAN từ R2
+    const [{ ggsCodes, ggsParcels }, { cccdFiles, scanFiles }] = await Promise.all([
       getCachedGgsData(),
-      getR2CccdFiles(r2Bucket),
+      getR2StorageFiles(r2Bucket),
     ]);
 
     // Lập bản đồ tên chủ hộ -> CCCD từ GGS parcels
@@ -245,17 +253,33 @@ export async function executeSyncToGoogleSheet(
         continue;
       }
 
+      // GIAI ĐOẠN 3: ĐÃ SCAN HỒ SƠ SAU KÝ
+      let foundScan = '';
+      for (const sf of scanFiles) {
+        if (sf.includes(maThua) || sf.includes(`${toMoi}_${thuaMoi}`)) {
+          foundScan = sf;
+          break;
+        }
+      }
+      if (foundScan) {
+        item.scan_file = foundScan;
+        stage3NhapGgs.push(item);
+        continue;
+      }
+
       // GIAI ĐOẠN 2: CÓ CCCD TRÊN R2
       let foundCccd = '';
       if (cccd) {
-        const expectedPdf = `${cccd}.pdf`;
-        if (cccdFiles.has(expectedPdf)) {
-          foundCccd = expectedPdf;
+        for (const cf of cccdFiles) {
+          if (cf.startsWith(`${cccd}.`) || cf.startsWith(`${cccd}_`) || cf.includes(cccd)) {
+            foundCccd = cf;
+            break;
+          }
         }
       }
       if (!foundCccd) {
         for (const cf of cccdFiles) {
-          if (cf.startsWith(`${maThua}.`) || (cccd && cf.startsWith(`${cccd}.`))) {
+          if (cf.startsWith(`${maThua}.`) || cf.startsWith(`${maThua}_`)) {
             foundCccd = cf;
             break;
           }
