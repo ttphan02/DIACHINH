@@ -11,7 +11,7 @@ const GROUP_COLORS = [
 ];
 
 const DEFAULT_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1V6ewEwiOVhm5wZfZ9bSwpDHVMyEAz0Nm/edit?gid=412207426';
-const DEFAULT_SHEET_NAME = 'THỬA ĐÃ ĐƯỢC ĐÓNG TẬP(CÓ CCCD)';
+const DEFAULT_SHEET_NAME = 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)';
 const DEFAULT_SHEET_GID = '412207426';
 const SHEET_CACHE_TTL = 3 * 60 * 1000; // Lưu cache 3 phút
 

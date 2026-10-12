@@ -13,7 +13,7 @@ function fetchNamesFromGoogleSheet(identifier, forceRefresh = false) {
     }
     const matchGid = url.match(/[?&#]gid=([0-9]+)/);
     const gidParam = matchGid ? matchGid[1] : '';
-    const sheet = document.getElementById('sheetNameInput')?.value.trim() || (typeof DEFAULT_SHEET_NAME !== 'undefined' ? DEFAULT_SHEET_NAME : 'THỬA ĐÃ ĐƯỢC ĐÓNG TẬP(CÓ CCCD)');
+    const sheet = document.getElementById('sheetNameInput')?.value.trim() || (typeof DEFAULT_SHEET_NAME !== 'undefined' ? DEFAULT_SHEET_NAME : 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
     const limit = parseInt(document.getElementById('sheetLimitInput')?.value, 10) || 500;
 
     const processTableData = (data) => {
