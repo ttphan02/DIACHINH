@@ -94,22 +94,11 @@ export async function GET(request: Request) {
     const codeSet = new Set<string>();
 
     for (let i = 2; i < lines.length; i++) {
-      const ggsRowNum = i + 1; // 1-based index tương ứng với số thứ tự dòng trên Google Sheets Trang tính 1
-      // Bỏ qua các giá trị ảo gán tạm thời từ dòng 7916 đến 9250 trên Google Sheets
-      if (ggsRowNum >= 7916 && ggsRowNum <= 9250) {
-        continue;
-      }
-
       const line = lines[i];
       if (!line) continue;
 
       const row = extractFields(line);
       if (row.length < 3) continue;
-
-      const stt = parseFloat(row[0] || '');
-      if (!isNaN(stt) && stt >= 7915 && stt <= 9249) {
-        continue;
-      }
 
       const colC = (row[2] || '').trim();
       let ma_thua = '';

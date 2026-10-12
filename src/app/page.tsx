@@ -274,8 +274,6 @@ export default function Home() {
           const lines = csvText.split(/\r?\n/);
           const directCodes: string[] = [];
           for (let i = 2; i < lines.length; i++) {
-            const ggsRowNum = i + 1;
-            if (ggsRowNum >= 7916 && ggsRowNum <= 9250) continue;
             const line = lines[i];
             const m = line.match(/CHUACOGIAY_24478_(\d+_\d+)/);
             if (m) directCodes.push(m[1]);
