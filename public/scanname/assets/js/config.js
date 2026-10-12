@@ -10,7 +10,9 @@ const GROUP_COLORS = [
   { name: 'Lime', bg: 'rgba(132, 204, 22, 0.85)', border: '#84cc16', tagBg: '#65a30d' }
 ];
 
-const DEFAULT_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1c2xAknmc1fx-xKBJhLp-EcmZwAAnDIgCPf-pj6wmCHc';
+const DEFAULT_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1V6ewEwiOVhm5wZfZ9bSwpDHVMyEAz0Nm/edit?gid=412207426';
+const DEFAULT_SHEET_NAME = 'THỬA ĐÃ ĐƯỢC ĐÓNG TẬP(CÓ CCCD)';
+const DEFAULT_SHEET_GID = '412207426';
 const SHEET_CACHE_TTL = 3 * 60 * 1000; // Lưu cache 3 phút
 
 const DEFAULT_GEMINI_KEYS = [];

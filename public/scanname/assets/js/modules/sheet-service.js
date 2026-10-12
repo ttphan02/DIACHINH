@@ -11,36 +11,72 @@ function fetchNamesFromGoogleSheet(identifier, forceRefresh = false) {
       showToast('Link Google Sheet không hợp lệ!', false);
       return resolve([]);
     }
-    const spreadsheetId = matchId[1];
-    const sheet = document.getElementById('sheetNameInput')?.value.trim() || 'Trang tính1';
-    const limit = parseInt(document.getElementById('sheetLimitInput')?.value, 10) || 100;
+    const matchGid = url.match(/[?&#]gid=([0-9]+)/);
+    const gidParam = matchGid ? matchGid[1] : '';
+    const sheet = document.getElementById('sheetNameInput')?.value.trim() || (typeof DEFAULT_SHEET_NAME !== 'undefined' ? DEFAULT_SHEET_NAME : 'THỬA ĐÃ ĐƯỢC ĐÓNG TẬP(CÓ CCCD)');
+    const limit = parseInt(document.getElementById('sheetLimitInput')?.value, 10) || 500;
 
     const processTableData = (data) => {
       if (!data || !data.table || !data.table.rows) return [];
       const rows = data.table.rows;
-      const recentRows = rows.slice(-limit);
+      const recentRows = limit > 0 && limit < rows.length ? rows.slice(-limit) : rows;
 
       const matchedNames = [];
       for (let i = recentRows.length - 1; i >= 0; i--) {
         const row = recentRows[i];
         if (!row || !row.c) continue;
 
-        const cellK = row.c[10];
-        let valK = cellK ? (cellK.f != null ? String(cellK.f).trim() : (cellK.v != null ? String(cellK.v).trim() : '')) : '';
+        // Check CCCD from Col G (index 6, new sheet) or Col K (index 10, old sheet)
+        let cccdCandidates = [];
+        [6, 10].forEach(idx => {
+          const cell = row.c[idx];
+          if (cell) {
+            const v = cell.f != null ? String(cell.f).trim() : (cell.v != null ? String(cell.v).trim() : '');
+            if (v) cccdCandidates.push(v);
+          }
+        });
 
-        const cellC = row.c[2];
-        let valC = cellC ? (cellC.f != null ? String(cellC.f).trim() : (cellC.v != null ? String(cellC.v).trim() : '')) : '';
+        let isMatch = false;
+        for (const valCCCD of cccdCandidates) {
+          const cleanVal = valCCCD.replace(/\D/g, '');
+          const normVal = cleanVal.padStart(12, '0');
+          const normId = cleanId.padStart(12, '0');
 
-        const cleanK = valK.replace(/\D/g, '');
-        const normK = cleanK.padStart(12, '0');
-        const normId = cleanId.padStart(12, '0');
+          if (
+            valCCCD === String(identifier).trim() ||
+            (normVal.length === 12 && normVal === normId) ||
+            (cleanVal.length >= 9 && cleanId.length >= 9 && (cleanVal === cleanId || normVal === normId))
+          ) {
+            isMatch = true;
+            break;
+          }
+        }
 
-        const isMatch = (valK === String(identifier).trim()) ||
-                        (normK.length === 12 && normK === normId) ||
-                        (cleanK.length >= 10 && cleanId.length >= 10 && (cleanK === cleanId || normK === normId));
+        if (isMatch) {
+          // Case 1: Col B (index 1) = Mã thửa (ví dụ: 276_213) ở sheet mới
+          const cellB = row.c[1];
+          const valB = cellB ? (cellB.f != null ? String(cellB.f).trim() : (cellB.v != null ? String(cellB.v).trim() : '')) : '';
 
-        if (isMatch && valC) {
-          matchedNames.push(valC);
+          // Case 2: Col C (index 2) = Mã GCN (CHUACOGIAY_...) ở sheet cũ
+          const cellC = row.c[2];
+          const valC = cellC ? (cellC.f != null ? String(cellC.f).trim() : (cellC.v != null ? String(cellC.v).trim() : '')) : '';
+
+          let gcnName = '';
+          if (valB && /^\d+_\d+$/.test(valB)) {
+            gcnName = `CHUACOGIAY_24478_${valB}`;
+          } else if (valB && valB.startsWith('CHUACOGIAY')) {
+            gcnName = valB;
+          } else if (valC && valC.startsWith('CHUACOGIAY')) {
+            gcnName = valC;
+          } else if (valB) {
+            gcnName = `CHUACOGIAY_24478_${valB}`;
+          } else if (valC) {
+            gcnName = valC;
+          }
+
+          if (gcnName && !matchedNames.includes(gcnName)) {
+            matchedNames.push(gcnName);
+          }
         }
       }
       return matchedNames;
