@@ -968,6 +968,19 @@ export default function DashboardPage() {
               <ExternalLink className="w-3 h-3 opacity-70" />
             </a>
 
+            {/* Nút Liên Kết File THONGKE Tổng Hợp & Đóng Tập CCCD */}
+            <a
+              href="https://docs.google.com/spreadsheets/d/1V6ewEwiOVhm5wZfZ9bSwpDHVMyEAz0Nm/edit?usp=sharing"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20 transition cursor-pointer"
+              title="Mở Google Sheets: THỐNG KÊ TIẾN ĐỘ & ĐÓNG TẬP CCCD 57 CỘT"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span className="hidden lg:inline">Bảng Thống Kê & Đóng Tập</span>
+              <ExternalLink className="w-3 h-3 opacity-70" />
+            </a>
+
             {/* Đồng bộ GGS */}
             <button
               onClick={() => fetchGgsCodes()}
