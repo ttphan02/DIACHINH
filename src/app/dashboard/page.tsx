@@ -11,8 +11,10 @@ import DashboardParcelModal from '@/components/DashboardParcelModal';
 import DeclarationEditModal from '@/components/DeclarationEditModal';
 import VectorViewerModal from '@/components/VectorViewerModal';
 import CccdSupplementModal from '@/components/CccdSupplementModal';
+import CccdManagerTab from '@/components/CccdManagerTab';
 import {
   Camera,
+  HardDrive,
   Map as MapIcon,
   BarChart3,
   PieChart,
@@ -75,7 +77,7 @@ export default function DashboardPage() {
   const [pageSize, setPageSize] = useState<number>(25);
 
   // Active view tab in Dashboard
-  const [activeTab, setActiveTab] = useState<'overview' | 'villages' | 'landTypes' | 'table'>('table');
+  const [activeTab, setActiveTab] = useState<'overview' | 'villages' | 'landTypes' | 'table' | 'cccd'>('table');
 
   // Checkbox Selection state for Batch PDF Export
   const [selectedParcelCodes, setSelectedParcelCodes] = useState<Set<string>>(new Set());
@@ -1005,6 +1007,16 @@ export default function DashboardPage() {
               <span>Bổ Sung CCCD (Quét AI)</span>
             </button>
 
+            {/* Nút Kho Quản Lý CCCD */}
+            <button
+              onClick={() => setActiveTab('cccd')}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/30 transition cursor-pointer"
+              title="Mở Kho Quản lý toàn bộ file CCCD trên Cloudflare R2 (Xem, thêm, xóa)"
+            >
+              <HardDrive className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Kho CCCD (R2)</span>
+            </button>
+
             {/* Nút Xuất Excel Đã Kê Khai */}
             <button
               onClick={handleExportDeclaredExcel}
@@ -1315,6 +1327,18 @@ export default function DashboardPage() {
           >
             <FileSpreadsheet className="w-4 h-4" />
             Tra Cứu & Quản Lý Kê Khai ({filteredParcels.length.toLocaleString('vi-VN')})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('cccd')}
+            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 ${
+              activeTab === 'cccd'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <HardDrive className="w-4 h-4 text-indigo-400" />
+            Kho CCCD (Quản Lý R2)
           </button>
 
           <button
@@ -2170,6 +2194,23 @@ export default function DashboardPage() {
               ))}
             </div>
           </div>
+        )}
+
+        {/* TAB 5: QUẢN LÝ KHO CCCD (CLOUDFLARE R2) */}
+        {activeTab === 'cccd' && (
+          <CccdManagerTab
+            onOpenAddModal={() => {
+              setSelectedParcelForCccd('');
+              setIsCccdSupplementOpen(true);
+            }}
+            onSelectParcel={(code) => {
+              const p = computedParcels.find((cp) => cp.ma_thua === code);
+              if (p) {
+                setActiveParcelDetail(p);
+                setIsDetailModalOpen(true);
+              }
+            }}
+          />
         )}
       </main>
 

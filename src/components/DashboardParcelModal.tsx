@@ -193,11 +193,25 @@ export default function DashboardParcelModal({
                 </strong>
               </div>
 
-              <div>
+              <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800 flex flex-col justify-between">
                 <span className="text-[10px] text-slate-500 block">Số CCCD / CMND:</span>
-                <strong className="text-slate-200 font-mono text-sm block">
-                  {declaration?.chu_dat_cccd || parcel.cccd || '---'}
-                </strong>
+                <div className="flex items-center justify-between gap-1.5 mt-0.5">
+                  <strong className="text-indigo-300 font-mono text-sm block">
+                    {declaration?.chu_dat_cccd || declaration?.cccd_chu_ho || parcel.cccd || '---'}
+                  </strong>
+                  {(declaration?.anh_cccd_pdf || declaration?.cccd_chu_ho || parcel.cccd) && (
+                    <a
+                      href={declaration?.anh_cccd_pdf || `https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/cccd/${declaration?.cccd_chu_ho || parcel.cccd}.pdf`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/30 flex items-center gap-1 transition"
+                      title="Xem file PDF CCCD trên Cloudflare R2"
+                    >
+                      <Eye className="w-3 h-3" />
+                      <span>Xem PDF</span>
+                    </a>
+                  )}
+                </div>
               </div>
 
               <div>
