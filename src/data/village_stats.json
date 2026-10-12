@@ -1,0 +1,166 @@
+{
+  "coten": {
+    "Thôn Ba Phường": {
+      "total": 70,
+      "daco": 2,
+      "rate": "2.9%"
+    },
+    "Buôn Ngô": {
+      "total": 216,
+      "daco": 176,
+      "rate": "81.5%"
+    },
+    "Buôn Bhung": {
+      "total": 6,
+      "daco": 2,
+      "rate": "33.3%"
+    },
+    "Buôn Cư Phiang": {
+      "total": 24,
+      "daco": 11,
+      "rate": "45.8%"
+    },
+    "Buôn Tliêr": {
+      "total": 48,
+      "daco": 13,
+      "rate": "27.1%"
+    },
+    "Thôn Hòa Phong": {
+      "total": 137,
+      "daco": 1,
+      "rate": "0.7%"
+    },
+    "Thôn Cẩm Phong": {
+      "total": 133,
+      "daco": 12,
+      "rate": "9.0%"
+    },
+    "Thôn Noh Prông": {
+      "total": 22,
+      "daco": 8,
+      "rate": "36.4%"
+    },
+    "Thôn Ea Khiêm": {
+      "total": 44,
+      "daco": 3,
+      "rate": "6.8%"
+    },
+    "Buôn Đăk Tuôr": {
+      "total": 299,
+      "daco": 12,
+      "rate": "4.0%"
+    },
+    "Buôn Khanh": {
+      "total": 183,
+      "daco": 2,
+      "rate": "1.1%"
+    },
+    "Ea Uôl": {
+      "total": 133,
+      "daco": 5,
+      "rate": "3.8%"
+    },
+    "Thôn Ea Lang": {
+      "total": 193,
+      "daco": 2,
+      "rate": "1.0%"
+    },
+    "Thôn Cư Tê": {
+      "total": 24,
+      "daco": 3,
+      "rate": "12.5%"
+    },
+    "Thôn Ea Rớt": {
+      "total": 61,
+      "daco": 2,
+      "rate": "3.3%"
+    }
+  },
+  "khongten": {
+    "Buôn Ngô": {
+      "total": 29,
+      "daco": 8,
+      "rate": 1
+    },
+    "Thôn Ba Phường": {
+      "total": 223,
+      "daco": 86,
+      "rate": 0
+    },
+    "Thôn Hòa Phong": {
+      "total": 171,
+      "daco": 22,
+      "rate": 14
+    },
+    "Buôn Tliêr": {
+      "total": 130,
+      "daco": 78,
+      "rate": 0
+    },
+    "Buôn Cư Phiang": {
+      "total": 20,
+      "daco": 10,
+      "rate": 0
+    },
+    "Thôn Cẩm Phong": {
+      "total": 303,
+      "daco": 166,
+      "rate": 14
+    },
+    "Thôn Noh Prông": {
+      "total": 76,
+      "daco": 49,
+      "rate": 0
+    },
+    "Thôn Ea Khiêm": {
+      "total": 14,
+      "daco": 8,
+      "rate": 0
+    },
+    "Buôn Bhung": {
+      "total": 92,
+      "daco": 69,
+      "rate": 18
+    },
+    "Buôn Đăk Tuôr": {
+      "total": 303,
+      "daco": 173,
+      "rate": 0
+    },
+    "Buôn Khanh": {
+      "total": 141,
+      "daco": 109,
+      "rate": 0
+    },
+    "Ea Uôl": {
+      "total": 184,
+      "daco": 161,
+      "rate": 0
+    },
+    "Thôn Ea Lang": {
+      "total": 245,
+      "daco": 206,
+      "rate": 1
+    },
+    "Thôn Cư Tê": {
+      "total": 40,
+      "daco": 34,
+      "rate": 1
+    },
+    "Thôn Ea Bar": {
+      "total": 46,
+      "daco": 17,
+      "rate": 0
+    },
+    "Thôn Ea Rớt": {
+      "total": 276,
+      "daco": 150,
+      "rate": 0
+    },
+    "chưa sát định": {
+      "total": 89,
+      "daco": 37,
+      "rate": 0
+    }
+  }
+}

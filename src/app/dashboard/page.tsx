@@ -763,8 +763,8 @@ export default function DashboardPage() {
       let addr = decl.chu_dat_dia_chi || (p.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'xã Cư Pui');
       let name = decl.chu_dat_ten || p.chu_ho || '';
       let cccd = decl.chu_dat_cccd || p.cccd || '';
-      let dob = decl.chu_dat_ngay_sinh || p.ngay_sinh || '';
-      let gender = decl.chu_dat_gioi_tinh || p.gioi_tinh || 'Nam';
+      let dob = decl.chu_dat_ngay_sinh || (p as any).ngay_sinh || '';
+      let gender = decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam';
       let loaiDat = (decl.loai_dat || p.loai_dat || 'ONT').toUpperCase();
       let dt = p.dien_tich || '0';
       let origin = decl.nguon_goc || 'Khai hoang';

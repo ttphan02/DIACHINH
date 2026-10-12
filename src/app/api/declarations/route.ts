@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { DeclarationFormData } from '@/types';
+import { executeSyncToGoogleSheet } from '@/utils/syncGoogleSheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -206,6 +207,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Không thể ghi vào Cloudflare R2' }, { status: 500 });
     }
 
+    // Tự động kích hoạt đồng bộ tức thì sang Google Sheet Realtime
+    getR2Binding().then((bucket) => {
+      executeSyncToGoogleSheet(updatedPayload.declarationsMap, bucket).catch((err) =>
+        console.error('Lỗi sync Google Sheet sau khi lưu:', err)
+      );
+    });
+
     return NextResponse.json({
       success: true,
       declaredCodes: updatedCodes,
@@ -257,6 +265,13 @@ export async function DELETE(request: Request) {
     };
 
     await saveDeclarationsToR2(updatedPayload);
+
+    // Tự động kích hoạt đồng bộ tức thì sang Google Sheet Realtime
+    getR2Binding().then((bucket) => {
+      executeSyncToGoogleSheet(updatedPayload.declarationsMap, bucket).catch((err) =>
+        console.error('Lỗi sync Google Sheet sau khi xóa:', err)
+      );
+    });
 
     return NextResponse.json({
       success: true,
