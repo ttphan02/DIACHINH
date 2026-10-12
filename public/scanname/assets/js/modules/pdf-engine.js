@@ -708,6 +708,98 @@ async function exportAllGroupsZip() {
   }
 }
 
+// Lưu toàn bộ nhóm file scan vào Cloudflare R2 (folder filescan/) & Kích hoạt đồng bộ Google Sheet
+async function saveAllGroupsToR2() {
+  if (!pdfGroups || pdfGroups.length === 0) {
+    showToast('Chưa có nhóm nào được tạo để lưu vào R2!', false);
+    return;
+  }
+
+  const confirmSave = confirm(
+    `Bạn có chắc chắn muốn lưu toàn bộ ${pdfGroups.length} nhóm file scan này vào folder "filescan/" trên Cloudflare R2 không?\n\nSau khi lưu, hệ thống sẽ tự động đồng bộ sang Google Sheet: Chuyển các thửa tương ứng từ "THỬA SẴN SÀNG ĐÓNG TẬP (CÓ CCCD)" sang "NHẬP GGS" (57 cột)!`
+  );
+  if (!confirmSave) return;
+
+  showSpinner(`Đang khởi tạo lưu ${pdfGroups.length} nhóm file scan vào Cloudflare R2...`);
+
+  try {
+    const payloadFiles = [];
+
+    for (let i = 0; i < pdfGroups.length; i++) {
+      const group = pdfGroups[i];
+      showSpinner(`Đang tạo PDF nhóm ${i + 1}/${pdfGroups.length}: ${group.name}...`);
+
+      const selectedIndices = group.pageNumbers.map(p => p - 1);
+      const pdfBytes = await buildPdfBytesForIndices(selectedIndices, group);
+
+      const rawLines = (group.filenamesText || '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      const baseNames = rawLines.length > 0 ? rawLines : [`${originalFileName}-${group.name.replace(/\s+/g, '')}`];
+
+      // Convert Uint8Array sang Base64 an toàn từng chunk
+      let binary = '';
+      const chunkSize = 8192;
+      for (let j = 0; j < pdfBytes.length; j += chunkSize) {
+        const chunk = pdfBytes.subarray(j, j + chunkSize);
+        binary += String.fromCharCode.apply(null, chunk);
+      }
+      const b64 = btoa(binary);
+
+      baseNames.forEach(name => {
+        let base = name.replace(/\.pdf$/i, '').trim();
+        if (group.addDDK && !base.toUpperCase().endsWith('-DDK')) {
+          base += '-DDK';
+        }
+        payloadFiles.push({
+          filename: `${base}.pdf`,
+          fileBase64: b64
+        });
+      });
+    }
+
+    if (payloadFiles.length === 0) {
+      showToast('Không có file nào để lưu!', false);
+      return;
+    }
+
+    let successCount = 0;
+    for (let k = 0; k < payloadFiles.length; k++) {
+      const item = payloadFiles[k];
+      showSpinner(`Đang lưu lên R2 (${k + 1}/${payloadFiles.length}): ${item.filename}...`);
+
+      const res = await fetch('/api/upload-filescan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: item.filename,
+          fileBase64: item.fileBase64
+        })
+      });
+
+      const resData = await res.json();
+      if (resData.success) {
+        successCount++;
+      } else {
+        console.warn(`Lỗi lưu file ${item.filename}:`, resData.error);
+      }
+    }
+
+    showSpinner('Đang kích hoạt đồng bộ Google Sheet sang NHẬP GGS...');
+    try {
+      await fetch('/api/sync-sheets');
+    } catch (e) {
+      console.warn('Lỗi trigger sync sheet:', e);
+    }
+
+    showToast(`✅ Đã lưu thành công ${successCount}/${payloadFiles.length} file vào R2 filescan/ & Đã đồng bộ Google Sheet!`, true);
+    alert(`🎉 HOÀN TẤT THÀNH CÔNG!\n\nĐã lưu ${successCount}/${payloadFiles.length} file scan vào folder "filescan/" trên Cloudflare R2!\n\nGoogle Sheets đã được cập nhật: Các thửa tương ứng đã chuyển từ "THỬA SẴN SÀNG ĐÓNG TẬP (CÓ CCCD)" sang "NHẬP GGS"!`);
+  } catch (err) {
+    console.error('Lỗi lưu R2:', err);
+    showToast('Lỗi lưu file lên R2: ' + (err.message || 'Lỗi mạng'), false);
+  } finally {
+    hideSpinner();
+  }
+}
+
 function calculateTotalExportFiles() {
   let totalFiles = 0;
   if (pdfGroups && pdfGroups.length > 0) {

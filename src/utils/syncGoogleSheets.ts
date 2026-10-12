@@ -117,6 +117,8 @@ function build57ColRow(
   row[41] = '0';
   row[42] = 'Không';
   row[51] = fileName;
+  const fileUrl = `${R2_PUBLIC_BASE}/filescan/${fileName}`;
+  row[52] = `=HYPERLINK("${fileUrl}"; "${fileName}")`;
   return row;
 }
 
@@ -155,16 +157,21 @@ async function getR2StorageFiles(r2Bucket?: any): Promise<{ cccdFiles: Set<strin
   const scanFiles = new Set<string>();
   if (r2Bucket) {
     try {
-      const [cccdRes, scanRes]: [any, any] = await Promise.all([
+      const [cccdRes, scanRes, filescanRes]: [any, any, any] = await Promise.all([
         r2Bucket.list({ prefix: 'cccd/', limit: 1000 }),
         r2Bucket.list({ prefix: 'scanhoso/', limit: 1000 }),
+        r2Bucket.list({ prefix: 'filescan/', limit: 1000 }),
       ]);
-      for (const obj of cccdRes.objects || []) {
+      for (const obj of cccdRes?.objects || []) {
         const name = obj.key.replace(/^cccd\//, '');
         if (name) cccdFiles.add(name);
       }
-      for (const obj of scanRes.objects || []) {
+      for (const obj of scanRes?.objects || []) {
         const name = obj.key.replace(/^scanhoso\//, '');
+        if (name) scanFiles.add(name);
+      }
+      for (const obj of filescanRes?.objects || []) {
+        const name = obj.key.replace(/^filescan\//, '');
         if (name) scanFiles.add(name);
       }
     } catch (e) {
@@ -253,10 +260,15 @@ export async function executeSyncToGoogleSheet(
         continue;
       }
 
-      // GIAI ĐOẠN 3: ĐÃ SCAN HỒ SƠ SAU KÝ
+      // GIAI ĐOẠN 3: ĐÃ SCAN HỒ SƠ SAU KÝ (folder filescan/ hoặc scanhoso/ trên R2) -> NHẬP GGS
       let foundScan = '';
       for (const sf of scanFiles) {
-        if (sf.includes(maThua) || sf.includes(`${toMoi}_${thuaMoi}`)) {
+        if (
+          sf.includes(maThua) ||
+          sf.includes(`${toMoi}_${thuaMoi}`) ||
+          sf.includes(`${toMoi}-${thuaMoi}`) ||
+          (cccd && sf.includes(cccd))
+        ) {
           foundScan = sf;
           break;
         }

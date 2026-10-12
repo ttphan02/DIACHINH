@@ -318,6 +318,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnZipHeader = document.getElementById('btnDownloadAllGroupsZipHeader');
   if (btnZipHeader) btnZipHeader.addEventListener('click', exportAllGroupsZip);
 
+  // Lưu R2 (filescan/) & Đồng bộ Google Sheets Buttons
+  const btnSaveToR2Header = document.getElementById('btnSaveToR2Header');
+  if (btnSaveToR2Header) btnSaveToR2Header.addEventListener('click', saveAllGroupsToR2);
+
+  const btnSaveToR2Sticky = document.getElementById('btnSaveToR2Sticky');
+  if (btnSaveToR2Sticky) btnSaveToR2Sticky.addEventListener('click', saveAllGroupsToR2);
+
+  const btnSaveToR2GroupsHeader = document.getElementById('btnSaveToR2GroupsHeader');
+  if (btnSaveToR2GroupsHeader) btnSaveToR2GroupsHeader.addEventListener('click', saveAllGroupsToR2);
+
   // CCCD Pickers
   const cccdFolderPicker = document.getElementById('cccdFolderPicker');
   const cccdSinglePicker = document.getElementById('cccdSinglePicker');

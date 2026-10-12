@@ -37,6 +37,9 @@
         <button class="action-btn" id="btnManualSaveSession" style="background: rgba(16, 185, 129, 0.18); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; padding: 6px 14px; font-size: 13px;" title="Lưu thủ công toàn bộ trạng thái đang làm việc vào ổ cứng (chống mất dữ liệu)">
           <i class="fa-solid fa-floppy-disk"></i> Lưu Trạng Thái
         </button>
+        <button class="action-btn" id="btnSaveToR2Header" style="background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: 1px solid rgba(16, 185, 129, 0.5); font-weight: 700; padding: 6px 14px; font-size: 13px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);" title="Lưu các nhóm file scan đã xử lý trực tiếp vào Cloudflare R2 (folder filescan) & Tự động đồng bộ sang Google Sheets (NHẬP GGS)">
+          <i class="fa-solid fa-cloud-arrow-up"></i> Lưu R2 (filescan) & GGS
+        </button>
         <button class="action-btn" id="btnManageGeminiKeys" style="background: rgba(236, 72, 153, 0.2); color: #f472b6; border: 1px solid rgba(236, 72, 153, 0.4); font-weight: 700; padding: 6px 14px; font-size: 13px;" title="Xem và cập nhật danh sách API Key Gemini">
           <i class="fa-solid fa-key"></i> Cấu Hình Gemini Keys
         </button>
@@ -162,6 +165,9 @@
             <i class="fa-solid fa-file-signature"></i> Lấy Tên Hàng Loạt
           </button>
           
+          <button class="action-btn" id="btnSaveToR2Sticky" style="background: linear-gradient(135deg, #059669, #10b981); color: #fff; font-weight: 700; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.45); border: 1px solid #34d399;" title="Lưu toàn bộ các nhóm file scan vào folder filescan của R2 & Đồng bộ sang Google Sheet (chuyển sang NHẬP GGS)">
+            <i class="fa-solid fa-cloud-arrow-up"></i> ☁️ Lưu R2 (filescan) & GGS
+          </button>
           <button class="action-btn" id="btnDownloadAllGroupsZipSticky" style="background: linear-gradient(135deg, #10b981, #047857); color: #fff; font-weight: 700; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);" title="Tải về tất cả các nhóm dưới dạng 1 file ZIP duy nhất">
             <i class="fa-solid fa-file-zipper"></i> Tải ZIP Tất Cả Nhóm
           </button>
@@ -222,6 +228,9 @@
           </button>
           <button class="action-btn" id="btnBatchFetchSheetNamesHeader" style="background: linear-gradient(135deg, #06b6d4, #3b82f6); color: #fff; font-weight: 700; padding: 8px 16px;">
             <i class="fa-solid fa-file-signature"></i> Lấy Tên Hàng Loạt
+          </button>
+          <button class="action-btn" id="btnSaveToR2GroupsHeader" style="background: linear-gradient(135deg, #059669, #10b981); color: #fff; font-weight: 700; padding: 8px 18px; border: 1px solid #34d399; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);" title="Lưu tất cả nhóm PDF vào folder filescan của R2 và đồng bộ Google Sheet">
+            <i class="fa-solid fa-cloud-arrow-up"></i> Lưu R2 (filescan/) & GGS
           </button>
           <button class="action-btn" id="btnDownloadAllGroupsZipHeader" style="background: linear-gradient(135deg, #10b981, #047857); color: #fff; font-weight: 700; padding: 8px 18px;" title="Tải về tất cả các nhóm dưới dạng 1 file ZIP duy nhất">
             <i class="fa-solid fa-file-zipper"></i> Tải ZIP Tất Cả Nhóm

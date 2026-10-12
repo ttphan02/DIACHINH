@@ -30,9 +30,10 @@ function base64ToUint8Array(base64: string): Uint8Array {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as any;
-    const { frontBase64, backBase64, so_cccd, ho_va_ten, ma_thua } = body;
+    const { frontBase64, backBase64, imageBase64, so_cccd, ho_va_ten, ma_thua } = body;
+    const imgPrimary = imageBase64 || frontBase64;
 
-    if (!frontBase64 && !backBase64) {
+    if (!imgPrimary && !backBase64) {
       return NextResponse.json({ success: false, error: 'Vui lòng cung cấp ít nhất một ảnh CCCD' }, { status: 400 });
     }
 
