@@ -1,8 +1,6 @@
 import villageStatsData from '@/data/village_stats.json';
-import parcelsData from '@/data/parcels.json';
 
-const GGS_MAIN_CSV_URL =
-  'https://docs.google.com/spreadsheets/d/1c2xAknmc1fx-xKBJhLp-EcmZwAAnDIgCPf-pj6wmCHc/export?format=csv&gid=0';
+const GGS_SYNC_INTERNAL_URL = 'https://diachinh.phantruc0210.workers.dev/api/sync-ggs';
 
 const URL_GGS_WEBHOOK =
   'https://script.google.com/macros/s/AKfycbz_eRd1wHajwLecXAiy8QvhbZebmkgPnPCB4PM8z4tMNjZ16hCO_ZTpW0Q93KnwFZn8/exec';
@@ -12,7 +10,7 @@ const R2_PUBLIC_BASE = 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
 // Chuẩn hóa CCCD (12 chữ số)
 export function cleanCccd(val: any): string {
   if (!val) return '';
-  let s = String(val).trim().replace(/\.0$/, '');
+  const s = String(val).trim().replace(/\.0$/, '');
   const digits = s.replace(/\D/g, '');
   if (digits.length >= 9 && digits.length <= 12) {
     return digits.padStart(12, '0');
@@ -122,84 +120,50 @@ function build57ColRow(
   return row;
 }
 
-// Tải và lập chỉ mục Google Sheet chính
-async function fetchGgsIndex(): Promise<{
+// Lấy danh sách mã GGS từ API cache sẵn có
+async function getCachedGgsData(): Promise<{
   ggsCodes: Set<string>;
-  nameToCccd: Map<string, string>;
-  cccdToName: Map<string, string>;
+  ggsParcels: Record<string, any>;
 }> {
   const ggsCodes = new Set<string>();
-  const nameToCccd = new Map<string, string>();
-  const cccdToName = new Map<string, string>();
+  let ggsParcels: Record<string, any> = {};
 
   try {
-    const res = await fetch(GGS_MAIN_CSV_URL, { next: { revalidate: 300 } });
-    if (!res.ok) return { ggsCodes, nameToCccd, cccdToName };
-    const text = await res.text();
-    const lines = text.split('\n');
-
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      // Trích xuất tối đa 25 cột
-      const parts = line.split(',');
-      if (parts.length < 9) continue;
-
-      const toMoi = parts[7]?.replace(/["\r]/g, '').trim();
-      const thuaMoi = parts[8]?.replace(/["\r]/g, '').trim();
-      if (toMoi && thuaMoi) {
-        ggsCodes.add(`${toMoi}_${thuaMoi}`);
+    const res = await fetch(GGS_SYNC_INTERNAL_URL, {
+      headers: { 'User-Agent': 'Cloudflare-Worker-Internal' },
+      next: { revalidate: 300 }
+    });
+    if (res.ok) {
+      const data: any = await res.json();
+      if (Array.isArray(data.ggsCodes)) {
+        data.ggsCodes.forEach((c: string) => ggsCodes.add(c));
       }
-
-      const nameClean = cleanName(parts[2]?.replace(/["\r]/g, ''));
-      const cccdClean = cleanCccd(parts[5]?.replace(/["\r]/g, ''));
-      if (nameClean && cccdClean) {
-        if (!nameToCccd.has(nameClean)) nameToCccd.set(nameClean, cccdClean);
-        if (!cccdToName.has(cccdClean)) cccdToName.set(cccdClean, nameClean);
+      if (data.ggsParcels) {
+        ggsParcels = data.ggsParcels;
       }
     }
   } catch (e) {
-    console.warn('Lỗi khi fetch GGS CSV:', e);
+    console.warn('Lỗi lấy GGS cache:', e);
   }
 
-  return { ggsCodes, nameToCccd, cccdToName };
+  return { ggsCodes, ggsParcels };
 }
 
-// Lấy danh sách file CCCD và SCAN từ R2
-async function getR2FileLists(r2Bucket?: any): Promise<{
-  cccdFiles: Set<string>;
-  scanFiles: Set<string>;
-}> {
-  const cccdFiles = new Set<string>();
-  const scanFiles = new Set<string>();
-
+// Lấy danh sách file CCCD trên R2 (nhanh, 1 lần list)
+async function getR2CccdFiles(r2Bucket?: any): Promise<Set<string>> {
+  const files = new Set<string>();
   if (r2Bucket) {
     try {
-      let cursor: string | undefined = undefined;
-      do {
-        const listRes: any = await r2Bucket.list({ prefix: 'cccd/', cursor });
-        for (const obj of listRes.objects || []) {
-          const name = obj.key.replace(/^cccd\//, '');
-          if (name) cccdFiles.add(name);
-        }
-        cursor = listRes.truncated ? listRes.cursor : undefined;
-      } while (cursor);
-
-      cursor = undefined;
-      do {
-        const listRes: any = await r2Bucket.list({ prefix: 'scanhoso/', cursor });
-        for (const obj of listRes.objects || []) {
-          const name = obj.key.replace(/^scanhoso\//, '');
-          if (name) scanFiles.add(name);
-        }
-        cursor = listRes.truncated ? listRes.cursor : undefined;
-      } while (cursor);
+      const listRes: any = await r2Bucket.list({ prefix: 'cccd/', limit: 1000 });
+      for (const obj of listRes.objects || []) {
+        const name = obj.key.replace(/^cccd\//, '');
+        if (name) files.add(name);
+      }
     } catch (e) {
-      console.warn('Lỗi khi list R2 files:', e);
+      console.warn('Lỗi list R2 cccd:', e);
     }
   }
-
-  return { cccdFiles, scanFiles };
+  return files;
 }
 
 // Hàm chính đồng bộ toàn bộ bảng tính
@@ -208,21 +172,27 @@ export async function executeSyncToGoogleSheet(
   r2Bucket?: any
 ): Promise<{ success: boolean; message: string }> {
   try {
-    console.log('>>> Bắt đầu tiến trình Cloudflare Sync sang Google Sheet...');
+    console.log('>>> Cloudflare Sync: Bắt đầu tối ưu...');
 
-    // 1. Lấy chỉ mục GGS & Danh sách file R2
-    const [{ ggsCodes, nameToCccd, cccdToName }, { cccdFiles, scanFiles }] = await Promise.all([
-      fetchGgsIndex(),
-      getR2FileLists(r2Bucket),
+    // 1. Lấy mã GGS và danh sách file CCCD từ R2
+    const [{ ggsCodes, ggsParcels }, cccdFiles] = await Promise.all([
+      getCachedGgsData(),
+      getR2CccdFiles(r2Bucket),
     ]);
 
-    // 2. Lập bản đồ tra cứu thửa từ 11.280 thửa gốc
-    const parcelIndex = new Map<string, any>();
-    for (const p of parcelsData as any[]) {
-      parcelIndex.set(p.ma_thua, p);
+    // Lập bản đồ tên chủ hộ -> CCCD từ GGS parcels
+    const nameToCccd = new Map<string, string>();
+    for (const p of Object.values(ggsParcels)) {
+      if (p.chu_ho && p.cccd) {
+        const nClean = cleanName(p.chu_ho);
+        const cClean = cleanCccd(p.cccd);
+        if (nClean && cClean && !nameToCccd.has(nClean)) {
+          nameToCccd.set(nClean, cClean);
+        }
+      }
     }
 
-    // 3. Phân loại 4 giai đoạn
+    // 2. Phân loại 4 giai đoạn CHỈ TRÊN các phiếu đã kê khai (nhẹ, <1ms)
     const stage4DaGiaiQuyet: any[] = [];
     const stage3NhapGgs: any[] = [];
     const stage2DaDongTap: any[] = [];
@@ -235,12 +205,12 @@ export async function executeSyncToGoogleSheet(
       if (!maThua || processedParcels.has(maThua)) continue;
       processedParcels.add(maThua);
 
-      const toMoi = decl.to_ban_do || maThua.split('_')[0] || '';
-      const thuaMoi = decl.so_thua || maThua.split('_')[1] || '';
-      const baseP = parcelIndex.get(maThua) || {};
+      const parts = maThua.split('_');
+      const toMoi = decl.to_ban_do || parts[0] || '';
+      const thuaMoi = decl.so_thua || parts[1] || '';
 
-      const chuHo = cleanName(decl.ho_va_ten_chu_ho || decl.chu_ho || baseP.chu_ho || '');
-      let cccd = cleanCccd(decl.cccd_chu_ho || decl.cccd || baseP.cccd || '');
+      const chuHo = cleanName(decl.ho_va_ten_chu_ho || decl.chu_ho || decl.chu_dat_ten || '');
+      let cccd = cleanCccd(decl.cccd_chu_ho || decl.cccd || decl.chu_dat_cccd || '');
       let cccdSource = cccd ? 'Kê khai web' : '';
 
       if (!cccd && chuHo && nameToCccd.has(chuHo)) {
@@ -248,9 +218,9 @@ export async function executeSyncToGoogleSheet(
         cccdSource = 'Khớp tên GGS';
       }
 
-      const thonXa = normalizeAddress(decl.dia_chi_thua_dat || decl.thon_xa || baseP.thon_xa || '');
-      const dienTich = decl.dien_tich || baseP.dien_tich || '';
-      const loaiDat = decl.loai_dat || baseP.loai_dat || '';
+      const thonXa = normalizeAddress(decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || '');
+      const dienTich = decl.dien_tich || '';
+      const loaiDat = decl.loai_dat || 'DGT';
 
       const item = {
         ma_thua: maThua,
@@ -275,20 +245,6 @@ export async function executeSyncToGoogleSheet(
         continue;
       }
 
-      // GIAI ĐOẠN 3: ĐÃ SCAN HỒ SƠ
-      let foundScan = '';
-      for (const sf of scanFiles) {
-        if (sf.includes(`${toMoi}_${thuaMoi}`)) {
-          foundScan = sf;
-          break;
-        }
-      }
-      if (foundScan) {
-        item.scan_file = foundScan;
-        stage3NhapGgs.push(item);
-        continue;
-      }
-
       // GIAI ĐOẠN 2: CÓ CCCD TRÊN R2
       let foundCccd = '';
       if (cccd) {
@@ -298,7 +254,6 @@ export async function executeSyncToGoogleSheet(
         }
       }
       if (!foundCccd) {
-        // Tìm xem có file ảnh hoặc PDF theo mã thửa
         for (const cf of cccdFiles) {
           if (cf.startsWith(`${maThua}.`) || (cccd && cf.startsWith(`${cccd}.`))) {
             foundCccd = cf;
@@ -329,7 +284,7 @@ export async function executeSyncToGoogleSheet(
       }
     }
 
-    // 4. Xây dựng cấu trúc các Sheet để gửi lên Webhook
+    // 3. Xây dựng cấu trúc các Sheet để gửi lên Webhook
     const sheetsData: Record<string, string[][]> = {};
 
     // SHEET 4: THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)
@@ -491,7 +446,7 @@ export async function executeSyncToGoogleSheet(
 
     sheetsData['THỐNG KÊ'] = rowsTk;
 
-    // 5. Gửi lên Google Apps Script Webhook
+    // 4. Gửi lên Google Apps Script Webhook
     const payloadStr = JSON.stringify(sheetsData);
     console.log(`>>> Gửi payload (${payloadStr.length} bytes) lên Google Sheet Webhook...`);
 
