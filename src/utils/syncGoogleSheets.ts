@@ -444,7 +444,17 @@ export async function executeSyncToGoogleSheet(
       String(sumS4), String(sumS3), String(sumS2), String(sumS1Can), String(sumS1Khong)
     ]);
 
-    sheetsData['THỐNG KÊ'] = rowsTk;
+    function padRectangular(rows: string[][]): string[][] {
+      if (!rows || rows.length === 0) return [];
+      const maxLen = Math.max(...rows.map((r) => r.length));
+      return rows.map((r) => (r.length < maxLen ? [...r, ...new Array(maxLen - r.length).fill('')] : r));
+    }
+
+    sheetsData['THỐNG KÊ'] = padRectangular(rowsTk);
+    sheetsData['ĐÃ GIẢI QUYẾT'] = padRectangular(rowsDone);
+    sheetsData['NHẬP GGS'] = padRectangular(rows57);
+    sheetsData['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] = padRectangular(rowsPack);
+    sheetsData['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] = padRectangular(rowsUnpack);
 
     // 4. Gửi lên Google Apps Script Webhook
     const payloadStr = JSON.stringify(sheetsData);
