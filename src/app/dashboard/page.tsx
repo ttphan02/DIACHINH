@@ -724,6 +724,91 @@ export default function DashboardPage() {
     URL.revokeObjectURL(url);
   };
 
+  // 9c. XUẤT FILE 57 CỘT CHUẨN NHẬP GOOGLE SHEETS TRỰC TIẾP TỪ WEB
+  const handleExport57Cot = () => {
+    let targetParcels = computedParcels.filter(
+      (p) =>
+        declaredParcelCodes.has(p.ma_thua) ||
+        p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM' ||
+        Boolean(declarationsMap[p.ma_thua])
+    );
+
+    if (selectedParcelCodes.size > 0) {
+      targetParcels = computedParcels.filter((p) => selectedParcelCodes.has(p.ma_thua));
+    }
+
+    if (targetParcels.length === 0) {
+      alert('Chưa có thửa đất nào được chọn hoặc đã kê khai để xuất 57 cột nhập GGS.');
+      return;
+    }
+
+    const headers_57 = [
+      'Mã Xã', 'Mã GCN', 'Số seri', 'Số vào sổ', 'Ngày cấp', 'Người ký',
+      'Chủ sử dụng', 'Ngày sinh', 'Giới tính', 'Số CCCD', 'Địa chỉ thường trú', 'Đối tượng', 'Chủ hộ',
+      'Vợ/Chồng', 'Ngày sinh vợ/chồng', 'CCCD vợ/chồng', 'Địa chỉ vợ/chồng', 'Năm sinh', 'Quốc tịch', 'Ghi chú pháp lý',
+      'Tờ BĐ', 'Thửa đất', 'Địa chỉ thửa đất', 'Diện tích', 'Loại đất', 'Diện tích giao', 'Nguồn gốc',
+      'Mục đích sử dụng', 'Thời hạn', 'Nguồn gốc SD', 'Hình thức SD', 'Thời điểm SD', 'Số nhà', 'Tên đường', 'Khu dân cư',
+      'Tọa độ X', 'Tọa độ Y', 'Giới hạn Đông', 'Giới hạn Tây', 'Giới hạn Nam', 'Giới hạn Bắc',
+      'Loại biến động', 'Ngày biến động', 'Nội dung biến động', 'Hồ sơ số', 'Cơ quan cấp', 'Cán bộ lập', 'Ngày lập',
+      'Tên file đính kèm', 'Mã hồ sơ tiếp nhận', 'Người nộp', 'SĐT người nộp', 'Trạng thái', 'Ghi chú quy hoạch',
+      'Tranh chấp', 'Quyền hạn chế', 'Ghi chú nội bộ'
+    ];
+
+    const rows: string[] = [];
+
+    targetParcels.forEach((p) => {
+      const decl = declarationsMap[p.ma_thua] || {};
+      const toM = p.to_ban_do || '';
+      const thuaM = p.so_thua || '';
+      let addr = decl.chu_dat_dia_chi || (p.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'xã Cư Pui');
+      let name = decl.chu_dat_ten || p.chu_ho || '';
+      let cccd = decl.chu_dat_cccd || p.cccd || '';
+      let dob = decl.chu_dat_ngay_sinh || p.ngay_sinh || '';
+      let gender = decl.chu_dat_gioi_tinh || p.gioi_tinh || 'Nam';
+      let loaiDat = (decl.loai_dat || p.loai_dat || 'ONT').toUpperCase();
+      let dt = p.dien_tich || '0';
+      let origin = decl.nguon_goc || 'Khai hoang';
+
+      const isHo = /^(hộ ông|hộ bà|hộ)/i.test(name);
+      const cleanName = name.replace(/^(hộ ông\s*:?|hộ bà\s*:?|hộ\s+|ông\s*:?|bà\s*:?)/i, '').trim();
+      const subjType = isHo ? 'Hộ gia đình' : 'Cá nhân';
+      const maGcn = `CHUACOGIAY_24478_${toM}_${thuaM}`;
+      const fileName = `CHUACOGIAY_24478_${toM}_${thuaM}_DDK.pdf`;
+
+      const colArray = new Array(57).fill('');
+      colArray[0] = '24478';
+      colArray[1] = maGcn;
+      colArray[6] = cleanName;
+      colArray[7] = dob;
+      colArray[8] = gender;
+      colArray[9] = cccd;
+      colArray[10] = addr;
+      colArray[11] = subjType;
+      colArray[12] = subjType;
+      colArray[20] = toM;
+      colArray[21] = thuaM;
+      colArray[22] = addr;
+      colArray[23] = dt;
+      colArray[24] = loaiDat;
+      colArray[25] = dt;
+      colArray[26] = origin;
+      colArray[48] = fileName;
+
+      rows.push(colArray.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','));
+    });
+
+    const csvContent = '\uFEFF' + [headers_57.map((h) => `"${h}"`).join(','), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `EXCEL-57COT_NHAP_GGS_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   // 10. ĐÓNG TẬP PDF ĐƠN KÊ KHAI HÔM NAY CHO VIỆC IN
   const handleOpenPrintToday = () => {
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -919,6 +1004,16 @@ export default function DashboardPage() {
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span>Mẫu Nhập Đóng Tập</span>
+            </button>
+
+            {/* Nút Xuất 57 Cột Nhập GGS */}
+            <button
+              onClick={handleExport57Cot}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600/90 hover:bg-rose-600 text-white shadow-md shadow-rose-600/20 transition cursor-pointer"
+              title="Xuất file chuẩn 57 cột nhập thẳng vào Google Sheets theo định dạng app_chuyendoi_diachinh_57cot"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Xuất 57 Cột GGS</span>
             </button>
 
             {/* Nút Đóng tập PDF Hôm Nay */}
