@@ -109,7 +109,7 @@ function build57ColRow(
   row[6] = cName;
   row[7] = dob;
   row[8] = gender;
-  row[9] = cccd ? `'${cccd}` : '';
+  row[9] = cccd ? `="${cccd}"` : '';
   row[10] = addrNorm;
   row[11] = subjType;
   row[12] = subjType;
@@ -252,9 +252,13 @@ export async function executeSyncToGoogleSheet(
       let cccd = cleanCccd(decl.cccd_chu_ho || decl.cccd || decl.chu_dat_cccd || '');
       let cccdSource = cccd ? 'Kê khai web' : '';
 
+      const ggsP = ggsParcels[maThua];
       if (!cccd && chuHo && nameToCccd.has(chuHo)) {
         cccd = nameToCccd.get(chuHo)!;
         cccdSource = 'Khớp tên GGS';
+      } else if (!cccd && ggsP && ggsP.cccd) {
+        cccd = cleanCccd(ggsP.cccd);
+        if (cccd) cccdSource = 'Khớp thửa GGS';
       }
 
       const chuHoNorm = stripAccents(chuHo);
@@ -262,8 +266,6 @@ export async function executeSyncToGoogleSheet(
       const fallbackDt = meta ? meta[0] : '';
       const fallbackLoaiDat = meta ? meta[1] : '';
       const fallbackThon = meta ? meta[2] : '';
-
-      const ggsP = ggsParcels[maThua];
 
       const thonXa = normalizeAddress(
         decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || fallbackThon || ''
@@ -364,24 +366,21 @@ export async function executeSyncToGoogleSheet(
       }
 
       // GIAI ĐOẠN 1: ĐANG KÊ KHAI (THIẾU CCCD TRÊN R2)
-      // Chỉ phân loại "CẦN TÌM CCCD" nếu thửa đất hoặc CCCD hoặc tên chủ hộ ĐÃ CÓ TRÊN GGS CHÍNH (Trangtinh1)!
-      // Nếu chưa có trên GGS chính thì BẮT BUỘC là "KHÔNG CÓ CCCD"!
-      const inGgs =
-        ggsCodes.has(maThua) ||
-        (cccd && allGgsCccds.has(cccd)) ||
-        (chuHoNorm && allGgsNames.has(chuHoNorm));
+      // Chỉ phân loại "CẦN TÌM CCCD" nếu số CCCD ĐÃ CÓ TRÊN GGS CHÍNH (Trangtinh1)!
+      // Nếu số CCCD chưa có trên GGS chính thì BẮT BUỘC là "KHÔNG CÓ CCCD"!
+      const inGgs = Boolean(cccd && allGgsCccds.has(cccd));
 
       if (inGgs) {
         stage1CanTimCccd.push({
           ...item,
           phan_loai: 'CẦN TÌM CCCD',
-          ghi_chu: `Đã có thông tin trên GGS chính (${cccdSource || 'theo tên/thửa'}) - Cần tìm file scan/ảnh CCCD tải lên R2`,
+          ghi_chu: `Đã có thông tin CCCD trên GGS chính (${cccdSource || 'hồ sơ cũ'}) - Cần tìm file scan/ảnh CCCD tải lên R2`,
         });
       } else {
         stage1KhongCoCccd.push({
           ...item,
           phan_loai: 'KHÔNG CÓ CCCD',
-          ghi_chu: 'Chưa có trên GGS chính lẫn R2 - Cần liên hệ chủ hộ thu thập CCCD mới',
+          ghi_chu: 'Chưa có CCCD trên GGS chính lẫn R2 - Cần liên hệ chủ hộ thu thập CCCD mới',
         });
       }
     }
@@ -398,7 +397,7 @@ export async function executeSyncToGoogleSheet(
     stage2DaDongTap.forEach((it, idx) => {
       const cccdLink = `${R2_PUBLIC_BASE}/cccd/${it.cccd_file}`;
       const cccdFormula = `=HYPERLINK("${cccdLink}"; "${it.cccd_file}")`;
-      const cccdText = it.cccd ? `'${it.cccd}` : '';
+      const cccdText = it.cccd ? `="${it.cccd}"` : '';
       rowsPack.push([
         String(idx + 1), it.ma_thua, it.to_ban_do, it.so_thua, it.thon_xa,
         it.chu_ho, cccdText, it.cccd_source, String(it.dien_tich || ''), it.loai_dat || 'DGT',
@@ -415,7 +414,7 @@ export async function executeSyncToGoogleSheet(
     const rowsUnpack: string[][] = [headersUnpack];
     const orderedStage1 = [...stage1CanTimCccd, ...stage1KhongCoCccd];
     orderedStage1.forEach((it, idx) => {
-      const cccdText = it.cccd ? `'${it.cccd}` : 'Chưa có';
+      const cccdText = it.cccd ? `="${it.cccd}"` : 'Chưa có';
       rowsUnpack.push([
         String(idx + 1), it.ma_thua, it.to_ban_do, it.so_thua, it.thon_xa,
         it.chu_ho, cccdText, it.cccd_source, String(it.dien_tich || ''), it.loai_dat || 'DGT',
@@ -431,7 +430,7 @@ export async function executeSyncToGoogleSheet(
     ];
     const rowsDone: string[][] = [headersDone];
     stage4DaGiaiQuyet.forEach((it, idx) => {
-      const cccdText = it.cccd ? `'${it.cccd}` : '';
+      const cccdText = it.cccd ? `="${it.cccd}"` : '';
       rowsDone.push([
         String(idx + 1), it.ma_thua, it.to_ban_do, it.so_thua, it.thon_xa,
         it.chu_ho, cccdText, String(it.dien_tich || ''), it.loai_dat || 'DGT',
