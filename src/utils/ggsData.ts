@@ -116,7 +116,7 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
       if (!ma_thua) continue;
       codeSet.add(ma_thua);
 
-      let chu_ho = (row[7] || '').trim();
+      let chu_ho = (row[9] || row[7] || '').trim();
       if (!chu_ho && row.length > 14) {
         const altName = (row[14] || '').trim();
         if (altName && altName !== 'Chung' && altName !== 'Cá nhân') {
@@ -125,11 +125,15 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
       }
 
       let cccd = '';
-      const rawCccd = (row[10] || '').trim();
-      if (/^\d{9,15}$/.test(rawCccd)) {
-        cccd = rawCccd;
-      } else if (row.length > 15 && /^\d{9,15}$/.test((row[15] || '').trim())) {
-        cccd = (row[15] || '').trim();
+      const rawCccd = (row[12] || row[10] || '').trim();
+      const cleanDigits = rawCccd.replace(/\D/g, '');
+      if (cleanDigits.length >= 9 && cleanDigits.length <= 12) {
+        cccd = cleanDigits;
+      } else if (row.length > 15) {
+        const altDigits = (row[15] || '').trim().replace(/\D/g, '');
+        if (altDigits.length >= 9 && altDigits.length <= 12) {
+          cccd = altDigits;
+        }
       }
 
       let dien_tich = '';

@@ -32,24 +32,14 @@ async function getR2Binding(): Promise<any | null> {
 let lastSyncSheetTime = 0;
 let isSyncingSheet = false;
 
-// Kích hoạt đồng bộ Google Sheet tức thì (Debounce 3 giây để gom thao tác gõ nhanh)
-function triggerDebouncedSheetSync(declarationsMap: Record<string, any>) {
-  const now = Date.now();
-  if (isSyncingSheet || now - lastSyncSheetTime < 3000) {
-    return;
+// Kích hoạt đồng bộ Google Sheet tức thì
+async function triggerDebouncedSheetSync(declarationsMap: Record<string, any>) {
+  try {
+    const bucket = await getR2Binding();
+    await executeSyncToGoogleSheet(declarationsMap, bucket);
+  } catch (err) {
+    console.error('Lỗi sync Google Sheet:', err);
   }
-  isSyncingSheet = true;
-  lastSyncSheetTime = now;
-  getR2Binding()
-    .then((bucket) => {
-      if (bucket) {
-        return executeSyncToGoogleSheet(declarationsMap, bucket);
-      }
-    })
-    .catch((err) => console.error('Lỗi debounced sync Google Sheet:', err))
-    .finally(() => {
-      isSyncingSheet = false;
-    });
 }
 
 function getS3Client(): S3Client | null {
@@ -231,7 +221,7 @@ export async function POST(request: Request) {
     }
 
     // Tự động kích hoạt đồng bộ sang Google Sheet Realtime có kiểm soát tần suất
-    triggerDebouncedSheetSync(updatedPayload.declarationsMap);
+    await triggerDebouncedSheetSync(updatedPayload.declarationsMap);
 
     return NextResponse.json({
       success: true,
