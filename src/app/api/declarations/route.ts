@@ -32,10 +32,10 @@ async function getR2Binding(): Promise<any | null> {
 let lastSyncSheetTime = 0;
 let isSyncingSheet = false;
 
-// Kích hoạt đồng bộ Google Sheet có kiểm soát tần suất (tránh Error 1102 quá tải CPU)
+// Kích hoạt đồng bộ Google Sheet tức thì (Debounce 3 giây để gom thao tác gõ nhanh)
 function triggerDebouncedSheetSync(declarationsMap: Record<string, any>) {
   const now = Date.now();
-  if (isSyncingSheet || now - lastSyncSheetTime < 20000) {
+  if (isSyncingSheet || now - lastSyncSheetTime < 3000) {
     return;
   }
   isSyncingSheet = true;
