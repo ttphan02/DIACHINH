@@ -43,28 +43,27 @@ export function cleanName(name: any): string {
 // Chuẩn hóa địa chỉ thôn/buôn
 export function normalizeAddress(addr: string): string {
   if (!addr) return 'xã Cư Pui';
-  const a = addr.trim().toLowerCase();
-  if (['thôn 1', 'thôn 2', 'cẩm phong'].some((k) => a.includes(k))) return 'Thôn Cẩm Phong, xã Cư Pui';
-  if (['thôn 3', 'thôn 4', 'thôn hòa phong', 'thôn hoà phong'].some((k) => a.includes(k))) return 'Thôn Hòa Phong, xã Cư Pui';
-  if (['thôn 5', 'thôn 6', 'ba phường', 'ba phường'].some((k) => a.includes(k))) return 'Thôn Ba Phường, xã Cư Pui';
-  if (a.includes('ea uôl') || a.includes('ea uol')) return 'Thôn Ea Uôl, xã Cư Pui';
-  if (a.includes('noh prông') || a.includes('noh prong')) return 'Thôn Noh Prông, xã Cư Pui';
-  if (a.includes('ea khiêm')) return 'Thôn Ea Khiêm, xã Cư Pui';
-  if (a.includes('cư tê')) return 'Thôn Cư Tê, xã Cư Pui';
-  if (a.includes('cư rang')) return 'Thôn Cư Rang, xã Cư Pui';
+  const a = stripAccents(addr);
+  if (['cam phong', 'thon 1', 'thon 2'].some((k) => a.includes(k))) return 'Thôn Cẩm Phong, xã Cư Pui';
+  if (['hoa phong', 'ho phong', 'thon 3', 'thon 4'].some((k) => a.includes(k))) return 'Thôn Hòa Phong, xã Cư Pui';
+  if (['ba phuong', 'thon 5', 'thon 6'].some((k) => a.includes(k))) return 'Thôn Ba Phường, xã Cư Pui';
+  if (a.includes('ea uol')) return 'Thôn Ea Uôl, xã Cư Pui';
+  if (a.includes('noh prong')) return 'Thôn Noh Prông, xã Cư Pui';
+  if (a.includes('ea khiem')) return 'Thôn Ea Khiêm, xã Cư Pui';
+  if (a.includes('cu te')) return 'Thôn Cư Tê, xã Cư Pui';
+  if (a.includes('cu rang')) return 'Thôn Cư Rang, xã Cư Pui';
   if (a.includes('ea lang')) return 'Thôn Ea Lang, xã Cư Pui';
   if (a.includes('ea bar')) return 'Thôn Ea Bar, xã Cư Pui';
-  if (a.includes('rớt') || a.includes('rot')) return 'Thôn Ea Rớt, xã Cư Pui';
-  if (['buôn tliêr', 'buôn t liêr', 'tliêr', 'tlier'].some((k) => a.includes(k))) return 'Buôn Tliêr, xã Cư Pui';
-  if (a.includes('buôn ngô')) return 'Buôn Ngô, xã Cư Pui';
-  if (['cư phiang', 'cư phiăng'].some((k) => a.includes(k))) return 'Buôn Cư Phiang, xã Cư Pui';
-  if (a.includes('buôn khanh')) return 'Buôn Khanh, xã Cư Pui';
-  if (a.includes('buôn khóa') || a.includes('buôn khoá')) return 'Buôn Khóa, xã Cư Pui';
-  if (a.includes('đắk tuôr') || a.includes('đăk tuôr')) return 'Buôn Đắk Tuôr, xã Cư Pui';
-  if (a.includes('buôn bhung')) return 'Buôn Bhung, xã Cư Pui';
-  if (a.includes('buôn blăk')) return 'Buôn Blăk, xã Cư Pui';
-  if (a.includes('hòa phong') || a.includes('hoà phong') || a.includes('cư pui')) return 'xã Cư Pui';
-  return addr.trim();
+  if (a.includes('rot')) return 'Thôn Ea Rớt, xã Cư Pui';
+  if (a.includes('tlier')) return 'Buôn Tliêr, xã Cư Pui';
+  if (a.includes('buon ngo')) return 'Buôn Ngô, xã Cư Pui';
+  if (a.includes('cu phiang')) return 'Buôn Cư Phiang, xã Cư Pui';
+  if (a.includes('buon khanh')) return 'Buôn Khanh, xã Cư Pui';
+  if (a.includes('buon khoa')) return 'Buôn Khóa, xã Cư Pui';
+  if (a.includes('dak tuor')) return 'Buôn Đắk Tuôr, xã Cư Pui';
+  if (a.includes('buon bhung')) return 'Buôn Bhung, xã Cư Pui';
+  if (a.includes('buon blak')) return 'Buôn Blăk, xã Cư Pui';
+  return addr.trim() || 'xã Cư Pui';
 }
 
 function parseNameAndType(rawName: string) {
@@ -110,7 +109,7 @@ function build57ColRow(
   row[6] = cName;
   row[7] = dob;
   row[8] = gender;
-  row[9] = cccd;
+  row[9] = cccd ? `'${cccd}` : '';
   row[10] = addrNorm;
   row[11] = subjType;
   row[12] = subjType;
@@ -209,14 +208,25 @@ export async function executeSyncToGoogleSheet(
       getR2StorageFiles(r2Bucket),
     ]);
 
-    // Lập bản đồ tên chủ hộ -> CCCD từ GGS parcels
+    // Lập bản đồ tra cứu tên chủ hộ -> CCCD, và tập hợp tất cả CCCD & Họ tên trên GGS chính (Trangtinh1)
     const nameToCccd = new Map<string, string>();
+    const allGgsCccds = new Set<string>();
+    const allGgsNames = new Set<string>();
+
     for (const p of Object.values(ggsParcels)) {
-      if (p.chu_ho && p.cccd) {
+      if (p.chu_ho) {
         const nClean = cleanName(p.chu_ho);
-        const cClean = cleanCccd(p.cccd);
-        if (nClean && cClean && !nameToCccd.has(nClean)) {
-          nameToCccd.set(nClean, cClean);
+        const nNorm = stripAccents(nClean);
+        if (nNorm) allGgsNames.add(nNorm);
+
+        if (p.cccd) {
+          const cClean = cleanCccd(p.cccd);
+          if (cClean) {
+            allGgsCccds.add(cClean);
+            if (nClean && !nameToCccd.has(nClean)) {
+              nameToCccd.set(nClean, cClean);
+            }
+          }
         }
       }
     }
@@ -247,6 +257,7 @@ export async function executeSyncToGoogleSheet(
         cccdSource = 'Khớp tên GGS';
       }
 
+      const chuHoNorm = stripAccents(chuHo);
       const meta = parcelMeta[maThua];
       const fallbackDt = meta ? meta[0] : '';
       const fallbackLoaiDat = meta ? meta[1] : '';
@@ -317,7 +328,6 @@ export async function executeSyncToGoogleSheet(
 
       // 2. Nếu chưa có CCCD hoặc chưa tìm thấy theo số, đối soát theo tên chủ hộ trong file dạng sốcccd_tên.pdf
       if (!foundCccd && chuHo) {
-        const chuHoNorm = stripAccents(chuHo);
         if (chuHoNorm.length >= 4) {
           for (const cf of cccdFiles) {
             const cleanCf = cf.replace(/\.pdf$/i, '');
@@ -353,18 +363,25 @@ export async function executeSyncToGoogleSheet(
         continue;
       }
 
-      // GIAI ĐOẠN 1: ĐANG KÊ KHAI (THIẾU CCCD)
-      if (cccd) {
+      // GIAI ĐOẠN 1: ĐANG KÊ KHAI (THIẾU CCCD TRÊN R2)
+      // Chỉ phân loại "CẦN TÌM CCCD" nếu thửa đất hoặc CCCD hoặc tên chủ hộ ĐÃ CÓ TRÊN GGS CHÍNH (Trangtinh1)!
+      // Nếu chưa có trên GGS chính thì BẮT BUỘC là "KHÔNG CÓ CCCD"!
+      const inGgs =
+        ggsCodes.has(maThua) ||
+        (cccd && allGgsCccds.has(cccd)) ||
+        (chuHoNorm && allGgsNames.has(chuHoNorm));
+
+      if (inGgs) {
         stage1CanTimCccd.push({
           ...item,
           phan_loai: 'CẦN TÌM CCCD',
-          ghi_chu: `Đã có số CCCD (${cccdSource}) - Cần tìm file scan/ảnh tải lên R2`,
+          ghi_chu: `Đã có thông tin trên GGS chính (${cccdSource || 'theo tên/thửa'}) - Cần tìm file scan/ảnh CCCD tải lên R2`,
         });
       } else {
         stage1KhongCoCccd.push({
           ...item,
           phan_loai: 'KHÔNG CÓ CCCD',
-          ghi_chu: 'Chưa có thông tin số CCCD lẫn file CCCD',
+          ghi_chu: 'Chưa có trên GGS chính lẫn R2 - Cần liên hệ chủ hộ thu thập CCCD mới',
         });
       }
     }
@@ -381,9 +398,10 @@ export async function executeSyncToGoogleSheet(
     stage2DaDongTap.forEach((it, idx) => {
       const cccdLink = `${R2_PUBLIC_BASE}/cccd/${it.cccd_file}`;
       const cccdFormula = `=HYPERLINK("${cccdLink}"; "${it.cccd_file}")`;
+      const cccdText = it.cccd ? `'${it.cccd}` : '';
       rowsPack.push([
         String(idx + 1), it.ma_thua, it.to_ban_do, it.so_thua, it.thon_xa,
-        it.chu_ho, it.cccd, it.cccd_source, String(it.dien_tich), it.loai_dat,
+        it.chu_ho, cccdText, it.cccd_source, String(it.dien_tich || ''), it.loai_dat || 'DGT',
         cccdFormula, 'ĐỦ HỒ SƠ - SẴN SÀNG ĐÓNG TẬP'
       ]);
     });
@@ -397,9 +415,10 @@ export async function executeSyncToGoogleSheet(
     const rowsUnpack: string[][] = [headersUnpack];
     const orderedStage1 = [...stage1CanTimCccd, ...stage1KhongCoCccd];
     orderedStage1.forEach((it, idx) => {
+      const cccdText = it.cccd ? `'${it.cccd}` : 'Chưa có';
       rowsUnpack.push([
         String(idx + 1), it.ma_thua, it.to_ban_do, it.so_thua, it.thon_xa,
-        it.chu_ho, it.cccd || 'Chưa có', it.cccd_source, String(it.dien_tich), it.loai_dat,
+        it.chu_ho, cccdText, it.cccd_source, String(it.dien_tich || ''), it.loai_dat || 'DGT',
         it.phan_loai, it.ghi_chu
       ]);
     });
@@ -412,9 +431,10 @@ export async function executeSyncToGoogleSheet(
     ];
     const rowsDone: string[][] = [headersDone];
     stage4DaGiaiQuyet.forEach((it, idx) => {
+      const cccdText = it.cccd ? `'${it.cccd}` : '';
       rowsDone.push([
         String(idx + 1), it.ma_thua, it.to_ban_do, it.so_thua, it.thon_xa,
-        it.chu_ho, it.cccd, String(it.dien_tich), it.loai_dat,
+        it.chu_ho, cccdText, String(it.dien_tich || ''), it.loai_dat || 'DGT',
         'ĐÃ GIẢI QUYẾT (ĐÃ LÊN GGS CHÍNH)', 'Đã hoàn tất toàn bộ quy trình'
       ]);
     });
