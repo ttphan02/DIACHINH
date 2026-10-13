@@ -508,11 +508,12 @@ export async function executeSyncToGoogleSheet(
       [],
       [],
       [],
-      ['BẢNG TIẾN ĐỘ CHI TIẾT THEO 16 THÔN / BUÔN & CÁC GIAI ĐOẠN'],
+      ['BẢNG THỐNG KÊ TIẾN ĐỘ THỬA ĐẤT CHƯA HOÀN THÀNH THEO 16 THÔN / BUÔN'],
       [
-        'STT', 'Tên thôn / buôn', 'Tổng (Có tên)', 'Đã có GGS', 'Tỷ lệ (%)',
-        'Tổng (Không tên)', 'Đã có GGS', 'Tỷ lệ (%)', 'Kê khai Web',
-        'GĐ 4: Đã giải quyết', 'GĐ 3: Đã scan', 'GĐ 2: Có CCCD đóng tập', 'GĐ 1: Cần tìm CCCD', 'GĐ 1: Không có CCCD'
+        'STT', 'Tên thôn / buôn', 
+        'Chưa thực hiện (Tổng)', 'Chưa thực hiện (Có tên)', 'Chưa thực hiện (Không tên)',
+        'Đã kê khai (Tổng)', 'Có CCCD', 'Cần tìm CCCD', 'Không có CCCD',
+        'Đã hoàn thành'
       ]
     ];
 
@@ -525,52 +526,52 @@ export async function executeSyncToGoogleSheet(
     }
     allThons.push('chưa sát định');
 
-    let sumCtTot = 0, sumCtDa = 0, sumKtTot = 0, sumKtDa = 0;
-    let sumDecl = 0, sumS4 = 0, sumS3 = 0, sumS2 = 0, sumS1Can = 0, sumS1Khong = 0;
+    let sumChuaThucHienTot = 0, sumChuaThucHienCoTen = 0, sumChuaThucHienKhongTen = 0;
+    let sumKeKhaiTot = 0, sumCoCccd = 0, sumCanTimCccd = 0, sumKhongCoCccd = 0, sumHoanThanh = 0;
 
     allThons.forEach((thon, idx) => {
-      const ct = cotenByThon[thon] || { total: 0, daco: 0, rate: '0.0%' };
-      const kt = khongtenByThon[thon] || { total: 0, daco: 0, rate: '0.0%' };
+      const ct = cotenByThon[thon] || { total: 0, daco: 0 };
+      const kt = khongtenByThon[thon] || { total: 0, daco: 0 };
       const tKey = thon.toLowerCase().replace('thôn ', '').replace('buôn ', '');
 
       const matchesThon = (it: any) => normalizeAddress(it.thon_xa || '').toLowerCase().includes(tKey);
 
-      const nDecl = Object.values(declarationsMap).filter((d: any) =>
-        normalizeAddress(d.dia_chi_thua_dat || '').toLowerCase().includes(tKey)
-      ).length;
-      const nS4 = stage4DaGiaiQuyet.filter(matchesThon).length;
-      const nS3 = stage3NhapGgs.filter(matchesThon).length;
-      const nS2 = stage2DaDongTap.filter(matchesThon).length;
-      const nS1Can = stage1CanTimCccd.filter(matchesThon).length;
-      const nS1Khong = stage1KhongCoCccd.filter(matchesThon).length;
+      // Số đã hoàn thành (GGS / Trangtinh1)
+      const nHoanThanh = stage4DaGiaiQuyet.filter(matchesThon).length || (ct.daco + kt.daco);
 
-      const ctRate = ct.total ? `${((ct.daco / ct.total) * 100).toFixed(1)}%` : '0.0%';
-      const ktRate = kt.total ? `${((kt.daco / kt.total) * 100).toFixed(1)}%` : '0.0%';
+      // Số đã kê khai theo từng nhóm
+      const nCoCccd = stage2DaDongTap.filter(matchesThon).length;
+      const nCanTim = stage1CanTimCccd.filter(matchesThon).length;
+      const nKhongCccd = stage1KhongCoCccd.filter(matchesThon).length;
+      const nKeKhai = nCoCccd + nCanTim + nKhongCccd;
+
+      // Số chưa thực hiện (Case có tên & Case không tên)
+      const nChuaThucHienCoTen = Math.max(0, ct.total - ct.daco);
+      const nChuaThucHienKhongTen = Math.max(0, kt.total - kt.daco);
+      const nChuaThucHienTot = nChuaThucHienCoTen + nChuaThucHienKhongTen;
 
       rowsTk.push([
-        String(idx + 1), thon, String(ct.total), String(ct.daco), ctRate,
-        String(kt.total), String(kt.daco), ktRate, String(nDecl),
-        String(nS4), String(nS3), String(nS2), String(nS1Can), String(nS1Khong)
+        String(idx + 1), thon,
+        String(nChuaThucHienTot), String(nChuaThucHienCoTen), String(nChuaThucHienKhongTen),
+        String(nKeKhai), String(nCoCccd), String(nCanTim), String(nKhongCccd),
+        String(nHoanThanh)
       ]);
 
-      sumCtTot += ct.total;
-      sumCtDa += ct.daco;
-      sumKtTot += kt.total;
-      sumKtDa += kt.daco;
-      sumDecl += nDecl;
-      sumS4 += nS4;
-      sumS3 += nS3;
-      sumS2 += nS2;
-      sumS1Can += nS1Can;
-      sumS1Khong += nS1Khong;
+      sumChuaThucHienTot += nChuaThucHienTot;
+      sumChuaThucHienCoTen += nChuaThucHienCoTen;
+      sumChuaThucHienKhongTen += nChuaThucHienKhongTen;
+      sumKeKhaiTot += nKeKhai;
+      sumCoCccd += nCoCccd;
+      sumCanTimCccd += nCanTim;
+      sumKhongCoCccd += nKhongCccd;
+      sumHoanThanh += nHoanThanh;
     });
 
-    const ctTotRate = sumCtTot ? `${((sumCtDa / sumCtTot) * 100).toFixed(1)}%` : '0.0%';
-    const ktTotRate = sumKtTot ? `${((sumKtDa / sumKtTot) * 100).toFixed(1)}%` : '0.0%';
     rowsTk.push([
-      'TỔNG', 'TOÀN XÃ CƯ PUI', String(sumCtTot), String(sumCtDa), ctTotRate,
-      String(sumKtTot), String(sumKtDa), ktTotRate, String(sumDecl),
-      String(sumS4), String(sumS3), String(sumS2), String(sumS1Can), String(sumS1Khong)
+      'TỔNG', 'TOÀN XÃ CƯ PUI',
+      String(sumChuaThucHienTot), String(sumChuaThucHienCoTen), String(sumChuaThucHienKhongTen),
+      String(sumKeKhaiTot), String(sumCoCccd), String(sumCanTimCccd), String(sumKhongCoCccd),
+      String(sumHoanThanh)
     ]);
 
     function padRectangular(rows: string[][]): string[][] {
