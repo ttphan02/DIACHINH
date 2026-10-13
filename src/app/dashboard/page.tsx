@@ -112,6 +112,7 @@ export default function DashboardPage() {
   // CCCD & Scan Supplement Modal state
   const [isCccdSupplementOpen, setIsCccdSupplementOpen] = useState(false);
   const [selectedParcelForCccd, setSelectedParcelForCccd] = useState('');
+  const [cccdModalMode, setCccdModalMode] = useState<'folder' | 'single'>('folder');
 
   // 1. Đồng bộ danh sách kê khai từ Cloud R2 theo thời gian thực (Không cần F5)
   const fetchCloudDeclarations = useCallback(async () => {
@@ -2204,8 +2205,9 @@ export default function DashboardPage() {
         {/* TAB 5: QUẢN LÝ KHO CCCD (CLOUDFLARE R2) */}
         {activeTab === 'cccd' && (
           <CccdManagerTab
-            onOpenAddModal={() => {
+            onOpenAddModal={(mode) => {
               setSelectedParcelForCccd('');
+              setCccdModalMode(mode || 'folder');
               setIsCccdSupplementOpen(true);
             }}
             onSelectParcel={(code) => {
@@ -2339,6 +2341,7 @@ export default function DashboardPage() {
         isOpen={isCccdSupplementOpen}
         onClose={() => setIsCccdSupplementOpen(false)}
         initialParcelCode={selectedParcelForCccd}
+        defaultMode={cccdModalMode}
         onSuccess={() => {
           fetchCloudDeclarations();
         }}

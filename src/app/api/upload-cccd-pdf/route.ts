@@ -30,7 +30,7 @@ function base64ToUint8Array(base64: string): Uint8Array {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as any;
-    const { frontBase64, backBase64, imageBase64, so_cccd, ho_va_ten, ma_thua } = body;
+    const { frontBase64, backBase64, imageBase64, so_cccd, ho_va_ten, ma_thua, skipSync } = body;
     const imgPrimary = imageBase64 || frontBase64;
 
     if (!imgPrimary && !backBase64) {
@@ -164,8 +164,8 @@ export async function POST(request: Request) {
       }
     }
 
-    // Tự động kích hoạt đồng bộ sang Google Sheet Realtime tức thì
-    if (bucket) {
+    // Tự động kích hoạt đồng bộ sang Google Sheet Realtime tức thì (nếu không bật cờ skipSync của tải hàng loạt)
+    if (bucket && !skipSync) {
       executeSyncToGoogleSheet(updatedDeclarations, bucket).catch((err) =>
         console.error('Lỗi sync Google Sheet sau khi upload CCCD:', err)
       );

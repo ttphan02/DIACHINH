@@ -32,7 +32,7 @@ interface CccdFileItem {
 }
 
 interface CccdManagerTabProps {
-  onOpenAddModal: () => void;
+  onOpenAddModal: (mode?: 'single' | 'folder') => void;
   onSelectParcel?: (maThua: string) => void;
   onPreviewUrl?: (url: string, title: string) => void;
 }
@@ -159,12 +159,19 @@ export default function CccdManagerTab({
           </button>
 
           <button
-            onClick={onOpenAddModal}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-600 hover:from-blue-500 hover:to-emerald-500 text-white shadow-lg shadow-indigo-600/30 transition cursor-pointer border border-blue-400/30"
+            onClick={() => onOpenAddModal('folder')}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-indigo-600 via-indigo-500 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white shadow-lg shadow-indigo-600/30 transition cursor-pointer border border-indigo-400/30"
           >
-            <Plus className="w-4 h-4 text-white" />
             <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
-            <span>Thêm CCCD Mới (Quét AI)</span>
+            <span>Tải Lên Thư Mục CCCD</span>
+          </button>
+
+          <button
+            onClick={() => onOpenAddModal('single')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer"
+          >
+            <Plus className="w-4 h-4 text-slate-300" />
+            <span>Thêm 1 CCCD</span>
           </button>
         </div>
       </div>
@@ -268,7 +275,7 @@ export default function CccdManagerTab({
               : 'Chưa có file CCCD nào trong kho lưu trữ'}
           </p>
           <button
-            onClick={onOpenAddModal}
+            onClick={() => onOpenAddModal('folder')}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 mt-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />

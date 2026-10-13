@@ -1,10 +1,23 @@
 import villageStatsData from '@/data/village_stats.json';
+import parcelMetaData from '@/data/parcel_meta.json';
 import { fetchOrGetCachedGgsData } from '@/utils/ggsData';
+
+const parcelMeta = parcelMetaData as unknown as Record<string, [string, string, string]>;
 
 const URL_GGS_WEBHOOK =
   'https://script.google.com/macros/s/AKfycbz_eRd1wHajwLecXAiy8QvhbZebmkgPnPCB4PM8z4tMNjZ16hCO_ZTpW0Q93KnwFZn8/exec';
 
 const R2_PUBLIC_BASE = 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
+
+export function stripAccents(text: string): string {
+  if (!text) return '';
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/đ/g, 'd')
+    .trim();
+}
 
 // Chuẩn hóa CCCD (12 chữ số)
 export function cleanCccd(val: any): string {
@@ -234,9 +247,18 @@ export async function executeSyncToGoogleSheet(
         cccdSource = 'Khớp tên GGS';
       }
 
-      const thonXa = normalizeAddress(decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || '');
-      const dienTich = decl.dien_tich || '';
-      const loaiDat = decl.loai_dat || 'DGT';
+      const meta = parcelMeta[maThua];
+      const fallbackDt = meta ? meta[0] : '';
+      const fallbackLoaiDat = meta ? meta[1] : '';
+      const fallbackThon = meta ? meta[2] : '';
+
+      const ggsP = ggsParcels[maThua];
+
+      const thonXa = normalizeAddress(
+        decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || fallbackThon || ''
+      );
+      const dienTich = decl.dien_tich || (ggsP && ggsP.dien_tich) || fallbackDt || '';
+      const loaiDat = decl.loai_dat || (ggsP && ggsP.loai_dat) || fallbackLoaiDat || 'DGT';
 
       const item = {
         ma_thua: maThua,
@@ -280,8 +302,10 @@ export async function executeSyncToGoogleSheet(
         continue;
       }
 
-      // GIAI ĐOẠN 2: CÓ CCCD TRÊN R2
+      // GIAI ĐOẠN 2: CÓ CCCD TRÊN R2 (Theo người dân, không phụ thuộc mã thửa)
       let foundCccd = '';
+
+      // 1. Tìm theo số CCCD 12 số (chính xác tuyệt đối)
       if (cccd) {
         for (const cf of cccdFiles) {
           if (cf.startsWith(`${cccd}.`) || cf.startsWith(`${cccd}_`) || cf.includes(cccd)) {
@@ -290,6 +314,30 @@ export async function executeSyncToGoogleSheet(
           }
         }
       }
+
+      // 2. Nếu chưa có CCCD hoặc chưa tìm thấy theo số, đối soát theo tên chủ hộ trong file dạng sốcccd_tên.pdf
+      if (!foundCccd && chuHo) {
+        const chuHoNorm = stripAccents(chuHo);
+        if (chuHoNorm.length >= 4) {
+          for (const cf of cccdFiles) {
+            const cleanCf = cf.replace(/\.pdf$/i, '');
+            const cfNorm = stripAccents(cleanCf);
+            if (cfNorm.includes(chuHoNorm)) {
+              foundCccd = cf;
+              const digitsMatch = cleanCf.match(/\b\d{9,12}\b/);
+              if (digitsMatch) {
+                cccd = digitsMatch[0];
+                cccdSource = 'Trích từ file CCCD R2';
+                item.cccd = cccd;
+                item.cccd_source = cccdSource;
+              }
+              break;
+            }
+          }
+        }
+      }
+
+      // 3. Fallback tìm theo mã thửa nếu file đặt tên theo thửa
       if (!foundCccd) {
         for (const cf of cccdFiles) {
           if (cf.startsWith(`${maThua}.`) || cf.startsWith(`${maThua}_`)) {
