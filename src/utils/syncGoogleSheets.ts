@@ -290,8 +290,30 @@ export async function executeSyncToGoogleSheet(
         cccd_file: '',
       };
 
-      // GIAI ĐOẠN 4: ĐÃ LÊN GGS CHÍNH
-      if (ggsCodes.has(maThua)) {
+      // GIAI ĐOẠN 4: ĐÃ LÊN GGS CHÍNH (ĐÃ GIẢI QUYẾT)
+      // Điều kiện: Mã thửa ĐÃ CÓ trên GGS chính VÀ thông tin chủ đất/CCCD trên GGS chính phải TRÙNG KHỚP với người kê khai!
+      // Nếu mã thửa có trên GGS nhưng chủ khác thì đây là trường hợp kê khai mới/chuyển nhượng, CHƯA ĐƯỢC GIẢI QUYẾT!
+      let isResolvedOnGgs = false;
+      if (ggsCodes.has(maThua) && ggsP) {
+        const ggsNameNorm = stripAccents(ggsP.chu_ho);
+        const ggsCccd = cleanCccd(ggsP.cccd);
+
+        const sameName = Boolean(
+          ggsNameNorm &&
+          chuHoNorm &&
+          (ggsNameNorm === chuHoNorm || ggsNameNorm.includes(chuHoNorm) || chuHoNorm.includes(ggsNameNorm))
+        );
+        const sameCccd = Boolean(ggsCccd && cccd && ggsCccd === cccd);
+
+        if (sameName || sameCccd) {
+          isResolvedOnGgs = true;
+          // Chuẩn hóa tên và CCCD theo hồ sơ chính thức GGS
+          item.chu_ho = ggsP.chu_ho || chuHo;
+          if (ggsCccd) item.cccd = ggsCccd;
+        }
+      }
+
+      if (isResolvedOnGgs) {
         stage4DaGiaiQuyet.push(item);
         continue;
       }
