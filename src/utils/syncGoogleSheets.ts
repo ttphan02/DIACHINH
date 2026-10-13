@@ -1,6 +1,5 @@
 import villageStatsData from '@/data/village_stats.json';
-
-const GGS_SYNC_INTERNAL_URL = 'https://diachinh.phantruc0210.workers.dev/api/sync-ggs';
+import { fetchOrGetCachedGgsData } from '@/utils/ggsData';
 
 const URL_GGS_WEBHOOK =
   'https://script.google.com/macros/s/AKfycbz_eRd1wHajwLecXAiy8QvhbZebmkgPnPCB4PM8z4tMNjZ16hCO_ZTpW0Q93KnwFZn8/exec';
@@ -122,7 +121,7 @@ function build57ColRow(
   return row;
 }
 
-// Lấy danh sách mã GGS từ API cache sẵn có
+// Lấy danh sách mã GGS từ bộ nhớ cache hoặc nạp trực tiếp từ Google Sheets CSV
 async function getCachedGgsData(): Promise<{
   ggsCodes: Set<string>;
   ggsParcels: Record<string, any>;
@@ -131,18 +130,12 @@ async function getCachedGgsData(): Promise<{
   let ggsParcels: Record<string, any> = {};
 
   try {
-    const res = await fetch(GGS_SYNC_INTERNAL_URL, {
-      headers: { 'User-Agent': 'Cloudflare-Worker-Internal' },
-      next: { revalidate: 300 }
-    });
-    if (res.ok) {
-      const data: any = await res.json();
-      if (Array.isArray(data.ggsCodes)) {
-        data.ggsCodes.forEach((c: string) => ggsCodes.add(c));
-      }
-      if (data.ggsParcels) {
-        ggsParcels = data.ggsParcels;
-      }
+    const data = await fetchOrGetCachedGgsData();
+    if (Array.isArray(data.codes)) {
+      data.codes.forEach((c: string) => ggsCodes.add(c));
+    }
+    if (data.parcels) {
+      ggsParcels = data.parcels;
     }
   } catch (e) {
     console.warn('Lỗi lấy GGS cache:', e);
