@@ -7,6 +7,9 @@ const parcelMeta = parcelMetaData as unknown as Record<string, [string, string, 
 const URL_GGS_WEBHOOK =
   'https://script.google.com/macros/s/AKfycbz_eRd1wHajwLecXAiy8QvhbZebmkgPnPCB4PM8z4tMNjZ16hCO_ZTpW0Q93KnwFZn8/exec';
 
+// Webhook của Sheet Danh Sách Tổng (Trạm 3) - Có thể cấu hình qua biến môi trường hoặc Webhook URL khi user triển khai
+const URL_DANHSACHTONG_WEBHOOK = process.env.URL_DANHSACHTONG_WEBHOOK || '';
+
 const R2_PUBLIC_BASE = 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
 
 export function stripAccents(text: string): string {
@@ -582,20 +585,39 @@ export async function executeSyncToGoogleSheet(
     sheetsData['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] = padRectangular(rowsPack);
     sheetsData['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] = padRectangular(rowsUnpack);
 
-    // 4. Gửi lên Google Apps Script Webhook
+    // 4. Gửi lên Google Apps Script Webhook (Trạm 2: Sheet Thống Kê)
     const payloadStr = JSON.stringify(sheetsData);
-    console.log(`>>> Gửi payload (${payloadStr.length} bytes) lên Google Sheet Webhook...`);
+    console.log(`>>> Gửi payload (${payloadStr.length} bytes) lên Google Sheet Thống Kê...`);
 
-    const resp = await fetch(URL_GGS_WEBHOOK, {
+    const pThongKe = fetch(URL_GGS_WEBHOOK, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: payloadStr,
-    });
+    }).then((r) => r.text()).catch((e) => `Lỗi Webhook Thống Kê: ${e}`);
 
-    const respText = await resp.text();
-    console.log('>>> Phản hồi từ Google Sheet Webhook:', respText);
+    // 5. Nếu cấu hình Webhook Sheet Danh Sách Tổng (Trạm 3), đồng bộ danh sách đã phân loại sang Danh Sách Tổng
+    let pDanhSachTong: Promise<string> = Promise.resolve('No DanhSachTong Webhook configured');
+    if (URL_DANHSACHTONG_WEBHOOK) {
+      const syncList = [
+        ...stage4DaGiaiQuyet.map((it) => ({ ...it, note_trang_thai: 'ĐÃ HOÀN THÀNH' })),
+        ...stage3NhapGgs.map((it) => ({ ...it, note_trang_thai: 'CHỜ NHẬP GGS' })),
+        ...stage2DaDongTap.map((it) => ({ ...it, note_trang_thai: 'Có CCCD' })),
+        ...stage1CanTimCccd.map((it) => ({ ...it, note_trang_thai: 'CẦN TÌM CCCD' })),
+        ...stage1KhongCoCccd.map((it) => ({ ...it, note_trang_thai: 'Không Có CCCD' })),
+      ];
+      console.log(`>>> Gửi đồng bộ sang Sheet Danh Sách Tổng (${syncList.length} thửa)...`);
+      pDanhSachTong = fetch(URL_DANHSACHTONG_WEBHOOK, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sync_list: syncList }),
+      }).then((r) => r.text()).catch((e) => `Lỗi Webhook Danh Sách Tổng: ${e}`);
+    }
 
-    return { success: true, message: respText };
+    const [respText, dstText] = await Promise.all([pThongKe, pDanhSachTong]);
+    console.log('>>> Phản hồi từ Google Sheet Thống Kê:', respText);
+    console.log('>>> Phản hồi từ Google Sheet Danh Sách Tổng:', dstText);
+
+    return { success: true, message: `Thống kê: ${respText} | Danh sách tổng: ${dstText}` };
   } catch (error: any) {
     console.error('Lỗi khi thực hiện executeSyncToGoogleSheet:', error);
     return { success: false, message: error.message || 'Lỗi đồng bộ' };
