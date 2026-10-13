@@ -7,8 +7,10 @@ const parcelMeta = parcelMetaData as unknown as Record<string, [string, string, 
 const URL_GGS_WEBHOOK =
   'https://script.google.com/macros/s/AKfycbz_eRd1wHajwLecXAiy8QvhbZebmkgPnPCB4PM8z4tMNjZ16hCO_ZTpW0Q93KnwFZn8/exec';
 
-// Webhook của Sheet Danh Sách Tổng (Trạm 3) - Có thể cấu hình qua biến môi trường hoặc Webhook URL khi user triển khai
-const URL_DANHSACHTONG_WEBHOOK = process.env.URL_DANHSACHTONG_WEBHOOK || '';
+// Webhook của Sheet Danh Sách Tổng (Trạm 3) - Cập nhật tự động 16 sheet thôn buôn
+const URL_DANHSACHTONG_WEBHOOK =
+  process.env.URL_DANHSACHTONG_WEBHOOK ||
+  'https://script.google.com/macros/s/AKfycbxNhApbd0i5DlAS94Yc9EibwiN7KMCvY4ze4kxewibRL69EgEC3lTOykrj7-W11Ja-a/exec';
 
 const R2_PUBLIC_BASE = 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
 
