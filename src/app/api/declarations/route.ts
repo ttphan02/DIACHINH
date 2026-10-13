@@ -29,6 +29,29 @@ async function getR2Binding(): Promise<any | null> {
   }
 }
 
+let lastSyncSheetTime = 0;
+let isSyncingSheet = false;
+
+// Kích hoạt đồng bộ Google Sheet có kiểm soát tần suất (tránh Error 1102 quá tải CPU)
+function triggerDebouncedSheetSync(declarationsMap: Record<string, any>) {
+  const now = Date.now();
+  if (isSyncingSheet || now - lastSyncSheetTime < 20000) {
+    return;
+  }
+  isSyncingSheet = true;
+  lastSyncSheetTime = now;
+  getR2Binding()
+    .then((bucket) => {
+      if (bucket) {
+        return executeSyncToGoogleSheet(declarationsMap, bucket);
+      }
+    })
+    .catch((err) => console.error('Lỗi debounced sync Google Sheet:', err))
+    .finally(() => {
+      isSyncingSheet = false;
+    });
+}
+
 function getS3Client(): S3Client | null {
   if (R2_ACCOUNT_ID && R2_ACCESS_KEY && R2_SECRET_KEY) {
     return new S3Client({
@@ -207,12 +230,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Không thể ghi vào Cloudflare R2' }, { status: 500 });
     }
 
-    // Tự động kích hoạt đồng bộ tức thì sang Google Sheet Realtime
-    getR2Binding().then((bucket) => {
-      executeSyncToGoogleSheet(updatedPayload.declarationsMap, bucket).catch((err) =>
-        console.error('Lỗi sync Google Sheet sau khi lưu:', err)
-      );
-    });
+    // Tự động kích hoạt đồng bộ sang Google Sheet Realtime có kiểm soát tần suất
+    triggerDebouncedSheetSync(updatedPayload.declarationsMap);
 
     return NextResponse.json({
       success: true,
@@ -266,12 +285,8 @@ export async function DELETE(request: Request) {
 
     await saveDeclarationsToR2(updatedPayload);
 
-    // Tự động kích hoạt đồng bộ tức thì sang Google Sheet Realtime
-    getR2Binding().then((bucket) => {
-      executeSyncToGoogleSheet(updatedPayload.declarationsMap, bucket).catch((err) =>
-        console.error('Lỗi sync Google Sheet sau khi xóa:', err)
-      );
-    });
+    // Tự động kích hoạt đồng bộ sang Google Sheet Realtime có kiểm soát tần suất
+    triggerDebouncedSheetSync(updatedPayload.declarationsMap);
 
     return NextResponse.json({
       success: true,

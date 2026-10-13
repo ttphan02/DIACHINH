@@ -151,8 +151,15 @@ async function getCachedGgsData(): Promise<{
   return { ggsCodes, ggsParcels };
 }
 
-// Lấy danh sách file CCCD và file SCAN trên R2 (nhanh, 1 lần list)
+let cachedR2Files: { cccdFiles: Set<string>; scanFiles: Set<string>; timestamp: number } | null = null;
+
+// Lấy danh sách file CCCD và file SCAN trên R2 (nhanh, cache 60s)
 async function getR2StorageFiles(r2Bucket?: any): Promise<{ cccdFiles: Set<string>; scanFiles: Set<string> }> {
+  const now = Date.now();
+  if (cachedR2Files && now - cachedR2Files.timestamp < 60000) {
+    return { cccdFiles: cachedR2Files.cccdFiles, scanFiles: cachedR2Files.scanFiles };
+  }
+
   const cccdFiles = new Set<string>();
   const scanFiles = new Set<string>();
   if (r2Bucket) {
@@ -174,6 +181,7 @@ async function getR2StorageFiles(r2Bucket?: any): Promise<{ cccdFiles: Set<strin
         const name = obj.key.replace(/^filescan\//, '');
         if (name) scanFiles.add(name);
       }
+      cachedR2Files = { cccdFiles, scanFiles, timestamp: now };
     } catch (e) {
       console.warn('Lỗi list R2 storage files:', e);
     }

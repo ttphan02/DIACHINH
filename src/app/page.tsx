@@ -205,22 +205,25 @@ export default function Home() {
           lastCloudSigRef.current = sig;
           if (data.updatedAt) lastCloudUpdatedAtRef.current = data.updatedAt;
 
-          const cloudCodes = new Set<string>(data.declaredCodes);
+          // HỢP NHẤT DỮ LIỆU CỤC BỘ & ĐÁM MÂY (Tránh race-condition làm mất thửa vừa kê khai)
+          const localStored = getStoredDeclarations();
+          const combinedCodes = new Set<string>([...data.declaredCodes, ...localStored.declaredCodes]);
+          const combinedMap = { ...localStored.declarationsMap, ...cloudMap };
 
-          setDeclaredParcelCodes(cloudCodes);
-          setDeclarationsMap(cloudMap);
+          setDeclaredParcelCodes(combinedCodes);
+          setDeclarationsMap(combinedMap);
 
           if (typeof window !== 'undefined') {
             try {
-              localStorage.setItem('diachinh_declared_codes', JSON.stringify(data.declaredCodes));
-              localStorage.setItem('diachinh_declarations_map', JSON.stringify(cloudMap));
+              localStorage.setItem('diachinh_declared_codes', JSON.stringify(Array.from(combinedCodes)));
+              localStorage.setItem('diachinh_declarations_map', JSON.stringify(combinedMap));
             } catch (e) {}
           }
 
           // Khôi phục selectedParcel nếu đang xem đúng thửa vừa bị xóa trên máy khác
           setSelectedParcel((curr) => {
             if (!curr) return null;
-            if (curr.is_declared && !cloudCodes.has(curr.ma_thua)) {
+            if (curr.is_declared && !combinedCodes.has(curr.ma_thua)) {
               const orig = parcels.find((p) => p.ma_thua === curr.ma_thua);
               return {
                 ...(orig || curr),
@@ -298,10 +301,10 @@ export default function Home() {
     fetchGgsCodes(false);
     fetchCloudDeclarations();
 
-    // Kiểm tra đồng bộ phiếu kê khai (xóa/sửa/thêm) mỗi 3 giây (Tự động cập nhật như WebSocket mà không cần F5)
+    // Kiểm tra đồng bộ phiếu kê khai (xóa/sửa/thêm) mỗi 12 giây (Tự động cập nhật như WebSocket mà không cần F5)
     const declInterval = setInterval(() => {
       fetchCloudDeclarations();
-    }, 3000);
+    }, 12000);
 
     // Đồng bộ ngay lập tức khi người dùng chuyển tab hoặc mở màn hình điện thoại lên
     const onInstantSync = () => fetchCloudDeclarations();

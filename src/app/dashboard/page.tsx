@@ -136,13 +136,18 @@ export default function DashboardPage() {
           lastCloudSigRef.current = sig;
           if (data.updatedAt) lastCloudUpdatedAtRef.current = data.updatedAt;
 
-          setDeclaredParcelCodes(new Set<string>(data.declaredCodes));
-          setDeclarationsMap(cloudMap);
+          // HỢP NHẤT DỮ LIỆU CỤC BỘ & ĐÁM MÂY (Không bao giờ làm mất thửa vừa kê khai)
+          const localStored = getStoredDeclarations();
+          const combinedCodes = new Set<string>([...data.declaredCodes, ...localStored.declaredCodes]);
+          const combinedMap = { ...localStored.declarationsMap, ...cloudMap };
+
+          setDeclaredParcelCodes(combinedCodes);
+          setDeclarationsMap(combinedMap);
 
           if (typeof window !== 'undefined') {
             try {
-              localStorage.setItem('diachinh_declared_codes', JSON.stringify(data.declaredCodes));
-              localStorage.setItem('diachinh_declarations_map', JSON.stringify(cloudMap));
+              localStorage.setItem('diachinh_declared_codes', JSON.stringify(Array.from(combinedCodes)));
+              localStorage.setItem('diachinh_declarations_map', JSON.stringify(combinedMap));
             } catch (e) {}
           }
         }
@@ -158,8 +163,8 @@ export default function DashboardPage() {
     setDeclarationsMap(map);
     fetchCloudDeclarations();
 
-    // Tự động đồng bộ mỗi 3 giây (tương tự WebSocket, không cần F5)
-    const interval = setInterval(fetchCloudDeclarations, 3000);
+    // Tự động đồng bộ mỗi 12 giây (tiết kiệm CPU, không cần F5)
+    const interval = setInterval(fetchCloudDeclarations, 12000);
     const onFocus = () => fetchCloudDeclarations();
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onFocus);
