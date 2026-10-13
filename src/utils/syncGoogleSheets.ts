@@ -1,18 +1,29 @@
+import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import villageStatsData from '@/data/village_stats.json';
 import parcelMetaData from '@/data/parcel_meta.json';
 import { fetchOrGetCachedGgsData } from '@/utils/ggsData';
 
 const parcelMeta = parcelMetaData as unknown as Record<string, [string, string, string]>;
 
-const URL_GGS_WEBHOOK =
-  'https://script.google.com/macros/s/AKfycbz_eRd1wHajwLecXAiy8QvhbZebmkgPnPCB4PM8z4tMNjZ16hCO_ZTpW0Q93KnwFZn8/exec';
+const R2_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
+const R2_ACCESS_KEY = process.env.CLOUDFLARE_R2_ACCESS_KEY_ID;
+const R2_SECRET_KEY = process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY;
+const R2_BUCKET = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'diachinh-storage';
+const R2_PUBLIC_BASE = process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL || 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
 
-// Webhook của Sheet Danh Sách Tổng (Trạm 3) - Cập nhật tự động 16 sheet thôn buôn
-const URL_DANHSACHTONG_WEBHOOK =
-  process.env.URL_DANHSACHTONG_WEBHOOK ||
-  'https://script.google.com/macros/s/AKfycbxNhApbd0i5DlAS94Yc9EibwiN7KMCvY4ze4kxewibRL69EgEC3lTOykrj7-W11Ja-a/exec';
-
-const R2_PUBLIC_BASE = 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
+function getS3Client(): S3Client | null {
+  if (R2_ACCOUNT_ID && R2_ACCESS_KEY && R2_SECRET_KEY) {
+    return new S3Client({
+      region: 'auto',
+      endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: {
+        accessKeyId: R2_ACCESS_KEY,
+        secretAccessKey: R2_SECRET_KEY,
+      },
+    });
+  }
+  return null;
+}
 
 export function stripAccents(text: string): string {
   if (!text) return '';
@@ -163,7 +174,7 @@ async function getCachedGgsData(): Promise<{
 
 let cachedR2Files: { cccdFiles: Set<string>; scanFiles: Set<string>; timestamp: number } | null = null;
 
-// Lấy danh sách file CCCD và file SCAN trên R2 (nhanh, cache 60s)
+// Lấy toàn bộ danh sách file CCCD và file SCAN trên R2 với phân trang đầy đủ (cache 60s)
 async function getR2StorageFiles(r2Bucket?: any): Promise<{ cccdFiles: Set<string>; scanFiles: Set<string> }> {
   const now = Date.now();
   if (cachedR2Files && now - cachedR2Files.timestamp < 60000) {
@@ -172,38 +183,137 @@ async function getR2StorageFiles(r2Bucket?: any): Promise<{ cccdFiles: Set<strin
 
   const cccdFiles = new Set<string>();
   const scanFiles = new Set<string>();
+
+  // 1. Thử qua R2 Binding (khi chạy trên Cloudflare Worker / OpenNext)
   if (r2Bucket) {
     try {
-      const [cccdRes, scanRes, filescanRes]: [any, any, any] = await Promise.all([
-        r2Bucket.list({ prefix: 'cccd/', limit: 1000 }),
-        r2Bucket.list({ prefix: 'scanhoso/', limit: 1000 }),
-        r2Bucket.list({ prefix: 'filescan/', limit: 1000 }),
-      ]);
-      for (const obj of cccdRes?.objects || []) {
-        const name = obj.key.replace(/^cccd\//, '');
-        if (name) cccdFiles.add(name);
-      }
-      for (const obj of scanRes?.objects || []) {
-        const name = obj.key.replace(/^scanhoso\//, '');
-        if (name) scanFiles.add(name);
-      }
-      for (const obj of filescanRes?.objects || []) {
-        const name = obj.key.replace(/^filescan\//, '');
-        if (name) scanFiles.add(name);
-      }
+      // Đọc toàn bộ prefix cccd/ với phân trang cursor
+      let cccdCursor: string | undefined;
+      do {
+        const cccdRes: any = await r2Bucket.list({ prefix: 'cccd/', cursor: cccdCursor, limit: 1000 });
+        for (const obj of cccdRes?.objects || []) {
+          const name = obj.key.replace(/^cccd\//, '');
+          if (name) cccdFiles.add(name);
+        }
+        cccdCursor = cccdRes?.truncated ? cccdRes.cursor : undefined;
+      } while (cccdCursor);
+
+      // Đọc toàn bộ prefix scanhoso/
+      let scanCursor: string | undefined;
+      do {
+        const scanRes: any = await r2Bucket.list({ prefix: 'scanhoso/', cursor: scanCursor, limit: 1000 });
+        for (const obj of scanRes?.objects || []) {
+          const name = obj.key.replace(/^scanhoso\//, '');
+          if (name) scanFiles.add(name);
+        }
+        scanCursor = scanRes?.truncated ? scanRes.cursor : undefined;
+      } while (scanCursor);
+
+      // Đọc toàn bộ prefix filescan/
+      let filescanCursor: string | undefined;
+      do {
+        const filescanRes: any = await r2Bucket.list({ prefix: 'filescan/', cursor: filescanCursor, limit: 1000 });
+        for (const obj of filescanRes?.objects || []) {
+          const name = obj.key.replace(/^filescan\//, '');
+          if (name) scanFiles.add(name);
+        }
+        filescanCursor = filescanRes?.truncated ? filescanRes.cursor : undefined;
+      } while (filescanCursor);
+
       cachedR2Files = { cccdFiles, scanFiles, timestamp: now };
+      return { cccdFiles, scanFiles };
     } catch (e) {
-      console.warn('Lỗi list R2 storage files:', e);
+      console.warn('Lỗi list R2 qua binding, chuyển sang fallback S3 SDK:', e);
     }
   }
+
+  // 2. Fallback qua S3 SDK (khi chạy Node.js hoặc local dev)
+  try {
+    const s3 = getS3Client();
+    if (s3) {
+      // List cccd/
+      let token: string | undefined;
+      do {
+        const res = await s3.send(
+          new ListObjectsV2Command({
+            Bucket: R2_BUCKET,
+            Prefix: 'cccd/',
+            ContinuationToken: token,
+          })
+        );
+        for (const obj of res.Contents || []) {
+          if (obj.Key) {
+            const name = obj.Key.replace(/^cccd\//, '');
+            if (name) cccdFiles.add(name);
+          }
+        }
+        token = res.NextContinuationToken;
+      } while (token);
+
+      // List scanhoso/
+      let tokenScan: string | undefined;
+      do {
+        const res = await s3.send(
+          new ListObjectsV2Command({
+            Bucket: R2_BUCKET,
+            Prefix: 'scanhoso/',
+            ContinuationToken: tokenScan,
+          })
+        );
+        for (const obj of res.Contents || []) {
+          if (obj.Key) {
+            const name = obj.Key.replace(/^scanhoso\//, '');
+            if (name) scanFiles.add(name);
+          }
+        }
+        tokenScan = res.NextContinuationToken;
+      } while (tokenScan);
+
+      // List filescan/
+      let tokenFilescan: string | undefined;
+      do {
+        const res = await s3.send(
+          new ListObjectsV2Command({
+            Bucket: R2_BUCKET,
+            Prefix: 'filescan/',
+            ContinuationToken: tokenFilescan,
+          })
+        );
+        for (const obj of res.Contents || []) {
+          if (obj.Key) {
+            const name = obj.Key.replace(/^filescan\//, '');
+            if (name) scanFiles.add(name);
+          }
+        }
+        tokenFilescan = res.NextContinuationToken;
+      } while (tokenFilescan);
+
+      cachedR2Files = { cccdFiles, scanFiles, timestamp: now };
+    }
+  } catch (e) {
+    console.warn('Lỗi list R2 storage files qua S3 SDK:', e);
+  }
+
   return { cccdFiles, scanFiles };
 }
 
-// Hàm chính đồng bộ toàn bộ bảng tính
+// Hàm chính đồng bộ và tính toán thống kê toàn bộ bảng tính
 export async function executeSyncToGoogleSheet(
   declarationsMap: Record<string, any>,
   r2Bucket?: any
-): Promise<{ success: boolean; message: string }> {
+): Promise<{
+  success: boolean;
+  message: string;
+  summary?: {
+    totalDeclared: number;
+    daGiaiQuyet: number;
+    nhapGgs: number;
+    daDongTap: number;
+    canTimCccd: number;
+    khongCoCccd: number;
+  };
+  sheetsData?: Record<string, string[][]>;
+}> {
   try {
     console.log('>>> Cloudflare Sync: Bắt đầu tối ưu...');
 
@@ -572,41 +682,24 @@ export async function executeSyncToGoogleSheet(
     sheetsData['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] = padRectangular(rowsPack);
     sheetsData['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] = padRectangular(rowsUnpack);
 
-    // 4. Gửi lên Google Apps Script Webhook (Trạm 2: Sheet Thống Kê)
-    const payloadStr = JSON.stringify(sheetsData);
-    console.log(`>>> Gửi payload (${payloadStr.length} bytes) lên Google Sheet Thống Kê...`);
+    // 4. Trả về cấu trúc dữ liệu nội bộ (Hoàn toàn đóng gói trên Web / R2, không gửi Webhook ra ngoài)
+    console.log('>>> Thống kê & Phân loại nội bộ hoàn tất 100% trong Web/R2');
 
-    const pThongKe = fetch(URL_GGS_WEBHOOK, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: payloadStr,
-    }).then((r) => r.text()).catch((e) => `Lỗi Webhook Thống Kê: ${e}`);
-
-    // 5. Nếu cấu hình Webhook Sheet Danh Sách Tổng (Trạm 3), đồng bộ danh sách đã phân loại sang Danh Sách Tổng
-    let pDanhSachTong: Promise<string> = Promise.resolve('No DanhSachTong Webhook configured');
-    if (URL_DANHSACHTONG_WEBHOOK) {
-      const syncList = [
-        ...stage4DaGiaiQuyet.map((it) => ({ ...it, note_trang_thai: 'ĐÃ HOÀN THÀNH' })),
-        ...stage3NhapGgs.map((it) => ({ ...it, note_trang_thai: 'CHỜ NHẬP GGS' })),
-        ...stage2DaDongTap.map((it) => ({ ...it, note_trang_thai: 'Có CCCD' })),
-        ...stage1CanTimCccd.map((it) => ({ ...it, note_trang_thai: 'CẦN TÌM CCCD' })),
-        ...stage1KhongCoCccd.map((it) => ({ ...it, note_trang_thai: 'Không Có CCCD' })),
-      ];
-      console.log(`>>> Gửi đồng bộ sang Sheet Danh Sách Tổng (${syncList.length} thửa)...`);
-      pDanhSachTong = fetch(URL_DANHSACHTONG_WEBHOOK, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sync_list: syncList }),
-      }).then((r) => r.text()).catch((e) => `Lỗi Webhook Danh Sách Tổng: ${e}`);
-    }
-
-    const [respText, dstText] = await Promise.all([pThongKe, pDanhSachTong]);
-    console.log('>>> Phản hồi từ Google Sheet Thống Kê:', respText);
-    console.log('>>> Phản hồi từ Google Sheet Danh Sách Tổng:', dstText);
-
-    return { success: true, message: `Thống kê: ${respText} | Danh sách tổng: ${dstText}` };
+    return {
+      success: true,
+      message: `Đã phân loại thành công ${totalDeclared} thửa đất`,
+      summary: {
+        totalDeclared,
+        daGiaiQuyet: stage4DaGiaiQuyet.length,
+        nhapGgs: stage3NhapGgs.length,
+        daDongTap: stage2DaDongTap.length,
+        canTimCccd: stage1CanTimCccd.length,
+        khongCoCccd: stage1KhongCoCccd.length,
+      },
+      sheetsData,
+    };
   } catch (error: any) {
-    console.error('Lỗi khi thực hiện executeSyncToGoogleSheet:', error);
-    return { success: false, message: error.message || 'Lỗi đồng bộ' };
+    console.error('Lỗi khi thực hiện phân loại thống kê nội bộ:', error);
+    return { success: false, message: error.message || 'Lỗi xử lý' };
   }
 }

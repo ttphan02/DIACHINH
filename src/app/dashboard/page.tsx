@@ -5,6 +5,7 @@ import Link from 'next/link';
 import rawParcels from '@/data/parcels.json';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones } from '@/utils/geo';
+import { stripAccents } from '@/utils/syncGoogleSheets';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration } from '@/utils/declaration';
 import DeclarationPrintModal, { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
 import DashboardParcelModal from '@/components/DashboardParcelModal';
@@ -77,7 +78,22 @@ export default function DashboardPage() {
   const [pageSize, setPageSize] = useState<number>(25);
 
   // Active view tab in Dashboard
-  const [activeTab, setActiveTab] = useState<'overview' | 'villages' | 'landTypes' | 'table' | 'cccd'>('table');
+  const [activeTab, setActiveTab] = useState<'overview' | 'villages' | 'landTypes' | 'table' | 'cccd' | 'progressReport'>('table');
+
+  // State Báo Cáo Tiến Độ 16 Thôn & Bảng Đóng Tập Nội Bộ (Đóng gói khép kín thay thế Google Sheets)
+  const [syncSheetsData, setSyncSheetsData] = useState<Record<string, string[][]> | null>(null);
+  const [syncSummary, setSyncSummary] = useState<{
+    totalDeclared: number;
+    daGiaiQuyet: number;
+    nhapGgs: number;
+    daDongTap: number;
+    canTimCccd: number;
+    khongCoCccd: number;
+  } | null>(null);
+  const [isLoadingSyncSheets, setIsLoadingSyncSheets] = useState(false);
+  const [selectedReportSheet, setSelectedReportSheet] = useState<string>('THỐNG KÊ');
+  const [reportSearchQuery, setReportSearchQuery] = useState<string>('');
+  const [reportPage, setReportPage] = useState<number>(1);
 
   // Checkbox Selection state for Batch PDF Export
   const [selectedParcelCodes, setSelectedParcelCodes] = useState<Set<string>>(new Set());
@@ -241,7 +257,24 @@ export default function DashboardPage() {
       .catch((err) => console.warn('Lỗi khi xóa phiếu trên Cloud:', err));
   };
 
-  // 2. Đồng bộ Google Sheets Realtime
+  // 2. Nạp báo cáo thống kê 16 thôn & đóng tập từ API nội bộ
+  const fetchSyncSheetsReport = useCallback(async () => {
+    setIsLoadingSyncSheets(true);
+    try {
+      const res = await fetch('/api/sync-sheets', { cache: 'no-store' });
+      const data: any = await res.json();
+      if (data && data.success) {
+        setSyncSummary(data.summary);
+        setSyncSheetsData(data.sheetsData);
+      }
+    } catch (err) {
+      console.error('Lỗi nạp báo cáo tiến độ nội bộ:', err);
+    } finally {
+      setIsLoadingSyncSheets(false);
+    }
+  }, []);
+
+  // 3. Đồng bộ Google Sheets Realtime
   const fetchGgsCodes = useCallback(async () => {
     setIsSyncingGgs(true);
     try {
@@ -264,6 +297,12 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchGgsCodes();
   }, [fetchGgsCodes]);
+
+  useEffect(() => {
+    if (activeTab === 'progressReport' && !syncSheetsData && !isLoadingSyncSheets) {
+      fetchSyncSheetsReport();
+    }
+  }, [activeTab, syncSheetsData, isLoadingSyncSheets, fetchSyncSheetsReport]);
 
   // 3. Tính toán trạng thái thực tế của từng thửa
   const computedParcels = useMemo(() => {
@@ -823,6 +862,34 @@ export default function DashboardPage() {
     URL.revokeObjectURL(url);
   };
 
+
+
+  // Xuất file Excel / CSV cho bảng báo cáo đang xem
+  const handleExportReportSheet = (sheetName: string) => {
+    if (!syncSheetsData || !syncSheetsData[sheetName]) return;
+    const rows = syncSheetsData[sheetName];
+    const csvContent =
+      '\uFEFF' +
+      rows
+        .map((row) =>
+          row
+            .map((cell) => `"${String(cell || '').replace(/"/g, '""')}"`)
+            .join(',')
+        )
+        .join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const safeName = sheetName.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1E00-\u1EFF]/g, '_');
+    link.download = `BAO_CAO_${safeName}_${dateStr}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   // 10. ĐÓNG TẬP PDF ĐƠN KÊ KHAI HÔM NAY CHO VIỆC IN
   const handleOpenPrintToday = () => {
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -1074,44 +1141,54 @@ export default function DashboardPage() {
               <span className="hidden sm:inline">Xuất Excel Lọc</span>
             </button>
 
-            {/* Nút Liên Kết Google Sheets Thửa Có Tên */}
-            <a
-              href="https://docs.google.com/spreadsheets/d/1xZjXOwinSQc7DJceF5TAqirjA1GiYfdZ/edit?usp=sharing"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-600/90 hover:bg-amber-600 text-white shadow-md shadow-amber-600/20 transition cursor-pointer"
-              title="Mở Google Sheets: Danh Sách Thửa Có Tên (Đồng bộ Ổ H: Google Drive)"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline">GGS Thửa Có Tên</span>
-              <ExternalLink className="w-3 h-3 opacity-70" />
-            </a>
-
-            {/* Nút Liên Kết Google Sheets Thửa Không Tên */}
-            <a
-              href="https://docs.google.com/spreadsheets/d/1arWjEfjUketXTPQQkMXviTb2lbEvRkus/edit?usp=sharing"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600 transition cursor-pointer"
-              title="Mở Google Sheets: Danh Sách Thửa Không Có Tên (Đồng bộ Ổ H: Google Drive)"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline">GGS Thửa Không Tên</span>
-              <ExternalLink className="w-3 h-3 opacity-70" />
-            </a>
-
-            {/* Nút Liên Kết File THONGKE Tổng Hợp & Đóng Tập CCCD */}
-            <a
-              href="https://docs.google.com/spreadsheets/d/1V6ewEwiOVhm5wZfZ9bSwpDHVMyEAz0Nm/edit?usp=sharing"
-              target="_blank"
-              rel="noopener noreferrer"
+            {/* Nút Báo Cáo Tiến Độ 16 Thôn & Đóng Tập Nội Bộ */}
+            <button
+              onClick={() => {
+                setActiveTab('progressReport');
+                if (!syncSheetsData) fetchSyncSheetsReport();
+              }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20 transition cursor-pointer"
-              title="Mở Google Sheets: THỐNG KÊ TIẾN ĐỘ & ĐÓNG TẬP CCCD 57 CỘT"
+              title="Xem Báo Cáo Thống Kê Tiến Độ 16 Thôn & Các Bảng Đóng Tập Nội Bộ (Thay thế Sheet THỐNG KÊ)"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline">Bảng Thống Kê & Đóng Tập</span>
-              <ExternalLink className="w-3 h-3 opacity-70" />
-            </a>
+              <span className="hidden lg:inline">Báo Cáo Tiến Độ 16 Thôn</span>
+            </button>
+
+            {/* Nút Lọc Thửa Có Tên */}
+            <button
+              onClick={() => {
+                setStatusFilter('CO_TEN_CHUA_SO_HOA_VANG');
+                setActiveTab('table');
+                setCurrentPage(1);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG' && activeTab === 'table'
+                  ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
+                  : 'bg-slate-800 text-amber-300 hover:bg-slate-700 border border-amber-500/30'
+              }`}
+              title="Lọc nhanh các thửa có tên chủ đất nhưng chưa kê khai (Màu cam/vàng)"
+            >
+              <span className="w-2 h-2 rounded-full bg-amber-400" />
+              <span className="hidden lg:inline">Thửa Có Tên</span>
+            </button>
+
+            {/* Nút Lọc Thửa Không Tên */}
+            <button
+              onClick={() => {
+                setStatusFilter('CHUA_CO_TEN_XAM');
+                setActiveTab('table');
+                setCurrentPage(1);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                statusFilter === 'CHUA_CO_TEN_XAM' && activeTab === 'table'
+                  ? 'bg-slate-600 text-white shadow-md'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-600'
+              }`}
+              title="Lọc nhanh các thửa chưa có tên (UBND xã, đất công, số hiệu - Màu trắng/xám)"
+            >
+              <span className="w-2 h-2 rounded-full bg-slate-400" />
+              <span className="hidden lg:inline">Thửa Không Tên</span>
+            </button>
 
             {/* Đồng bộ GGS */}
             <button
@@ -1333,6 +1410,26 @@ export default function DashboardPage() {
           >
             <FileSpreadsheet className="w-4 h-4" />
             Tra Cứu & Quản Lý Kê Khai ({filteredParcels.length.toLocaleString('vi-VN')})
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveTab('progressReport');
+              if (!syncSheetsData) fetchSyncSheetsReport();
+            }}
+            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 ${
+              activeTab === 'progressReport'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <TrendingUp className="w-4 h-4 text-indigo-400" />
+            Báo Cáo Tiến Độ (16 Thôn & Đóng Tập)
+            {syncSummary && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/20 text-indigo-300 font-bold border border-indigo-500/30">
+                {syncSummary.totalDeclared}
+              </span>
+            )}
           </button>
 
           <button
@@ -2218,6 +2315,478 @@ export default function DashboardPage() {
               }
             }}
           />
+        )}
+
+        {/* TAB 6: BÁO CÁO TIẾN ĐỘ 16 THÔN & ĐÓNG TẬP NỘI BỘ (THAY THẾ THỐNG KÊ & DSTONG GGS) */}
+        {activeTab === 'progressReport' && (
+          <div className="space-y-5 animate-in fade-in duration-150">
+            {/* Banner Header */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                    <TrendingUp className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                      Báo Cáo Thống Kê Tiến Độ 16 Thôn & Đóng Tập
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+                        Đóng Gói Khép Kín 100%
+                      </span>
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Toàn bộ logic tính toán 4 giai đoạn tiến độ và 16 thôn buôn được gói gọn trực tiếp trong Web & Cloudflare R2
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => fetchSyncSheetsReport()}
+                  disabled={isLoadingSyncSheets}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 transition disabled:opacity-50 cursor-pointer shadow-xs"
+                  title="Tính toán và làm mới lại toàn bộ báo cáo từ Cloudflare R2"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingSyncSheets ? 'animate-spin text-cyan-400' : ''}`} />
+                  <span>{isLoadingSyncSheets ? 'Đang tính toán...' : 'Làm Mới Realtime'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleExportReportSheet(selectedReportSheet)}
+                  disabled={!syncSheetsData || !syncSheetsData[selectedReportSheet]}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 transition disabled:opacity-50 cursor-pointer"
+                  title="Xuất bảng dữ liệu hiện tại ra file Excel (CSV UTF-8 with BOM)"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Xuất Excel ({selectedReportSheet === 'THỐNG KÊ' ? '16 Thôn' : selectedReportSheet.slice(0, 15)})</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 4 Cards Giai Đoạn Tiến Độ */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Giai đoạn 4: Đã Giải Quyết */}
+              <div
+                onClick={() => {
+                  setSelectedReportSheet('ĐÃ GIẢI QUYẾT');
+                  setReportPage(1);
+                }}
+                className="bg-slate-900/90 border border-emerald-500/30 hover:border-emerald-500/60 rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group"
+              >
+                <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                  <span className="font-bold uppercase tracking-wider text-[10px] text-emerald-400 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    Giai đoạn 4: Đã Giải Quyết
+                  </span>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="text-2xl sm:text-3xl font-black text-emerald-300 tracking-tight">
+                  {syncSummary ? syncSummary.daGiaiQuyet.toLocaleString('vi-VN') : '...'}
+                  <span className="text-xs font-normal text-slate-400 ml-1.5">thửa</span>
+                </div>
+                <div className="mt-2 text-[11px] text-slate-400 pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                  <span>Đã lên GGS chính:</span>
+                  <strong className="text-emerald-400 font-bold">Hoàn tất</strong>
+                </div>
+              </div>
+
+              {/* Giai đoạn 3: Chờ Nhập GGS */}
+              <div
+                onClick={() => {
+                  setSelectedReportSheet('NHẬP GGS');
+                  setReportPage(1);
+                }}
+                className="bg-slate-900/90 border border-sky-500/30 hover:border-sky-500/60 rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group"
+              >
+                <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                  <span className="font-bold uppercase tracking-wider text-[10px] text-sky-400 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-sky-400" />
+                    Giai đoạn 3: Nhập GGS (57 cột)
+                  </span>
+                  <FileSpreadsheet className="w-4 h-4 text-sky-400" />
+                </div>
+                <div className="text-2xl sm:text-3xl font-black text-sky-300 tracking-tight">
+                  {syncSummary ? syncSummary.nhapGgs.toLocaleString('vi-VN') : '...'}
+                  <span className="text-xs font-normal text-slate-400 ml-1.5">hồ sơ</span>
+                </div>
+                <div className="mt-2 text-[11px] text-slate-400 pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                  <span>Đã scan sau ký:</span>
+                  <strong className="text-sky-400 font-bold">Sẵn sàng xuất file</strong>
+                </div>
+              </div>
+
+              {/* Giai đoạn 2: Sẵn Sàng Đóng Tập */}
+              <div
+                onClick={() => {
+                  setSelectedReportSheet('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
+                  setReportPage(1);
+                }}
+                className="bg-slate-900/90 border border-indigo-500/30 hover:border-indigo-500/60 rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group"
+              >
+                <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                  <span className="font-bold uppercase tracking-wider text-[10px] text-indigo-400 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-indigo-400" />
+                    Giai đoạn 2: Đã Có CCCD
+                  </span>
+                  <ShieldCheck className="w-4 h-4 text-indigo-400" />
+                </div>
+                <div className="text-2xl sm:text-3xl font-black text-indigo-300 tracking-tight">
+                  {syncSummary ? syncSummary.daDongTap.toLocaleString('vi-VN') : '...'}
+                  <span className="text-xs font-normal text-slate-400 ml-1.5">thửa</span>
+                </div>
+                <div className="mt-2 text-[11px] text-slate-400 pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                  <span>Đã có PDF trên R2:</span>
+                  <strong className="text-indigo-400 font-bold">Sẵn sàng đóng tập</strong>
+                </div>
+              </div>
+
+              {/* Giai đoạn 1: Đang Kê Khai (Thiếu CCCD) */}
+              <div
+                onClick={() => {
+                  setSelectedReportSheet('THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)');
+                  setReportPage(1);
+                }}
+                className="bg-slate-900/90 border border-amber-500/30 hover:border-amber-500/60 rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group"
+              >
+                <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                  <span className="font-bold uppercase tracking-wider text-[10px] text-amber-400 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-400" />
+                    Giai đoạn 1: Thiếu CCCD
+                  </span>
+                  <Clock className="w-4 h-4 text-amber-400" />
+                </div>
+                <div className="text-2xl sm:text-3xl font-black text-amber-300 tracking-tight">
+                  {syncSummary ? (syncSummary.canTimCccd + syncSummary.khongCoCccd).toLocaleString('vi-VN') : '...'}
+                  <span className="text-xs font-normal text-slate-400 ml-1.5">thửa</span>
+                </div>
+                <div className="mt-2 text-[11px] text-slate-400 pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                  <span>Cần tìm: <strong className="text-amber-300">{syncSummary?.canTimCccd || 0}</strong></span>
+                  <span>Không có: <strong className="text-rose-400">{syncSummary?.khongCoCccd || 0}</strong></span>
+                </div>
+              </div>
+            </div>
+
+            {/* Sub-tabs điều hướng các bảng báo cáo */}
+            <div className="flex border-b border-slate-800 gap-2 overflow-x-auto no-scrollbar pt-2">
+              {[
+                { id: 'THỐNG KÊ', label: 'Bảng Thống Kê 16 Thôn / Buôn', count: 16 },
+                {
+                  id: 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)',
+                  label: 'Sẵn Sàng Đóng Tập (Có CCCD)',
+                  count: syncSummary?.daDongTap,
+                  color: 'indigo',
+                },
+                {
+                  id: 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)',
+                  label: 'Đang Kê Khai (Thiếu CCCD)',
+                  count: syncSummary ? syncSummary.canTimCccd + syncSummary.khongCoCccd : undefined,
+                  color: 'amber',
+                },
+                {
+                  id: 'ĐÃ GIẢI QUYẾT',
+                  label: 'Đã Giải Quyết (GGS)',
+                  count: syncSummary?.daGiaiQuyet,
+                  color: 'emerald',
+                },
+                {
+                  id: 'NHẬP GGS',
+                  label: 'Nhập GGS (57 cột)',
+                  count: syncSummary?.nhapGgs,
+                  color: 'sky',
+                },
+              ].map((tab) => {
+                const isActive = selectedReportSheet === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => {
+                      setSelectedReportSheet(tab.id);
+                      setReportPage(1);
+                      setReportSearchQuery('');
+                    }}
+                    className={`py-2 px-3 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                      isActive
+                        ? 'border-indigo-500 text-indigo-400 bg-indigo-500/5 rounded-t-lg'
+                        : 'border-transparent text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    {typeof tab.count === 'number' && (
+                      <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-800 text-slate-300 font-bold border border-slate-700">
+                        {tab.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* BẢNG 1: HIỂN THỊ SHEET THỐNG KÊ (16 THÔN / BUÔN) */}
+            {selectedReportSheet === 'THỐNG KÊ' && (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                      <Building2 className="w-4 h-4 text-indigo-400" />
+                      Tiến Độ Thửa Đất Chưa Hoàn Thành Theo 16 Thôn / Buôn
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Bấm vào hàng của thôn bất kỳ để mở danh sách lọc các thửa tương ứng trên Bản đồ / Tra Cứu
+                    </p>
+                  </div>
+                  <span className="text-xs text-slate-400 bg-slate-950 px-3 py-1 rounded-xl border border-slate-800">
+                    Tổng 16 thôn + chưa xác định
+                  </span>
+                </div>
+
+                {isLoadingSyncSheets && !syncSheetsData ? (
+                  <div className="py-12 text-center text-slate-400 space-y-2">
+                    <RefreshCw className="w-6 h-6 animate-spin mx-auto text-indigo-400" />
+                    <p className="text-xs font-semibold">Đang tổng hợp số liệu realtime từ Cloudflare R2...</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-slate-800">
+                    <table className="w-full text-xs text-left text-slate-300">
+                      <thead>
+                        <tr className="bg-slate-950 border-b border-slate-800 text-slate-400">
+                          <th rowSpan={2} className="py-2.5 px-3 text-center border-r border-slate-800 w-12 font-bold">STT</th>
+                          <th rowSpan={2} className="py-2.5 px-3 border-r border-slate-800 font-bold min-w-[150px]">Tên Thôn / Buôn</th>
+                          <th colSpan={3} className="py-1.5 px-3 text-center border-r border-slate-800 bg-slate-900/80 font-bold text-slate-300">
+                            Chưa Thực Hiện
+                          </th>
+                          <th colSpan={4} className="py-1.5 px-3 text-center border-r border-slate-800 bg-slate-900/80 font-bold text-blue-300">
+                            Đã Kê Khai (Thu Thập Hồ Sơ)
+                          </th>
+                          <th rowSpan={2} className="py-2.5 px-3 text-center font-bold text-emerald-400 bg-emerald-950/20">
+                            Đã Hoàn Thành
+                          </th>
+                        </tr>
+                        <tr className="bg-slate-950/90 border-b border-slate-800 text-[11px] text-slate-400">
+                          <th className="py-1.5 px-2 text-center border-r border-slate-800 font-semibold">Tổng</th>
+                          <th className="py-1.5 px-2 text-center border-r border-slate-800 font-semibold text-amber-400">Có Tên</th>
+                          <th className="py-1.5 px-2 text-center border-r border-slate-800 font-semibold text-slate-400">Không Tên</th>
+                          <th className="py-1.5 px-2 text-center border-r border-slate-800 font-semibold text-blue-400">Tổng</th>
+                          <th className="py-1.5 px-2 text-center border-r border-slate-800 font-semibold text-indigo-400">Có CCCD</th>
+                          <th className="py-1.5 px-2 text-center border-r border-slate-800 font-semibold text-amber-400">Cần Tìm</th>
+                          <th className="py-1.5 px-2 text-center border-r border-slate-800 font-semibold text-rose-400">Không CCCD</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {(() => {
+                          const rawRows = syncSheetsData?.['THỐNG KÊ'] || [];
+                          const tableHeaderIdx = rawRows.findIndex(
+                            (r) => Array.isArray(r) && r[0] === 'STT' && r[1] === 'Tên thôn / buôn'
+                          );
+                          const dataRows = tableHeaderIdx >= 0 ? rawRows.slice(tableHeaderIdx + 1) : [];
+
+                          if (dataRows.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={10} className="py-8 text-center text-slate-500">
+                                  Chưa có dữ liệu thống kê. Bấm &quot;Làm Mới Realtime&quot; ở trên để tính toán.
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return dataRows.map((row, idx) => {
+                            const isTotal = row[0] === 'TỔNG' || String(row[1]).includes('TOÀN XÃ');
+                            const thonName = String(row[1] || '');
+
+                            return (
+                              <tr
+                                key={idx}
+                                onClick={() => {
+                                  if (!isTotal) {
+                                    setVillageFilter(thonName);
+                                    setActiveTab('table');
+                                    setCurrentPage(1);
+                                  }
+                                }}
+                                className={`transition ${
+                                  isTotal
+                                    ? 'bg-indigo-950/40 font-black text-slate-100 border-t-2 border-indigo-500/40'
+                                    : 'hover:bg-slate-800/50 cursor-pointer'
+                                }`}
+                              >
+                                <td className={`py-2 px-3 text-center border-r border-slate-800 ${isTotal ? 'text-amber-400 font-black' : 'text-slate-500'}`}>
+                                  {row[0]}
+                                </td>
+                                <td className={`py-2 px-3 border-r border-slate-800 font-bold ${isTotal ? 'text-amber-300' : 'text-slate-200'}`}>
+                                  {thonName}
+                                  {!isTotal && (
+                                    <span className="text-[10px] text-indigo-400 ml-1.5 opacity-0 group-hover:opacity-100 transition">
+                                      →
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-2 px-2 text-center border-r border-slate-800 font-semibold">{row[2]}</td>
+                                <td className="py-2 px-2 text-center border-r border-slate-800 text-amber-400">{row[3]}</td>
+                                <td className="py-2 px-2 text-center border-r border-slate-800 text-slate-400">{row[4]}</td>
+                                <td className="py-2 px-2 text-center border-r border-slate-800 font-bold text-blue-400">{row[5]}</td>
+                                <td className="py-2 px-2 text-center border-r border-slate-800 text-indigo-300">{row[6]}</td>
+                                <td className="py-2 px-2 text-center border-r border-slate-800 text-amber-300">{row[7]}</td>
+                                <td className="py-2 px-2 text-center border-r border-slate-800 text-rose-400">{row[8]}</td>
+                                <td className="py-2 px-3 text-center font-bold text-emerald-400 bg-emerald-950/10">{row[9]}</td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* BẢNG 2, 3, 4, 5: HIỂN THỊ CÁC SHEET CHI TIẾT (ĐÓNG TẬP, THIẾU CCCD, ĐÃ GIẢI QUYẾT, 57 CỘT) */}
+            {selectedReportSheet !== 'THỐNG KÊ' && (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                      <FileSpreadsheet className="w-4 h-4 text-indigo-400" />
+                      {selectedReportSheet}
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Danh sách chi tiết được tạo tự động • Hỗ trợ tìm kiếm nhanh & xuất file Excel
+                    </p>
+                  </div>
+
+                  {/* Thanh tìm kiếm trong sheet */}
+                  <div className="relative w-full sm:w-64">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                    <input
+                      type="text"
+                      placeholder="Tìm theo tên, mã thửa, CCCD..."
+                      value={reportSearchQuery}
+                      onChange={(e) => {
+                        setReportSearchQuery(e.target.value);
+                        setReportPage(1);
+                      }}
+                      className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                {(() => {
+                  const rawSheet = syncSheetsData?.[selectedReportSheet] || [];
+                  const headers = rawSheet[0] || [];
+                  const allRows = rawSheet.slice(1) || [];
+
+                  const filtered = allRows.filter((row) => {
+                    if (!reportSearchQuery) return true;
+                    const q = stripAccents(reportSearchQuery);
+                    return row.some((cell) => stripAccents(String(cell || '')).includes(q));
+                  });
+
+                  const pageSize = 20;
+                  const totalPages = Math.ceil(filtered.length / pageSize) || 1;
+                  const pagedRows = filtered.slice((reportPage - 1) * pageSize, reportPage * pageSize);
+
+                  return (
+                    <div className="space-y-3">
+                      <div className="overflow-x-auto rounded-xl border border-slate-800">
+                        <table className="w-full text-xs text-left text-slate-300">
+                          <thead className="bg-slate-950 border-b border-slate-800 text-slate-400 font-bold">
+                            <tr>
+                              {headers.map((h, hIdx) => (
+                                <th key={hIdx} className="py-2.5 px-3 whitespace-nowrap border-r border-slate-800/80">
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60">
+                            {pagedRows.length === 0 ? (
+                              <tr>
+                                <td colSpan={Math.max(headers.length, 1)} className="py-8 text-center text-slate-500">
+                                  {filtered.length === 0 && reportSearchQuery
+                                    ? 'Không tìm thấy kết quả phù hợp với từ khóa.'
+                                    : 'Chưa có hồ sơ trong danh sách này.'}
+                                </td>
+                              </tr>
+                            ) : (
+                              pagedRows.map((row, rIdx) => (
+                                <tr key={rIdx} className="hover:bg-slate-800/40 transition">
+                                  {row.map((cell, cIdx) => {
+                                    const cellStr = String(cell || '');
+
+                                    // Hiển thị nút bấm nếu là Hyperlink file PDF
+                                    const linkMatch = cellStr.match(/HYPERLINK\("([^"]+)";\s*"([^"]+)"\)/i);
+                                    if (linkMatch) {
+                                      const href = linkMatch[1];
+                                      const text = linkMatch[2];
+                                      return (
+                                        <td key={cIdx} className="py-2 px-3 whitespace-nowrap border-r border-slate-800/60">
+                                          <a
+                                            href={href}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 text-[11px] font-bold border border-indigo-500/30 transition"
+                                          >
+                                            <Eye className="w-3 h-3" />
+                                            <span>{text}</span>
+                                          </a>
+                                        </td>
+                                      );
+                                    }
+
+                                    // Hiển thị chuỗi định dạng Excel (="...")
+                                    const cleanText = cellStr.replace(/^="|"$/g, '');
+
+                                    return (
+                                      <td key={cIdx} className="py-2 px-3 whitespace-nowrap border-r border-slate-800/60">
+                                        {cleanText}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Phân trang */}
+                      {filtered.length > pageSize && (
+                        <div className="flex items-center justify-between text-xs text-slate-400 pt-2">
+                          <span>
+                            Hiển thị {(reportPage - 1) * pageSize + 1} -{' '}
+                            {Math.min(reportPage * pageSize, filtered.length)} / {filtered.length} kết quả
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setReportPage((p) => Math.max(1, p - 1))}
+                              disabled={reportPage <= 1}
+                              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 transition cursor-pointer"
+                            >
+                              Trước
+                            </button>
+                            <span className="px-2 text-slate-300 font-bold">
+                              {reportPage} / {totalPages}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setReportPage((p) => Math.min(totalPages, p + 1))}
+                              disabled={reportPage >= totalPages}
+                              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 transition cursor-pointer"
+                            >
+                              Sau
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
         )}
       </main>
 

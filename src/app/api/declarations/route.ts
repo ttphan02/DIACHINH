@@ -2,8 +2,6 @@ import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { DeclarationFormData } from '@/types';
-import { executeSyncToGoogleSheet } from '@/utils/syncGoogleSheets';
-
 export const dynamic = 'force-dynamic';
 
 const R2_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -26,19 +24,6 @@ async function getR2Binding(): Promise<any | null> {
     return (env as any)?.DIACHINH_STORAGE || null;
   } catch {
     return null;
-  }
-}
-
-let lastSyncSheetTime = 0;
-let isSyncingSheet = false;
-
-// Kích hoạt đồng bộ Google Sheet tức thì
-async function triggerDebouncedSheetSync(declarationsMap: Record<string, any>) {
-  try {
-    const bucket = await getR2Binding();
-    await executeSyncToGoogleSheet(declarationsMap, bucket);
-  } catch (err) {
-    console.error('Lỗi sync Google Sheet:', err);
   }
 }
 
@@ -220,8 +205,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Không thể ghi vào Cloudflare R2' }, { status: 500 });
     }
 
-    // Tự động kích hoạt đồng bộ sang Google Sheet Realtime có kiểm soát tần suất
-    await triggerDebouncedSheetSync(updatedPayload.declarationsMap);
+    // Lưu R2 hoàn tất, trả về client ngay lập tức mà không chờ bên thứ ba
 
     return NextResponse.json({
       success: true,
@@ -274,9 +258,6 @@ export async function DELETE(request: Request) {
     };
 
     await saveDeclarationsToR2(updatedPayload);
-
-    // Tự động kích hoạt đồng bộ sang Google Sheet Realtime có kiểm soát tần suất
-    triggerDebouncedSheetSync(updatedPayload.declarationsMap);
 
     return NextResponse.json({
       success: true,

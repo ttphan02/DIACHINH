@@ -59,6 +59,8 @@ export async function GET() {
       message: result.message,
       durationMs: Date.now() - t0,
       totalDeclarations: Object.keys(declarationsMap).length,
+      summary: (result as any).summary,
+      sheetsData: (result as any).sheetsData,
     });
   } catch (error: any) {
     return NextResponse.json(
