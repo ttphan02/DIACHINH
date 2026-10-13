@@ -30,7 +30,6 @@ function extractFields(line: string): string[] {
     } else if (c === ',' && !inQuote) {
       fields.push(cur.trim());
       cur = '';
-      if (fields.length >= 28) break;
     } else {
       cur += c;
     }
