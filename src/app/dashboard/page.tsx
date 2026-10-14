@@ -1171,18 +1171,21 @@ export default function DashboardPage() {
 
           {/* Action buttons */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Nút Bổ Sung CCCD & Quét AI */}
-            <button
-              onClick={() => {
-                setSelectedParcelForCccd('');
-                setIsCccdSupplementOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-md shadow-indigo-600/30 transition cursor-pointer border border-blue-400/30 ring-2 ring-blue-500/20"
-              title="Bổ sung ảnh CCCD, quét AI tự động, tạo PDF A4 chuẩn và lưu trực tiếp vào R2"
+            {/* Nút mở công cụ ScanName (Tách PDF & Đổi tên hồ sơ scan sau ký) */}
+            <a
+              href="/scanname"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer shadow-md border ${
+                isLight
+                  ? 'bg-gradient-to-r from-indigo-50 to-blue-50 hover:from-indigo-100 hover:to-blue-100 text-indigo-700 border-indigo-200'
+                  : 'bg-gradient-to-r from-indigo-950/80 to-purple-950/80 hover:from-indigo-900 hover:to-purple-900 text-indigo-300 border-indigo-500/40 shadow-indigo-950/40'
+              }`}
+              title="Mở công cụ Tách PDF & Quét CCCD / Đổi tên hồ sơ scan (ScanName)"
             >
-              <Camera className="w-3.5 h-3.5 text-yellow-300 animate-pulse" />
-              <span>Bổ Sung CCCD (Quét AI)</span>
-            </button>
+              <FileText className="w-3.5 h-3.5 text-indigo-500" />
+              <span>ScanName (Tách PDF)</span>
+            </a>
 
             {/* Nút Xuất Excel Chuẩn Mẫu Đóng Tập EXCEL-MAUNHAP */}
             <button
@@ -1192,16 +1195,6 @@ export default function DashboardPage() {
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Mẫu Nhập Đóng Tập</span>
-            </button>
-
-            {/* Nút Đóng tập PDF Hôm Nay */}
-            <button
-              onClick={handleOpenPrintToday}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600/90 hover:bg-purple-600 text-white shadow-md shadow-purple-600/20 transition cursor-pointer"
-              title="Đóng tập PDF các đơn kê khai được tạo trong ngày hôm nay cho việc in"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Đóng Tập PDF Hôm Nay</span>
             </button>
 
             {/* Nút Xuất Excel danh sách đang lọc */}
@@ -1440,18 +1433,24 @@ export default function DashboardPage() {
 
         {/* TAB 3: DANH SÁCH CHI TIẾT TẤT CẢ THÔN / BUÔN */}
         {activeTab === 'villages' && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
+          <div className={`border rounded-2xl p-4 sm:p-6 shadow-sm space-y-4 ${
+            isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
+          }`}>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Building2 className="w-4 h-4 text-blue-400" />
+                <h3 className={`text-base font-bold flex items-center gap-2 ${
+                  isLight ? 'text-slate-900' : 'text-white'
+                }`}>
+                  <Building2 className="w-4 h-4 text-blue-500" />
                   Tiến Độ Số Hóa Từng Thôn / Buôn ({villageStats.length} địa bàn)
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                   Bấm vào thôn bất kỳ để xem danh sách các thửa đất tương ứng
                 </p>
               </div>
-              <span className="text-xs text-slate-400 bg-slate-800 px-3 py-1 rounded-xl">
+              <span className={`text-xs px-3 py-1 rounded-xl border ${
+                isLight ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-800 text-slate-400 border-slate-700'
+              }`}>
                 Tổng quản lý: <strong>{globalStats.total.toLocaleString('vi-VN')} thửa</strong>
               </span>
             </div>
@@ -1465,18 +1464,26 @@ export default function DashboardPage() {
                     setReportSearchQuery(v.name);
                     setActiveTab('progressReport');
                   }}
-                  className="bg-slate-950/70 hover:bg-slate-950 p-4 rounded-xl border border-slate-800 hover:border-blue-500/50 transition cursor-pointer group"
+                  className={`p-4 rounded-xl border transition cursor-pointer group shadow-xs ${
+                    isLight
+                      ? 'bg-slate-50/80 hover:bg-white border-slate-200 hover:border-blue-400 hover:shadow-md'
+                      : 'bg-slate-950/70 hover:bg-slate-950 border-slate-800 hover:border-blue-500/50'
+                  }`}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <strong className="text-sm font-bold text-white group-hover:text-blue-300 transition truncate max-w-[200px]">
+                    <strong className={`text-sm font-bold transition truncate max-w-[200px] ${
+                      isLight ? 'text-slate-800 group-hover:text-blue-600' : 'text-white group-hover:text-blue-300'
+                    }`}>
                       {v.name}
                     </strong>
-                    <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                       {v.rate}% GGS
                     </span>
                   </div>
 
-                  <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden flex my-2">
+                  <div className={`w-full h-2 rounded-full overflow-hidden flex my-2 ${
+                    isLight ? 'bg-slate-200' : 'bg-slate-900'
+                  }`}>
                     <div style={{ width: `${v.rate}%` }} className="bg-emerald-500 h-full rounded-l-full" />
                     <div
                       style={{ width: `${v.total > 0 ? (v.yellow / v.total) * 100 : 0}%` }}
@@ -1484,26 +1491,30 @@ export default function DashboardPage() {
                     />
                     <div
                       style={{ width: `${v.total > 0 ? (v.gray / v.total) * 100 : 0}%` }}
-                      className="bg-slate-700 h-full rounded-r-full"
+                      className={isLight ? 'bg-slate-300 h-full rounded-r-full' : 'bg-slate-700 h-full rounded-r-full'}
                     />
                   </div>
 
-                  <div className="grid grid-cols-3 gap-1 text-[11px] text-slate-400 mt-2 pt-2 border-t border-slate-800/60">
+                  <div className={`grid grid-cols-3 gap-1 text-[11px] mt-2 pt-2 border-t ${
+                    isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800/60 text-slate-400'
+                  }`}>
                     <div>
-                      <span className="block text-[10px] text-slate-500">Tổng thửa:</span>
-                      <strong className="text-slate-200">{v.total}</strong>
+                      <span className={`block text-[10px] ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Tổng thửa:</span>
+                      <strong className={isLight ? 'text-slate-800' : 'text-slate-200'}>{v.total}</strong>
                     </div>
                     <div>
-                      <span className="block text-[10px] text-emerald-500">Đã số hóa:</span>
-                      <strong className="text-emerald-400">{v.green}</strong>
+                      <span className="block text-[10px] text-emerald-600 dark:text-emerald-500">Đã số hóa:</span>
+                      <strong className="text-emerald-600 dark:text-emerald-400 font-bold">{v.green}</strong>
                     </div>
                     <div>
-                      <span className="block text-[10px] text-amber-500">Có tên:</span>
-                      <strong className="text-amber-400">{v.yellow}</strong>
+                      <span className="block text-[10px] text-amber-600 dark:text-amber-500">Có tên:</span>
+                      <strong className="text-amber-600 dark:text-amber-400 font-bold">{v.yellow}</strong>
                     </div>
                   </div>
 
-                  <div className="mt-2 text-[10px] text-blue-400 group-hover:underline flex items-center justify-between">
+                  <div className={`mt-2 text-[10px] font-semibold group-hover:underline flex items-center justify-between ${
+                    isLight ? 'text-blue-600' : 'text-blue-400'
+                  }`}>
                     <span>Quy mô: {v.totalAreaHa} ha</span>
                     <span>Xem danh sách →</span>
                   </div>
@@ -1516,6 +1527,7 @@ export default function DashboardPage() {
         {/* TAB 5: QUẢN LÝ KHO CCCD (CLOUDFLARE R2) */}
         {activeTab === 'cccd' && (
           <CccdManagerTab
+            theme={theme}
             onOpenAddModal={(mode) => {
               setSelectedParcelForCccd('');
               setCccdModalMode(mode || 'folder');
@@ -1535,20 +1547,28 @@ export default function DashboardPage() {
         {activeTab === 'progressReport' && (
           <div className="space-y-5 animate-in fade-in duration-150">
             {/* Banner Header */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className={`border rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+              isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
+            }`}>
               <div>
                 <div className="flex items-center gap-2">
-                  <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                  <div className={`p-2 rounded-xl border ${
+                    isLight ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                  }`}>
                     <TrendingUp className="w-5 h-5" />
                   </div>
                   <div>
-                    <h2 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                    <h2 className={`text-base sm:text-lg font-black flex items-center gap-2 ${
+                      isLight ? 'text-slate-900' : 'text-white'
+                    }`}>
                       Báo Cáo Thống Kê Tiến Độ 16 Thôn & Đóng Tập
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+                      <span className={`text-xs px-2 py-0.5 rounded-full border font-bold ${
+                        isLight ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                      }`}>
                         Đóng Gói Khép Kín 100%
                       </span>
                     </h2>
-                    <p className="text-xs text-slate-400 mt-0.5">
+                    <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                       Toàn bộ logic tính toán 4 giai đoạn tiến độ và 16 thôn buôn được gói gọn trực tiếp trong Web & Cloudflare R2
                     </p>
                   </div>
@@ -1560,10 +1580,14 @@ export default function DashboardPage() {
                   type="button"
                   onClick={() => fetchSyncSheetsReport()}
                   disabled={isLoadingSyncSheets}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 transition disabled:opacity-50 cursor-pointer shadow-xs"
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border transition disabled:opacity-50 cursor-pointer shadow-xs ${
+                    isLight
+                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                      : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border-cyan-500/30'
+                  }`}
                   title="Tính toán và làm mới lại toàn bộ báo cáo từ Cloudflare R2"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingSyncSheets ? 'animate-spin text-cyan-400' : ''}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingSyncSheets ? 'animate-spin text-cyan-500' : ''}`} />
                   <span>{isLoadingSyncSheets ? 'Đang tính toán...' : 'Làm Mới Realtime'}</span>
                 </button>
 
