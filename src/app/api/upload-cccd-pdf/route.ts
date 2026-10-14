@@ -1,11 +1,30 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { PDFDocument } from 'pdf-lib';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { executeSyncToGoogleSheet, cleanCccd, cleanName, invalidateR2Cache } from '@/utils/syncGoogleSheets';
 
 export const dynamic = 'force-dynamic';
 
 const KEY_ALL_DECLARATIONS = 'declarations/all.json';
+const R2_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
+const R2_ACCESS_KEY = process.env.CLOUDFLARE_R2_ACCESS_KEY_ID;
+const R2_SECRET_KEY = process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY;
+const R2_BUCKET = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'diachinh-storage';
+
+function getS3Client(): S3Client | null {
+  if (R2_ACCOUNT_ID && R2_ACCESS_KEY && R2_SECRET_KEY) {
+    return new S3Client({
+      region: 'auto',
+      endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: {
+        accessKeyId: R2_ACCESS_KEY,
+        secretAccessKey: R2_SECRET_KEY,
+      },
+    });
+  }
+  return null;
+}
 
 async function getR2Binding(): Promise<any | null> {
   try {
@@ -160,6 +179,20 @@ export async function POST(request: Request) {
 
       // Xóa cache R2 files để hệ thống cập nhật file mới ngay lập tức
       invalidateR2Cache();
+    } else {
+      const s3 = getS3Client();
+      if (s3) {
+        await s3.send(
+          new PutObjectCommand({
+            Bucket: R2_BUCKET,
+            Key: r2Key,
+            Body: pdfBytes,
+            ContentType: 'application/pdf',
+            CacheControl: 'public, max-age=31536000, immutable',
+          })
+        );
+        invalidateR2Cache();
+      }
     }
 
     const r2PublicUrl = `https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/${r2Key}`;
