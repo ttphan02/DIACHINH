@@ -60,25 +60,26 @@ export function cleanName(name: any): string {
 export function normalizeAddress(addr: string): string {
   if (!addr) return 'xã Cư Pui';
   const a = stripAccents(addr);
-  if (['cam phong', 'thon 1', 'thon 2'].some((k) => a.includes(k))) return 'Thôn Cẩm Phong, xã Cư Pui';
-  if (['hoa phong', 'ho phong', 'thon 3', 'thon 4'].some((k) => a.includes(k))) return 'Thôn Hòa Phong, xã Cư Pui';
-  if (['ba phuong', 'thon 5', 'thon 6'].some((k) => a.includes(k))) return 'Thôn Ba Phường, xã Cư Pui';
-  if (a.includes('ea uol')) return 'Thôn Ea Uôl, xã Cư Pui';
+  // Ưu tiên kiểm tra các thôn buôn đặc thù trước để tránh nhầm lẫn với Hoà Phong
   if (a.includes('noh prong')) return 'Thôn Noh Prông, xã Cư Pui';
+  if (a.includes('cu phiang') || a.includes('cu piang')) return 'Buôn Cư Phiang, xã Cư Pui';
+  if (a.includes('ngo')) return 'Buôn Ngô, xã Cư Pui';
+  if (a.includes('tlier') || a.includes('tlia')) return 'Buôn Tliêr, xã Cư Pui';
+  if (['ba phuong', 'thon 5', 'thon 6', '3 phuong'].some((k) => a.includes(k))) return 'Thôn Ba Phường, xã Cư Pui';
+  if (['cam phong', 'thon 1', 'thon 2'].some((k) => a.includes(k))) return 'Thôn Cẩm Phong, xã Cư Pui';
+  if (a.includes('ea uol')) return 'Thôn Ea Uôl, xã Cư Pui';
   if (a.includes('ea khiem')) return 'Thôn Ea Khiêm, xã Cư Pui';
   if (a.includes('cu te')) return 'Thôn Cư Tê, xã Cư Pui';
   if (a.includes('cu rang')) return 'Thôn Cư Rang, xã Cư Pui';
   if (a.includes('ea lang')) return 'Thôn Ea Lang, xã Cư Pui';
-  if (a.includes('ea bar')) return 'Thôn Ea Bar, xã Cư Pui';
+  if (a.includes('ea bar') || a.includes('ea ba')) return 'Thôn Ea Bar, xã Cư Pui';
   if (a.includes('rot')) return 'Thôn Ea Rớt, xã Cư Pui';
-  if (a.includes('tlier')) return 'Buôn Tliêr, xã Cư Pui';
-  if (a.includes('buon ngo')) return 'Buôn Ngô, xã Cư Pui';
-  if (a.includes('cu phiang')) return 'Buôn Cư Phiang, xã Cư Pui';
-  if (a.includes('buon khanh')) return 'Buôn Khanh, xã Cư Pui';
-  if (a.includes('buon khoa')) return 'Buôn Khóa, xã Cư Pui';
-  if (a.includes('dak tuor')) return 'Buôn Đắk Tuôr, xã Cư Pui';
-  if (a.includes('buon bhung')) return 'Buôn Bhung, xã Cư Pui';
-  if (a.includes('buon blak')) return 'Buôn Blăk, xã Cư Pui';
+  if (a.includes('dak tuor') || a.includes('dak tua')) return 'Buôn Đắk Tuôr, xã Cư Pui';
+  if (a.includes('khanh')) return 'Buôn Khanh, xã Cư Pui';
+  if (a.includes('khoa')) return 'Buôn Khóa, xã Cư Pui';
+  if (a.includes('bhung')) return 'Buôn Bhung, xã Cư Pui';
+  if (a.includes('blak')) return 'Buôn Blăk, xã Cư Pui';
+  if (['hoa phong', 'ho phong', 'thon 3', 'thon 4'].some((k) => a.includes(k))) return 'Thôn Hòa Phong, xã Cư Pui';
   return addr.trim() || 'xã Cư Pui';
 }
 

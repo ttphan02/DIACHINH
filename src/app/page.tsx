@@ -353,15 +353,28 @@ export default function Home() {
       let chu_ho = p.chu_ho;
       let cccd = p.cccd;
 
-      // Ưu tiên dữ liệu kê khai thực địa nếu thửa này đã kê khai trên web
+      const isInvalidName = (name?: string) => {
+        if (!name) return true;
+        const s = name.trim().toLowerCase();
+        return (
+          s === 'nam' ||
+          s === 'nữ' ||
+          s === 'nu' ||
+          s === 'cá nhân' ||
+          s === 'chung' ||
+          s.startsWith('w6jp')
+        );
+      };
+
+      // Ưu tiên dữ liệu kê khai thực địa nếu thửa này đã kê khai trên web (và tên không phải là giới tính)
       if (savedDecl) {
-        if (savedDecl.chu_dat_ten) chu_ho = savedDecl.chu_dat_ten;
+        if (savedDecl.chu_dat_ten && !isInvalidName(savedDecl.chu_dat_ten)) chu_ho = savedDecl.chu_dat_ten;
         if (savedDecl.chu_dat_cccd) cccd = savedDecl.chu_dat_cccd;
       }
 
-      if (ggsInfo?.chu_ho && !ggsInfo.chu_ho.startsWith('w6jp')) {
+      if (ggsInfo?.chu_ho && !isInvalidName(ggsInfo.chu_ho)) {
         chu_ho = ggsInfo.chu_ho;
-      } else if (chu_ho?.startsWith('w6jp') || !chu_ho) {
+      } else if (isInvalidName(chu_ho)) {
         chu_ho = 'Không có trong dữ liệu';
       }
 

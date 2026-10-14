@@ -30,6 +30,31 @@ export default function DeclarationPrintModal({
     window.print();
   };
 
+  const formatPrintAddress = (addr?: string, thon?: string) => {
+    const target = (addr && !addr.includes('(khong đia chỉ)') ? addr : thon) || '';
+    const clean = target.trim();
+    if (!clean || clean.includes('(khong đia chỉ)')) return 'Xã Cư Pui, huyện Krông Bông, tỉnh Đắk Lắk';
+    if (clean.toLowerCase().includes('đắk lắk') || clean.toLowerCase().includes('dak lak')) {
+      return clean;
+    }
+    if (clean.toLowerCase().includes('krông bông') || clean.toLowerCase().includes('krong bong')) {
+      return `${clean}, tỉnh Đắk Lắk`;
+    }
+    if (clean.toLowerCase().includes('cư pui') || clean.toLowerCase().includes('cu pui')) {
+      return `${clean}, huyện Krông Bông, tỉnh Đắk Lắk`;
+    }
+    return `${clean}, xã Cư Pui, huyện Krông Bông, tỉnh Đắk Lắk`;
+  };
+
+  const cleanPrintOwner = (name?: string) => {
+    if (!name) return '';
+    const l = name.trim().toLowerCase();
+    if (l === 'nam' || l === 'nữ' || l === 'nu' || l === 'cá nhân' || l === 'chung' || l.includes('chưa có tên') || l.includes('không có trong')) {
+      return '';
+    }
+    return name.trim();
+  };
+
   // Nút tải trực tiếp file PDF gốc chuẩn 100% template.pdf từ server local Python (port 5000)
   const handleDownloadLocalPdf = async () => {
     try {
@@ -42,15 +67,18 @@ export default function DeclarationPrintModal({
         else if (decl.anh_gcn) gcnList.push(decl.anh_gcn);
         else if (p.gcn_urls) gcnList.push(...p.gcn_urls);
 
+        const validOwner = cleanPrintOwner(decl.chu_dat_ten) || cleanPrintOwner(p.chu_ho) || '';
+        const validGender = decl.chu_dat_gioi_tinh || (p.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
+
         return {
           ma_thua: p.ma_thua,
           to_ban_do: p.to_ban_do,
           so_thua: p.so_thua,
-          dia_chi: decl.chu_dat_dia_chi || (p.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'Xã Cư Pui, huyện Krông Bông, tỉnh Đắk Lắk'),
-          chu_ho: decl.chu_dat_ten || p.chu_ho,
+          dia_chi: formatPrintAddress(decl.chu_dat_dia_chi, p.thon_xa),
+          chu_ho: validOwner,
           cccd: decl.chu_dat_cccd || p.cccd,
           nam_sinh: decl.chu_dat_nam_sinh || decl.nam_sinh_chu_ho || '',
-          gioi_tinh: decl.chu_dat_gioi_tinh || 'Nam',
+          gioi_tinh: validGender,
           loai_dat: p.loai_dat,
           dien_tich: p.dien_tich,
           nguon_goc: decl.nguon_goc_su_dung || 'Khai hoang',
@@ -165,14 +193,14 @@ export default function DeclarationPrintModal({
         {items.map((item, index) => {
           const p = item.parcel;
           const decl = item.declaration || {};
-          const chuHo = decl.chu_dat_ten || p.chu_ho || '...................................................';
+          const chuHo = cleanPrintOwner(decl.chu_dat_ten) || cleanPrintOwner(p.chu_ho) || '...................................................';
           const cccd = decl.chu_dat_cccd || p.cccd || '.......................................';
           const namSinh = decl.chu_dat_nam_sinh || decl.nam_sinh_chu_ho || decl.chu_dat_ngay_sinh || '';
-          const gioiTinh = decl.chu_dat_gioi_tinh || 'Nam';
+          const gioiTinh = decl.chu_dat_gioi_tinh || (p.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
           const nguonGoc = decl.nguon_goc_su_dung || 'Khai hoang';
           const sdt = decl.nguoi_ke_khai_sdt || p.sdt || '................................';
-          const diaChi = decl.chu_dat_dia_chi || (p.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'Xã Cư Pui, huyện Krông Bông, tỉnh Đắk Lắk');
-          const nguoiKekhai = decl.nguoi_ke_khai_ten || chuHo;
+          const diaChi = formatPrintAddress(decl.chu_dat_dia_chi, p.thon_xa);
+          const nguoiKekhai = cleanPrintOwner(decl.nguoi_ke_khai_ten) || chuHo;
 
           // Danh sách các thửa kèm theo nếu kê khai nhiều thửa
           const additionalParcels: AdditionalParcel[] = decl.thua_kem_theo || [];

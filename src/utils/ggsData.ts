@@ -6,6 +6,8 @@ export interface GgsParcelData {
   cccd?: string;
   dien_tich?: string;
   loai_dat?: string;
+  nam_sinh?: string;
+  gioi_tinh?: string;
 }
 
 let cachedData: {
@@ -116,16 +118,43 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
       if (!ma_thua) continue;
       codeSet.add(ma_thua);
 
-      let chu_ho = (row[9] || row[7] || '').trim();
+      // 1. Tên chủ hộ: Cột 7 (Họ và tên chủ sử dụng/) hoặc Cột 14 (Tên người sử dụng hiện tại)
+      let chu_ho = (row[7] || '').trim();
       if (!chu_ho && row.length > 14) {
         const altName = (row[14] || '').trim();
         if (altName && altName !== 'Chung' && altName !== 'Cá nhân') {
           chu_ho = altName;
         }
       }
+      // Tuyệt đối không nhận 'Nam', 'Nữ' hoặc các từ khóa phân loại làm tên người
+      const lowerOwner = chu_ho.toLowerCase();
+      if (
+        lowerOwner === 'nam' ||
+        lowerOwner === 'nữ' ||
+        lowerOwner === 'nu' ||
+        lowerOwner === 'cá nhân' ||
+        lowerOwner === 'chung'
+      ) {
+        chu_ho = '';
+        if (row.length > 14) {
+          const altName = (row[14] || '').trim();
+          const altLower = altName.toLowerCase();
+          if (
+            altName &&
+            altLower !== 'nam' &&
+            altLower !== 'nữ' &&
+            altLower !== 'nu' &&
+            altLower !== 'cá nhân' &&
+            altLower !== 'chung'
+          ) {
+            chu_ho = altName;
+          }
+        }
+      }
 
+      // 2. Số định danh / CCCD: Cột 10 (Số định danh cá nhân/CCCD) hoặc Cột 15
       let cccd = '';
-      const rawCccd = (row[12] || row[10] || '').trim();
+      const rawCccd = (row[10] || '').trim();
       const cleanDigits = rawCccd.replace(/\D/g, '');
       if (cleanDigits.length >= 9 && cleanDigits.length <= 12) {
         cccd = cleanDigits;
@@ -134,6 +163,21 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
         if (altDigits.length >= 9 && altDigits.length <= 12) {
           cccd = altDigits;
         }
+      }
+
+      // 3. Năm sinh: Cột 8 (Ngày, tháng, năm sinh)
+      let nam_sinh = '';
+      if (row.length > 8 && row[8]) {
+        const mYear = row[8].match(/(?:19|20)\d{2}/);
+        if (mYear) nam_sinh = mYear[0];
+      }
+
+      // 4. Giới tính: Cột 9 (Giới tính)
+      let gioi_tinh = '';
+      if (row.length > 9 && row[9]) {
+        const gVal = row[9].trim().toLowerCase();
+        if (gVal.includes('nữ') || gVal.includes('nu')) gioi_tinh = 'Nữ';
+        else if (gVal.includes('nam')) gioi_tinh = 'Nam';
       }
 
       let dien_tich = '';
@@ -157,6 +201,8 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
         cccd: cccd || ggsParcels[ma_thua]?.cccd || undefined,
         dien_tich: dien_tich || ggsParcels[ma_thua]?.dien_tich || undefined,
         loai_dat: loai_dat || ggsParcels[ma_thua]?.loai_dat || undefined,
+        nam_sinh: nam_sinh || ggsParcels[ma_thua]?.nam_sinh || undefined,
+        gioi_tinh: gioi_tinh || ggsParcels[ma_thua]?.gioi_tinh || undefined,
       };
 
       if (!ggsParcels[ma_thua] || (chu_ho && !ggsParcels[ma_thua].chu_ho)) {
@@ -170,6 +216,12 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
         }
         if (!ggsParcels[ma_thua].loai_dat && loai_dat) {
           ggsParcels[ma_thua].loai_dat = loai_dat;
+        }
+        if (!ggsParcels[ma_thua].nam_sinh && nam_sinh) {
+          ggsParcels[ma_thua].nam_sinh = nam_sinh;
+        }
+        if (!ggsParcels[ma_thua].gioi_tinh && gioi_tinh) {
+          ggsParcels[ma_thua].gioi_tinh = gioi_tinh;
         }
       }
     }

@@ -41,13 +41,47 @@ export default function ParcelDetailModal({
   const [giapBac, setGiapBac] = useState(parcel?.giap_bac || '');
 
   // Declaration form state - 1.1 Cá nhân & Nguồn gốc
-  const [chuDatTen, setChuDatTen] = useState(parcel?.chu_ho && parcel.chu_ho !== 'Chưa có tên' ? parcel.chu_ho : '');
+  const isInvalidOwnerName = (name?: string) => {
+    if (!name) return true;
+    const s = name.trim().toLowerCase();
+    const placeholders = [
+      'chưa có tên',
+      'không có tên',
+      'không có dữ liệu',
+      'không có dữ liệu cập nhật',
+      'không có trong dữ liệu',
+      'không có trong smk',
+      'hồ ea rớt',
+      'ubnd xã',
+      'ông ..',
+      'bà ..',
+      '..',
+      'nam',
+      'nữ',
+      'nu',
+      'cá nhân',
+      'chung',
+    ];
+    return placeholders.some((ph) => s === ph || s.includes(ph));
+  };
+
+  const formatThonAddress = (thon?: string) => {
+    const clean = (thon || '').trim();
+    if (!clean || clean.includes('(khong đia chỉ)')) return 'Xã Cư Pui, huyện Krông Bông';
+    if (clean.toLowerCase().includes('cư pui') || clean.toLowerCase().includes('cu pui')) {
+      return clean;
+    }
+    return `${clean}, xã Cư Pui`;
+  };
+
+  const parcelNameValid = parcel?.chu_ho && !isInvalidOwnerName(parcel.chu_ho);
+  const [chuDatTen, setChuDatTen] = useState(parcelNameValid ? parcel!.chu_ho : '');
   const [chuDatNamSinh, setChuDatNamSinh] = useState('');
-  const [chuDatGioiTinh, setChuDatGioiTinh] = useState<'Nam' | 'Nữ'>('Nam');
-  const [chuDatCccd, setChuDatCccd] = useState('');
-  const [chuDatDiaChi, setChuDatDiaChi] = useState(
-    parcel?.thon_xa ? `${parcel.thon_xa}, xã Cư Pui` : 'Xã Cư Pui, huyện Krông Bông'
+  const [chuDatGioiTinh, setChuDatGioiTinh] = useState<'Nam' | 'Nữ'>(
+    parcel?.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam'
   );
+  const [chuDatCccd, setChuDatCccd] = useState(parcel?.cccd || '');
+  const [chuDatDiaChi, setChuDatDiaChi] = useState(formatThonAddress(parcel?.thon_xa));
   const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai hoang');
   const [ghiChu, setGhiChu] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);

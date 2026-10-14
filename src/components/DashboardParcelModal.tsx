@@ -289,10 +289,19 @@ export default function DashboardParcelModal({
                 <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
                   <span className="text-[10px] text-slate-400 block mb-0.5">Chủ đất (1.1 Cá nhân):</span>
                   <strong className="text-white text-sm block">
-                    {declaration.chu_dat_ten || parcel.chu_ho}
+                    {(() => {
+                      const isInv = (s?: string) => {
+                        if (!s) return true;
+                        const l = s.trim().toLowerCase();
+                        return l === 'nam' || l === 'nữ' || l === 'nu' || l === 'cá nhân' || l === 'chung' || l.includes('chưa có tên') || l.includes('không có trong');
+                      };
+                      if (declaration.chu_dat_ten && !isInv(declaration.chu_dat_ten)) return declaration.chu_dat_ten;
+                      if (parcel.chu_ho && !isInv(parcel.chu_ho)) return parcel.chu_ho;
+                      return 'Chưa có tên';
+                    })()}
                   </strong>
                   <span className="text-[11px] text-blue-400 block mt-0.5">
-                    Năm sinh: {declaration.chu_dat_nam_sinh || declaration.nam_sinh_chu_ho || declaration.chu_dat_ngay_sinh || '---'} • Giới tính: {declaration.chu_dat_gioi_tinh || 'Nam'}
+                    Năm sinh: {declaration.chu_dat_nam_sinh || declaration.nam_sinh_chu_ho || declaration.chu_dat_ngay_sinh || '---'} • Giới tính: {declaration.chu_dat_gioi_tinh || (parcel.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam')}
                   </span>
                 </div>
 

@@ -82,23 +82,60 @@ export default function DeclarationEditModal({
   const fileInputGcnRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    const isInvalidOwnerName = (name?: string) => {
+      if (!name) return true;
+      const s = name.trim().toLowerCase();
+      const placeholders = [
+        'chưa có tên',
+        'không có tên',
+        'không có dữ liệu',
+        'không có dữ liệu cập nhật',
+        'không có trong dữ liệu',
+        'không có trong smk',
+        'hồ ea rớt',
+        'ubnd xã',
+        'ông ..',
+        'bà ..',
+        '..',
+        'nam',
+        'nữ',
+        'nu',
+        'cá nhân',
+        'chung',
+      ];
+      return placeholders.some((ph) => s === ph || s.includes(ph));
+    };
+
+    const formatThonAddress = (addr?: string, thon?: string) => {
+      const target = (addr && !addr.includes('(khong đia chỉ)') ? addr : thon) || '';
+      const clean = target.trim();
+      if (!clean || clean.includes('(khong đia chỉ)')) return 'Xã Cư Pui, huyện Krông Bông';
+      if (clean.toLowerCase().includes('cư pui') || clean.toLowerCase().includes('cu pui')) {
+        return clean;
+      }
+      return `${clean}, xã Cư Pui`;
+    };
+
     if (declaration) {
       setMode(declaration.mode || 'SELF');
       setNguoiKeKhaiTen(declaration.nguoi_ke_khai_ten || '');
       setNguoiKeKhaiSdt(declaration.nguoi_ke_khai_sdt || '');
-      setChuDatTen(declaration.chu_dat_ten || parcel.chu_ho || '');
+      
+      const declNameValid = declaration.chu_dat_ten && !isInvalidOwnerName(declaration.chu_dat_ten);
+      const parcelNameValid = parcel.chu_ho && !isInvalidOwnerName(parcel.chu_ho);
+      setChuDatTen(declNameValid ? declaration.chu_dat_ten : (parcelNameValid ? parcel.chu_ho : ''));
+      
       setChuDatNamSinh(
         declaration.chu_dat_nam_sinh ||
         declaration.nam_sinh_chu_ho ||
         declaration.chu_dat_ngay_sinh ||
         ''
       );
-      setChuDatGioiTinh(declaration.chu_dat_gioi_tinh === 'Nữ' ? 'Nữ' : 'Nam');
-      setChuDatCccd(declaration.chu_dat_cccd || parcel.cccd || '');
-      setChuDatDiaChi(
-        declaration.chu_dat_dia_chi ||
-        (parcel.thon_xa ? `${parcel.thon_xa}, xã Cư Pui` : 'Xã Cư Pui, huyện Krông Bông')
+      setChuDatGioiTinh(
+        declaration.chu_dat_gioi_tinh === 'Nữ' || parcel.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam'
       );
+      setChuDatCccd(declaration.chu_dat_cccd || parcel.cccd || '');
+      setChuDatDiaChi(formatThonAddress(declaration.chu_dat_dia_chi, parcel.thon_xa));
       setNguonGocSuDung(declaration.nguon_goc_su_dung || 'Khai hoang');
       setGiapDong(declaration.giap_dong || parcel.giap_dong || '');
       setGiapTay(declaration.giap_tay || parcel.giap_tay || '');
@@ -123,11 +160,13 @@ export default function DeclarationEditModal({
       setMode('SELF');
       setNguoiKeKhaiTen('');
       setNguoiKeKhaiSdt('');
-      setChuDatTen(parcel.chu_ho || '');
+      
+      const parcelNameValid = parcel.chu_ho && !isInvalidOwnerName(parcel.chu_ho);
+      setChuDatTen(parcelNameValid ? parcel.chu_ho : '');
       setChuDatNamSinh('');
-      setChuDatGioiTinh('Nam');
+      setChuDatGioiTinh(parcel.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
       setChuDatCccd(parcel.cccd || '');
-      setChuDatDiaChi(parcel.thon_xa ? `${parcel.thon_xa}, xã Cư Pui` : 'Xã Cư Pui, huyện Krông Bông');
+      setChuDatDiaChi(formatThonAddress(undefined, parcel.thon_xa));
       setNguonGocSuDung('Khai hoang');
       setGiapDong(parcel.giap_dong || '');
       setGiapTay(parcel.giap_tay || '');
