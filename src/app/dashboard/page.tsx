@@ -1282,9 +1282,24 @@ export default function DashboardPage() {
         const maThua = String(row[1] || '').trim();
         const cccdRaw = String(row[8] || row[6] || '').replace(/^="|"$/g, '');
         const cccdFormula = String(row[12] || row[10] || '');
-        const cccdFileName =
-          cccdFormula.replace(/.*"([^"]+\.pdf)".*/i, '$1') || (cccdRaw ? `${cccdRaw}.pdf` : '');
-        const cccdUrl = cccdFileName ? `/api/image/cccd/${encodeURIComponent(cccdFileName)}` : undefined;
+        let cccdFileName = '';
+        let cccdUrl = '';
+
+        const linkMatch = cccdFormula.match(/HYPERLINK\("([^"]+)";\s*"([^"]+)"\)/i);
+        if (linkMatch) {
+          cccdUrl = linkMatch[1];
+          cccdFileName = linkMatch[2];
+        } else {
+          const fileMatch = cccdFormula.match(/["']?([^"']+\.(pdf|jpg|jpeg|png))["']?/i);
+          if (fileMatch) {
+            cccdFileName = fileMatch[1];
+          } else if (cccdRaw) {
+            cccdFileName = `${cccdRaw}.pdf`;
+          }
+          if (cccdFileName) {
+            cccdUrl = `/api/image/cccd/${encodeURIComponent(cccdFileName)}`;
+          }
+        }
 
         const p = computedParcels.find((cp) => cp.ma_thua === maThua);
         const decl = declarationsMap[maThua];
@@ -1356,10 +1371,24 @@ export default function DashboardPage() {
       const maThua = String(row[1] || '').trim();
       if (!maThua) return;
       const cccdRaw = String(row[8] || row[6] || '').replace(/^="|"$/g, '');
-      const cccdFileName = String(row[12] || row[10] || '').replace(/.*"([^"]+\.pdf)".*/i, '$1');
-      const cccdUrl = cccdFileName && cccdFileName.endsWith('.pdf')
-        ? `/api/image/cccd/${encodeURIComponent(cccdFileName)}`
-        : null;
+      const cccdFormula = String(row[12] || row[10] || '');
+      let cccdFileName = '';
+      let cccdUrl = '';
+      const linkMatch = cccdFormula.match(/HYPERLINK\("([^"]+)";\s*"([^"]+)"\)/i);
+      if (linkMatch) {
+        cccdUrl = linkMatch[1];
+        cccdFileName = linkMatch[2];
+      } else {
+        const fileMatch = cccdFormula.match(/["']?([^"']+\.(pdf|jpg|jpeg|png))["']?/i);
+        if (fileMatch) {
+          cccdFileName = fileMatch[1];
+        } else if (cccdRaw) {
+          cccdFileName = `${cccdRaw}.pdf`;
+        }
+        if (cccdFileName) {
+          cccdUrl = `/api/image/cccd/${encodeURIComponent(cccdFileName)}`;
+        }
+      }
 
       const p = computedParcels.find((cp) => cp.ma_thua === maThua) || {
         ma_thua: maThua,

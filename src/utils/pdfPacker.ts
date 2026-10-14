@@ -129,8 +129,21 @@ export async function generateReadyToPackPdf(
     const possibleUrls: string[] = [];
     if (firstRow.cccd_url) possibleUrls.push(firstRow.cccd_url);
     if (cccdFileName) {
-      possibleUrls.push(`/api/image/cccd/${encodeURIComponent(cccdFileName)}`);
-      possibleUrls.push(`https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/cccd/${encodeURIComponent(cccdFileName)}`);
+      if (cccdFileName.startsWith('http')) {
+        possibleUrls.push(cccdFileName);
+      } else {
+        possibleUrls.push(`/api/image/cccd/${encodeURIComponent(cccdFileName)}`);
+        possibleUrls.push(`https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/cccd/${encodeURIComponent(cccdFileName)}`);
+      }
+    }
+
+    // Dự phòng tìm theo số CCCD với các định dạng phổ biến (.pdf, .jpg, .jpeg, .png)
+    if (firstRow.cccd) {
+      const c = String(firstRow.cccd).trim();
+      for (const ext of ['.pdf', '.jpg', '.jpeg', '.png']) {
+        possibleUrls.push(`/api/image/cccd/${encodeURIComponent(c + ext)}`);
+        possibleUrls.push(`https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/cccd/${encodeURIComponent(c + ext)}`);
+      }
     }
 
     for (const url of possibleUrls) {
@@ -141,6 +154,7 @@ export async function generateReadyToPackPdf(
           // Kiểm tra xem có đúng định dạng PDF không (%PDF)
           const header = new Uint8Array(cccdBuf.slice(0, 4));
           const isPdf = header[0] === 0x25 && header[1] === 0x50 && header[2] === 0x44 && header[3] === 0x46; // %PDF
+
           if (isPdf) {
             const cccdDoc = await PDFDocument.load(cccdBuf, { ignoreEncryption: true });
             const pageIndices = cccdDoc.getPageIndices();
@@ -150,10 +164,41 @@ export async function generateReadyToPackPdf(
               cccdInserted = true;
               break;
             }
+          } else {
+            // TỰ ĐỘNG CHUYỂN ĐỔI ẢNH CCCD (JPG, JPEG, PNG) THÀNH TRANG PDF A4 CHUẨN
+            let embeddedImg: any = null;
+            try {
+              embeddedImg = await mergedDoc.embedJpg(cccdBuf);
+            } catch {
+              try {
+                embeddedImg = await mergedDoc.embedPng(cccdBuf);
+              } catch (imgErr) {
+                console.warn('Không thể parse dữ liệu ảnh CCCD:', imgErr);
+              }
+            }
+
+            if (embeddedImg) {
+              const cccdPage = mergedDoc.addPage([595.28, 841.89]);
+              const pageWidth = 595.28;
+              const pageHeight = 841.89;
+              // Căn giữa trang A4 và scale vừa vặn khổ A4 (lề 36pt mỗi bên)
+              const maxW = pageWidth - 72; // 523.28 pt
+              const maxH = pageHeight - 72; // 769.89 pt
+              const scaled = embeddedImg.scaleToFit(maxW, maxH);
+
+              cccdPage.drawImage(embeddedImg, {
+                x: (pageWidth - scaled.width) / 2,
+                y: (pageHeight - scaled.height) / 2,
+                width: scaled.width,
+                height: scaled.height,
+              });
+              cccdInserted = true;
+              break;
+            }
           }
         }
       } catch (err) {
-        console.warn(`Không thể nạp CCCD PDF từ ${url}:`, err);
+        console.warn(`Không thể nạp CCCD từ ${url}:`, err);
       }
     }
 
