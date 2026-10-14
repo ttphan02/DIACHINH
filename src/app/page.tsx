@@ -9,9 +9,10 @@ import VectorViewerModal from '@/components/VectorViewerModal';
 import CccdSupplementModal from '@/components/CccdSupplementModal';
 import CccdUploadBottomSheet from '@/components/CccdUploadBottomSheet';
 import ExportMissingCccdModal from '@/components/ExportMissingCccdModal';
+import CadreNameModal from '@/components/CadreNameModal';
 import MapSheetMultiSelect from '@/components/MapSheetMultiSelect';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
-import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration } from '@/utils/declaration';
+import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getSavedCadreName } from '@/utils/declaration';
 import {
   Search,
   Layers,
@@ -24,6 +25,7 @@ import {
   FileText,
   Camera,
   Users,
+  UserCheck,
 } from 'lucide-react';
 
 // Dynamic import Leaflet Map (SSR disabled)
@@ -40,6 +42,21 @@ const CadastralMap = dynamic(() => import('@/components/CadastralMap'), {
 export default function Home() {
   const [parcels, setParcels] = useState<Parcel[]>([]);
   const [isLoadingParcels, setIsLoadingParcels] = useState(true);
+
+  // Tên cán bộ kê khai
+  const [cadreName, setCadreName] = useState<string>('');
+  const [isCadreModalOpen, setIsCadreModalOpen] = useState(false);
+  const [isFirstTimeCadre, setIsFirstTimeCadre] = useState(false);
+
+  useEffect(() => {
+    const saved = getSavedCadreName();
+    if (saved) {
+      setCadreName(saved);
+    } else {
+      setIsFirstTimeCadre(true);
+      setIsCadreModalOpen(true);
+    }
+  }, []);
 
   // Tải dữ liệu 11.280 thửa đất bất đồng bộ phía trình duyệt từ CDN tĩnh, giải phóng 100% tài nguyên Cloudflare Worker SSR (ngăn lỗi 1102)
   useEffect(() => {
@@ -1165,6 +1182,17 @@ export default function Home() {
                   <Users className="w-3.5 h-3.5 text-rose-400" />
                   <span className="hidden xs:inline">Cần Thu CCCD</span>
                 </button>
+
+                {/* Nút Hiển Thị / Đổi Tên Cán Bộ Kê Khai */}
+                <button
+                  type="button"
+                  onClick={() => setIsCadreModalOpen(true)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 font-bold rounded-xl transition shrink-0 border border-emerald-500/40 shadow-xs cursor-pointer"
+                  title="Bấm để đổi tên cán bộ kê khai"
+                >
+                  <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="hidden xs:inline">{cadreName || 'Cán bộ'}</span>
+                </button>
               </div>
             </div>
 
@@ -1228,6 +1256,21 @@ export default function Home() {
         onClose={() => setIsExportMissingCccdOpen(false)}
         parcels={parcels}
         declarationsMap={declarationsMap}
+        theme="dark"
+      />
+
+      {/* Modal Nhập / Đổi Tên Cán Bộ Kê Khai */}
+      <CadreNameModal
+        isOpen={isCadreModalOpen}
+        onClose={() => {
+          setIsCadreModalOpen(false);
+          setIsFirstTimeCadre(false);
+        }}
+        onSaved={(newName) => {
+          setCadreName(newName);
+          setIsFirstTimeCadre(false);
+        }}
+        isFirstTime={isFirstTimeCadre}
         theme="dark"
       />
     </main>

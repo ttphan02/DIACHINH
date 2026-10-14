@@ -9,9 +9,12 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Edit2,
+  UserCheck,
 } from 'lucide-react';
 import { Parcel, DeclarationFormData } from '@/types';
-import { getOrCreateDeviceId } from '@/utils/declaration';
+import { getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
+import CadreNameModal from '@/components/CadreNameModal';
 import { cleanCccd } from '@/utils/syncGoogleSheets';
 import parcelsBriefData from '@/data/parcels_brief.json';
 
@@ -97,8 +100,10 @@ export default function ExportMissingCccdModal({
   const isLight = theme === 'light';
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Thiết bị
+  // Thiết bị & Tên cán bộ
   const [deviceId, setDeviceId] = useState<string>('MAY_DEF');
+  const [cadreName, setCadreName] = useState<string>('');
+  const [isCadreModalOpen, setIsCadreModalOpen] = useState(false);
 
   // Lọc: "Tôi kê khai" vs "Tất cả"
   const [filterDeviceMode, setFilterDeviceMode] = useState<'THIS_DEVICE' | 'ALL_DEVICES'>('THIS_DEVICE');
@@ -114,8 +119,10 @@ export default function ExportMissingCccdModal({
 
   useEffect(() => {
     if (isOpen) {
-      const id = getOrCreateDeviceId();
+      const saved = getSavedCadreName();
+      const id = saved || getOrCreateDeviceId();
       setDeviceId(id);
+      setCadreName(saved);
       fetchExistingCccdList();
     }
   }, [isOpen]);
@@ -142,11 +149,16 @@ export default function ExportMissingCccdModal({
     Object.entries(declarationsMap).forEach(([parcelCode, decl]) => {
       if (!decl) return;
 
-      const declDeviceId = decl.device_id ? String(decl.device_id).trim() : 'MAY_DEF';
+      const declDeviceId = decl.device_id ? String(decl.device_id).trim() : '';
 
       // Lọc theo chế độ: "Tôi kê khai" vs "Tất cả"
-      if (filterDeviceMode === 'THIS_DEVICE' && declDeviceId !== deviceId) {
-        return;
+      if (filterDeviceMode === 'THIS_DEVICE') {
+        const isMatch =
+          declDeviceId === deviceId ||
+          (deviceId === 'PHANTHANHTRUC' && (!declDeviceId || declDeviceId === 'MAY_DEF' || declDeviceId === 'MAY_T6P4'));
+        if (!isMatch) {
+          return;
+        }
       }
 
       // Lấy số CCCD (nếu đã nhập trong kê khai)
@@ -491,28 +503,44 @@ export default function ExportMissingCccdModal({
         <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
           <div className="flex flex-wrap items-center justify-between gap-3">
             {/* Phân loại: "Tôi kê khai" vs "Tất cả" */}
-            <div className="flex items-center p-0.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-950/80">
+            <div className="flex items-center gap-1.5">
+              <div className="flex items-center p-0.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-950/80">
+                <button
+                  type="button"
+                  onClick={() => setFilterDeviceMode('THIS_DEVICE')}
+                  className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer flex items-center gap-1.5 ${
+                    filterDeviceMode === 'THIS_DEVICE'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span>Tôi kê khai</span>
+                  {cadreName && (
+                    <span className="text-[10px] font-black px-1.5 py-0.2 rounded-md bg-white/20 text-white">
+                      {cadreName}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterDeviceMode('ALL_DEVICES')}
+                  className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${
+                    filterDeviceMode === 'ALL_DEVICES'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Tất cả
+                </button>
+              </div>
+
               <button
                 type="button"
-                onClick={() => setFilterDeviceMode('THIS_DEVICE')}
-                className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${
-                  filterDeviceMode === 'THIS_DEVICE'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-200'
-                }`}
+                onClick={() => setIsCadreModalOpen(true)}
+                className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-400 hover:text-cyan-400 hover:bg-slate-800 transition cursor-pointer"
+                title="Đổi tên cán bộ kê khai"
               >
-                Tôi kê khai
-              </button>
-              <button
-                type="button"
-                onClick={() => setFilterDeviceMode('ALL_DEVICES')}
-                className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${
-                  filterDeviceMode === 'ALL_DEVICES'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Tất cả
+                <Edit2 className="w-3.5 h-3.5" />
               </button>
             </div>
 
@@ -655,6 +683,17 @@ export default function ExportMissingCccdModal({
           </div>
         </div>
       </div>
+
+      {/* Modal Đổi Tên Cán Bộ */}
+      <CadreNameModal
+        isOpen={isCadreModalOpen}
+        onClose={() => setIsCadreModalOpen(false)}
+        onSaved={(newName) => {
+          setCadreName(newName);
+          setDeviceId(newName);
+        }}
+        theme={theme}
+      />
     </div>
   );
 }

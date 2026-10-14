@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones } from '@/utils/geo';
 import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES } from '@/utils/syncGoogleSheets';
-import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId } from '@/utils/declaration';
+import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
 import DeclarationPrintModal, { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
 import DashboardParcelModal from '@/components/DashboardParcelModal';
 import DeclarationEditModal from '@/components/DeclarationEditModal';
@@ -14,6 +14,7 @@ import CccdSupplementModal from '@/components/CccdSupplementModal';
 import CccdManagerTab from '@/components/CccdManagerTab';
 import CccdHoverPreviewCard from '@/components/CccdHoverPreviewCard';
 import ExportMissingCccdModal from '@/components/ExportMissingCccdModal';
+import CadreNameModal from '@/components/CadreNameModal';
 import ScanFileManagerTab from '@/components/ScanFileManagerTab';
 import { generateReadyToPackPdf, downloadPdfBlob, ReadyToPackItem } from '@/utils/pdfPacker';
 import { generateStatisticsPdf } from '@/utils/exportStatisticsPdf';
@@ -27,6 +28,7 @@ import {
   BarChart3,
   PieChart,
   Users,
+  UserCheck,
   CheckCircle2,
   Clock,
   AlertTriangle,
@@ -167,6 +169,21 @@ export default function DashboardPage() {
   const [inlineSaveToast, setInlineSaveToast] = useState<string | null>(null);
   const [isExportMissingCccdOpen, setIsExportMissingCccdOpen] = useState(false);
   const [isCommittingAllReady, setIsCommittingAllReady] = useState(false);
+
+  // Tên cán bộ kê khai
+  const [cadreName, setCadreName] = useState<string>('');
+  const [isCadreModalOpen, setIsCadreModalOpen] = useState(false);
+  const [isFirstTimeCadre, setIsFirstTimeCadre] = useState(false);
+
+  useEffect(() => {
+    const saved = getSavedCadreName();
+    if (saved) {
+      setCadreName(saved);
+    } else {
+      setIsFirstTimeCadre(true);
+      setIsCadreModalOpen(true);
+    }
+  }, []);
 
   // Độ rộng cột tuỳ chỉnh trên danh sách (kéo thu nhỏ/mở rộng & nhấn đúp tự căn chiều rộng tối thiểu)
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
@@ -2033,6 +2050,21 @@ export default function DashboardPage() {
               <MapIcon className="w-3.5 h-3.5" />
               <span>Xem Bản Đồ</span>
             </Link>
+
+            {/* Nút Hiển Thị / Đổi Tên Cán Bộ Kê Khai */}
+            <button
+              type="button"
+              onClick={() => setIsCadreModalOpen(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer shadow-xs border ${
+                isLight
+                  ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+                  : 'bg-indigo-950/70 hover:bg-indigo-900/80 text-cyan-300 border-indigo-500/40 shadow-indigo-950/40'
+              }`}
+              title="Bấm để đổi tên cán bộ kê khai"
+            >
+              <UserCheck className="w-3.5 h-3.5 text-cyan-400" />
+              <span>{cadreName || 'Cán bộ'}</span>
+            </button>
           </div>
         </div>
       </header>
@@ -4335,6 +4367,21 @@ export default function DashboardPage() {
         onClose={() => setIsExportMissingCccdOpen(false)}
         parcels={parcels}
         declarationsMap={declarationsMap}
+        theme={theme}
+      />
+
+      {/* Modal Nhập/Đổi Tên Cán Bộ Kê Khai */}
+      <CadreNameModal
+        isOpen={isCadreModalOpen}
+        onClose={() => {
+          setIsCadreModalOpen(false);
+          setIsFirstTimeCadre(false);
+        }}
+        onSaved={(newName) => {
+          setCadreName(newName);
+          setIsFirstTimeCadre(false);
+        }}
+        isFirstTime={isFirstTimeCadre}
         theme={theme}
       />
     </div>

@@ -3,16 +3,64 @@ import { DeclarationFormData } from '@/types';
 export const DECLARED_CODES_KEY = 'diachinh_declared_codes';
 export const DECLARATIONS_MAP_KEY = 'diachinh_declarations_map';
 export const DEVICE_ID_KEY = 'diachinh_device_id';
+export const CADRE_NAME_KEY = 'diachinh_cadre_name';
 
 /**
- * Lấy hoặc khởi tạo mã định danh duy nhất cho thiết bị (điện thoại / máy tính)
+ * Định dạng tên cán bộ: IN HOA, LIỀN NHAU, KHÔNG DẤU
+ * Ví dụ: "Phan Thanh Trúc" -> "PHANTHANHTRUC"
+ */
+export function formatCadreName(input: string): string {
+  if (!input) return '';
+  return input
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'D')
+    .replace(/Đ/g, 'D')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+}
+
+/**
+ * Lấy tên cán bộ đã lưu từ localStorage hoặc cookie (nếu chưa có thì trả về rỗng)
+ */
+export function getSavedCadreName(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    const name = localStorage.getItem(CADRE_NAME_KEY) || localStorage.getItem(DEVICE_ID_KEY) || '';
+    if (name.startsWith('MAY_')) return ''; // Bỏ qua mã máy tự sinh cũ
+    return formatCadreName(name);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Lưu tên cán bộ vào localStorage và cookie vĩnh viễn
+ */
+export function saveCadreName(name: string): string {
+  const formatted = formatCadreName(name);
+  if (typeof window !== 'undefined' && formatted) {
+    try {
+      localStorage.setItem(CADRE_NAME_KEY, formatted);
+      localStorage.setItem(DEVICE_ID_KEY, formatted);
+      // Ghi cookie 1 năm để trình duyệt giữ vĩnh viễn
+      document.cookie = `${CADRE_NAME_KEY}=${formatted}; path=/; max-age=31536000; SameSite=Lax`;
+    } catch {}
+  }
+  return formatted;
+}
+
+/**
+ * Lấy hoặc khởi tạo mã định danh duy nhất: ưu tiên Tên Cán Bộ nếu đã lưu
  */
 export function getOrCreateDeviceId(): string {
   if (typeof window === 'undefined') return 'SERVER';
   try {
+    const cadre = getSavedCadreName();
+    if (cadre) return cadre;
+
     let id = localStorage.getItem(DEVICE_ID_KEY);
-    if (!id || !id.trim()) {
-      // Tạo mã ngắn gọn dễ nhận biết, ví dụ: MAY_A8F2
+    if (!id || !id.trim() || id === 'MAY_DEF') {
       const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
       id = `MAY_${rand}`;
       localStorage.setItem(DEVICE_ID_KEY, id);
@@ -24,13 +72,10 @@ export function getOrCreateDeviceId(): string {
 }
 
 /**
- * Cho phép cán bộ đổi tên thiết bị / tên cán bộ theo ý muốn (vd: CANBO_NAM, MAY_SO_1)
+ * Cho phép cán bộ đổi tên thiết bị / tên cán bộ theo ý muốn (vd: PHANTHANHTRUC)
  */
 export function setCustomDeviceId(newId: string): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(DEVICE_ID_KEY, newId.trim());
-  } catch {}
+  saveCadreName(newId);
 }
 
 /**
