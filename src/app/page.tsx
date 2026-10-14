@@ -9,6 +9,7 @@ import HeaderStats from '@/components/HeaderStats';
 import ParcelDetailPanel from '@/components/ParcelDetailPanel';
 import VectorViewerModal from '@/components/VectorViewerModal';
 import CccdSupplementModal from '@/components/CccdSupplementModal';
+import CccdUploadBottomSheet from '@/components/CccdUploadBottomSheet';
 import MapSheetMultiSelect from '@/components/MapSheetMultiSelect';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration } from '@/utils/declaration';
@@ -57,6 +58,8 @@ export default function Home() {
 
   // Modal Tải Lên CCCD hàng loạt & thư mục
   const [isCccdModalOpen, setIsCccdModalOpen] = useState(false);
+  // Bottom Sheet Tải Lên CCCD (Trượt từ dưới lên như khi nhấn vào thửa đất)
+  const [isCccdUploadOpen, setIsCccdUploadOpen] = useState(false);
 
   // Vector SVG / Image Viewer Modal State
   const [isSvgOpen, setIsSvgOpen] = useState(false);
@@ -620,6 +623,7 @@ export default function Home() {
     }
     setSelectedParcel(latest);
     setIsPanelCollapsed(false);
+    setIsCccdUploadOpen(false);
 
     // Kích hoạt animation trượt vào mượt mà
     requestAnimationFrame(() => {
@@ -1147,12 +1151,15 @@ export default function Home() {
                   <span className="hidden xs:inline">Tách PDF</span>
                 </a>
 
-                {/* Nút Tải Lên CCCD (AI Quét & Chuyển PDF Lưu R2) */}
+                {/* Nút Tải Lên CCCD (Trượt form dưới lên như khi nhấn vào thửa đất) */}
                 <button
                   type="button"
-                  onClick={() => setIsCccdModalOpen(true)}
+                  onClick={() => {
+                    setIsPanelOpen(false);
+                    setIsCccdUploadOpen(true);
+                  }}
                   className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-purple-950 hover:bg-purple-900 text-purple-300 font-bold rounded-xl transition shrink-0 border border-purple-500/40 shadow-xs cursor-pointer"
-                  title="Tải lên ảnh CCCD từ máy (quét AI Gemini và lưu PDF vào R2)"
+                  title="Tải lên ảnh CCCD từ máy (trượt form từ dưới lên)"
                 >
                   <Camera className="w-3.5 h-3.5 text-purple-400" />
                   <span className="hidden xs:inline">Tải Lên CCCD</span>
@@ -1229,9 +1236,9 @@ export default function Home() {
 
                     <button
                       type="button"
-                      onClick={() => setIsCccdModalOpen(true)}
+                      onClick={() => setIsCccdUploadOpen(true)}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition text-purple-700 hover:text-purple-900 hover:bg-purple-50 cursor-pointer"
-                      title="Tải lên ảnh CCCD từ máy (quét AI Gemini và lưu PDF vào R2)"
+                      title="Tải lên ảnh CCCD từ máy (trượt form từ dưới lên)"
                     >
                       <Camera className="w-3.5 h-3.5 text-purple-600" />
                       Tải CCCD
@@ -1434,6 +1441,16 @@ export default function Home() {
         title={svgData.title}
         ownerName={svgData.owner}
         cccdNumber={svgData.cccd}
+      />
+
+      {/* Bottom Sheet Tải Lên CCCD (Trượt từ dưới lên như khi nhấn vào thửa đất) */}
+      <CccdUploadBottomSheet
+        isOpen={isCccdUploadOpen}
+        onClose={() => setIsCccdUploadOpen(false)}
+        onSuccess={() => {
+          fetchCloudDeclarations();
+          fetchGgsCodes(true);
+        }}
       />
 
       {/* Modal Tải Lên CCCD Hàng Loạt & Thư Mục (AI Quét & Lưu R2) */}
