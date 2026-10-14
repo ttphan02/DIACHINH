@@ -60,10 +60,11 @@ export async function generateReadyToPackPdf(
 
   onProgress?.(0, items.length, 'Đang chuẩn bị mẫu hồ sơ và font chữ...');
 
-  // 1. Tải mẫu template.pdf và fonts
-  const [templateBytes, fontRegularBytes] = await Promise.all([
+  // 1. Tải mẫu template.pdf và fonts (sử dụng font in đậm timesbd.ttf cho thông tin kê khai)
+  const [templateBytes, fontRegularBytes, fontBoldBytes] = await Promise.all([
     loadBuffer('/template.pdf'),
     loadBuffer('/fonts/times.ttf'),
+    loadBuffer('/fonts/timesbd.ttf'),
   ]);
 
   // 2. Gom nhóm các thửa theo Chủ hộ / Người sử dụng đất (y hệt logic PDF_Web_App)
@@ -210,7 +211,7 @@ export async function generateReadyToPackPdf(
     // ========================================================
     const tempDoc = await PDFDocument.load(templateBytes, { ignoreEncryption: true });
     tempDoc.registerFontkit(fontkit);
-    const timesFont = await tempDoc.embedFont(fontRegularBytes);
+    const timesFont = await tempDoc.embedFont(fontBoldBytes); // In đậm tất cả chữ ghi trên phiếu kê khai
 
     const p1 = tempDoc.getPages()[0];
     const pageH = p1.getHeight();
@@ -369,7 +370,7 @@ export async function generateReadyToPackPdf(
         const chunk = chunks[cIdx];
         const tableDoc = await PDFDocument.load(templateBytes, { ignoreEncryption: true });
         tableDoc.registerFontkit(fontkit);
-        const tf = await tableDoc.embedFont(fontRegularBytes);
+        const tf = await tableDoc.embedFont(fontBoldBytes); // In đậm tất cả chữ ghi trên bảng phụ lục Mẫu 15b
         const pTable = tableDoc.getPages()[2]; // Mẫu 15b (Trang thứ 3)
 
         const yStart = 235 + 16.44; // 235 + pt(0.58)

@@ -143,6 +143,43 @@ export default function DashboardPage() {
 
   // Checkbox Selection state cho THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD)
   const [readyToPackSelectedCodes, setReadyToPackSelectedCodes] = useState<Set<string>>(new Set());
+  const [packagedParcelCodes, setPackagedParcelCodes] = useState<Set<string>>(new Set());
+  const [readyToPackStatusFilter, setReadyToPackStatusFilter] = useState<'ALL' | 'UNPACKED' | 'PACKED'>('ALL');
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('diachinh_packaged_parcel_codes');
+      if (saved) {
+        setPackagedParcelCodes(new Set(JSON.parse(saved)));
+      }
+    } catch {}
+  }, []);
+
+  const markParcelsAsPackaged = (codes: string[]) => {
+    setPackagedParcelCodes((prev) => {
+      const next = new Set(prev);
+      codes.forEach((c) => next.add(c));
+      try {
+        localStorage.setItem('diachinh_packaged_parcel_codes', JSON.stringify(Array.from(next)));
+      } catch {}
+      return next;
+    });
+  };
+
+  const toggleParcelPackagedStatus = (code: string) => {
+    setPackagedParcelCodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) {
+        next.delete(code);
+      } else {
+        next.add(code);
+      }
+      try {
+        localStorage.setItem('diachinh_packaged_parcel_codes', JSON.stringify(Array.from(next)));
+      } catch {}
+      return next;
+    });
+  };
 
   // Checkbox Selection & Bộ lọc Dropdown Mã Thửa kiểu Excel cho mục "CHƯA THỰC HIỆN"
   const [chuaThucHienSelectedCodes, setChuaThucHienSelectedCodes] = useState<Set<string>>(new Set());
@@ -1189,6 +1226,10 @@ export default function DashboardPage() {
       const blobUrl = downloadPdfBlob(pdfBytes, fileName);
       setPackagingDoneUrl(blobUrl);
       setPackagingDoneFileName(fileName);
+
+      // Đánh dấu các thửa vừa đóng tập xong vào bộ nhớ local
+      const packagedCodes = items.map((it) => it.ma_thua).filter(Boolean);
+      markParcelsAsPackaged(packagedCodes);
     } catch (err: any) {
       console.error('Lỗi đóng tập PDF:', err);
       alert('Không thể đóng tập PDF: ' + (err.message || 'Lỗi không xác định'));
@@ -2124,6 +2165,13 @@ export default function DashboardPage() {
                       if (!appliedMaThuas.has(maThua)) return false;
                     }
 
+                    // 6. Lọc theo trạng thái đóng tập (cho sheet Sẵn sàng đóng tập)
+                    if (isReadyToPackSheet && readyToPackStatusFilter !== 'ALL') {
+                      const isPackaged = packagedParcelCodes.has(maThua);
+                      if (readyToPackStatusFilter === 'UNPACKED' && isPackaged) return false;
+                      if (readyToPackStatusFilter === 'PACKED' && !isPackaged) return false;
+                    }
+
                     return true;
                   });
 
@@ -2247,96 +2295,149 @@ export default function DashboardPage() {
 
                         <div className="flex items-center gap-2 flex-wrap">
                           {/* Nút tác vụ đóng tập nếu là sheet Sẵn sàng đóng tập */}
-                        {isReadyToPackSheet && (
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              disabled={isPackagingPdf}
-                              onClick={() => {
-                                if (packagingDoneUrl) {
-                                  // Tải lại file đã đóng tập
-                                  const a = document.createElement('a');
-                                  a.href = packagingDoneUrl;
-                                  a.download = packagingDoneFileName || 'Tap_Ho_So_In_Co_Trang_CCCD.pdf';
-                                  document.body.appendChild(a);
-                                  a.click();
-                                  document.body.removeChild(a);
-                                } else {
-                                  handleGenerateReadyToPackPdf(
-                                    readyToPackSelectedCodes.size > 0
-                                      ? Array.from(readyToPackSelectedCodes)
-                                      : filtered.map((r) => String(r[1] || '').trim()).filter(Boolean)
-                                  );
-                                }
-                              }}
-                              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer disabled:opacity-75 ${
-                                packagingDoneUrl
-                                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-600/30'
-                                  : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-600/30'
-                              }`}
-                              title={
-                                packagingDoneUrl
-                                  ? 'Bấm để tải lại file PDF đã đóng tập kèm bìa CCCD'
-                                  : 'Đóng tập PDF hồ sơ kê khai kèm bìa CCCD từ Cloudflare R2'
-                              }
-                            >
-                              {isPackagingPdf ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-                              ) : packagingDoneUrl ? (
-                                <Download className="w-3.5 h-3.5 text-white animate-bounce" />
+                        {isReadyToPackSheet && (() => {
+                          const allFilteredCodes = filtered.map((r) => String(r[1] || '').trim()).filter(Boolean);
+                          const unpackedFilteredCodes = filtered
+                            .map((r) => String(r[1] || '').trim())
+                            .filter((c) => Boolean(c) && !packagedParcelCodes.has(c));
+
+                          return (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {packagingDoneUrl ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const a = document.createElement('a');
+                                      a.href = packagingDoneUrl;
+                                      a.download = packagingDoneFileName || 'Tap_Ho_So_In_Co_Trang_CCCD.pdf';
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      document.body.removeChild(a);
+                                    }}
+                                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-600/30"
+                                    title="Bấm để tải lại file PDF đã đóng tập kèm bìa CCCD"
+                                  >
+                                    <Download className="w-3.5 h-3.5 text-white animate-bounce" />
+                                    <span>
+                                      Tải Tập PDF Đã Đóng ({readyToPackSelectedCodes.size > 0 ? readyToPackSelectedCodes.size : filtered.length} thửa)
+                                    </span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={isPackagingPdf}
+                                    onClick={() => {
+                                      setPackagingDoneUrl(null);
+                                      handleGenerateReadyToPackPdf(
+                                        readyToPackSelectedCodes.size > 0
+                                          ? Array.from(readyToPackSelectedCodes)
+                                          : unpackedFilteredCodes.length > 0
+                                          ? unpackedFilteredCodes
+                                          : allFilteredCodes
+                                      );
+                                    }}
+                                    className={`p-1.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                                      isLight
+                                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                                    }`}
+                                    title="Đóng tập lại từ đầu với dữ liệu mới nhất"
+                                  >
+                                    <RefreshCw className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
                               ) : (
-                                <Printer className="w-3.5 h-3.5 text-indigo-200" />
+                                <>
+                                  {readyToPackSelectedCodes.size > 0 ? (
+                                    <button
+                                      type="button"
+                                      disabled={isPackagingPdf}
+                                      onClick={() => handleGenerateReadyToPackPdf(Array.from(readyToPackSelectedCodes))}
+                                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-600/30 disabled:opacity-75"
+                                    >
+                                      {isPackagingPdf ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                                      ) : (
+                                        <Printer className="w-3.5 h-3.5 text-indigo-200" />
+                                      )}
+                                      <span>
+                                        {isPackagingPdf
+                                          ? packagingProgress || 'Đang xử lý...'
+                                          : `Đóng Tập (${readyToPackSelectedCodes.size} thửa đã chọn)`}
+                                      </span>
+                                    </button>
+                                  ) : unpackedFilteredCodes.length > 0 ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        disabled={isPackagingPdf}
+                                        onClick={() => handleGenerateReadyToPackPdf(unpackedFilteredCodes)}
+                                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer bg-gradient-to-r from-amber-600 via-orange-600 to-indigo-600 hover:from-amber-500 hover:to-indigo-500 text-white shadow-orange-600/30 disabled:opacity-75"
+                                        title="Chỉ gom và đóng tập các thửa mới có CCCD chưa từng in (tránh in trùng các thửa đã đóng trước đó)"
+                                      >
+                                        {isPackagingPdf ? (
+                                          <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                                        ) : (
+                                          <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                                        )}
+                                        <span>
+                                          {isPackagingPdf
+                                            ? packagingProgress || 'Đang xử lý...'
+                                            : `⚡ Đóng Tập Thửa Mới (${unpackedFilteredCodes.length} thửa chưa đóng)`}
+                                        </span>
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        disabled={isPackagingPdf}
+                                        onClick={() => handleGenerateReadyToPackPdf(allFilteredCodes)}
+                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer disabled:opacity-75 ${
+                                          isLight
+                                            ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                                        }`}
+                                        title="Đóng tập lại toàn bộ danh sách gồm cả thửa cũ và mới"
+                                      >
+                                        <span>Đóng tất cả ({allFilteredCodes.length})</span>
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled={isPackagingPdf}
+                                      onClick={() => handleGenerateReadyToPackPdf(allFilteredCodes)}
+                                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-600/30 disabled:opacity-75"
+                                    >
+                                      {isPackagingPdf ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                                      ) : (
+                                        <Printer className="w-3.5 h-3.5 text-indigo-200" />
+                                      )}
+                                      <span>
+                                        {isPackagingPdf
+                                          ? packagingProgress || 'Đang xử lý...'
+                                          : `Đóng Tập Lại Tất Cả (${allFilteredCodes.length} thửa)`}
+                                      </span>
+                                    </button>
+                                  )}
+                                </>
                               )}
-                              <span>
-                                {isPackagingPdf
-                                  ? packagingProgress || 'Đang xử lý đóng tập...'
-                                  : packagingDoneUrl
-                                  ? `Tải Tập PDF Đã Đóng (${readyToPackSelectedCodes.size > 0 ? readyToPackSelectedCodes.size : filtered.length} thửa)`
-                                  : readyToPackSelectedCodes.size > 0
-                                  ? `Đóng Tập PDF (${readyToPackSelectedCodes.size} thửa đã chọn)`
-                                  : reportVillageFilter !== 'ALL'
-                                  ? `Đóng Tập PDF (${filtered.length} thửa ${reportVillageFilter})`
-                                  : `Đóng Tập PDF Tất Cả (${filtered.length} thửa)`}
-                              </span>
-                            </button>
 
-                            {/* Nút đóng tập lại từ đầu nếu đã có file */}
-                            {packagingDoneUrl && (
-                              <button
-                                type="button"
-                                disabled={isPackagingPdf}
-                                onClick={() => {
-                                  setPackagingDoneUrl(null);
-                                  handleGenerateReadyToPackPdf(
-                                    readyToPackSelectedCodes.size > 0
-                                      ? Array.from(readyToPackSelectedCodes)
-                                      : filtered.map((r) => String(r[1] || '').trim()).filter(Boolean)
-                                  );
-                                }}
-                                className={`p-1.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
-                                  isLight
-                                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                                }`}
-                                title="Đóng tập lại từ đầu với dữ liệu mới nhất"
-                              >
-                                <RefreshCw className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-
-                            {readyToPackSelectedCodes.size > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => setReadyToPackSelectedCodes(new Set())}
-                                className={`text-xs underline transition cursor-pointer ${
-                                  isLight ? 'text-slate-500 hover:text-slate-800' : 'text-slate-400 hover:text-slate-200'
-                                }`}
-                              >
-                                Bỏ chọn ({readyToPackSelectedCodes.size})
-                              </button>
-                            )}
-                          </div>
-                        )}
+                              {readyToPackSelectedCodes.size > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setReadyToPackSelectedCodes(new Set())}
+                                  className={`text-xs underline transition cursor-pointer ${
+                                    isLight ? 'text-slate-500 hover:text-slate-800' : 'text-slate-400 hover:text-slate-200'
+                                  }`}
+                                >
+                                  Bỏ chọn ({readyToPackSelectedCodes.size})
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         </div>
                     </div>
@@ -2435,6 +2536,39 @@ export default function DashboardPage() {
                                 </option>
                                 <option value="KHÔNG CÓ CCCD">
                                   KHÔNG CÓ CCCD ({statusCounts['KHÔNG CÓ CCCD'] || 0})
+                                </option>
+                              </select>
+                            </div>
+                          )}
+
+                          {/* 4. LỌC THEO TRẠNG THÁI ĐÓNG TẬP (Sẵn sàng đóng tập - Có CCCD) */}
+                          {isReadyToPackSheet && (
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-[11px] font-bold ${isLight ? 'text-indigo-700' : 'text-indigo-400'}`}>
+                                Đóng tập:
+                              </span>
+                              <select
+                                value={readyToPackStatusFilter}
+                                onChange={(e) => {
+                                  setReadyToPackStatusFilter(e.target.value as any);
+                                  setReportPage(1);
+                                }}
+                                className={`text-xs px-2.5 py-1.5 rounded-xl border font-bold transition focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                                  readyToPackStatusFilter !== 'ALL'
+                                    ? isLight
+                                      ? 'bg-indigo-100/80 border-indigo-400 text-indigo-900'
+                                      : 'bg-indigo-950/70 border-indigo-500/50 text-indigo-200'
+                                    : isLight
+                                    ? 'bg-white border-slate-300 text-slate-800'
+                                    : 'bg-slate-900 border-slate-700 text-slate-200'
+                                }`}
+                              >
+                                <option value="ALL">Tất cả ({allRows.length})</option>
+                                <option value="UNPACKED">
+                                  ⚡ Chưa đóng ({allRows.filter((r) => !packagedParcelCodes.has(String(r[1] || '').trim())).length})
+                                </option>
+                                <option value="PACKED">
+                                  Đã đóng ({allRows.filter((r) => packagedParcelCodes.has(String(r[1] || '').trim())).length})
                                 </option>
                               </select>
                             </div>
@@ -3026,6 +3160,36 @@ export default function DashboardPage() {
                                         return (
                                           <td key={cIdx} className={`py-2 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
                                             <span className="font-semibold text-emerald-700 dark:text-emerald-400">{cleanText}</span>
+                                          </td>
+                                        );
+                                      }
+
+                                      if (cIdx === 1 && isReadyToPackSheet) {
+                                        const isPackaged = packagedParcelCodes.has(maThua);
+                                        return (
+                                          <td key={cIdx} className={`py-2 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
+                                            <div className="flex items-center gap-1.5">
+                                              <span className="font-semibold text-indigo-700 dark:text-indigo-400">{cleanText}</span>
+                                              {isPackaged ? (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => toggleParcelPackagedStatus(maThua)}
+                                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 cursor-pointer"
+                                                  title="Đã đóng tập PDF. Bấm để chuyển lại Chưa đóng nếu muốn in lại."
+                                                >
+                                                  <CheckCircle2 className="w-2.5 h-2.5" />
+                                                  <span>Đã đóng</span>
+                                                </button>
+                                              ) : (
+                                                <span
+                                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse"
+                                                  title="Hồ sơ mới chưa đóng tập PDF"
+                                                >
+                                                  <Sparkles className="w-2.5 h-2.5" />
+                                                  <span>Chưa đóng</span>
+                                                </span>
+                                              )}
+                                            </div>
                                           </td>
                                         );
                                       }
