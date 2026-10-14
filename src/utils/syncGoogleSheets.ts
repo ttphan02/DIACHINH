@@ -398,9 +398,9 @@ export async function executeSyncToGoogleSheet(
         cccd_source: cccdSource,
         dien_tich: dienTich,
         loai_dat: loaiDat,
-        dob: decl.nam_sinh_chu_ho || '',
-        gender: decl.gioi_tinh_chu_ho || '',
-        nguon_goc: decl.nguon_goc_su_dung || '',
+        dob: decl.chu_dat_nam_sinh || decl.nam_sinh_chu_ho || decl.chu_dat_ngay_sinh || '',
+        gender: decl.chu_dat_gioi_tinh || decl.gioi_tinh_chu_ho || '',
+        nguon_goc: decl.nguon_goc_su_dung || 'Khai hoang',
         scan_file: '',
         cccd_file: '',
       };

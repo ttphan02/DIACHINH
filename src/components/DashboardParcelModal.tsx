@@ -287,22 +287,22 @@ export default function DashboardParcelModal({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
-                  <span className="text-[10px] text-slate-400 block mb-0.5">Người thực hiện kê khai:</span>
+                  <span className="text-[10px] text-slate-400 block mb-0.5">Chủ đất (1.1 Cá nhân):</span>
                   <strong className="text-white text-sm block">
-                    {declaration.nguoi_ke_khai_ten || declaration.chu_dat_ten || parcel.chu_ho}
+                    {declaration.chu_dat_ten || parcel.chu_ho}
                   </strong>
                   <span className="text-[11px] text-blue-400 block mt-0.5">
-                    Chế độ: {declaration.mode === 'SURVEYOR' ? 'Cán bộ khảo sát ghi nhận' : 'Người dân tự kê khai'}
+                    Năm sinh: {declaration.chu_dat_nam_sinh || declaration.nam_sinh_chu_ho || declaration.chu_dat_ngay_sinh || '---'} • Giới tính: {declaration.chu_dat_gioi_tinh || 'Nam'}
                   </span>
                 </div>
 
                 <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
-                  <span className="text-[10px] text-slate-400 block mb-0.5">Số điện thoại liên hệ:</span>
+                  <span className="text-[10px] text-slate-400 block mb-0.5">Số CCCD & Nguồn gốc đất:</span>
                   <strong className="text-white text-sm block font-mono">
-                    {declaration.nguoi_ke_khai_sdt || '---'}
+                    {declaration.chu_dat_cccd || parcel.cccd || '---'}
                   </strong>
-                  <span className="text-[11px] text-slate-400 block mt-0.5">
-                    Năm sinh chủ đất: {declaration.chu_dat_ngay_sinh || '---'}
+                  <span className="text-[11px] text-emerald-400 block mt-0.5 font-bold">
+                    Nguồn gốc: {declaration.nguon_goc_su_dung || 'Khai hoang'}
                   </span>
                 </div>
 

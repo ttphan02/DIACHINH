@@ -49,9 +49,11 @@ export default function DeclarationPrintModal({
           dia_chi: decl.chu_dat_dia_chi || (p.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'Xã Cư Pui, huyện Krông Bông, tỉnh Đắk Lắk'),
           chu_ho: decl.chu_dat_ten || p.chu_ho,
           cccd: decl.chu_dat_cccd || p.cccd,
+          nam_sinh: decl.chu_dat_nam_sinh || decl.nam_sinh_chu_ho || '',
+          gioi_tinh: decl.chu_dat_gioi_tinh || 'Nam',
           loai_dat: p.loai_dat,
           dien_tich: p.dien_tich,
-          nguon_goc: 'Khai hoang',
+          nguon_goc: decl.nguon_goc_su_dung || 'Khai hoang',
           has_gcn: gcnList.length > 0 || Boolean(p.has_gcn),
           anh_cccd_truoc: decl.anh_cccd_truoc || p.cccd_url,
           anh_gcn_list: gcnList,
@@ -165,6 +167,9 @@ export default function DeclarationPrintModal({
           const decl = item.declaration || {};
           const chuHo = decl.chu_dat_ten || p.chu_ho || '...................................................';
           const cccd = decl.chu_dat_cccd || p.cccd || '.......................................';
+          const namSinh = decl.chu_dat_nam_sinh || decl.nam_sinh_chu_ho || decl.chu_dat_ngay_sinh || '';
+          const gioiTinh = decl.chu_dat_gioi_tinh || 'Nam';
+          const nguonGoc = decl.nguon_goc_su_dung || 'Khai hoang';
           const sdt = decl.nguoi_ke_khai_sdt || p.sdt || '................................';
           const diaChi = decl.chu_dat_dia_chi || (p.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'Xã Cư Pui, huyện Krông Bông, tỉnh Đắk Lắk');
           const nguoiKekhai = decl.nguoi_ke_khai_ten || chuHo;
@@ -179,7 +184,7 @@ export default function DeclarationPrintModal({
               dien_tich: p.dien_tich,
               loai_dat: p.loai_dat,
               thon_xa: p.thon_xa,
-              nguon_goc: 'Khai hoang',
+              nguon_goc: nguonGoc,
             },
             ...additionalParcels.map((ap, i) => ({
               stt: i + 2,
@@ -188,7 +193,7 @@ export default function DeclarationPrintModal({
               dien_tich: ap.dien_tich,
               loai_dat: ap.loai_dat,
               thon_xa: ap.thon_xa || p.thon_xa,
-              nguon_goc: ap.nguon_goc || 'Khai hoang',
+              nguon_goc: ap.nguon_goc || nguonGoc,
             })),
           ];
 
@@ -337,12 +342,23 @@ export default function DeclarationPrintModal({
                         <div className="font-bold text-[13px]">
                           1. Người sử dụng đất, chủ sở hữu tài sản gắn liền với đất, người quản lý đất:
                         </div>
+                        <div className="font-bold text-[13px] pl-2 text-gray-800">
+                          1.1 Cá nhân:
+                        </div>
                         <p className="text-[11px] italic text-gray-600 pl-4 leading-normal">
                           (Trường hợp nhiều người cùng sử dụng đất, cùng sở hữu tài sản thì kê khai tên người cùng sử dụng)
                         </p>
                         <div className="pl-4 space-y-1 text-[13px]">
                           <div>
                             Tên (viết chữ in hoa): <strong className="uppercase text-[14px]">{chuHo}</strong>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              Năm sinh: <strong>{namSinh || '.....................'}</strong>
+                            </div>
+                            <div>
+                              Giới tính: <strong>{gioiTinh}</strong>
+                            </div>
                           </div>
                           <div>
                             Số định danh cá nhân / CCCD: <strong className="font-mono">{cccd}</strong>
@@ -409,7 +425,7 @@ export default function DeclarationPrintModal({
                             </strong>
                           </div>
                           <div>
-                            Nguồn gốc sử dụng đất: <strong>Khai hoang</strong>
+                            Nguồn gốc sử dụng đất: <strong>{nguonGoc}</strong>
                           </div>
                         </div>
                       </div>

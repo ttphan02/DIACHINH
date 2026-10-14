@@ -147,11 +147,15 @@ export default function ParcelDetailPanel({
   const [giapNam, setGiapNam] = useState('');
   const [giapBac, setGiapBac] = useState('');
 
-  // Declaration & Correction form state
+  // Declaration & Correction form state - 1.1 Cá nhân & Nguồn gốc
+  const [chuDatTen, setChuDatTen] = useState('');
+  const [chuDatNamSinh, setChuDatNamSinh] = useState('');
+  const [chuDatGioiTinh, setChuDatGioiTinh] = useState<'Nam' | 'Nữ'>('Nam');
+  const [chuDatCccd, setChuDatCccd] = useState('');
+  const [chuDatDiaChi, setChuDatDiaChi] = useState('');
+  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai hoang');
   const [nguoiKeKhaiTen, setNguoiKeKhaiTen] = useState('');
   const [nguoiKeKhaiSdt, setNguoiKeKhaiSdt] = useState('');
-  const [chuDatTen, setChuDatTen] = useState('');
-  const [chuDatCccd, setChuDatCccd] = useState('');
   const [ghiChu, setGhiChu] = useState('');
   const [lyDoBaoSai, setLyDoBaoSai] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -211,7 +215,19 @@ export default function ParcelDetailPanel({
         setNguoiKeKhaiTen(currentDeclaration.nguoi_ke_khai_ten || '');
         setNguoiKeKhaiSdt(currentDeclaration.nguoi_ke_khai_sdt || '');
         setChuDatTen(currentDeclaration.chu_dat_ten || parcel.chu_ho || '');
+        setChuDatNamSinh(
+          currentDeclaration.chu_dat_nam_sinh ||
+          currentDeclaration.nam_sinh_chu_ho ||
+          currentDeclaration.chu_dat_ngay_sinh ||
+          ''
+        );
+        setChuDatGioiTinh(currentDeclaration.chu_dat_gioi_tinh === 'Nữ' ? 'Nữ' : 'Nam');
         setChuDatCccd(currentDeclaration.chu_dat_cccd || parcel.cccd || '');
+        setChuDatDiaChi(
+          currentDeclaration.chu_dat_dia_chi ||
+          (parcel.thon_xa ? `${parcel.thon_xa}, xã Cư Pui` : 'Xã Cư Pui, huyện Krông Bông')
+        );
+        setNguonGocSuDung(currentDeclaration.nguon_goc_su_dung || 'Khai hoang');
         setGiapDong(currentDeclaration.giap_dong || parcel.giap_dong || '');
         setGiapTay(currentDeclaration.giap_tay || parcel.giap_tay || '');
         setGiapNam(currentDeclaration.giap_nam || parcel.giap_nam || '');
@@ -240,7 +256,11 @@ export default function ParcelDetailPanel({
         ];
         const isPlaceholder = nonPersonPlaceholders.some((ph) => parcel.chu_ho?.toLowerCase().includes(ph));
         setChuDatTen(parcel.chu_ho && !isPlaceholder ? parcel.chu_ho : '');
+        setChuDatNamSinh('');
+        setChuDatGioiTinh('Nam');
         setChuDatCccd(parcel.cccd || '');
+        setChuDatDiaChi(parcel.thon_xa ? `${parcel.thon_xa}, xã Cư Pui` : 'Xã Cư Pui, huyện Krông Bông');
+        setNguonGocSuDung('Khai hoang');
       }
       setLyDoBaoSai('');
       setSavedSuccess(false);
@@ -402,11 +422,12 @@ export default function ParcelDetailPanel({
     e.preventDefault();
     onSaveDeclaration({
       ma_thua: parcel.ma_thua,
-      mode,
-      nguoi_ke_khai_ten: mode === 'SELF' ? chuDatTen : nguoiKeKhaiTen,
-      nguoi_ke_khai_sdt: nguoiKeKhaiSdt,
-      chu_dat_ten: chuDatTen,
-      chu_dat_cccd: chuDatCccd,
+      chu_dat_ten: chuDatTen.trim(),
+      chu_dat_nam_sinh: chuDatNamSinh.trim(),
+      chu_dat_gioi_tinh: chuDatGioiTinh,
+      chu_dat_cccd: chuDatCccd.trim(),
+      chu_dat_dia_chi: chuDatDiaChi.trim(),
+      nguon_goc_su_dung: nguonGocSuDung,
       giap_dong: giapDong,
       giap_tay: giapTay,
       giap_nam: giapNam,
@@ -426,11 +447,12 @@ export default function ParcelDetailPanel({
     e.preventDefault();
     onSaveDeclaration({
       ma_thua: parcel.ma_thua,
-      mode,
-      nguoi_ke_khai_ten: mode === 'SELF' ? chuDatTen : nguoiKeKhaiTen,
-      nguoi_ke_khai_sdt: nguoiKeKhaiSdt,
-      chu_dat_ten: chuDatTen,
-      chu_dat_cccd: chuDatCccd,
+      chu_dat_ten: chuDatTen.trim(),
+      chu_dat_nam_sinh: chuDatNamSinh.trim(),
+      chu_dat_gioi_tinh: chuDatGioiTinh,
+      chu_dat_cccd: chuDatCccd.trim(),
+      chu_dat_dia_chi: chuDatDiaChi.trim(),
+      nguon_goc_su_dung: nguonGocSuDung,
       giap_dong: giapDong,
       giap_tay: giapTay,
       giap_nam: giapNam,
@@ -1248,59 +1270,6 @@ export default function ParcelDetailPanel({
               </div>
             )}
 
-            {/* Chế độ kê khai */}
-            <div className="flex p-1 bg-gray-100 rounded-xl text-xs">
-              <button
-                type="button"
-                onClick={() => setMode('SELF')}
-                className={`flex-1 py-1.5 font-bold rounded-lg transition flex items-center justify-center gap-1 ${
-                  mode === 'SELF'
-                    ? 'bg-white text-blue-600 shadow-xs'
-                    : 'text-gray-500 hover:text-gray-800'
-                }`}
-              >
-                <User className="w-3 h-3" /> Chủ đất tự kê khai
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode('SURVEYOR')}
-                className={`flex-1 py-1.5 font-bold rounded-lg transition flex items-center justify-center gap-1 ${
-                  mode === 'SURVEYOR'
-                    ? 'bg-white text-blue-600 shadow-xs'
-                    : 'text-gray-500 hover:text-gray-800'
-                }`}
-              >
-                <Users className="w-3 h-3" /> Cán bộ kê khai thay
-              </button>
-            </div>
-
-            {/* Thông tin Cán bộ nếu là kê khai hộ */}
-            {mode === 'SURVEYOR' && (
-              <div className="p-2.5 bg-blue-50/70 border border-blue-100 rounded-xl space-y-2 text-xs">
-                <span className="font-bold text-blue-900 block text-[11px]">
-                  Cán bộ thực địa:
-                </span>
-                <div className="space-y-1.5">
-                  <input
-                    type="text"
-                    required
-                    value={nguoiKeKhaiTen}
-                    onChange={(e) => setNguoiKeKhaiTen(e.target.value)}
-                    placeholder="Họ tên cán bộ *"
-                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <input
-                    type="tel"
-                    required
-                    value={nguoiKeKhaiSdt}
-                    onChange={(e) => setNguoiKeKhaiSdt(e.target.value)}
-                    placeholder="Số điện thoại cán bộ *"
-                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-            )}
-
             {/* DANH SÁCH THỬA ĐẤT KÊ KHAI (HỖ TRỢ THÊM NHIỀU THỬA CHUNG 1 PHIẾU) */}
             <div className="p-3 bg-gradient-to-br from-blue-50/80 to-indigo-50/60 border border-blue-200 rounded-xl space-y-2.5 text-xs shadow-2xs">
               <div className="flex items-center justify-between">
@@ -1394,35 +1363,133 @@ export default function ParcelDetailPanel({
               </div>
             </div>
 
-            {/* Thông tin chủ đất */}
-            <div className="space-y-1.5 text-xs">
-              <label className="font-bold text-gray-700 block">Thông tin chủ đất:</label>
-              <input
-                type="text"
-                required
-                value={chuDatTen}
-                onChange={(e) => setChuDatTen(e.target.value)}
-                placeholder="Họ và tên chủ đất *"
-                className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <input
-                type="text"
-                required
-                value={chuDatCccd}
-                onChange={(e) => setChuDatCccd(e.target.value)}
-                placeholder="Số CCCD *"
-                className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              {mode === 'SELF' && (
-                <input
-                  type="tel"
-                  required
-                  value={nguoiKeKhaiSdt}
-                  onChange={(e) => setNguoiKeKhaiSdt(e.target.value)}
-                  placeholder="Số điện thoại liên hệ *"
-                  className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              )}
+            {/* MỤC 1.1 CÁ NHÂN */}
+            <div className="p-3 bg-white border border-gray-200 rounded-xl shadow-2xs space-y-3">
+              <div className="flex items-center justify-between border-b pb-1.5">
+                <span className="font-black text-gray-900 text-xs flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-blue-600" />
+                  1.1 Cá nhân
+                </span>
+                <span className="text-[10px] text-gray-400 font-medium">* Bắt buộc nhập</span>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                {/* Họ tên */}
+                <div>
+                  <label className="text-[11px] font-bold text-gray-700 block mb-1">
+                    Họ và tên <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={chuDatTen}
+                    onChange={(e) => setChuDatTen(e.target.value)}
+                    placeholder="Nhập họ và tên cá nhân..."
+                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold uppercase"
+                  />
+                </div>
+
+                {/* Năm sinh & Giới tính */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">
+                      Năm sinh <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={chuDatNamSinh}
+                      onChange={(e) => setChuDatNamSinh(e.target.value)}
+                      placeholder="Vd: 1985..."
+                      className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">
+                      Giới tính <span className="text-red-500">*</span>
+                    </label>
+                    <div className="flex gap-1.5 h-[34px] items-center">
+                      <button
+                        type="button"
+                        onClick={() => setChuDatGioiTinh('Nam')}
+                        className={`flex-1 h-full flex items-center justify-center rounded-lg border font-bold text-xs transition cursor-pointer ${
+                          chuDatGioiTinh === 'Nam'
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                            : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        Nam
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setChuDatGioiTinh('Nữ')}
+                        className={`flex-1 h-full flex items-center justify-center rounded-lg border font-bold text-xs transition cursor-pointer ${
+                          chuDatGioiTinh === 'Nữ'
+                            ? 'bg-pink-600 text-white border-pink-600 shadow-2xs'
+                            : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        Nữ
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Số CCCD */}
+                <div>
+                  <label className="text-[11px] font-bold text-gray-700 block mb-1">
+                    Số CCCD <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={chuDatCccd}
+                    onChange={(e) => setChuDatCccd(e.target.value)}
+                    placeholder="Nhập 12 chữ số CCCD..."
+                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold tracking-wider"
+                  />
+                </div>
+
+                {/* Địa chỉ thường trú */}
+                <div>
+                  <label className="text-[11px] font-bold text-gray-700 block mb-1">
+                    Địa chỉ thường trú <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={chuDatDiaChi}
+                    onChange={(e) => setChuDatDiaChi(e.target.value)}
+                    placeholder="Thôn / Buôn, Xã Cư Pui, Huyện Krông Bông..."
+                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* NGUỒN GỐC SỬ DỤNG ĐẤT */}
+            <div className="p-3 bg-white border border-gray-200 rounded-xl shadow-2xs space-y-2 text-xs">
+              <label className="text-[11px] font-bold text-gray-700 flex items-center justify-between">
+                <span>Nguồn gốc sử dụng đất <span className="text-red-500">*</span></span>
+                <span className="text-[10px] text-blue-600 font-semibold">{nguonGocSuDung}</span>
+              </label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(['Khai hoang', 'Nhận Thừa Kế', 'Nhận Tặng Cho'] as const).map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => setNguonGocSuDung(opt)}
+                    className={`py-2 px-1 rounded-lg border text-xs font-bold transition text-center cursor-pointer ${
+                      nguonGocSuDung === opt
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                        : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Hidden file inputs for upload/photo capture */}
@@ -1452,9 +1519,9 @@ export default function ParcelDetailPanel({
                   className="p-2.5 border-2 border-dashed border-gray-200 hover:border-blue-400 hover:bg-blue-50/30 rounded-xl bg-white text-center cursor-pointer transition select-none flex flex-col items-center justify-center"
                 >
                   <Upload className="w-4 h-4 text-blue-500 mb-0.5" />
-                  <span className="font-bold text-gray-800 block text-[11px]">Chụp / Tải CCCD</span>
+                  <span className="font-bold text-gray-800 block text-[11px]">Tải lên CCCD cá nhân</span>
                   <span className="text-[10px] text-gray-400">
-                    {cccdUploadedFiles.length > 0 ? `Đã chọn ${cccdUploadedFiles.length} ảnh` : 'Mặt trước & sau'}
+                    {cccdUploadedFiles.length > 0 ? `Đã chọn ${cccdUploadedFiles.length} ảnh` : '(Tùy chọn)'}
                   </span>
                 </button>
                 <button

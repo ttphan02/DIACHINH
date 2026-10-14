@@ -52,6 +52,8 @@ export interface AutoBoundariesResult {
 
 export type DeclarationMode = 'SELF' | 'SURVEYOR';
 
+export type NguonGocSuDung = 'Khai hoang' | 'Nhận Thừa Kế' | 'Nhận Tặng Cho';
+
 export interface AdditionalParcel {
   ma_thua: string;
   to_ban_do: string;
@@ -64,22 +66,31 @@ export interface AdditionalParcel {
 
 export interface DeclarationFormData {
   ma_thua: string;
-  mode: DeclarationMode;
-  nguoi_ke_khai_ten: string;
-  nguoi_ke_khai_sdt: string;
-  chu_dat_ten: string;
-  chu_dat_cccd: string;
-  chu_dat_ngay_sinh?: string;
-  chu_dat_dia_chi?: string;
-  giap_dong: string;
-  giap_tay: string;
-  giap_nam: string;
-  giap_bac: string;
+  // 1.1 Cá nhân
+  chu_dat_ten: string; // Họ tên cá nhân *
+  chu_dat_nam_sinh?: string; // Năm sinh *
+  chu_dat_gioi_tinh?: 'Nam' | 'Nữ' | string; // Giới tính (Nam/Nữ) *
+  chu_dat_cccd: string; // Số CCCD *
+  chu_dat_dia_chi?: string; // Địa chỉ thường trú *
+  chu_dat_ngay_sinh?: string; // Tương thích ngược
+  nam_sinh_chu_ho?: string; // Tương thích ngược
+  gioi_tinh_chu_ho?: string; // Tương thích ngược
+  nguon_goc_su_dung?: NguonGocSuDung | string; // Option: Khai hoang | Nhận Thừa Kế | Nhận Tặng Cho *
+  // Tứ cận
+  giap_dong?: string;
+  giap_tay?: string;
+  giap_nam?: string;
+  giap_bac?: string;
+  // Hồ sơ đính kèm (Tùy chọn)
   anh_cccd_truoc?: string;
   anh_cccd_sau?: string;
   anh_gcn?: string;
   anh_gcn_list?: string[];
   ghi_chu?: string;
+  // Các trường phụ trợ
+  mode?: DeclarationMode;
+  nguoi_ke_khai_ten?: string;
+  nguoi_ke_khai_sdt?: string;
   is_correction?: boolean;
   ly_do_sai?: string;
   thua_kem_theo?: AdditionalParcel[];

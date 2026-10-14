@@ -33,7 +33,6 @@ export default function ParcelDetailModal({
   onSaveDeclaration,
 }: ParcelDetailModalProps) {
   const [activeTab, setActiveTab] = useState<'info' | 'declare'>('info');
-  const [mode, setMode] = useState<DeclarationMode>('SELF');
 
   // Boundaries state (Tứ cận)
   const [giapDong, setGiapDong] = useState(parcel?.giap_dong || '');
@@ -41,11 +40,15 @@ export default function ParcelDetailModal({
   const [giapNam, setGiapNam] = useState(parcel?.giap_nam || '');
   const [giapBac, setGiapBac] = useState(parcel?.giap_bac || '');
 
-  // Declaration form state
-  const [nguoiKeKhaiTen, setNguoiKeKhaiTen] = useState('');
-  const [nguoiKeKhaiSdt, setNguoiKeKhaiSdt] = useState('');
+  // Declaration form state - 1.1 Cá nhân & Nguồn gốc
   const [chuDatTen, setChuDatTen] = useState(parcel?.chu_ho && parcel.chu_ho !== 'Chưa có tên' ? parcel.chu_ho : '');
+  const [chuDatNamSinh, setChuDatNamSinh] = useState('');
+  const [chuDatGioiTinh, setChuDatGioiTinh] = useState<'Nam' | 'Nữ'>('Nam');
   const [chuDatCccd, setChuDatCccd] = useState('');
+  const [chuDatDiaChi, setChuDatDiaChi] = useState(
+    parcel?.thon_xa ? `${parcel.thon_xa}, xã Cư Pui` : 'Xã Cư Pui, huyện Krông Bông'
+  );
+  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai hoang');
   const [ghiChu, setGhiChu] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -92,11 +95,13 @@ export default function ParcelDetailModal({
     e.preventDefault();
     onSaveDeclaration({
       ma_thua: parcel.ma_thua,
-      mode,
-      nguoi_ke_khai_ten: mode === 'SELF' ? chuDatTen : nguoiKeKhaiTen,
-      nguoi_ke_khai_sdt: nguoiKeKhaiSdt,
+      mode: 'SELF',
       chu_dat_ten: chuDatTen,
+      chu_dat_nam_sinh: chuDatNamSinh,
+      chu_dat_gioi_tinh: chuDatGioiTinh,
       chu_dat_cccd: chuDatCccd,
+      chu_dat_dia_chi: chuDatDiaChi,
+      nguon_goc_su_dung: nguonGocSuDung,
       giap_dong: giapDong,
       giap_tay: giapTay,
       giap_nam: giapNam,
@@ -358,91 +363,59 @@ export default function ParcelDetailModal({
               </div>
             </>
           ) : (
-            /* Phiếu Kê Khai (2 Chế độ) */
+            /* Phiếu Kê Khai 1.1 Cá nhân & Nguồn gốc */
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Chọn chế độ kê khai */}
-              <div className="flex p-1 bg-gray-100 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setMode('SELF')}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${
-                    mode === 'SELF'
-                      ? 'bg-white text-blue-600 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-800'
-                  }`}
-                >
-                  <User className="w-3.5 h-3.5" /> Bản thân tự kê khai
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode('SURVEYOR')}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${
-                    mode === 'SURVEYOR'
-                      ? 'bg-white text-blue-600 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-800'
-                  }`}
-                >
-                  <Users className="w-3.5 h-3.5" /> Người chuyên trách / Kê khai hộ
-                </button>
-              </div>
-
-              {/* Thông tin người kê khai hộ (Nếu là cán bộ) */}
-              {mode === 'SURVEYOR' && (
-                <div className="p-3.5 bg-blue-50/60 border border-blue-100 rounded-xl space-y-3">
-                  <h5 className="text-xs font-bold text-blue-900 flex items-center gap-1">
-                    <User className="w-3.5 h-3.5" /> Thông tin Người Chuyên Trách / Cán Bộ Kê Khai:
-                  </h5>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Họ & Tên người kê khai *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={nguoiKeKhaiTen}
-                        onChange={(e) => setNguoiKeKhaiTen(e.target.value)}
-                        placeholder="Vd: Nguyễn Văn Cán Bộ..."
-                        className="w-full text-xs px-3 py-2 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Số điện thoại liên hệ *
-                      </label>
-                      <input
-                        type="tel"
-                        required
-                        value={nguoiKeKhaiSdt}
-                        onChange={(e) => setNguoiKeKhaiSdt(e.target.value)}
-                        placeholder="0912..."
-                        className="w-full text-xs px-3 py-2 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Thông tin chủ thửa đất */}
+              {/* 1.1 Cá nhân */}
               <div className="p-4 bg-white border border-gray-100 rounded-xl shadow-sm space-y-3">
-                <h5 className="text-xs font-bold text-gray-900">Thông tin Chủ Thửa Đất Thực Tế:</h5>
+                <div className="flex items-center gap-2 border-b border-gray-100 pb-2">
+                  <User className="w-4 h-4 text-blue-600" />
+                  <h5 className="text-xs font-bold text-gray-900 uppercase">1.1 Cá nhân</h5>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Họ và Tên chủ đất *
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Họ và Tên chủ đất <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
                       required
                       value={chuDatTen}
                       onChange={(e) => setChuDatTen(e.target.value)}
-                      placeholder="Vd: Trần Văn Chủ Hộ..."
+                      placeholder="Vd: Nguyễn Văn A..."
                       className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        Năm sinh <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={chuDatNamSinh}
+                        onChange={(e) => setChuDatNamSinh(e.target.value)}
+                        placeholder="1980"
+                        className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        Giới tính <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={chuDatGioiTinh}
+                        onChange={(e) => setChuDatGioiTinh(e.target.value as 'Nam' | 'Nữ')}
+                        className="w-full text-xs px-2.5 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      >
+                        <option value="Nam">Nam</option>
+                        <option value="Nữ">Nữ</option>
+                      </select>
+                    </div>
+                  </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Số định danh / CCCD chủ đất *
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Số CCCD <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -450,24 +423,45 @@ export default function ParcelDetailModal({
                       value={chuDatCccd}
                       onChange={(e) => setChuDatCccd(e.target.value)}
                       placeholder="12 chữ số CCCD..."
+                      className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Địa chỉ thường trú <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={chuDatDiaChi}
+                      onChange={(e) => setChuDatDiaChi(e.target.value)}
+                      placeholder="Thôn Cẩm Phong, xã Cư Pui..."
                       className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
-                  {mode === 'SELF' && (
-                    <div className="sm:col-span-2">
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Số điện thoại người dân tự kê khai *
-                      </label>
-                      <input
-                        type="tel"
-                        required
-                        value={nguoiKeKhaiSdt}
-                        onChange={(e) => setNguoiKeKhaiSdt(e.target.value)}
-                        placeholder="09..."
-                        className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  )}
+                </div>
+              </div>
+
+              {/* Nguồn gốc sử dụng đất */}
+              <div className="p-4 bg-white border border-gray-100 rounded-xl shadow-sm space-y-2">
+                <label className="block text-xs font-bold text-gray-800">
+                  Nguồn gốc sử dụng đất <span className="text-red-500">*</span>
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['Khai hoang', 'Nhận Thừa Kế', 'Nhận Tặng Cho'] as const).map((ng) => (
+                    <button
+                      type="button"
+                      key={ng}
+                      onClick={() => setNguonGocSuDung(ng)}
+                      className={`py-2 px-2 text-xs font-bold rounded-lg border transition text-center ${
+                        nguonGocSuDung === ng
+                          ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-sm ring-1 ring-blue-500'
+                          : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      {ng}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -475,8 +469,8 @@ export default function ParcelDetailModal({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="p-3.5 border-2 border-dashed border-gray-200 hover:border-blue-400 rounded-xl bg-white text-center cursor-pointer transition">
                   <Upload className="w-5 h-5 mx-auto text-blue-500 mb-1" />
-                  <span className="text-xs font-bold text-gray-800 block">Chụp / Đính kèm ảnh CCCD</span>
-                  <span className="text-[11px] text-gray-400">Mặt trước và mặt sau</span>
+                  <span className="text-xs font-bold text-gray-800 block">Tải lên CCCD của cá nhân</span>
+                  <span className="text-[11px] text-gray-400">(Tùy chọn)</span>
                 </div>
                 <div className="p-3.5 border-2 border-dashed border-gray-200 hover:border-blue-400 rounded-xl bg-white text-center cursor-pointer transition">
                   <Upload className="w-5 h-5 mx-auto text-emerald-500 mb-1" />

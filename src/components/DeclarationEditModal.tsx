@@ -50,9 +50,11 @@ export default function DeclarationEditModal({
   const [nguoiKeKhaiTen, setNguoiKeKhaiTen] = useState('');
   const [nguoiKeKhaiSdt, setNguoiKeKhaiSdt] = useState('');
   const [chuDatTen, setChuDatTen] = useState('');
+  const [chuDatNamSinh, setChuDatNamSinh] = useState('');
+  const [chuDatGioiTinh, setChuDatGioiTinh] = useState<'Nam' | 'Nữ'>('Nam');
   const [chuDatCccd, setChuDatCccd] = useState('');
-  const [chuDatNgaySinh, setChuDatNgaySinh] = useState('');
   const [chuDatDiaChi, setChuDatDiaChi] = useState('');
+  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai hoang');
   const [giapDong, setGiapDong] = useState('');
   const [giapTay, setGiapTay] = useState('');
   const [giapNam, setGiapNam] = useState('');
@@ -85,9 +87,19 @@ export default function DeclarationEditModal({
       setNguoiKeKhaiTen(declaration.nguoi_ke_khai_ten || '');
       setNguoiKeKhaiSdt(declaration.nguoi_ke_khai_sdt || '');
       setChuDatTen(declaration.chu_dat_ten || parcel.chu_ho || '');
+      setChuDatNamSinh(
+        declaration.chu_dat_nam_sinh ||
+        declaration.nam_sinh_chu_ho ||
+        declaration.chu_dat_ngay_sinh ||
+        ''
+      );
+      setChuDatGioiTinh(declaration.chu_dat_gioi_tinh === 'Nữ' ? 'Nữ' : 'Nam');
       setChuDatCccd(declaration.chu_dat_cccd || parcel.cccd || '');
-      setChuDatNgaySinh(declaration.chu_dat_ngay_sinh || '');
-      setChuDatDiaChi(declaration.chu_dat_dia_chi || parcel.thon_xa || '');
+      setChuDatDiaChi(
+        declaration.chu_dat_dia_chi ||
+        (parcel.thon_xa ? `${parcel.thon_xa}, xã Cư Pui` : 'Xã Cư Pui, huyện Krông Bông')
+      );
+      setNguonGocSuDung(declaration.nguon_goc_su_dung || 'Khai hoang');
       setGiapDong(declaration.giap_dong || parcel.giap_dong || '');
       setGiapTay(declaration.giap_tay || parcel.giap_tay || '');
       setGiapNam(declaration.giap_nam || parcel.giap_nam || '');
@@ -112,9 +124,11 @@ export default function DeclarationEditModal({
       setNguoiKeKhaiTen('');
       setNguoiKeKhaiSdt('');
       setChuDatTen(parcel.chu_ho || '');
+      setChuDatNamSinh('');
+      setChuDatGioiTinh('Nam');
       setChuDatCccd(parcel.cccd || '');
-      setChuDatNgaySinh('');
-      setChuDatDiaChi(parcel.thon_xa || '');
+      setChuDatDiaChi(parcel.thon_xa ? `${parcel.thon_xa}, xã Cư Pui` : 'Xã Cư Pui, huyện Krông Bông');
+      setNguonGocSuDung('Khai hoang');
       setGiapDong(parcel.giap_dong || '');
       setGiapTay(parcel.giap_tay || '');
       setGiapNam(parcel.giap_nam || '');
@@ -209,13 +223,12 @@ export default function DeclarationEditModal({
     e.preventDefault();
     const data: DeclarationFormData = {
       ma_thua: parcel.ma_thua,
-      mode,
-      nguoi_ke_khai_ten: mode === 'SELF' ? chuDatTen : nguoiKeKhaiTen,
-      nguoi_ke_khai_sdt: nguoiKeKhaiSdt,
-      chu_dat_ten: chuDatTen,
-      chu_dat_cccd: chuDatCccd,
-      chu_dat_ngay_sinh: chuDatNgaySinh,
-      chu_dat_dia_chi: chuDatDiaChi,
+      chu_dat_ten: chuDatTen.trim(),
+      chu_dat_nam_sinh: chuDatNamSinh.trim(),
+      chu_dat_gioi_tinh: chuDatGioiTinh,
+      chu_dat_cccd: chuDatCccd.trim(),
+      chu_dat_dia_chi: chuDatDiaChi.trim(),
+      nguon_goc_su_dung: nguonGocSuDung,
       giap_dong: giapDong,
       giap_tay: giapTay,
       giap_nam: giapNam,
@@ -271,121 +284,127 @@ export default function DeclarationEditModal({
 
         {/* Modal Body Form */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 max-h-[75vh] overflow-y-auto">
-          {/* Chế độ kê khai */}
-          <div className="flex p-1 bg-slate-950 rounded-xl text-xs border border-slate-800">
-            <button
-              type="button"
-              onClick={() => setMode('SELF')}
-              className={`flex-1 py-2 font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                mode === 'SELF'
-                  ? 'bg-blue-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <User className="w-3.5 h-3.5" /> Chủ đất tự kê khai
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('SURVEYOR')}
-              className={`flex-1 py-2 font-bold rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                mode === 'SURVEYOR'
-                  ? 'bg-blue-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5" /> Cán bộ kê khai thay
-            </button>
-          </div>
-
-          {/* Cán bộ thực địa nếu là kê khai thay */}
-          {mode === 'SURVEYOR' && (
-            <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-2.5">
-              <span className="font-bold text-blue-400 text-xs flex items-center gap-1.5">
-                <Users className="w-3.5 h-3.5" /> Thông tin cán bộ thực địa:
+          {/* MỤC 1.1 CÁ NHÂN */}
+          <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+              <span className="font-bold text-white text-xs flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5 text-blue-400" /> 1.1 Cá nhân:
               </span>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                <input
-                  type="text"
-                  required
-                  value={nguoiKeKhaiTen}
-                  onChange={(e) => setNguoiKeKhaiTen(e.target.value)}
-                  placeholder="Họ tên cán bộ *"
-                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <input
-                  type="tel"
-                  required
-                  value={nguoiKeKhaiSdt}
-                  onChange={(e) => setNguoiKeKhaiSdt(e.target.value)}
-                  placeholder="Số điện thoại cán bộ *"
-                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+              <span className="text-[10px] text-slate-400">* Bắt buộc nhập</span>
             </div>
-          )}
 
-          {/* Thông tin chủ đất */}
-          <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-2.5">
-            <span className="font-bold text-slate-300 text-xs flex items-center gap-1.5">
-              <User className="w-3.5 h-3.5 text-blue-400" /> Thông tin chủ sử dụng đất:
-            </span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-              <div>
-                <label className="text-[10px] text-slate-400 block mb-1">Họ & Tên chủ đất *</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+              <div className="sm:col-span-2">
+                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                  Họ & Tên cá nhân <span className="text-red-400">*</span>
+                </label>
                 <input
                   type="text"
                   required
                   value={chuDatTen}
                   onChange={(e) => setChuDatTen(e.target.value)}
-                  placeholder="Nguyễn Văn A"
-                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="NGUYỄN VĂN A"
+                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold uppercase"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] text-slate-400 block mb-1">Số CCCD / CMND *</label>
+                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                  Năm sinh <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={chuDatNamSinh}
+                  onChange={(e) => setChuDatNamSinh(e.target.value)}
+                  placeholder="Vd: 1985..."
+                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                  Giới tính <span className="text-red-400">*</span>
+                </label>
+                <div className="flex gap-2 h-[38px] items-center">
+                  <button
+                    type="button"
+                    onClick={() => setChuDatGioiTinh('Nam')}
+                    className={`flex-1 h-full rounded-xl border font-bold text-xs transition cursor-pointer flex items-center justify-center ${
+                      chuDatGioiTinh === 'Nam'
+                        ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+                    }`}
+                  >
+                    Nam
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChuDatGioiTinh('Nữ')}
+                    className={`flex-1 h-full rounded-xl border font-bold text-xs transition cursor-pointer flex items-center justify-center ${
+                      chuDatGioiTinh === 'Nữ'
+                        ? 'bg-pink-600 text-white border-pink-500 shadow-sm'
+                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+                    }`}
+                  >
+                    Nữ
+                  </button>
+                </div>
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                  Số CCCD / CMND <span className="text-red-400">*</span>
+                </label>
                 <input
                   type="text"
                   required
                   value={chuDatCccd}
                   onChange={(e) => setChuDatCccd(e.target.value)}
-                  placeholder="12 chữ số CCCD"
-                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] text-slate-400 block mb-1">Ngày sinh (nếu có)</label>
-                <input
-                  type="text"
-                  value={chuDatNgaySinh}
-                  onChange={(e) => setChuDatNgaySinh(e.target.value)}
-                  placeholder="DD/MM/YYYY"
-                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] text-slate-400 block mb-1">Số điện thoại liên hệ</label>
-                <input
-                  type="tel"
-                  value={nguoiKeKhaiSdt}
-                  onChange={(e) => setNguoiKeKhaiSdt(e.target.value)}
-                  placeholder="0912..."
-                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="12 chữ số CCCD..."
+                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold tracking-wider"
                 />
               </div>
 
               <div className="sm:col-span-2">
-                <label className="text-[10px] text-slate-400 block mb-1">Địa chỉ thường trú</label>
+                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                  Địa chỉ thường trú <span className="text-red-400">*</span>
+                </label>
                 <input
                   type="text"
+                  required
                   value={chuDatDiaChi}
                   onChange={(e) => setChuDatDiaChi(e.target.value)}
                   placeholder="Thôn / Buôn, Xã Cư Pui, Huyện Krông Bông..."
                   className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* NGUỒN GỐC SỬ DỤNG ĐẤT */}
+          <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-2.5 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-300 text-xs flex items-center gap-1.5">
+                Nguồn gốc sử dụng đất <span className="text-red-400">*</span>
+              </span>
+              <span className="text-[10px] text-blue-400 font-bold">{nguonGocSuDung}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {(['Khai hoang', 'Nhận Thừa Kế', 'Nhận Tặng Cho'] as const).map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => setNguonGocSuDung(opt)}
+                  className={`py-2 px-2 rounded-xl border text-xs font-bold transition text-center cursor-pointer ${
+                    nguonGocSuDung === opt
+                      ? 'bg-blue-600 text-white border-blue-500 shadow-md'
+                      : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+                  }`}
+                >
+                  {opt}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -416,7 +435,7 @@ export default function DeclarationEditModal({
           <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-3">
             <div className="flex items-center justify-between">
               <span className="font-bold text-slate-200 text-xs flex items-center gap-1.5">
-                <ImageIcon className="w-3.5 h-3.5 text-blue-400" /> Hồ sơ hình ảnh đính kèm (CCCD & GCN):
+                <ImageIcon className="w-3.5 h-3.5 text-blue-400" /> Tải lên CCCD của cá nhân (Tùy chọn) & GCN:
               </span>
               <span className="text-[10px] text-slate-400">
                 Hỗ trợ Cắt • Xoay • Lật • Thay thế ảnh
@@ -426,7 +445,7 @@ export default function DeclarationEditModal({
             {/* 1. Căn cước công dân (Mặt trước & Mặt sau) */}
             <div className="space-y-1.5">
               <span className="text-[11px] font-semibold text-slate-400 block">
-                1. Ảnh Căn cước công dân (CCCD):
+                1. Ảnh Căn cước công dân (CCCD) - <span className="text-amber-400 font-bold">Tùy chọn</span>:
               </span>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {/* Mặt trước */}
