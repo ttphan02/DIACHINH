@@ -55,6 +55,7 @@ import {
   Trash2,
   Sun,
   Moon,
+  Copy,
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -136,6 +137,11 @@ export default function DashboardPage() {
 
   // Checkbox Selection state cho THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD)
   const [readyToPackSelectedCodes, setReadyToPackSelectedCodes] = useState<Set<string>>(new Set());
+
+  // Checkbox Selection & Tìm/Lọc Mã Thửa cho mục "CHƯA THỰC HIỆN"
+  const [chuaThucHienSelectedCodes, setChuaThucHienSelectedCodes] = useState<Set<string>>(new Set());
+  const [chuaThucHienMaThuaSearch, setChuaThucHienMaThuaSearch] = useState<string>('');
+  const [chuaThucHienSelectedFilter, setChuaThucHienSelectedFilter] = useState<'ALL' | 'ONLY_SELECTED' | 'NOT_SELECTED'>('ALL');
 
   // Checkbox Selection state for Batch PDF Export
   const [selectedParcelCodes, setSelectedParcelCodes] = useState<Set<string>>(new Set());
@@ -2306,10 +2312,31 @@ export default function DashboardPage() {
                       if (chuaThucHienNameFilter === 'CHUA_CO_TEN' && isNamed) return false;
                     }
 
+                    // 5. Lọc tìm kiếm theo Mã thửa (cho sheet Chưa thực hiện - hỗ trợ nhập 1 hoặc nhiều mã thửa cách nhau bởi dấu phẩy, khoảng trắng)
+                    if (isChuaThucHienSheet && chuaThucHienMaThuaSearch.trim()) {
+                      const tokens = chuaThucHienMaThuaSearch
+                        .trim()
+                        .toLowerCase()
+                        .split(/[\s,;]+/)
+                        .filter(Boolean);
+                      if (tokens.length > 0) {
+                        const maThuaLower = maThua.toLowerCase();
+                        const matched = tokens.some((t) => maThuaLower.includes(t));
+                        if (!matched) return false;
+                      }
+                    }
+
+                    // 6. Lọc theo trạng thái tích chọn (cho sheet Chưa thực hiện)
+                    if (isChuaThucHienSheet && chuaThucHienSelectedFilter !== 'ALL') {
+                      const isSelected = chuaThucHienSelectedCodes.has(maThua);
+                      if (chuaThucHienSelectedFilter === 'ONLY_SELECTED' && !isSelected) return false;
+                      if (chuaThucHienSelectedFilter === 'NOT_SELECTED' && isSelected) return false;
+                    }
+
                     return true;
                   });
 
-                  // 5. Sắp xếp theo Tên chủ đất A -> Z hoặc Z -> A
+                  // Sắp xếp theo Tên chủ đất A -> Z hoặc Z -> A
                   if (nameColIdx >= 0 && sortNameOrder !== 'none') {
                     filtered.sort((a, b) => {
                       const maA = String(a[1] || '').trim();
@@ -2332,6 +2359,7 @@ export default function DashboardPage() {
 
                   const pageCodes = pagedRows.map((r) => String(r[1] || '').trim()).filter(Boolean);
                   const isAllPageSelected = pageCodes.length > 0 && pageCodes.every((c) => readyToPackSelectedCodes.has(c));
+                  const isAllPageSelectedChuaThucHien = pageCodes.length > 0 && pageCodes.every((c) => chuaThucHienSelectedCodes.has(c));
 
                   const toggleSelectAllPageReadyToPack = () => {
                     setReadyToPackSelectedCodes((prev) => {
@@ -2345,11 +2373,46 @@ export default function DashboardPage() {
                     });
                   };
 
+                  const toggleSelectAllPageChuaThucHien = () => {
+                    setChuaThucHienSelectedCodes((prev) => {
+                      const next = new Set(prev);
+                      if (isAllPageSelectedChuaThucHien) {
+                        pageCodes.forEach((c) => next.delete(c));
+                      } else {
+                        pageCodes.forEach((c) => next.add(c));
+                      }
+                      return next;
+                    });
+                  };
+
+                  const handleSelectAllFilteredChuaThucHien = () => {
+                    setChuaThucHienSelectedCodes((prev) => {
+                      const next = new Set(prev);
+                      filtered.forEach((r) => {
+                        const code = String(r[1] || '').trim();
+                        if (code) next.add(code);
+                      });
+                      return next;
+                    });
+                  };
+
+                  const handleCopySelectedChuaThucHienCodes = () => {
+                    if (chuaThucHienSelectedCodes.size === 0) return;
+                    const text = Array.from(chuaThucHienSelectedCodes).join(', ');
+                    if (navigator.clipboard) {
+                      navigator.clipboard.writeText(text);
+                    }
+                    setInlineSaveToast(`Đã sao chép ${chuaThucHienSelectedCodes.size} mã thửa vào clipboard!`);
+                    setTimeout(() => setInlineSaveToast(null), 3000);
+                  };
+
                   const isAnyFilterActive =
                     Boolean(reportSearchQuery) ||
                     reportVillageFilter !== 'ALL' ||
                     reportStatusFilter !== 'ALL' ||
                     chuaThucHienNameFilter !== 'ALL' ||
+                    (isChuaThucHienSheet && Boolean(chuaThucHienMaThuaSearch)) ||
+                    (isChuaThucHienSheet && chuaThucHienSelectedFilter !== 'ALL') ||
                     sortNameOrder !== 'none' ||
                     reportPageSize === 'ALL';
 
@@ -2430,6 +2493,57 @@ export default function DashboardPage() {
                             )}
                           </div>
                         )}
+
+                        {/* Nút tác vụ chọn nhiều thửa nếu là sheet Chưa thực hiện */}
+                        {isChuaThucHienSheet && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            {chuaThucHienSelectedCodes.size > 0 && (
+                              <>
+                                <span className={`text-xs font-bold px-2.5 py-1 rounded-lg border ${
+                                  isLight ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-emerald-950/60 text-emerald-300 border-emerald-600/50'
+                                }`}>
+                                  Đã chọn: {chuaThucHienSelectedCodes.size} thửa
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={handleCopySelectedChuaThucHienCodes}
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                                    isLight
+                                      ? 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300 shadow-xs'
+                                      : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
+                                  }`}
+                                  title="Sao chép các mã thửa đã chọn vào bộ nhớ tạm"
+                                >
+                                  <Copy className="w-3.5 h-3.5 text-emerald-500" />
+                                  <span>Sao chép mã</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setChuaThucHienSelectedCodes(new Set())}
+                                  className={`text-xs underline transition cursor-pointer ${
+                                    isLight ? 'text-slate-500 hover:text-slate-800' : 'text-slate-400 hover:text-slate-200'
+                                  }`}
+                                >
+                                  Bỏ chọn tất cả
+                                </button>
+                              </>
+                            )}
+                            {filtered.length > 0 && chuaThucHienSelectedCodes.size < filtered.length && (
+                              <button
+                                type="button"
+                                onClick={handleSelectAllFilteredChuaThucHien}
+                                className={`text-xs px-2.5 py-1 rounded-lg border transition font-semibold cursor-pointer ${
+                                  isLight
+                                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                                    : 'bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-400 border-emerald-800/60'
+                                }`}
+                                title="Tích chọn tất cả các thửa đang hiển thị theo bộ lọc hiện tại"
+                              >
+                                Tích chọn tất cả ({filtered.length} thửa đang lọc)
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {/* Hàng bộ lọc: Thôn / Buôn, Trạng thái, Có tên/Không có tên, Sắp xếp A-Z, Hiển thị, Tìm kiếm */}
@@ -2494,6 +2608,63 @@ export default function DashboardPage() {
                                 <option value="ALL">Tất cả ({allRows.length})</option>
                                 <option value="CO_TEN">Có tên ({countCoTen})</option>
                                 <option value="CHUA_CO_TEN">Không có tên ({countChuaCoTen})</option>
+                              </select>
+                            </div>
+                          )}
+
+                          {/* 2.1 LỌC & TÌM KIẾM MÃ THỬA (ở mục Chưa thực hiện) */}
+                          {isChuaThucHienSheet && (
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-[11px] font-bold ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>
+                                Mã thửa:
+                              </span>
+                              <input
+                                type="text"
+                                placeholder="VD: 123, 456..."
+                                value={chuaThucHienMaThuaSearch}
+                                onChange={(e) => {
+                                  setChuaThucHienMaThuaSearch(e.target.value);
+                                  setReportPage(1);
+                                }}
+                                className={`w-32 sm:w-36 px-2.5 py-1.5 rounded-xl border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 transition ${
+                                  chuaThucHienMaThuaSearch
+                                    ? isLight
+                                      ? 'bg-emerald-50 border-emerald-400 text-emerald-900'
+                                      : 'bg-emerald-950/70 border-emerald-500/50 text-emerald-200'
+                                    : isLight
+                                    ? 'bg-white border-slate-300 text-slate-800 placeholder:text-slate-400'
+                                    : 'bg-slate-900 border-slate-700 text-slate-200 placeholder:text-slate-500'
+                                }`}
+                                title="Nhập 1 hoặc nhiều mã thửa (cách nhau bởi dấu phẩy hoặc khoảng trắng)"
+                              />
+                            </div>
+                          )}
+
+                          {/* 2.2 LỌC THEO TRẠNG THÁI TÍCH CHỌN (ở mục Chưa thực hiện) */}
+                          {isChuaThucHienSheet && (
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-[11px] font-bold ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>
+                                Tích chọn:
+                              </span>
+                              <select
+                                value={chuaThucHienSelectedFilter}
+                                onChange={(e) => {
+                                  setChuaThucHienSelectedFilter(e.target.value as any);
+                                  setReportPage(1);
+                                }}
+                                className={`text-xs px-2.5 py-1.5 rounded-xl border font-bold transition focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                                  chuaThucHienSelectedFilter !== 'ALL'
+                                    ? isLight
+                                      ? 'bg-emerald-100 border-emerald-400 text-emerald-900'
+                                      : 'bg-emerald-950/70 border-emerald-500/50 text-emerald-200'
+                                    : isLight
+                                    ? 'bg-white border-slate-300 text-slate-800'
+                                    : 'bg-slate-900 border-slate-700 text-slate-200'
+                                }`}
+                              >
+                                <option value="ALL">Tất cả ({allRows.length})</option>
+                                <option value="ONLY_SELECTED">Đã tích chọn ({chuaThucHienSelectedCodes.size})</option>
+                                <option value="NOT_SELECTED">Chưa tích chọn</option>
                               </select>
                             </div>
                           )}
@@ -2595,6 +2766,8 @@ export default function DashboardPage() {
                                 setReportVillageFilter('ALL');
                                 setReportStatusFilter('ALL');
                                 setChuaThucHienNameFilter('ALL');
+                                setChuaThucHienMaThuaSearch('');
+                                setChuaThucHienSelectedFilter('ALL');
                                 setSortNameOrder('none');
                                 setReportPageSize(20);
                                 setReportPage(1);
@@ -2665,6 +2838,7 @@ export default function DashboardPage() {
                               )}
                               {headers.map((h, hIdx) => {
                                 const isNameHeader = hIdx === nameColIdx;
+                                const isMaThuaHeader = hIdx === 1 && isChuaThucHienSheet;
                                 return (
                                   <th
                                     key={hIdx}
@@ -2683,7 +2857,21 @@ export default function DashboardPage() {
                                     } ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}
                                   >
                                     <div className="flex items-center gap-1.5">
+                                      {isMaThuaHeader && (
+                                        <input
+                                          type="checkbox"
+                                          checked={isAllPageSelectedChuaThucHien}
+                                          onChange={toggleSelectAllPageChuaThucHien}
+                                          className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
+                                          title={isAllPageSelectedChuaThucHien ? 'Bỏ chọn cả trang này' : 'Chọn tất cả thửa trên trang này'}
+                                        />
+                                      )}
                                       <span>{h}</span>
+                                      {isMaThuaHeader && chuaThucHienSelectedCodes.size > 0 && (
+                                        <span className="text-[10px] px-1.5 py-0.2 bg-emerald-600 text-white rounded-full font-black">
+                                          {chuaThucHienSelectedCodes.size}
+                                        </span>
+                                      )}
                                       {isNameHeader && (
                                         <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                       )}
@@ -2717,6 +2905,7 @@ export default function DashboardPage() {
                               pagedRows.map((row, rIdx) => {
                                 const maThua = String(row[1] || '').trim();
                                 const isChecked = readyToPackSelectedCodes.has(maThua);
+                                const isChuaThucHienChecked = isChuaThucHienSheet && chuaThucHienSelectedCodes.has(maThua);
                                 const isSaving = savingRowCodes.has(maThua);
                                 const hasEdited = Boolean(cellEdits[maThua]);
 
@@ -2728,6 +2917,10 @@ export default function DashboardPage() {
                                         ? isLight
                                           ? 'bg-indigo-50/70'
                                           : 'bg-indigo-950/30'
+                                        : isChuaThucHienChecked
+                                        ? isLight
+                                          ? 'bg-emerald-50/70'
+                                          : 'bg-emerald-950/30'
                                         : isLight
                                         ? 'hover:bg-slate-50'
                                         : 'hover:bg-slate-800/40'
@@ -2903,6 +3096,29 @@ export default function DashboardPage() {
                                       }
 
                                       // 4. Các cột định danh cố định (STT, Mã thửa, Tờ BĐ, Số thửa, Thôn / Buôn, Trạng thái)
+                                      if (cIdx === 1 && isChuaThucHienSheet) {
+                                        return (
+                                          <td key={cIdx} className={`py-2 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
+                                            <div className="flex items-center gap-2">
+                                              <input
+                                                type="checkbox"
+                                                checked={isChuaThucHienChecked}
+                                                onChange={() => {
+                                                  setChuaThucHienSelectedCodes((prev) => {
+                                                    const next = new Set(prev);
+                                                    if (next.has(maThua)) next.delete(maThua);
+                                                    else next.add(maThua);
+                                                    return next;
+                                                  });
+                                                }}
+                                                className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
+                                              />
+                                              <span className="font-semibold text-emerald-700 dark:text-emerald-400">{cleanText}</span>
+                                            </div>
+                                          </td>
+                                        );
+                                      }
+
                                       return (
                                         <td key={cIdx} className={`py-2 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
                                           {cleanText}
