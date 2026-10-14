@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Parcel, DeclarationFormData, AdditionalParcel } from '@/types';
 import { Printer, X, FileText, Download, CheckCircle2, ShieldCheck, MapPin, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { generateReadyToPackPdf, downloadPdfBlob, ReadyToPackItem } from '@/utils/pdfPacker';
 
 export interface PrintableDeclarationItem {
   parcel: Parcel;
@@ -55,11 +56,11 @@ export default function DeclarationPrintModal({
     return name.trim();
   };
 
-  // Nút tải trực tiếp file PDF gốc chuẩn 100% template.pdf từ server local Python (port 5000)
+  // Nút tải trực tiếp file PDF chuẩn template.pdf (ghép CCCD R2 & mẫu đơn)
   const handleDownloadLocalPdf = async () => {
     try {
       setIsExportingLocalPdf(true);
-      const payloadItems = items.map((it) => {
+      const readyItems: ReadyToPackItem[] = items.map((it) => {
         const p = it.parcel;
         const decl = it.declaration || {};
         const gcnList: string[] = [];
@@ -74,44 +75,25 @@ export default function DeclarationPrintModal({
           ma_thua: p.ma_thua,
           to_ban_do: p.to_ban_do,
           so_thua: p.so_thua,
-          dia_chi: formatPrintAddress(decl.chu_dat_dia_chi, p.thon_xa),
+          thon_xa: formatPrintAddress(decl.chu_dat_dia_chi, p.thon_xa),
           chu_ho: validOwner,
           cccd: decl.chu_dat_cccd || p.cccd,
-          nam_sinh: decl.chu_dat_nam_sinh || decl.nam_sinh_chu_ho || '',
-          gioi_tinh: validGender,
+          dob: decl.chu_dat_nam_sinh || decl.nam_sinh_chu_ho || '',
+          gender: validGender,
           loai_dat: p.loai_dat,
           dien_tich: p.dien_tich,
           nguon_goc: decl.nguon_goc_su_dung || 'Khai hoang',
           has_gcn: gcnList.length > 0 || Boolean(p.has_gcn),
-          anh_cccd_truoc: decl.anh_cccd_truoc || p.cccd_url,
-          anh_gcn_list: gcnList,
+          cccd_url: decl.anh_cccd_truoc || p.cccd_url,
+          gcn_urls: gcnList,
         };
       });
 
-      const resp = await fetch('http://localhost:5000/api/generate_pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: payloadItems }),
-      });
-
-      if (!resp.ok) {
-        throw new Error(`Máy chủ trả về mã lỗi: ${resp.status}`);
-      }
-
-      const blob = await resp.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Tap_Ho_So_Chuan_Dong_Tap_${items.length}_bo.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      const { pdfBytes, fileName } = await generateReadyToPackPdf(readyItems);
+      downloadPdfBlob(pdfBytes, fileName);
     } catch (err: any) {
-      alert(
-        'Không thể kết nối đến máy chủ local PDF_Web_App (http://localhost:5000).\n\n' +
-        '👉 Bạn hãy đảm bảo ứng dụng PDF_Web_App đang chạy tại cổng 5000 để tải file PDF gốc chuẩn 100% template.pdf.'
-      );
+      console.error('Lỗi đóng tập PDF:', err);
+      alert('Không thể đóng tập PDF: ' + (err.message || 'Lỗi không xác định'));
     } finally {
       setIsExportingLocalPdf(false);
     }

@@ -15,7 +15,11 @@ import CccdSupplementModal from '@/components/CccdSupplementModal';
 import CccdManagerTab from '@/components/CccdManagerTab';
 import CccdHoverPreviewCard from '@/components/CccdHoverPreviewCard';
 import ScanFileManagerTab from '@/components/ScanFileManagerTab';
+import { generateReadyToPackPdf, downloadPdfBlob, ReadyToPackItem } from '@/utils/pdfPacker';
+import { generateStatisticsPdf } from '@/utils/exportStatisticsPdf';
 import {
+  FileBarChart2,
+  Loader2,
   Camera,
   HardDrive,
   FolderOpen,
@@ -157,6 +161,16 @@ export default function DashboardPage() {
 
   // Checkbox Selection state for Batch PDF Export
   const [selectedParcelCodes, setSelectedParcelCodes] = useState<Set<string>>(new Set());
+
+  // Trạng thái xuất PDF thống kê toàn xã (Trang 1: 4 nhóm & 16 thôn buôn, Trang 2+: Lưới 3 cột)
+  const [isExportingStatsPdf, setIsExportingStatsPdf] = useState(false);
+  const [exportStatsProgress, setExportStatsProgress] = useState('');
+
+  // Trạng thái đóng tập PDF (Sẵn sàng đóng tập có CCCD chuẩn PDF_Web_App)
+  const [isPackagingPdf, setIsPackagingPdf] = useState(false);
+  const [packagingProgress, setPackagingProgress] = useState('');
+  const [packagingDoneUrl, setPackagingDoneUrl] = useState<string | null>(null);
+  const [packagingDoneFileName, setPackagingDoneFileName] = useState<string | null>(null);
 
   // PDF Print Modal state
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
@@ -1091,7 +1105,99 @@ export default function DashboardPage() {
     URL.revokeObjectURL(url);
   };
 
-  // Đóng tập PDF các thửa Sẵn sàng đóng tập (có CCCD)
+  // Xuất Báo Cáo Thống Kê Tiến Độ Toàn Xã (Trang 1: 4 nhóm & 16 thôn buôn, Trang 2+: Lưới 3 cột chuẩn)
+  const handleExportStatisticsPdf = async () => {
+    try {
+      setIsExportingStatsPdf(true);
+      setExportStatsProgress('Đang chuẩn bị dữ liệu...');
+      const { pdfBytes, fileName } = await generateStatisticsPdf(
+        syncSheetsData,
+        computedParcels,
+        (msg) => setExportStatsProgress(msg)
+      );
+      downloadPdfBlob(pdfBytes, fileName);
+    } catch (err: any) {
+      console.error('Lỗi xuất PDF thống kê:', err);
+      alert('Không thể xuất PDF thống kê: ' + (err.message || 'Lỗi không xác định'));
+    } finally {
+      setIsExportingStatsPdf(false);
+      setExportStatsProgress('');
+    }
+  };
+
+  // Đóng tập PDF các thửa Sẵn sàng đóng tập (có CCCD) chuẩn logic PDF_Web_App
+  const handleGenerateReadyToPackPdf = async (specificCodes?: string[]) => {
+    const readyRows = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || [];
+    if (readyRows.length <= 1) {
+      alert('Hiện tại chưa có thửa nào sẵn sàng đóng tập (có CCCD).');
+      return;
+    }
+
+    const dataRows = readyRows.slice(1);
+    const filterSet = specificCodes && specificCodes.length > 0 ? new Set(specificCodes) : null;
+    const targetRows = filterSet ? dataRows.filter((r) => filterSet.has(String(r[1] || '').trim())) : dataRows;
+
+    if (targetRows.length === 0) {
+      alert('Chưa chọn thửa đất nào để đóng tập.');
+      return;
+    }
+
+    try {
+      setIsPackagingPdf(true);
+      setPackagingProgress(`Đang chuẩn bị ${targetRows.length} thửa...`);
+
+      const items: ReadyToPackItem[] = targetRows.map((row) => {
+        const maThua = String(row[1] || '').trim();
+        const cccdRaw = String(row[8] || row[6] || '').replace(/^="|"$/g, '');
+        const cccdFormula = String(row[12] || row[10] || '');
+        const cccdFileName =
+          cccdFormula.replace(/.*"([^"]+\.pdf)".*/i, '$1') || (cccdRaw ? `${cccdRaw}.pdf` : '');
+        const cccdUrl = cccdFileName ? `/api/image/cccd/${encodeURIComponent(cccdFileName)}` : undefined;
+
+        const p = computedParcels.find((cp) => cp.ma_thua === maThua);
+        const decl = declarationsMap[maThua];
+
+        const gcnList: string[] = [];
+        if (decl?.anh_gcn_list && decl.anh_gcn_list.length > 0) gcnList.push(...decl.anh_gcn_list);
+        else if (decl?.anh_gcn) gcnList.push(decl.anh_gcn);
+        else if (p?.gcn_urls && p.gcn_urls.length > 0) gcnList.push(...p.gcn_urls);
+
+        return {
+          ma_thua: maThua,
+          to_ban_do: String(row[2] || p?.to_ban_do || ''),
+          so_thua: String(row[3] || p?.so_thua || ''),
+          thon_xa: String(row[4] || p?.thon_xa || ''),
+          chu_ho: String(row[5] || p?.chu_ho || ''),
+          dob: String(row[6] || decl?.chu_dat_nam_sinh || ''),
+          gender: String(row[7] || decl?.chu_dat_gioi_tinh || ''),
+          cccd: cccdRaw || p?.cccd || decl?.chu_dat_cccd,
+          dien_tich: String(row[9] || p?.dien_tich || ''),
+          loai_dat: String(row[10] || p?.loai_dat || 'DGT'),
+          nguon_goc: String(row[11] || decl?.nguon_goc_su_dung || 'Khai hoang'),
+          cccd_file: cccdFileName,
+          cccd_url: cccdUrl || decl?.anh_cccd_truoc || p?.cccd_url,
+          has_gcn: gcnList.length > 0 || Boolean(p?.has_gcn),
+          gcn_urls: gcnList,
+        };
+      });
+
+      const { pdfBytes, fileName } = await generateReadyToPackPdf(items, (cur, tot, msg) => {
+        setPackagingProgress(msg);
+      });
+
+      const blobUrl = downloadPdfBlob(pdfBytes, fileName);
+      setPackagingDoneUrl(blobUrl);
+      setPackagingDoneFileName(fileName);
+    } catch (err: any) {
+      console.error('Lỗi đóng tập PDF:', err);
+      alert('Không thể đóng tập PDF: ' + (err.message || 'Lỗi không xác định'));
+    } finally {
+      setIsPackagingPdf(false);
+      setPackagingProgress('');
+    }
+  };
+
+  // Đóng tập PDF các thửa Sẵn sàng đóng tập (xem trước / in ấn qua modal)
   const handleBatchPrintReadyToPack = (specificCodes?: string[]) => {
     const readyRows = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || [];
     if (readyRows.length <= 1) {
@@ -1113,10 +1219,10 @@ export default function DashboardPage() {
     targetRows.forEach((row) => {
       const maThua = String(row[1] || '').trim();
       if (!maThua) return;
-      const cccdRaw = String(row[6] || '').replace(/^="|"$/g, '');
-      const cccdFileName = String(row[10] || '').replace(/.*"([^"]+\.pdf)".*/i, '$1');
+      const cccdRaw = String(row[8] || row[6] || '').replace(/^="|"$/g, '');
+      const cccdFileName = String(row[12] || row[10] || '').replace(/.*"([^"]+\.pdf)".*/i, '$1');
       const cccdUrl = cccdFileName && cccdFileName.endsWith('.pdf')
-        ? `https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/cccd/${cccdFileName}`
+        ? `/api/image/cccd/${encodeURIComponent(cccdFileName)}`
         : null;
 
       const p = computedParcels.find((cp) => cp.ma_thua === maThua) || {
@@ -1127,8 +1233,8 @@ export default function DashboardPage() {
         ten_xa_goc: 'Xã Cư Pui',
         chu_ho: String(row[5] || ''),
         cccd: cccdRaw,
-        loai_dat: String(row[9] || 'DGT'),
-        dien_tich: String(row[8] || ''),
+        loai_dat: String(row[10] || 'DGT'),
+        dien_tich: String(row[9] || ''),
         trang_thai: 'DA_KE_KHAI_CHUA_SO_HOA_LAM',
         lat: null,
         lng: null,
@@ -1142,8 +1248,8 @@ export default function DashboardPage() {
         so_thua: row[3],
         chu_dat_ten: row[5],
         chu_dat_cccd: cccdRaw,
-        dien_tich: row[8],
-        loai_dat: row[9],
+        dien_tich: row[9],
+        loai_dat: row[10],
         dia_chi_thua_dat: row[4],
         anh_cccd_truoc: cccdUrl,
       };
@@ -1361,6 +1467,26 @@ export default function DashboardPage() {
               <FileText className="w-3.5 h-3.5 text-indigo-500" />
               <span>ScanName (Tách PDF)</span>
             </a>
+
+            {/* Nút Xuất PDF Báo Cáo Thống Kê Tiến Độ Toàn Xã (Trang 1: 4 nhóm & 16 thôn, Trang 2+: Lưới 3 cột) */}
+            <button
+              type="button"
+              disabled={isExportingStatsPdf}
+              onClick={handleExportStatisticsPdf}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer disabled:opacity-75 border ${
+                isLight
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-blue-600 shadow-blue-500/25'
+                  : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-blue-500/40 shadow-blue-900/40'
+              }`}
+              title="Xuất PDF Báo cáo thống kê tiến độ 16 thôn buôn & danh sách có tên chưa thực hiện (khổ 3 cột chuẩn như ảnh)"
+            >
+              {isExportingStatsPdf ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+              ) : (
+                <FileBarChart2 className="w-3.5 h-3.5 text-amber-300" />
+              )}
+              <span>{isExportingStatsPdf ? exportStatsProgress || 'Đang tạo PDF...' : 'Xuất PDF Thống Kê'}</span>
+            </button>
 
             {/* Nút Xuất Excel Chuẩn Mẫu Đóng Tập EXCEL-MAUNHAP */}
             <button
@@ -2469,6 +2595,82 @@ export default function DashboardPage() {
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
+                              disabled={isPackagingPdf}
+                              onClick={() => {
+                                if (packagingDoneUrl) {
+                                  // Tải lại file đã đóng tập
+                                  const a = document.createElement('a');
+                                  a.href = packagingDoneUrl;
+                                  a.download = packagingDoneFileName || 'Tap_Ho_So_In_Co_Trang_CCCD.pdf';
+                                  document.body.appendChild(a);
+                                  a.click();
+                                  document.body.removeChild(a);
+                                } else {
+                                  handleGenerateReadyToPackPdf(
+                                    readyToPackSelectedCodes.size > 0
+                                      ? Array.from(readyToPackSelectedCodes)
+                                      : filtered.map((r) => String(r[1] || '').trim()).filter(Boolean)
+                                  );
+                                }
+                              }}
+                              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer disabled:opacity-75 ${
+                                packagingDoneUrl
+                                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-600/30'
+                                  : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-600/30'
+                              }`}
+                              title={
+                                packagingDoneUrl
+                                  ? 'Bấm để tải lại file PDF đã đóng tập kèm bìa CCCD'
+                                  : 'Đóng tập PDF hồ sơ kê khai kèm bìa CCCD từ Cloudflare R2'
+                              }
+                            >
+                              {isPackagingPdf ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                              ) : packagingDoneUrl ? (
+                                <Download className="w-3.5 h-3.5 text-white animate-bounce" />
+                              ) : (
+                                <Printer className="w-3.5 h-3.5 text-indigo-200" />
+                              )}
+                              <span>
+                                {isPackagingPdf
+                                  ? packagingProgress || 'Đang xử lý đóng tập...'
+                                  : packagingDoneUrl
+                                  ? `Tải Tập PDF Đã Đóng (${readyToPackSelectedCodes.size > 0 ? readyToPackSelectedCodes.size : filtered.length} thửa)`
+                                  : readyToPackSelectedCodes.size > 0
+                                  ? `Đóng Tập PDF (${readyToPackSelectedCodes.size} thửa đã chọn)`
+                                  : reportVillageFilter !== 'ALL'
+                                  ? `Đóng Tập PDF (${filtered.length} thửa ${reportVillageFilter})`
+                                  : `Đóng Tập PDF Tất Cả (${filtered.length} thửa)`}
+                              </span>
+                            </button>
+
+                            {/* Nút đóng tập lại từ đầu nếu đã có file */}
+                            {packagingDoneUrl && (
+                              <button
+                                type="button"
+                                disabled={isPackagingPdf}
+                                onClick={() => {
+                                  setPackagingDoneUrl(null);
+                                  handleGenerateReadyToPackPdf(
+                                    readyToPackSelectedCodes.size > 0
+                                      ? Array.from(readyToPackSelectedCodes)
+                                      : filtered.map((r) => String(r[1] || '').trim()).filter(Boolean)
+                                  );
+                                }}
+                                className={`p-1.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                                  isLight
+                                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                                }`}
+                                title="Đóng tập lại từ đầu với dữ liệu mới nhất"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {/* Nút Xem Trước In ấn HTML Modal */}
+                            <button
+                              type="button"
                               onClick={() =>
                                 handleBatchPrintReadyToPack(
                                   readyToPackSelectedCodes.size > 0
@@ -2476,17 +2678,15 @@ export default function DashboardPage() {
                                     : filtered.map((r) => String(r[1] || '').trim()).filter(Boolean)
                                 )
                               }
-                              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-md shadow-indigo-600/30 transition cursor-pointer"
-                              title="Đóng tập PDF hồ sơ kê khai kèm file CCCD R2"
+                              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                                isLight
+                                  ? 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                                  : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border-slate-700'
+                              }`}
+                              title="Mở giao diện xem trước trang in A4 và in qua trình duyệt"
                             >
-                              <Printer className="w-3.5 h-3.5 text-indigo-200" />
-                              <span>
-                                {readyToPackSelectedCodes.size > 0
-                                  ? `Đóng Tập PDF (${readyToPackSelectedCodes.size} thửa đã chọn)`
-                                  : reportVillageFilter !== 'ALL'
-                                  ? `Đóng Tập PDF (${filtered.length} thửa ${reportVillageFilter})`
-                                  : `Đóng Tập PDF Tất Cả (${filtered.length} thửa)`}
-                              </span>
+                              <Eye className="w-3.5 h-3.5 text-slate-400" />
+                              <span className="hidden sm:inline">Xem trước</span>
                             </button>
 
                             {readyToPackSelectedCodes.size > 0 && (
