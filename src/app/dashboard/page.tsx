@@ -118,6 +118,9 @@ export default function DashboardPage() {
   const [isLoadingSyncSheets, setIsLoadingSyncSheets] = useState(false);
   const [selectedReportSheet, setSelectedReportSheet] = useState<string>('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
   const [reportSearchQuery, setReportSearchQuery] = useState<string>('');
+  const [reportVillageFilter, setReportVillageFilter] = useState<string>('ALL');
+  const [reportStatusFilter, setReportStatusFilter] = useState<'ALL' | 'CẦN TÌM CCCD' | 'KHÔNG CÓ CCCD'>('ALL');
+  const [reportPageSize, setReportPageSize] = useState<number | 'ALL'>(20);
   const [reportPage, setReportPage] = useState<number>(1);
 
   // Checkbox Selection state cho THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD)
@@ -1987,16 +1990,64 @@ export default function DashboardPage() {
                   const headers = rawSheet[0] || [];
                   const allRows = rawSheet.slice(1) || [];
 
+                  // Nhận diện cột Thôn / Buôn và Phân loại trạng thái
+                  const villageColIdx = headers.findIndex((h) => /thôn|buôn/i.test(h));
+                  const statusColIdx = headers.findIndex((h) => /phân loại/i.test(h));
+
+                  // Danh sách Thôn / Buôn và số lượng thửa
+                  const villageCounts: Record<string, number> = {};
+                  allRows.forEach((r) => {
+                    if (villageColIdx >= 0) {
+                      const v = String(r[villageColIdx] || '').trim();
+                      if (v) villageCounts[v] = (villageCounts[v] || 0) + 1;
+                    }
+                  });
+                  const availableVillages = Object.keys(villageCounts).sort((a, b) => a.localeCompare(b, 'vi'));
+
+                  // Danh sách Phân loại trạng thái (cho sheet Chưa có CCCD)
+                  const statusCounts: Record<string, number> = {};
+                  if (statusColIdx >= 0) {
+                    allRows.forEach((r) => {
+                      const st = String(r[statusColIdx] || '').trim();
+                      if (st) statusCounts[st] = (statusCounts[st] || 0) + 1;
+                    });
+                  }
+
+                  // Áp dụng bộ lọc
                   const filtered = allRows.filter((row) => {
-                    if (!reportSearchQuery) return true;
-                    const q = stripAccents(reportSearchQuery);
-                    return row.some((cell) => stripAccents(String(cell || '')).includes(q));
+                    // 1. Tìm kiếm text
+                    if (reportSearchQuery) {
+                      const q = stripAccents(reportSearchQuery);
+                      const match = row.some((cell) => stripAccents(String(cell || '')).includes(q));
+                      if (!match) return false;
+                    }
+
+                    // 2. Lọc theo Thôn / Buôn
+                    if (reportVillageFilter !== 'ALL' && villageColIdx >= 0) {
+                      const v = String(row[villageColIdx] || '').trim();
+                      if (v !== reportVillageFilter) return false;
+                    }
+
+                    // 3. Lọc theo Phân loại trạng thái (cho sheet Đang kê khai - Chưa có CCCD)
+                    if (reportStatusFilter !== 'ALL' && statusColIdx >= 0) {
+                      const st = String(row[statusColIdx] || '').trim();
+                      if (st !== reportStatusFilter) return false;
+                    }
+
+                    return true;
                   });
 
                   const isReadyToPackSheet = selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)';
-                  const pageSize = 20;
-                  const totalPages = Math.ceil(filtered.length / pageSize) || 1;
-                  const pagedRows = filtered.slice((reportPage - 1) * pageSize, reportPage * pageSize);
+                  const isChuaCoCccdSheet = selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)';
+
+                  // Phân trang và Chế độ hiển thị Toàn bộ danh sách
+                  const isAllRowsMode = reportPageSize === 'ALL';
+                  const currentSize = isAllRowsMode ? Math.max(filtered.length, 1) : (reportPageSize as number);
+                  const totalPages = isAllRowsMode ? 1 : Math.ceil(filtered.length / currentSize) || 1;
+                  const safePage = Math.min(Math.max(1, reportPage), totalPages);
+                  const pagedRows = isAllRowsMode
+                    ? filtered
+                    : filtered.slice((safePage - 1) * currentSize, safePage * currentSize);
 
                   const pageCodes = pagedRows.map((r) => String(r[1] || '').trim()).filter(Boolean);
                   const isAllPageSelected = pageCodes.length > 0 && pageCodes.every((c) => readyToPackSelectedCodes.has(c));
@@ -2013,82 +2064,234 @@ export default function DashboardPage() {
                     });
                   };
 
+                  const isAnyFilterActive =
+                    Boolean(reportSearchQuery) ||
+                    reportVillageFilter !== 'ALL' ||
+                    reportStatusFilter !== 'ALL' ||
+                    reportPageSize === 'ALL';
+
                   return (
                     <div className="space-y-4">
                       {/* Toolbar trên cùng của bảng */}
                       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                         <div>
-                          <h3 className={`text-sm sm:text-base font-bold flex items-center gap-2 ${
-                            isLight ? 'text-slate-900' : 'text-white'
-                          }`}>
-                            <FileSpreadsheet className="w-4 h-4 text-indigo-500" />
-                            {selectedReportSheet}
-                          </h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className={`text-sm sm:text-base font-bold flex items-center gap-2 ${
+                              isLight ? 'text-slate-900' : 'text-white'
+                            }`}>
+                              <FileSpreadsheet className="w-4 h-4 text-indigo-500" />
+                              {selectedReportSheet}
+                            </h3>
+                            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${
+                              isLight
+                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
+                            }`}>
+                              {filtered.length} / {allRows.length} thửa
+                            </span>
+                          </div>
                           <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                             {isReadyToPackSheet
                               ? 'Hồ sơ đã đầy đủ CCCD và sẵn sàng đóng tập PDF • Hover vào ô Xem CCCD để xem chi tiết'
+                              : isChuaCoCccdSheet
+                              ? 'Danh sách cần bổ sung CCCD • Lọc theo Thôn buôn hoặc Phân loại để thu thập thuận tiện'
                               : 'Danh sách chi tiết được tạo tự động • Hỗ trợ tìm kiếm nhanh & xuất file Excel'}
                           </p>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2.5">
-                          {/* Nút ĐÓNG TẬP PDF HỒ SƠ - NỔI BẬT NHẤT TRÊN SHEET SẲN SÀNG ĐÓNG TẬP */}
-                          {isReadyToPackSheet && (
-                            <div className="flex items-center gap-2">
+                        {/* Nút tác vụ đóng tập nếu là sheet Sẵn sàng đóng tập */}
+                        {isReadyToPackSheet && (
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleBatchPrintReadyToPack(
+                                  readyToPackSelectedCodes.size > 0
+                                    ? Array.from(readyToPackSelectedCodes)
+                                    : filtered.map((r) => String(r[1] || '').trim()).filter(Boolean)
+                                )
+                              }
+                              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-md shadow-indigo-600/30 transition cursor-pointer"
+                              title="Đóng tập PDF hồ sơ kê khai kèm file CCCD R2"
+                            >
+                              <Printer className="w-3.5 h-3.5 text-indigo-200" />
+                              <span>
+                                {readyToPackSelectedCodes.size > 0
+                                  ? `Đóng Tập PDF (${readyToPackSelectedCodes.size} thửa đã chọn)`
+                                  : reportVillageFilter !== 'ALL'
+                                  ? `Đóng Tập PDF (${filtered.length} thửa ${reportVillageFilter})`
+                                  : `Đóng Tập PDF Tất Cả (${filtered.length} thửa)`}
+                              </span>
+                            </button>
+
+                            {readyToPackSelectedCodes.size > 0 && (
                               <button
                                 type="button"
-                                onClick={() =>
-                                  handleBatchPrintReadyToPack(
-                                    readyToPackSelectedCodes.size > 0
-                                      ? Array.from(readyToPackSelectedCodes)
-                                      : undefined
-                                  )
-                                }
-                                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-md shadow-indigo-600/30 transition cursor-pointer"
-                                title="Đóng tập PDF hồ sơ kê khai kèm file CCCD R2"
+                                onClick={() => setReadyToPackSelectedCodes(new Set())}
+                                className={`text-xs underline transition cursor-pointer ${
+                                  isLight ? 'text-slate-500 hover:text-slate-800' : 'text-slate-400 hover:text-slate-200'
+                                }`}
                               >
-                                <Printer className="w-3.5 h-3.5 text-indigo-200" />
-                                <span>
-                                  {readyToPackSelectedCodes.size > 0
-                                    ? `Đóng Tập PDF (${readyToPackSelectedCodes.size} thửa đã chọn)`
-                                    : `Đóng Tập PDF Tất Cả (${filtered.length} thửa)`}
-                                </span>
+                                Bỏ chọn ({readyToPackSelectedCodes.size})
                               </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
 
-                              {readyToPackSelectedCodes.size > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() => setReadyToPackSelectedCodes(new Set())}
-                                  className={`text-xs underline transition cursor-pointer ${
-                                    isLight ? 'text-slate-500 hover:text-slate-800' : 'text-slate-400 hover:text-slate-200'
-                                  }`}
-                                >
-                                  Bỏ chọn
-                                </button>
-                              )}
+                      {/* Hàng bộ lọc: Thôn / Buôn, Trạng thái, Hiển thị theo phần / Toàn bộ, Tìm kiếm */}
+                      <div className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2.5 transition-colors ${
+                        isLight ? 'bg-slate-50/80 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                      }`}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {/* 1. LỌC THEO THÔN / BUÔN */}
+                          {villageColIdx >= 0 && availableVillages.length > 0 && (
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-[11px] font-bold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                                Thôn/Buôn:
+                              </span>
+                              <select
+                                value={reportVillageFilter}
+                                onChange={(e) => {
+                                  setReportVillageFilter(e.target.value);
+                                  setReportPage(1);
+                                }}
+                                className={`text-xs px-2.5 py-1.5 rounded-xl border font-bold transition focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                                  reportVillageFilter !== 'ALL'
+                                    ? isLight
+                                      ? 'bg-blue-50 border-blue-400 text-blue-700'
+                                      : 'bg-blue-950/60 border-blue-500/50 text-blue-300'
+                                    : isLight
+                                    ? 'bg-white border-slate-300 text-slate-800'
+                                    : 'bg-slate-900 border-slate-700 text-slate-200'
+                                }`}
+                              >
+                                <option value="ALL">Tất cả Thôn / Buôn ({allRows.length})</option>
+                                {availableVillages.map((v) => (
+                                  <option key={v} value={v}>
+                                    {v} ({villageCounts[v]})
+                                  </option>
+                                ))}
+                              </select>
                             </div>
                           )}
 
-                          {/* Thanh tìm kiếm trong sheet */}
-                          <div className="relative w-full sm:w-60">
-                            <Search className={`w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 ${
-                              isLight ? 'text-slate-400' : 'text-slate-500'
-                            }`} />
-                            <input
-                              type="text"
-                              placeholder="Tìm theo tên, mã thửa, CCCD..."
-                              value={reportSearchQuery}
+                          {/* 2. LỌC THEO PHÂN LOẠI TRẠNG THÁI (Đang Kê Khai - Chưa Có CCCD) */}
+                          {isChuaCoCccdSheet && statusColIdx >= 0 && (
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-[11px] font-bold ${isLight ? 'text-amber-700' : 'text-amber-400'}`}>
+                                Trạng thái:
+                              </span>
+                              <select
+                                value={reportStatusFilter}
+                                onChange={(e) => {
+                                  setReportStatusFilter(e.target.value as any);
+                                  setReportPage(1);
+                                }}
+                                className={`text-xs px-2.5 py-1.5 rounded-xl border font-bold transition focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                                  reportStatusFilter !== 'ALL'
+                                    ? isLight
+                                      ? 'bg-amber-100/70 border-amber-400 text-amber-900'
+                                      : 'bg-amber-950/70 border-amber-500/50 text-amber-200'
+                                    : isLight
+                                    ? 'bg-white border-slate-300 text-slate-800'
+                                    : 'bg-slate-900 border-slate-700 text-slate-200'
+                                }`}
+                              >
+                                <option value="ALL">Tất cả phân loại ({allRows.length})</option>
+                                <option value="CẦN TÌM CCCD">
+                                  CẦN TÌM CCCD ({statusCounts['CẦN TÌM CCCD'] || 0})
+                                </option>
+                                <option value="KHÔNG CÓ CCCD">
+                                  KHÔNG CÓ CCCD ({statusCounts['KHÔNG CÓ CCCD'] || 0})
+                                </option>
+                              </select>
+                            </div>
+                          )}
+
+                          {/* 3. DẠNG HIỂN THỊ: THEO PHẦN (1/7, 2/7) HOẶC TOÀN BỘ */}
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-[11px] font-bold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                              Hiển thị:
+                            </span>
+                            <select
+                              value={reportPageSize}
                               onChange={(e) => {
-                                setReportSearchQuery(e.target.value);
+                                const val = e.target.value === 'ALL' ? 'ALL' : parseInt(e.target.value, 10);
+                                setReportPageSize(val);
                                 setReportPage(1);
                               }}
-                              className={`w-full pl-9 pr-3 py-1.5 rounded-xl text-xs focus:outline-none focus:border-indigo-500 ${
-                                isLight
-                                  ? 'bg-slate-50 border border-slate-300 text-slate-800 placeholder:text-slate-400 focus:bg-white'
-                                  : 'bg-slate-950 border border-slate-800 text-slate-200 placeholder:text-slate-500'
+                              className={`text-xs px-2.5 py-1.5 rounded-xl border font-bold transition focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                                reportPageSize === 'ALL'
+                                  ? isLight
+                                    ? 'bg-emerald-50 border-emerald-400 text-emerald-800'
+                                    : 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300'
+                                  : isLight
+                                  ? 'bg-white border-slate-300 text-slate-800'
+                                  : 'bg-slate-900 border-slate-700 text-slate-200'
                               }`}
-                            />
+                            >
+                              <option value={20}>20 thửa / phần (hiện {Math.ceil(filtered.length / 20) || 1} phần)</option>
+                              <option value={50}>50 thửa / phần (hiện {Math.ceil(filtered.length / 50) || 1} phần)</option>
+                              <option value={100}>100 thửa / phần</option>
+                              <option value="ALL">Toàn bộ danh sách ({filtered.length} thửa)</option>
+                            </select>
                           </div>
+
+                          {/* Nút Đặt Lại nếu đang kích hoạt lọc */}
+                          {isAnyFilterActive && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReportSearchQuery('');
+                                setReportVillageFilter('ALL');
+                                setReportStatusFilter('ALL');
+                                setReportPageSize(20);
+                                setReportPage(1);
+                              }}
+                              className={`text-xs px-2.5 py-1.5 rounded-xl border font-semibold transition cursor-pointer ${
+                                isLight
+                                  ? 'bg-white hover:bg-slate-100 text-slate-600 border-slate-300'
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                              }`}
+                              title="Khôi phục mặc định"
+                            >
+                              Đặt lại
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Ô tìm kiếm theo từ khóa */}
+                        <div className="relative w-full sm:w-64">
+                          <Search className={`w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 ${
+                            isLight ? 'text-slate-400' : 'text-slate-500'
+                          }`} />
+                          <input
+                            type="text"
+                            placeholder="Tìm tên, mã thửa, CCCD..."
+                            value={reportSearchQuery}
+                            onChange={(e) => {
+                              setReportSearchQuery(e.target.value);
+                              setReportPage(1);
+                            }}
+                            className={`w-full pl-9 pr-3 py-1.5 rounded-xl text-xs focus:outline-none focus:border-indigo-500 ${
+                              isLight
+                                ? 'bg-white border border-slate-300 text-slate-800 placeholder:text-slate-400'
+                                : 'bg-slate-900 border border-slate-800 text-slate-200 placeholder:text-slate-500'
+                            }`}
+                          />
+                          {reportSearchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReportSearchQuery('');
+                                setReportPage(1);
+                              }}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-200"
+                            >
+                              ✕
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -2121,8 +2324,8 @@ export default function DashboardPage() {
                             {pagedRows.length === 0 ? (
                               <tr>
                                 <td colSpan={Math.max(headers.length + (isReadyToPackSheet ? 1 : 0), 1)} className="py-8 text-center text-slate-500">
-                                  {filtered.length === 0 && reportSearchQuery
-                                    ? 'Không tìm thấy kết quả phù hợp với từ khóa.'
+                                  {filtered.length === 0
+                                    ? 'Không tìm thấy kết quả phù hợp với các bộ lọc đã chọn.'
                                     : 'Chưa có hồ sơ trong danh sách này.'}
                                 </td>
                               </tr>
@@ -2164,6 +2367,27 @@ export default function DashboardPage() {
 
                                     {row.map((cell, cIdx) => {
                                       const cellStr = String(cell || '');
+
+                                      // Cột Phân loại trạng thái (Làm nổi bật badge)
+                                      if (cIdx === statusColIdx && isChuaCoCccdSheet) {
+                                        const isCanTim = cellStr.includes('CẦN TÌM');
+                                        return (
+                                          <td key={cIdx} className={`py-2 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
+                                            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[11px] border ${
+                                              isCanTim
+                                                ? isLight
+                                                  ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                                  : 'bg-amber-950/50 text-amber-300 border-amber-500/40'
+                                                : isLight
+                                                ? 'bg-rose-50 text-rose-800 border-rose-300'
+                                                : 'bg-rose-950/50 text-rose-300 border-rose-500/40'
+                                            }`}>
+                                              <span className={`w-1.5 h-1.5 rounded-full ${isCanTim ? 'bg-amber-500' : 'bg-rose-500'}`} />
+                                              {cellStr}
+                                            </span>
+                                          </td>
+                                        );
+                                      }
 
                                       // Hiển thị nút bấm Xem CCCD / Xem PDF kèm Card Hover nổi
                                       const linkMatch = cellStr.match(/HYPERLINK\("([^"]+)";\s*"([^"]+)"\)/i);
@@ -2217,21 +2441,53 @@ export default function DashboardPage() {
                         </table>
                       </div>
 
-                      {/* Phân trang */}
-                      {filtered.length > pageSize && (
-                        <div className={`flex items-center justify-between text-xs pt-2 ${
-                          isLight ? 'text-slate-600' : 'text-slate-400'
-                        }`}>
-                          <span>
-                            Hiển thị {(reportPage - 1) * pageSize + 1} -{' '}
-                            {Math.min(reportPage * pageSize, filtered.length)} / {filtered.length} kết quả
-                          </span>
+                      {/* Phân trang & Điều hướng theo phần (1/7, 2/7) hoặc Toàn bộ */}
+                      <div className={`flex flex-col sm:flex-row items-center justify-between gap-3 text-xs pt-2 ${
+                        isLight ? 'text-slate-600' : 'text-slate-400'
+                      }`}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {isAllRowsMode ? (
+                            <span className="font-semibold flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                              Đang hiển thị <strong>Toàn bộ {filtered.length}</strong> thửa đất
+                            </span>
+                          ) : (
+                            <span>
+                              Hiển thị {(safePage - 1) * currentSize + 1} -{' '}
+                              {Math.min(safePage * currentSize, filtered.length)} / <strong>{filtered.length}</strong> thửa
+                              {filtered.length < allRows.length && ` (đã lọc từ ${allRows.length} thửa)`}
+                            </span>
+                          )}
+
+                          {/* Nút chuyển đổi nhanh chế độ Toàn bộ / Phân trang */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReportPageSize((prev) => (prev === 'ALL' ? 20 : 'ALL'));
+                              setReportPage(1);
+                            }}
+                            className={`ml-1 text-[11px] font-bold px-2.5 py-1 rounded-lg border transition cursor-pointer ${
+                              isAllRowsMode
+                                ? isLight
+                                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                                : isLight
+                                ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+                                : 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
+                            }`}
+                          >
+                            {isAllRowsMode ? '⚡ Xem theo phần (1/7, 2/7)' : '👁️ Xem toàn bộ danh sách'}
+                          </button>
+                        </div>
+
+                        {/* Cụm điều khiển các phần (Ví dụ: Phần 1/7, 2/7) */}
+                        {!isAllRowsMode && totalPages > 1 && (
                           <div className="flex items-center gap-1.5">
                             <button
                               type="button"
                               onClick={() => setReportPage((p) => Math.max(1, p - 1))}
-                              disabled={reportPage <= 1}
-                              className={`px-2.5 py-1 rounded-lg disabled:opacity-40 transition cursor-pointer border ${
+                              disabled={safePage <= 1}
+                              className={`px-2.5 py-1 rounded-lg disabled:opacity-40 transition cursor-pointer border font-semibold ${
                                 isLight
                                   ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
                                   : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
@@ -2239,14 +2495,36 @@ export default function DashboardPage() {
                             >
                               Trước
                             </button>
-                            <span className={`px-2 font-bold ${isLight ? 'text-slate-800' : 'text-slate-300'}`}>
-                              {reportPage} / {totalPages}
-                            </span>
+
+                            {/* Các nút bấm chọn từng phần nếu <= 7 phần */}
+                            {totalPages <= 7 ? (
+                              Array.from({ length: totalPages }).map((_, i) => (
+                                <button
+                                  key={i + 1}
+                                  type="button"
+                                  onClick={() => setReportPage(i + 1)}
+                                  className={`w-7 h-7 rounded-lg text-xs font-bold transition cursor-pointer ${
+                                    safePage === i + 1
+                                      ? 'bg-indigo-600 text-white shadow-xs'
+                                      : isLight
+                                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                                  }`}
+                                >
+                                  {i + 1}
+                                </button>
+                              ))
+                            ) : (
+                              <span className={`px-2.5 font-bold ${isLight ? 'text-slate-800' : 'text-slate-300'}`}>
+                                Phần {safePage} / {totalPages}
+                              </span>
+                            )}
+
                             <button
                               type="button"
                               onClick={() => setReportPage((p) => Math.min(totalPages, p + 1))}
-                              disabled={reportPage >= totalPages}
-                              className={`px-2.5 py-1 rounded-lg disabled:opacity-40 transition cursor-pointer border ${
+                              disabled={safePage >= totalPages}
+                              className={`px-2.5 py-1 rounded-lg disabled:opacity-40 transition cursor-pointer border font-semibold ${
                                 isLight
                                   ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
                                   : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
@@ -2255,8 +2533,8 @@ export default function DashboardPage() {
                               Sau
                             </button>
                           </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   );
                 })()}
