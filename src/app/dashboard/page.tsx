@@ -232,6 +232,11 @@ export default function DashboardPage() {
   const [appliedMaThuas, setAppliedMaThuas] = useState<Set<string>>(new Set());
   const [filterPopupPos, setFilterPopupPos] = useState<{ top: number; left: number } | null>(null);
 
+  // Bộ lọc Dropdown Thôn/Buôn trên tiêu đề cột
+  const [villageDropdownOpen, setVillageDropdownOpen] = useState(false);
+  const [villageFilterSearch, setVillageFilterSearch] = useState('');
+  const [villageFilterPopupPos, setVillageFilterPopupPos] = useState<{ top: number; left: number } | null>(null);
+
   // Kéo thả di chuyển popover Lọc Mã Thửa khi nhấn giữ header
   const isDraggingPopupRef = useRef(false);
   const dragStartRef = useRef<{ mouseX: number; mouseY: number; initialLeft: number; initialTop: number }>({
@@ -2990,39 +2995,7 @@ export default function DashboardPage() {
                         isLight ? 'bg-slate-50/80 border-slate-200' : 'bg-slate-950/60 border-slate-800'
                       }`}>
                         <div className="flex flex-wrap items-center gap-2">
-                          {/* 1. LỌC THEO THÔN / BUÔN */}
-                          {villageColIdx >= 0 && availableVillages.length > 0 && (
-                            <div className="flex items-center gap-1.5">
-                              <span className={`text-[11px] font-bold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-                                Thôn/Buôn:
-                              </span>
-                              <select
-                                value={reportVillageFilter}
-                                onChange={(e) => {
-                                  setReportVillageFilter(e.target.value);
-                                  setReportPage(1);
-                                }}
-                                className={`text-xs px-2.5 py-1.5 rounded-xl border font-bold transition focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                                  reportVillageFilter !== 'ALL'
-                                    ? isLight
-                                      ? 'bg-blue-50 border-blue-400 text-blue-700'
-                                      : 'bg-blue-950/60 border-blue-500/50 text-blue-300'
-                                    : isLight
-                                    ? 'bg-white border-slate-300 text-slate-800'
-                                    : 'bg-slate-900 border-slate-700 text-slate-200'
-                                }`}
-                              >
-                                <option value="ALL">Tất cả Thôn / Buôn ({allRows.length})</option>
-                                {availableVillages.map((v) => (
-                                  <option key={v} value={v}>
-                                    {v} ({villageCounts[v]})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
-
-                          {/* 2. LỌC THỬA CÓ TÊN / KHÔNG CÓ TÊN (ở mục Chưa thực hiện) */}
+                          {/* 1. LỌC THỬA CÓ TÊN / KHÔNG CÓ TÊN (ở mục Chưa thực hiện) */}
                           {isChuaThucHienSheet && (
                             <div className="flex items-center gap-1.5">
                               <span className={`text-[11px] font-bold ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>
@@ -3087,7 +3060,7 @@ export default function DashboardPage() {
                             </div>
                           )}
 
-                          {/* 3. LỌC THEO PHÂN LOẠI TRẠNG THÁI (Đang Kê Khai - Chưa Có CCCD) */}
+                          {/* 2. LỌC THEO PHÂN LOẠI TRẠNG THÁI (Đang Kê Khai - Chưa Có CCCD) */}
                           {isChuaCoCccdSheet && statusColIdx >= 0 && (
                             <div className="flex items-center gap-1.5">
                               <span className={`text-[11px] font-bold ${isLight ? 'text-amber-700' : 'text-amber-400'}`}>
@@ -3120,7 +3093,7 @@ export default function DashboardPage() {
                             </div>
                           )}
 
-                          {/* 4. LỌC THEO TRẠNG THÁI ĐÓNG TẬP (Sẵn sàng đóng tập - Có CCCD) */}
+                          {/* 3. LỌC THEO TRẠNG THÁI ĐÓNG TẬP (Sẵn sàng đóng tập - Có CCCD) */}
                           {isReadyToPackSheet && (
                             <div className="flex items-center gap-1.5">
                               <span className={`text-[11px] font-bold ${isLight ? 'text-indigo-700' : 'text-indigo-400'}`}>
@@ -3153,33 +3126,7 @@ export default function DashboardPage() {
                             </div>
                           )}
 
-                          {/* 4. NÚT SẮP XẾP TÊN A -> Z */}
-                          {nameColIdx >= 0 && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSortNameOrder((prev) => (prev === 'none' ? 'asc' : prev === 'asc' ? 'desc' : 'none'));
-                                setReportPage(1);
-                              }}
-                              className={`text-xs px-2.5 py-1.5 rounded-xl border font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                                sortNameOrder !== 'none'
-                                  ? isLight
-                                    ? 'bg-indigo-100 border-indigo-400 text-indigo-800'
-                                    : 'bg-indigo-950/80 border-indigo-500/60 text-indigo-300'
-                                  : isLight
-                                  ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-                                  : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
-                              }`}
-                              title="Bấm để đổi: Sắp xếp Tên A→Z, Z→A hoặc Mặc định"
-                            >
-                              <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500" />
-                              <span>
-                                {sortNameOrder === 'asc' ? 'Tên: A → Z' : sortNameOrder === 'desc' ? 'Tên: Z → A' : 'Sắp xếp Tên A-Z'}
-                              </span>
-                            </button>
-                          )}
-
-                          {/* 5. DẠNG HIỂN THỊ: THEO PHẦN (1/7, 2/7) HOẶC TOÀN BỘ */}
+                          {/* 4. DẠNG HIỂN THỊ: THEO PHẦN (1/7, 2/7) HOẶC TOÀN BỘ */}
                           <div className="flex items-center gap-1.5">
                             <span className={`text-[11px] font-bold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
                               Hiển thị:
@@ -3233,17 +3180,6 @@ export default function DashboardPage() {
                               Đặt lại
                             </button>
                           )}
-
-                          {/* Nút Xuất Ảnh Cần Thu Thập CCCD (Dạng ảnh 16:9 Dọc) */}
-                          <button
-                            type="button"
-                            onClick={() => setIsExportMissingCccdOpen(true)}
-                            className="text-xs px-3 py-1.5 rounded-xl border font-bold transition flex items-center gap-1.5 cursor-pointer bg-rose-600 hover:bg-rose-500 text-white shadow-xs"
-                            title="Xuất ảnh danh sách cần thu thập CCCD (Tỷ lệ 16:9 dọc có 2 cột)"
-                          >
-                            <Users className="w-3.5 h-3.5" />
-                            <span>Xuất DS Cần CCCD</span>
-                          </button>
                         </div>
 
                         {/* Ô tìm kiếm theo từ khóa */}
@@ -3307,6 +3243,7 @@ export default function DashboardPage() {
                               {headers.map((h, hIdx) => {
                                 const isNameHeader = hIdx === nameColIdx;
                                 const isMaThuaHeader = hIdx === 1 && isChuaThucHienSheet;
+                                const isVillageHeader = hIdx === villageColIdx && availableVillages.length > 0;
                                 const colW = getColWidth(hIdx, h);
                                 return (
                                   <th
@@ -3528,6 +3465,166 @@ export default function DashboardPage() {
                                           {chuaThucHienSelectedCodes.size}
                                         </span>
                                       )}
+                                       {isVillageHeader && (
+                                         <div className="relative inline-block text-left" onClick={(e) => e.stopPropagation()}>
+                                           <button
+                                             type="button"
+                                             onClick={(e) => {
+                                               e.stopPropagation();
+                                               const rect = e.currentTarget.getBoundingClientRect();
+                                               setVillageFilterPopupPos({
+                                                 top: rect.bottom + 6,
+                                                 left: Math.max(10, Math.min(rect.left, window.innerWidth - 280)),
+                                               });
+                                               setVillageDropdownOpen((prev) => !prev);
+                                             }}
+                                             className={`p-1 rounded-md transition cursor-pointer flex items-center gap-0.5 ${
+                                               reportVillageFilter !== 'ALL'
+                                                 ? 'bg-blue-600 text-white shadow-xs'
+                                                 : isLight
+                                                 ? 'hover:bg-slate-200 text-slate-600'
+                                                 : 'hover:bg-slate-700 text-slate-300'
+                                             }`}
+                                             title="Bấm để lọc theo Thôn / Buôn"
+                                           >
+                                             <Filter className="w-3 h-3" />
+                                             <ChevronDown className="w-3 h-3" />
+                                           </button>
+
+                                           {/* Popover Lọc Thôn / Buôn */}
+                                           {villageDropdownOpen && villageFilterPopupPos && (
+                                             <>
+                                               <div
+                                                 className="fixed inset-0 z-[99998]"
+                                                 onClick={(e) => {
+                                                   e.stopPropagation();
+                                                   setVillageDropdownOpen(false);
+                                                 }}
+                                               />
+                                               <div
+                                                 onClick={(e) => e.stopPropagation()}
+                                                 style={{
+                                                   position: 'fixed',
+                                                   top: `${villageFilterPopupPos.top}px`,
+                                                   left: `${villageFilterPopupPos.left}px`,
+                                                   zIndex: 99999,
+                                                 }}
+                                                 className={`w-64 max-w-[90vw] p-2.5 rounded-2xl shadow-2xl border text-left font-normal ${
+                                                   isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-100'
+                                                 }`}
+                                               >
+                                                 <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800 mb-2 select-none">
+                                                   <span className="text-xs font-bold flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
+                                                     <Filter className="w-3.5 h-3.5" />
+                                                     Lọc Thôn / Buôn
+                                                   </span>
+                                                   <button
+                                                     type="button"
+                                                     onClick={() => setVillageDropdownOpen(false)}
+                                                     className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                                                   >
+                                                     <X className="w-4 h-4" />
+                                                   </button>
+                                                 </div>
+
+                                                 {availableVillages.length > 5 && (
+                                                   <div className="relative mb-2">
+                                                     <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                     <input
+                                                       type="text"
+                                                       placeholder="Tìm thôn/buôn..."
+                                                       value={villageFilterSearch}
+                                                       onChange={(e) => setVillageFilterSearch(e.target.value)}
+                                                       className={`w-full pl-8 pr-2.5 py-1 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                                                         isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-slate-950 border-slate-700 text-slate-200'
+                                                       }`}
+                                                     />
+                                                   </div>
+                                                 )}
+
+                                                 <div className={`max-h-56 overflow-y-auto space-y-1 p-1 rounded-xl border text-xs ${
+                                                   isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'
+                                                 }`}>
+                                                   <button
+                                                     type="button"
+                                                     onClick={() => {
+                                                       setReportVillageFilter('ALL');
+                                                       setVillageDropdownOpen(false);
+                                                       setReportPage(1);
+                                                     }}
+                                                     className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition cursor-pointer font-semibold ${
+                                                       reportVillageFilter === 'ALL'
+                                                         ? 'bg-blue-600 text-white font-bold'
+                                                         : isLight
+                                                         ? 'hover:bg-slate-200/70 text-slate-700'
+                                                         : 'hover:bg-slate-800 text-slate-300'
+                                                     }`}
+                                                   >
+                                                     <span>Tất cả Thôn / Buôn</span>
+                                                     <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${
+                                                       reportVillageFilter === 'ALL' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
+                                                     }`}>
+                                                       {allRows.length}
+                                                     </span>
+                                                   </button>
+
+                                                   {availableVillages
+                                                     .filter((v) => !villageFilterSearch || v.toLowerCase().includes(villageFilterSearch.toLowerCase()))
+                                                     .map((v) => {
+                                                       const isSelected = reportVillageFilter === v;
+                                                       return (
+                                                         <button
+                                                           key={v}
+                                                           type="button"
+                                                           onClick={() => {
+                                                             setReportVillageFilter(v);
+                                                             setVillageDropdownOpen(false);
+                                                             setReportPage(1);
+                                                           }}
+                                                           className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition cursor-pointer ${
+                                                             isSelected
+                                                               ? 'bg-blue-600 text-white font-bold'
+                                                               : isLight
+                                                               ? 'hover:bg-slate-200/70 text-slate-700'
+                                                               : 'hover:bg-slate-800 text-slate-300'
+                                                           }`}
+                                                         >
+                                                           <span className="truncate pr-2">{v}</span>
+                                                           <span className={`text-[10px] px-1.5 py-0.5 rounded-md shrink-0 ${
+                                                             isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
+                                                           }`}>
+                                                             {villageCounts[v] || 0}
+                                                           </span>
+                                                         </button>
+                                                       );
+                                                     })}
+                                                 </div>
+
+                                                 {reportVillageFilter !== 'ALL' && (
+                                                   <div className="pt-2 mt-2 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+                                                     <button
+                                                       type="button"
+                                                       onClick={() => {
+                                                         setReportVillageFilter('ALL');
+                                                         setVillageDropdownOpen(false);
+                                                         setReportPage(1);
+                                                       }}
+                                                       className="text-[11px] text-rose-500 hover:underline font-semibold cursor-pointer"
+                                                     >
+                                                       Xóa lọc (Hiển thị tất cả)
+                                                     </button>
+                                                   </div>
+                                                 )}
+                                               </div>
+                                             </>
+                                           )}
+                                         </div>
+                                       )}
+                                       {isVillageHeader && reportVillageFilter !== 'ALL' && (
+                                         <span className="text-[10px] px-1.5 py-0.2 bg-blue-600 text-white rounded font-bold truncate max-w-[80px]" title={`Đang lọc: ${reportVillageFilter}`}>
+                                           {reportVillageFilter}
+                                         </span>
+                                       )}
                                       {isNameHeader && (
                                         <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                       )}
