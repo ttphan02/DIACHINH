@@ -1540,26 +1540,6 @@ export default function DashboardPage() {
               <span>{isExportingStatsPdf ? exportStatsProgress || 'Đang tạo PDF...' : 'Xuất PDF Thống Kê'}</span>
             </button>
 
-            {/* Nút Xuất Excel Chuẩn Mẫu Đóng Tập EXCEL-MAUNHAP */}
-            <button
-              onClick={handleExportExcelMauNhap}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-600/90 hover:bg-teal-600 text-white shadow-md shadow-teal-600/20 transition cursor-pointer"
-              title="Xuất file theo cấu trúc 9 cột chuẩn của EXCEL-MAUNHAP.xlsx để nạp vào PDF_Web_App đóng tập"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Mẫu Nhập Đóng Tập</span>
-            </button>
-
-            {/* Nút Xuất Excel danh sách đang lọc */}
-            <button
-              onClick={handleExportCsv}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600/90 hover:bg-emerald-600 text-white shadow-md shadow-emerald-700/20 transition cursor-pointer"
-              title="Xuất dữ liệu Excel danh sách đang lọc"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Xuất Excel Lọc</span>
-            </button>
-
             {/* Nút Chuyển Giao Diện Light / Dark Mode */}
             <button
               onClick={toggleTheme}
@@ -2344,27 +2324,6 @@ export default function DashboardPage() {
                               </button>
                             )}
 
-                            {/* Nút Xem Trước In ấn HTML Modal */}
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleBatchPrintReadyToPack(
-                                  readyToPackSelectedCodes.size > 0
-                                    ? Array.from(readyToPackSelectedCodes)
-                                    : filtered.map((r) => String(r[1] || '').trim()).filter(Boolean)
-                                )
-                              }
-                              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                                isLight
-                                  ? 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
-                                  : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border-slate-700'
-                              }`}
-                              title="Mở giao diện xem trước trang in A4 và in qua trình duyệt"
-                            >
-                              <Eye className="w-3.5 h-3.5 text-slate-400" />
-                              <span className="hidden sm:inline">Xem trước</span>
-                            </button>
-
                             {readyToPackSelectedCodes.size > 0 && (
                               <button
                                 type="button"
@@ -2379,18 +2338,7 @@ export default function DashboardPage() {
                           </div>
                         )}
 
-                        {/* Nút Xuất Excel chuyển xuống Toolbar của bảng */}
-                        <button
-                          type="button"
-                          onClick={() => handleExportReportSheet(selectedReportSheet)}
-                          disabled={!syncSheetsData || !syncSheetsData[selectedReportSheet]}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 transition disabled:opacity-50 cursor-pointer"
-                          title="Xuất bảng dữ liệu hiện tại ra file Excel"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Xuất Excel ({selectedReportSheet.slice(0, 15)})</span>
-                        </button>
-                      </div>
+                        </div>
                     </div>
 
                     {/* Hàng bộ lọc: Thôn / Buôn, Trạng thái, Có tên/Không có tên, Sắp xếp A-Z, Hiển thị, Tìm kiếm */}
