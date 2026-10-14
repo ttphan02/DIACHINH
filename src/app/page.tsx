@@ -5,7 +5,6 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import rawParcels from '@/data/parcels.json';
 import { Parcel, ParcelStatus, NeighborParcel, DeclarationFormData, AdditionalParcel } from '@/types';
-import HeaderStats from '@/components/HeaderStats';
 import ParcelDetailPanel from '@/components/ParcelDetailPanel';
 import VectorViewerModal from '@/components/VectorViewerModal';
 import CccdSupplementModal from '@/components/CccdSupplementModal';
@@ -18,8 +17,6 @@ import {
   Layers,
   ChevronRight,
   ChevronUp,
-  Map as MapIcon,
-  LayoutGrid,
   MapPin,
   RefreshCw,
   Sparkles,
@@ -44,9 +41,6 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<ParcelStatus | 'ALL'>('ALL');
-  const [viewMode, setViewMode] = useState<'map' | 'grid'>('map');
-  const [page, setPage] = useState(1);
-  const pageSize = 40;
 
   // Selected Parcel & Slide Animation State
   const [selectedParcel, setSelectedParcel] = useState<Parcel | null>(null);
@@ -500,14 +494,6 @@ export default function Home() {
     });
   }, [computedParcels, searchQuery, selectedSheets, statusFilter]);
 
-  // Paginated items
-  const paginatedParcels = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return filteredParcels.slice(start, start + pageSize);
-  }, [filteredParcels, page]);
-
-  const totalPages = Math.ceil(filteredParcels.length / pageSize);
-
   // 1. Danh sách các thửa đất cùng chủ CHÍNH XÁC theo CCCD (duy nhất) - Loại bỏ các thửa đã chọn gộp
   const sameCccdParcels = useMemo(() => {
     if (!selectedParcel || !selectedParcel.cccd || selectedParcel.cccd.trim().length < 9) {
@@ -864,11 +850,8 @@ export default function Home() {
 
   return (
     <main className="h-screen w-screen overflow-hidden relative bg-slate-900 text-gray-900">
-      {/* Main Content Area */}
+      {/* Main Content Area: Bản Đồ Vệ Tinh Toàn Màn Hình */}
       <div className="w-full h-full relative overflow-hidden">
-        {viewMode === 'map' ? (
-          /* CHẾ ĐỘ BẢN ĐỒ VỆ TINH TOÀN MÀN HÌNH */
-          <div className="w-full h-full relative overflow-hidden">
             {/* Form chi tiết: Trượt từ trái qua (Desktop) hoặc từ dưới lên (Mobile); Có thể thu gọn qua trái (Desktop) hoặc xuống dưới (Mobile) */}
             <div
               ref={panelRef}
@@ -978,7 +961,6 @@ export default function Home() {
                 <button
                   onClick={() => {
                     setStatusFilter('ALL');
-                    setPage(1);
                   }}
                   className={`px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs flex items-center gap-1 shrink-0 ${
                     statusFilter === 'ALL'
@@ -993,7 +975,6 @@ export default function Home() {
                 <button
                   onClick={() => {
                     setStatusFilter('DA_SO_HOA_XANH');
-                    setPage(1);
                   }}
                   className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs shrink-0 ${
                     statusFilter === 'DA_SO_HOA_XANH'
@@ -1010,7 +991,6 @@ export default function Home() {
                 <button
                   onClick={() => {
                     setStatusFilter('DA_KE_KHAI_CHUA_SO_HOA_LAM');
-                    setPage(1);
                   }}
                   className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs shrink-0 ${
                     statusFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
@@ -1027,7 +1007,6 @@ export default function Home() {
                 <button
                   onClick={() => {
                     setStatusFilter('CO_TEN_CHUA_SO_HOA_VANG');
-                    setPage(1);
                   }}
                   className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs shrink-0 ${
                     statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG'
@@ -1044,7 +1023,6 @@ export default function Home() {
                 <button
                   onClick={() => {
                     setStatusFilter('CHUA_CO_TEN_XAM');
-                    setPage(1);
                   }}
                   className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs shrink-0 ${
                     statusFilter === 'CHUA_CO_TEN_XAM'
@@ -1087,7 +1065,6 @@ export default function Home() {
                     value={searchQuery}
                     onChange={(e) => {
                       setSearchQuery(e.target.value);
-                      setPage(1);
                     }}
                     placeholder="Tìm số tờ, thửa, tên..."
                     className="w-full pl-7 sm:pl-8 pr-2 py-1.5 text-xs bg-gray-50 hover:bg-gray-100/70 focus:bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium transition"
@@ -1099,7 +1076,6 @@ export default function Home() {
                   selectedSheets={selectedSheets}
                   onChange={(sheets) => {
                     setSelectedSheets(sheets);
-                    setPage(1);
                   }}
                 />
 
@@ -1109,7 +1085,6 @@ export default function Home() {
                       setSearchQuery('');
                       setSelectedSheets([]);
                       setStatusFilter('ALL');
-                      setPage(1);
                     }}
                     className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-xl transition font-medium shrink-0"
                     title="Khôi phục mặc định"
@@ -1118,30 +1093,20 @@ export default function Home() {
                   </button>
                 )}
 
-                {/* Nút chuyển chế độ Danh sách / Lưới */}
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl transition shrink-0 border border-blue-200"
-                  title="Xem danh sách dạng lưới"
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                  <span className="hidden xs:inline">DS</span>
-                </button>
-
-                {/* Nút mở Dashboard quản trị & tiến độ */}
+                {/* Nút mở Dashboard quản trị & tiến độ (Ẩn trên điện thoại) */}
                 <Link
                   href="/dashboard"
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-slate-900 hover:bg-slate-800 text-cyan-300 font-bold rounded-xl transition shrink-0 border border-cyan-500/40 shadow-xs"
+                  className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs bg-slate-900 hover:bg-slate-800 text-cyan-300 font-bold rounded-xl transition shrink-0 border border-cyan-500/40 shadow-xs"
                   title="Mở Dashboard thống kê & tiến độ số hóa"
                 >
                   <BarChart3 className="w-3.5 h-3.5 text-cyan-400" />
                   <span className="hidden xs:inline">Dashboard</span>
                 </Link>
 
-                {/* Nút mở công cụ Tách PDF & CCCD ScanName */}
+                {/* Nút mở công cụ Tách PDF & CCCD ScanName (Ẩn trên điện thoại) */}
                 <a
                   href="/scanname"
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-indigo-950 hover:bg-indigo-900 text-indigo-300 font-bold rounded-xl transition shrink-0 border border-indigo-500/40 shadow-xs"
+                  className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs bg-indigo-950 hover:bg-indigo-900 text-indigo-300 font-bold rounded-xl transition shrink-0 border border-indigo-500/40 shadow-xs"
                   title="Mở công cụ Tách PDF & Quét CCCD ScanName"
                 >
                   <FileText className="w-3.5 h-3.5 text-indigo-400" />
@@ -1177,257 +1142,6 @@ export default function Home() {
               onToggleLocation={handleToggleLocation}
             />
           </div>
-        ) : (
-          /* CHẾ ĐỘ DANH SÁCH / LƯỚI CARD */
-          <div className="w-full h-full overflow-y-auto bg-slate-50 p-3 sm:p-6 lg:p-8">
-            <div className="max-w-7xl mx-auto space-y-4">
-              {/* Header Grid View */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
-                <div>
-                  <h1 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight flex items-center gap-2">
-                    Tra Cứu Bản Đồ Địa Chính
-                    <span className="text-xs font-bold px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">
-                      Cư Pui
-                    </span>
-                  </h1>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Hệ thống số hóa, kê khai đất đai và đối soát Google Sheets trực tiếp
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => fetchGgsCodes(true)}
-                    disabled={isSyncingGgs}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition text-xs bg-cyan-50 text-cyan-700 hover:bg-cyan-100 border border-cyan-200"
-                    title="Đồng bộ lại Google Sheets"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncingGgs ? 'animate-spin' : ''}`} />
-                    <span>Đồng bộ GGS</span>
-                  </button>
-
-                  <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-2xl text-xs">
-                    <button
-                      onClick={() => setViewMode('map')}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition text-gray-600 hover:text-gray-900"
-                    >
-                      <MapIcon className="w-3.5 h-3.5 text-blue-600" />
-                      Bản đồ
-                    </button>
-                    <button
-                      onClick={() => setViewMode('grid')}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition bg-blue-600 text-white shadow-xs"
-                    >
-                      <LayoutGrid className="w-3.5 h-3.5" />
-                      Danh sách
-                    </button>
-
-                    <Link
-                      href="/dashboard"
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition text-slate-700 hover:text-cyan-700 hover:bg-white"
-                      title="Mở Dashboard quản trị"
-                    >
-                      <BarChart3 className="w-3.5 h-3.5 text-cyan-600" />
-                      Dashboard
-                    </Link>
-
-                    <button
-                      type="button"
-                      onClick={() => setIsCccdUploadOpen(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition text-purple-700 hover:text-purple-900 hover:bg-purple-50 cursor-pointer"
-                      title="Tải lên ảnh CCCD từ máy (trượt form từ dưới lên)"
-                    >
-                      <Camera className="w-3.5 h-3.5 text-purple-600" />
-                      Tải CCCD
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Thống kê 5 nhóm trạng thái */}
-              <HeaderStats
-                total={stats.total}
-                greenCount={stats.green}
-                blueCount={stats.blue}
-                yellowCount={stats.yellow}
-                grayCount={stats.gray}
-                gpsCount={stats.gps}
-                currentFilter={statusFilter}
-                onSelectFilter={(st) => {
-                  setStatusFilter(st);
-                  setPage(1);
-                }}
-              />
-
-              {/* Bộ lọc & Tìm kiếm */}
-              <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-gray-100 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center gap-2 relative z-20">
-                <div className="relative flex-1 w-full">
-                  <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value);
-                      setPage(1);
-                    }}
-                    placeholder="Tìm theo số tờ, số thửa hoặc tên chủ đất..."
-                    className="w-full pl-9 pr-3 py-2 text-xs bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium transition"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
-                  <div className="flex-1 sm:flex-initial">
-                    <MapSheetMultiSelect
-                      sheetList={sheetList}
-                      selectedSheets={selectedSheets}
-                      onChange={(sheets) => {
-                        setSelectedSheets(sheets);
-                        setPage(1);
-                      }}
-                    />
-                  </div>
-
-                  {(searchQuery || selectedSheets.length > 0 || statusFilter !== 'ALL') && (
-                    <button
-                      onClick={() => {
-                        setSearchQuery('');
-                        setSelectedSheets([]);
-                        setStatusFilter('ALL');
-                        setPage(1);
-                      }}
-                      className="px-3 py-2 text-xs text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-xl transition font-medium shrink-0"
-                      title="Khôi phục mặc định"
-                    >
-                      Đặt lại
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Thông tin kết quả tìm kiếm */}
-              <div className="flex items-center justify-between text-xs text-gray-500 px-1 mb-3">
-                <span>
-                  Tìm thấy <strong>{filteredParcels.length.toLocaleString('vi-VN')}</strong> thửa đất
-                  {selectedSheets.length > 0 && ` (${selectedSheets.length} tờ bản đồ)`}
-                </span>
-                <span>
-                  Trang {page} / {totalPages || 1}
-                </span>
-              </div>
-
-              {/* Lưới danh sách thửa đất */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {paginatedParcels.map((p) => {
-                  const isDigitized = p.trang_thai === 'DA_SO_HOA_XANH';
-                  const isDeclared = p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
-                  const isYellow = p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG';
-
-                  return (
-                    <div
-                      key={p.ma_thua}
-                      onClick={() => {
-                        handleSelectParcel(p);
-                        setViewMode('map');
-                      }}
-                      className="group relative bg-white p-3.5 rounded-2xl border border-gray-100 hover:border-blue-300 hover:shadow-lg transition-all duration-200 cursor-pointer flex flex-col justify-between"
-                    >
-                      <div>
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                              isDigitized
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : isDeclared
-                                ? 'bg-blue-100 text-blue-800'
-                                : isYellow
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-gray-100 text-gray-600'
-                            }`}
-                          >
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                isDigitized
-                                  ? 'bg-emerald-500'
-                                  : isDeclared
-                                  ? 'bg-blue-600'
-                                  : isYellow
-                                  ? 'bg-amber-500'
-                                  : 'bg-gray-400'
-                              }`}
-                            ></span>
-                            {isDigitized
-                              ? 'Đã số hóa (GGS)'
-                              : isDeclared
-                              ? 'Đã kê khai'
-                              : isYellow
-                              ? 'Có tên chủ'
-                              : 'Chưa cập nhật'}
-                          </span>
-
-                          <span className="text-[11px] font-mono font-bold text-gray-400 group-hover:text-blue-600 transition">
-                            {p.ma_thua}
-                          </span>
-                        </div>
-
-                        <h3 className="text-sm font-extrabold text-gray-900 group-hover:text-blue-600 transition flex items-center justify-between">
-                          Thửa {p.so_thua} • Tờ {p.to_ban_do}
-                          <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-blue-500 group-hover:translate-x-0.5 transition" />
-                        </h3>
-
-                        <p className="text-xs font-semibold mt-1 truncate" title={p.chu_ho}>
-                          {p.chu_ho ? (
-                            <span className={p.chu_ho.includes('Không có') || p.chu_ho === 'Chưa có tên' ? 'text-gray-400 font-normal italic' : 'text-gray-800'}>
-                              {p.chu_ho}
-                            </span>
-                          ) : (
-                            <span className="text-gray-400 font-normal italic">Không có trong dữ liệu</span>
-                          )}
-                        </p>
-
-                        <p className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1 capitalize">
-                          <MapPin className="w-3 h-3 text-gray-400" />
-                          {p.thon_xa}
-                        </p>
-                      </div>
-
-                      <div className="pt-2.5 mt-2.5 border-t border-gray-50 flex items-center justify-between text-xs text-gray-500">
-                        <span className="font-bold text-blue-600">
-                          {p.dien_tich ? `${p.dien_tich} m²` : '---'}
-                        </span>
-                        <span className="px-1.5 py-0.5 rounded bg-gray-50 text-[10px] font-bold text-emerald-700">
-                          {p.loai_dat || 'Chưa có'}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {totalPages > 1 && (
-                <div className="flex items-center justify-center gap-2 mt-8 pb-10">
-                  <button
-                    disabled={page === 1}
-                    onClick={() => setPage((p) => Math.max(p - 1, 1))}
-                    className="px-3.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs font-semibold hover:bg-gray-50 disabled:opacity-40 transition"
-                  >
-                    Trang trước
-                  </button>
-                  <span className="text-xs font-bold text-gray-600 px-2">
-                    {page} / {totalPages}
-                  </span>
-                  <button
-                    disabled={page === totalPages}
-                    onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
-                    className="px-3.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs font-semibold hover:bg-gray-50 disabled:opacity-40 transition"
-                  >
-                    Trang sau
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
 
       {/* Vector SVG / Image Modal */}
       <VectorViewerModal

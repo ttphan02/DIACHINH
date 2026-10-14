@@ -16,6 +16,8 @@ import {
   Sparkles,
   Calendar,
   Eye,
+  X,
+  Download,
 } from 'lucide-react';
 import CccdHoverPreviewCard from './CccdHoverPreviewCard';
 
@@ -49,6 +51,7 @@ export default function CccdManagerTab({
   const [deletingFile, setDeletingFile] = useState<CccdFileItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [previewPdf, setPreviewPdf] = useState<{ url: string; filename: string } | null>(null);
 
   const isLight = theme === 'light';
 
@@ -422,20 +425,23 @@ export default function CccdManagerTab({
                       ownerName={file.ownerName}
                       fileSize={formatFileSize(file.size)}
                     >
-                      <a
-                        href={file.url}
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setPreviewPdf({ url: file.url, filename: file.filename });
+                          if (onPreviewUrl) onPreviewUrl(file.url, file.filename);
+                        }}
                         className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
                           isLight
                             ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
                             : 'bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border-indigo-500/30'
                         }`}
-                        title="Mở xem file PDF trên Cloudflare R2"
+                        title="Xem trực tiếp file PDF trên giao diện"
                       >
                         <Eye className="w-3 h-3" />
                         <span>Xem PDF</span>
-                      </a>
+                      </button>
                     </CccdHoverPreviewCard>
                   </div>
 
@@ -531,6 +537,58 @@ export default function CccdManagerTab({
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal xem file PDF CCCD trực tiếp trên giao diện */}
+      {previewPdf && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200">
+          <div className={`w-full max-w-5xl h-[90vh] rounded-2xl shadow-2xl flex flex-col border overflow-hidden ${
+            isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
+          }`}>
+            <div className={`flex items-center justify-between px-4 py-3 border-b shrink-0 ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'
+            }`}>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-500">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className={`text-sm font-bold truncate ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
+                    {previewPdf.filename}
+                  </h3>
+                  <p className="text-[10px] text-slate-500">Xem trực tiếp tài liệu từ Cloudflare R2</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={previewPdf.url}
+                  download={previewPdf.filename}
+                  className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+                    isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                  }`}
+                  title="Tải file PDF về máy"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Tải về</span>
+                </a>
+                <button
+                  onClick={() => setPreviewPdf(null)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition cursor-pointer"
+                  title="Đóng modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 w-full bg-slate-950 relative">
+              <iframe
+                src={previewPdf.url}
+                className="w-full h-full border-0 bg-white"
+                title={previewPdf.filename}
+              />
             </div>
           </div>
         </div>

@@ -33,6 +33,7 @@ import {
   Filter,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   ExternalLink,
   Layers,
   MapPin,
@@ -111,6 +112,7 @@ export default function DashboardPage() {
   const [syncSummary, setSyncSummary] = useState<{
     totalDeclared: number;
     daGiaiQuyet: number;
+    choNhap?: number;
     nhapGgs: number;
     daDongTap: number;
     canTimCccd: number;
@@ -138,10 +140,20 @@ export default function DashboardPage() {
   // Checkbox Selection state cho THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD)
   const [readyToPackSelectedCodes, setReadyToPackSelectedCodes] = useState<Set<string>>(new Set());
 
-  // Checkbox Selection & Tìm/Lọc Mã Thửa cho mục "CHƯA THỰC HIỆN"
+  // Checkbox Selection & Bộ lọc Dropdown Mã Thửa kiểu Excel cho mục "CHƯA THỰC HIỆN"
   const [chuaThucHienSelectedCodes, setChuaThucHienSelectedCodes] = useState<Set<string>>(new Set());
-  const [chuaThucHienMaThuaSearch, setChuaThucHienMaThuaSearch] = useState<string>('');
-  const [chuaThucHienSelectedFilter, setChuaThucHienSelectedFilter] = useState<'ALL' | 'ONLY_SELECTED' | 'NOT_SELECTED'>('ALL');
+  const [chuaThucHienDropdownOpen, setChuaThucHienDropdownOpen] = useState(false);
+  const [chuaThucHienFilterSearch, setChuaThucHienFilterSearch] = useState('');
+  const [tempSelectedMaThuas, setTempSelectedMaThuas] = useState<Set<string>>(new Set());
+  const [appliedMaThuas, setAppliedMaThuas] = useState<Set<string>>(new Set());
+
+  // Modal xem trực tiếp file PDF CCCD (không mở url ngoài)
+  const [previewPdfModal, setPreviewPdfModal] = useState<{
+    isOpen: boolean;
+    url: string;
+    title: string;
+    filename?: string;
+  }>({ isOpen: false, url: '', title: '' });
 
   // Checkbox Selection state for Batch PDF Export
   const [selectedParcelCodes, setSelectedParcelCodes] = useState<Set<string>>(new Set());
@@ -1055,8 +1067,8 @@ export default function DashboardPage() {
 
   // Xuất file Excel / CSV cho bảng báo cáo đang xem
   const handleExportReportSheet = (sheetName: string) => {
-    if (!syncSheetsData || !syncSheetsData[sheetName]) return;
-    const rows = syncSheetsData[sheetName];
+    const rows = syncSheetsData?.[sheetName] || (sheetName === 'CHỜ NHẬP' ? syncSheetsData?.['NHẬP GGS'] : undefined);
+    if (!rows) return;
     const csvContent =
       '\uFEFF' +
       rows
@@ -1788,7 +1800,7 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   onClick={() => handleExportReportSheet(selectedReportSheet)}
-                  disabled={!syncSheetsData || !syncSheetsData[selectedReportSheet]}
+                  disabled={!syncSheetsData || (!syncSheetsData[selectedReportSheet] && (selectedReportSheet !== 'CHỜ NHẬP' || !syncSheetsData['NHẬP GGS']))}
                   className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 transition disabled:opacity-50 cursor-pointer"
                   title="Xuất bảng dữ liệu hiện tại ra file Excel (CSV UTF-8 with BOM)"
                 >
@@ -1902,15 +1914,15 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Giai đoạn 3: Chờ Nhập GGS */}
+              {/* Giai đoạn 3: Chờ Nhập */}
               <div
                 onClick={() => {
-                  setSelectedReportSheet('NHẬP GGS');
+                  setSelectedReportSheet('CHỜ NHẬP');
                   setReportPage(1);
                   setReportStatusFilter('ALL');
                 }}
                 className={`border rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group ${
-                  selectedReportSheet === 'NHẬP GGS'
+                  selectedReportSheet === 'CHỜ NHẬP' || selectedReportSheet === 'NHẬP GGS'
                     ? 'ring-2 ring-sky-500 border-sky-500'
                     : isLight
                     ? 'bg-sky-50/60 border-sky-200/80 hover:border-sky-400'
@@ -1920,19 +1932,19 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between text-xs mb-2">
                   <span className="font-bold uppercase tracking-wider text-[10px] text-sky-500 flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-sky-500" />
-                    Phần 3: Nhập GGS (57 cột)
+                    Phần 3: Chờ Nhập (57 cột)
                   </span>
                   <FileSpreadsheet className="w-4 h-4 text-sky-500" />
                 </div>
                 <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-sky-700' : 'text-sky-300'}`}>
-                  {syncSummary ? syncSummary.nhapGgs.toLocaleString('vi-VN') : '...'}
+                  {syncSummary ? (syncSummary.choNhap ?? syncSummary.nhapGgs).toLocaleString('vi-VN') : '...'}
                   <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>hồ sơ</span>
                 </div>
                 <div className={`mt-2 text-[11px] pt-2 border-t flex items-center justify-between ${
                   isLight ? 'border-sky-200/60 text-slate-600' : 'border-slate-800/80 text-slate-400'
                 }`}>
-                  <span>Đã scan sau ký:</span>
-                  <strong className="text-sky-600 font-bold">Sẵn sàng xuất file</strong>
+                  <span>Chờ nhập GGS:</span>
+                  <strong className="text-sky-600 font-bold">57 cột chuẩn hóa</strong>
                 </div>
               </div>
 
@@ -1995,9 +2007,9 @@ export default function DashboardPage() {
                   color: 'indigo',
                 },
                 {
-                  id: 'NHẬP GGS',
-                  label: '3. Nhập GGS (57 cột)',
-                  count: syncSummary?.nhapGgs,
+                  id: 'CHỜ NHẬP',
+                  label: '3. Chờ Nhập (57 cột)',
+                  count: syncSummary?.choNhap ?? syncSummary?.nhapGgs,
                   color: 'sky',
                 },
                 {
@@ -2191,7 +2203,7 @@ export default function DashboardPage() {
                 isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
               }`}>
                 {(() => {
-                  let rawSheet = syncSheetsData?.[selectedReportSheet] || [];
+                  let rawSheet = syncSheetsData?.[selectedReportSheet] || (selectedReportSheet === 'CHỜ NHẬP' ? syncSheetsData?.['NHẬP GGS'] : undefined) || [];
                   if (selectedReportSheet === 'CHƯA THỰC HIỆN') {
                     const headersChuaThucHien = [
                       'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất (dự kiến)',
@@ -2273,6 +2285,21 @@ export default function DashboardPage() {
                     });
                   }
 
+                  // Danh sách tất cả mã thửa duy nhất của sheet Chưa thực hiện (dùng cho Dropdown lọc kiểu Excel)
+                  const distinctMaThuas = isChuaThucHienSheet
+                    ? Array.from(new Set(allRows.map((r) => String(r[1] || '').trim()).filter(Boolean))).sort((a, b) => {
+                        const [toA, thuaA] = a.split('_').map(Number);
+                        const [toB, thuaB] = b.split('_').map(Number);
+                        if (toA !== toB) return (toA || 0) - (toB || 0);
+                        return (thuaA || 0) - (thuaB || 0);
+                      })
+                    : [];
+
+                  const filteredDropdownList = distinctMaThuas.filter((mt) => {
+                    if (!chuaThucHienFilterSearch.trim()) return true;
+                    return mt.toLowerCase().includes(chuaThucHienFilterSearch.trim().toLowerCase());
+                  });
+
                   // Áp dụng bộ lọc
                   const filtered = allRows.filter((row) => {
                     const maThua = String(row[1] || '').trim();
@@ -2311,25 +2338,9 @@ export default function DashboardPage() {
                       if (chuaThucHienNameFilter === 'CHUA_CO_TEN' && isNamed) return false;
                     }
 
-                    // 5. Lọc tìm kiếm theo Mã thửa (cho sheet Chưa thực hiện - hỗ trợ nhập 1 hoặc nhiều mã thửa cách nhau bởi dấu phẩy, khoảng trắng)
-                    if (isChuaThucHienSheet && chuaThucHienMaThuaSearch.trim()) {
-                      const tokens = chuaThucHienMaThuaSearch
-                        .trim()
-                        .toLowerCase()
-                        .split(/[\s,;]+/)
-                        .filter(Boolean);
-                      if (tokens.length > 0) {
-                        const maThuaLower = maThua.toLowerCase();
-                        const matched = tokens.some((t) => maThuaLower.includes(t));
-                        if (!matched) return false;
-                      }
-                    }
-
-                    // 6. Lọc theo trạng thái tích chọn (cho sheet Chưa thực hiện)
-                    if (isChuaThucHienSheet && chuaThucHienSelectedFilter !== 'ALL') {
-                      const isSelected = chuaThucHienSelectedCodes.has(maThua);
-                      if (chuaThucHienSelectedFilter === 'ONLY_SELECTED' && !isSelected) return false;
-                      if (chuaThucHienSelectedFilter === 'NOT_SELECTED' && isSelected) return false;
+                    // 5. Lọc theo danh sách Mã thửa đã chọn từ dropdown Excel (cho sheet Chưa thực hiện)
+                    if (isChuaThucHienSheet && appliedMaThuas.size > 0) {
+                      if (!appliedMaThuas.has(maThua)) return false;
                     }
 
                     return true;
@@ -2410,8 +2421,7 @@ export default function DashboardPage() {
                     reportVillageFilter !== 'ALL' ||
                     reportStatusFilter !== 'ALL' ||
                     chuaThucHienNameFilter !== 'ALL' ||
-                    (isChuaThucHienSheet && Boolean(chuaThucHienMaThuaSearch)) ||
-                    (isChuaThucHienSheet && chuaThucHienSelectedFilter !== 'ALL') ||
+                    (isChuaThucHienSheet && appliedMaThuas.size > 0) ||
                     sortNameOrder !== 'none' ||
                     reportPageSize === 'ALL';
 
@@ -2611,63 +2621,6 @@ export default function DashboardPage() {
                             </div>
                           )}
 
-                          {/* 2.1 LỌC & TÌM KIẾM MÃ THỬA (ở mục Chưa thực hiện) */}
-                          {isChuaThucHienSheet && (
-                            <div className="flex items-center gap-1.5">
-                              <span className={`text-[11px] font-bold ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>
-                                Mã thửa:
-                              </span>
-                              <input
-                                type="text"
-                                placeholder="VD: 123, 456..."
-                                value={chuaThucHienMaThuaSearch}
-                                onChange={(e) => {
-                                  setChuaThucHienMaThuaSearch(e.target.value);
-                                  setReportPage(1);
-                                }}
-                                className={`w-32 sm:w-36 px-2.5 py-1.5 rounded-xl border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 transition ${
-                                  chuaThucHienMaThuaSearch
-                                    ? isLight
-                                      ? 'bg-emerald-50 border-emerald-400 text-emerald-900'
-                                      : 'bg-emerald-950/70 border-emerald-500/50 text-emerald-200'
-                                    : isLight
-                                    ? 'bg-white border-slate-300 text-slate-800 placeholder:text-slate-400'
-                                    : 'bg-slate-900 border-slate-700 text-slate-200 placeholder:text-slate-500'
-                                }`}
-                                title="Nhập 1 hoặc nhiều mã thửa (cách nhau bởi dấu phẩy hoặc khoảng trắng)"
-                              />
-                            </div>
-                          )}
-
-                          {/* 2.2 LỌC THEO TRẠNG THÁI TÍCH CHỌN (ở mục Chưa thực hiện) */}
-                          {isChuaThucHienSheet && (
-                            <div className="flex items-center gap-1.5">
-                              <span className={`text-[11px] font-bold ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>
-                                Tích chọn:
-                              </span>
-                              <select
-                                value={chuaThucHienSelectedFilter}
-                                onChange={(e) => {
-                                  setChuaThucHienSelectedFilter(e.target.value as any);
-                                  setReportPage(1);
-                                }}
-                                className={`text-xs px-2.5 py-1.5 rounded-xl border font-bold transition focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                                  chuaThucHienSelectedFilter !== 'ALL'
-                                    ? isLight
-                                      ? 'bg-emerald-100 border-emerald-400 text-emerald-900'
-                                      : 'bg-emerald-950/70 border-emerald-500/50 text-emerald-200'
-                                    : isLight
-                                    ? 'bg-white border-slate-300 text-slate-800'
-                                    : 'bg-slate-900 border-slate-700 text-slate-200'
-                                }`}
-                              >
-                                <option value="ALL">Tất cả ({allRows.length})</option>
-                                <option value="ONLY_SELECTED">Đã tích chọn ({chuaThucHienSelectedCodes.size})</option>
-                                <option value="NOT_SELECTED">Chưa tích chọn</option>
-                              </select>
-                            </div>
-                          )}
-
                           {/* 3. LỌC THEO PHÂN LOẠI TRẠNG THÁI (Đang Kê Khai - Chưa Có CCCD) */}
                           {isChuaCoCccdSheet && statusColIdx >= 0 && (
                             <div className="flex items-center gap-1.5">
@@ -2765,8 +2718,8 @@ export default function DashboardPage() {
                                 setReportVillageFilter('ALL');
                                 setReportStatusFilter('ALL');
                                 setChuaThucHienNameFilter('ALL');
-                                setChuaThucHienMaThuaSearch('');
-                                setChuaThucHienSelectedFilter('ALL');
+                                setAppliedMaThuas(new Set());
+                                setTempSelectedMaThuas(new Set());
                                 setSortNameOrder('none');
                                 setReportPageSize(20);
                                 setReportPage(1);
@@ -2855,7 +2808,7 @@ export default function DashboardPage() {
                                       isNameHeader ? 'cursor-pointer hover:bg-indigo-500/10' : ''
                                     } ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}
                                   >
-                                    <div className="flex items-center gap-1.5">
+                                    <div className="flex items-center gap-1.5 relative">
                                       {isMaThuaHeader && (
                                         <input
                                           type="checkbox"
@@ -2866,6 +2819,174 @@ export default function DashboardPage() {
                                         />
                                       )}
                                       <span>{h}</span>
+                                      {isMaThuaHeader && (
+                                        <div className="relative inline-block text-left">
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setChuaThucHienDropdownOpen((prev) => !prev);
+                                              setTempSelectedMaThuas(new Set(appliedMaThuas));
+                                            }}
+                                            className={`p-1 rounded-md transition cursor-pointer flex items-center gap-0.5 ${
+                                              appliedMaThuas.size > 0
+                                                ? 'bg-emerald-600 text-white shadow-xs'
+                                                : isLight
+                                                ? 'hover:bg-slate-200 text-slate-600'
+                                                : 'hover:bg-slate-700 text-slate-300'
+                                            }`}
+                                            title="Bấm để tìm và tích chọn mã thửa kiểu Excel"
+                                          >
+                                            <Filter className="w-3 h-3" />
+                                            <ChevronDown className="w-3 h-3" />
+                                            {appliedMaThuas.size > 0 && (
+                                              <span className="text-[9px] font-black px-1 rounded-full bg-white text-emerald-800">
+                                                {appliedMaThuas.size}
+                                              </span>
+                                            )}
+                                          </button>
+
+                                          {/* Popover Lọc kiểu Excel */}
+                                          {chuaThucHienDropdownOpen && (
+                                            <div
+                                              onClick={(e) => e.stopPropagation()}
+                                              className={`absolute left-0 top-full mt-2 w-72 max-w-[90vw] p-3 rounded-2xl shadow-2xl border z-50 text-left font-normal ${
+                                                isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-100'
+                                              }`}
+                                            >
+                                              <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800 mb-2">
+                                                <span className="text-xs font-bold flex items-center gap-1.5">
+                                                  <Filter className="w-3.5 h-3.5 text-emerald-500" />
+                                                  Lọc Mã Thửa (Excel)
+                                                </span>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setChuaThucHienDropdownOpen(false)}
+                                                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                                                >
+                                                  <X className="w-4 h-4" />
+                                                </button>
+                                              </div>
+
+                                              {/* Search Box */}
+                                              <div className="relative mb-2">
+                                                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                <input
+                                                  type="text"
+                                                  placeholder="Tìm kiếm mã thửa..."
+                                                  value={chuaThucHienFilterSearch}
+                                                  onChange={(e) => setChuaThucHienFilterSearch(e.target.value)}
+                                                  className={`w-full pl-8 pr-2.5 py-1.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                                                    isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-slate-950 border-slate-700 text-slate-200'
+                                                  }`}
+                                                />
+                                              </div>
+
+                                              {/* Quick actions */}
+                                              <div className="flex items-center justify-between text-[11px] mb-2 px-1">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    const next = new Set(tempSelectedMaThuas);
+                                                    filteredDropdownList.forEach((m) => next.add(m));
+                                                    setTempSelectedMaThuas(next);
+                                                  }}
+                                                  className="text-emerald-600 dark:text-emerald-400 font-bold hover:underline cursor-pointer"
+                                                >
+                                                  Chọn tất cả ({filteredDropdownList.length})
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    const next = new Set(tempSelectedMaThuas);
+                                                    filteredDropdownList.forEach((m) => next.delete(m));
+                                                    setTempSelectedMaThuas(next);
+                                                  }}
+                                                  className="text-slate-500 hover:underline cursor-pointer"
+                                                >
+                                                  Bỏ chọn
+                                                </button>
+                                              </div>
+
+                                              {/* Checkbox scroll list */}
+                                              <div className={`max-h-52 overflow-y-auto space-y-1 p-1 rounded-xl border text-xs ${
+                                                isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'
+                                              }`}>
+                                                {filteredDropdownList.length === 0 ? (
+                                                  <div className="py-4 text-center text-slate-400 text-xs italic">Không tìm thấy mã thửa</div>
+                                                ) : (
+                                                  filteredDropdownList.map((mt) => {
+                                                    const checked = tempSelectedMaThuas.has(mt);
+                                                    return (
+                                                      <label
+                                                        key={mt}
+                                                        className={`flex items-center gap-2 px-2 py-1 rounded-lg cursor-pointer transition ${
+                                                          checked
+                                                            ? isLight ? 'bg-emerald-50 text-emerald-900 font-bold' : 'bg-emerald-950/60 text-emerald-200 font-bold'
+                                                            : 'hover:bg-slate-200/50 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-300'
+                                                        }`}
+                                                      >
+                                                        <input
+                                                          type="checkbox"
+                                                          checked={checked}
+                                                          onChange={() => {
+                                                            const next = new Set(tempSelectedMaThuas);
+                                                            if (next.has(mt)) next.delete(mt);
+                                                            else next.add(mt);
+                                                            setTempSelectedMaThuas(next);
+                                                          }}
+                                                          className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                        />
+                                                        <span className="truncate">{mt}</span>
+                                                      </label>
+                                                    );
+                                                  })
+                                                )}
+                                              </div>
+
+                                              {/* Footer action buttons */}
+                                              <div className="flex items-center justify-between gap-2 pt-2.5 mt-2 border-t border-slate-200 dark:border-slate-800">
+                                                {appliedMaThuas.size > 0 && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      setAppliedMaThuas(new Set());
+                                                      setTempSelectedMaThuas(new Set());
+                                                      setChuaThucHienDropdownOpen(false);
+                                                      setReportPage(1);
+                                                    }}
+                                                    className="text-[11px] text-rose-500 hover:underline font-semibold cursor-pointer"
+                                                  >
+                                                    Xóa lọc
+                                                  </button>
+                                                )}
+                                                <div className="flex items-center gap-2 ml-auto">
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => setChuaThucHienDropdownOpen(false)}
+                                                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer ${
+                                                      isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                                                    }`}
+                                                  >
+                                                    Hủy
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      setAppliedMaThuas(new Set(tempSelectedMaThuas));
+                                                      setChuaThucHienDropdownOpen(false);
+                                                      setReportPage(1);
+                                                    }}
+                                                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm cursor-pointer"
+                                                  >
+                                                    OK / Áp dụng
+                                                  </button>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
                                       {isMaThuaHeader && chuaThucHienSelectedCodes.size > 0 && (
                                         <span className="text-[10px] px-1.5 py-0.2 bg-emerald-600 text-white rounded-full font-black">
                                           {chuaThucHienSelectedCodes.size}
@@ -2986,19 +3107,27 @@ export default function DashboardPage() {
                                               cccdNumber={cccdVal || undefined}
                                               theme={theme}
                                             >
-                                              <a
-                                                href={href}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition shadow-xs ${
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.preventDefault();
+                                                  setPreviewPdfModal({
+                                                    isOpen: true,
+                                                    url: href,
+                                                    title: `CCCD: ${ownerName || text}`,
+                                                    filename: text,
+                                                  });
+                                                }}
+                                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition shadow-xs cursor-pointer ${
                                                   isLight
                                                     ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
                                                     : 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
                                                 }`}
+                                                title="Xem trực tiếp file CCCD trên giao diện"
                                               >
                                                 <Eye className="w-3.5 h-3.5 text-indigo-500" />
                                                 <span>Xem CCCD</span>
-                                              </a>
+                                              </button>
                                             </CccdHoverPreviewCard>
                                           </td>
                                         );
@@ -3391,6 +3520,59 @@ export default function DashboardPage() {
           fetchCloudDeclarations();
         }}
       />
+
+      {/* Modal Xem file PDF CCCD trực tiếp trên Dashboard (không mở link ngoài) */}
+      {previewPdfModal.isOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200">
+          <div className={`w-full max-w-5xl h-[90vh] rounded-2xl shadow-2xl flex flex-col border overflow-hidden ${
+            isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
+          }`}>
+            <div className={`flex items-center justify-between px-4 py-3 border-b shrink-0 ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'
+            }`}>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-500">
+                  <Eye className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className={`text-sm font-bold truncate ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
+                    {previewPdfModal.title}
+                  </h3>
+                  <p className="text-[10px] text-slate-500">{previewPdfModal.filename || 'Xem trực tiếp tài liệu từ Cloudflare R2'}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={previewPdfModal.url}
+                  download={previewPdfModal.filename || 'cccd.pdf'}
+                  className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+                    isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                  }`}
+                  title="Tải file PDF về máy"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Tải về</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPreviewPdfModal({ isOpen: false, url: '', title: '' })}
+                  className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition cursor-pointer"
+                  title="Đóng modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 w-full bg-slate-950 relative">
+              <iframe
+                src={previewPdfModal.url}
+                className="w-full h-full border-0 bg-white"
+                title={previewPdfModal.title}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
