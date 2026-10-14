@@ -150,6 +150,7 @@ export default function DashboardPage() {
   const [chuaThucHienFilterSearch, setChuaThucHienFilterSearch] = useState('');
   const [tempSelectedMaThuas, setTempSelectedMaThuas] = useState<Set<string>>(new Set());
   const [appliedMaThuas, setAppliedMaThuas] = useState<Set<string>>(new Set());
+  const [filterPopupPos, setFilterPopupPos] = useState<{ top: number; left: number } | null>(null);
 
   // Modal xem trực tiếp file PDF CCCD (không mở url ngoài)
   const [previewPdfModal, setPreviewPdfModal] = useState<{
@@ -1452,6 +1453,57 @@ export default function DashboardPage() {
 
           {/* Action buttons */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* 1. Nút Tiến Độ 16 Thôn / Buôn trên Header */}
+            <button
+              type="button"
+              onClick={() => setActiveTab(activeTab === 'villages' ? 'progressReport' : 'villages')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer shadow-md border ${
+                activeTab === 'villages'
+                  ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-600/30 ring-2 ring-emerald-400'
+                  : isLight
+                  ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
+                  : 'bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border-emerald-700/50'
+              }`}
+              title="Xem bảng thống kê chi tiết tiến độ 16 thôn buôn xã Cư Pui"
+            >
+              <Building2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Tiến Độ 16 Thôn / Buôn</span>
+            </button>
+
+            {/* 2. Nút Kho CCCD (Quản Lý R2) trên Header */}
+            <button
+              type="button"
+              onClick={() => setActiveTab(activeTab === 'cccd' ? 'progressReport' : 'cccd')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer shadow-md border ${
+                activeTab === 'cccd'
+                  ? 'bg-purple-600 text-white border-purple-500 shadow-purple-600/30 ring-2 ring-purple-400'
+                  : isLight
+                  ? 'bg-purple-50 hover:bg-purple-100 text-purple-800 border-purple-300'
+                  : 'bg-purple-950/60 hover:bg-purple-900/70 text-purple-300 border-purple-700/50'
+              }`}
+              title="Mở kho lưu trữ và quản lý ảnh/PDF CCCD trên Cloudflare R2"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-purple-400" />
+              <span>Kho CCCD (R2)</span>
+            </button>
+
+            {/* 3. Nút Kho File Scan (Quản Lý R2) trên Header */}
+            <button
+              type="button"
+              onClick={() => setActiveTab(activeTab === 'filescan' ? 'progressReport' : 'filescan')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer shadow-md border ${
+                activeTab === 'filescan'
+                  ? 'bg-sky-600 text-white border-sky-500 shadow-sky-600/30 ring-2 ring-sky-400'
+                  : isLight
+                  ? 'bg-sky-50 hover:bg-sky-100 text-sky-800 border-sky-300'
+                  : 'bg-sky-950/60 hover:bg-sky-900/70 text-sky-300 border-sky-700/50'
+              }`}
+              title="Mở kho lưu trữ và quản lý file scan hồ sơ đã ký trên Cloudflare R2"
+            >
+              <HardDrive className="w-3.5 h-3.5 text-sky-400" />
+              <span>Kho File Scan (R2)</span>
+            </button>
+
             {/* Nút mở công cụ ScanName (Tách PDF & Đổi tên hồ sơ scan sau ký) */}
             <a
               href="/scanname"
@@ -1553,7 +1605,7 @@ export default function DashboardPage() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-5">
         {/* Executive KPI Cards */}
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          {/* Card 1: Tổng số thửa & Diện tích */}
+          {/* Card 1: Tổng Thửa Quản Lý */}
           <div className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group ${
             isLight
               ? 'bg-white border-slate-200 hover:border-slate-300'
@@ -1576,14 +1628,17 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Card 2: Đã Số Hóa & Đã Giải Quyết (Gộp chung phần Đã giải quyết và Đã số hóa lại làm 1) */}
+          {/* Card 2: Đã Số Hóa & Đã Giải Quyết */}
           <div
             onClick={() => {
               setSelectedReportSheet('ĐÃ GIẢI QUYẾT');
               setActiveTab('progressReport');
+              setReportPage(1);
             }}
             className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
-              isLight
+              selectedReportSheet === 'ĐÃ GIẢI QUYẾT' && activeTab === 'progressReport'
+                ? 'ring-2 ring-emerald-500 border-emerald-500'
+                : isLight
                 ? 'bg-white border-emerald-200 hover:border-emerald-300'
                 : 'bg-slate-900/90 border-emerald-500/30 hover:border-emerald-500/50'
             }`}
@@ -1604,43 +1659,11 @@ export default function DashboardPage() {
               isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
             }`}>
               <span>Đã số hóa (GGS): <strong className="text-emerald-600 font-bold">{globalStats.green.toLocaleString('vi-VN')}</strong></span>
-              <span>Đã giải quyết qua web: <strong className="text-emerald-500 font-bold">{syncSummary?.daGiaiQuyet || 0}</strong></span>
+              <span>Đã giải quyết: <strong className="text-emerald-500 font-bold">{syncSummary?.daGiaiQuyet || 0}</strong></span>
             </div>
           </div>
 
-          {/* Card 3: Hồ Sơ Đang Kê Khai (Chưa có CCCD, Sẵn sàng đóng tập, Chờ nhập GGS) */}
-          <div
-            onClick={() => {
-              setSelectedReportSheet('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
-              setActiveTab('progressReport');
-            }}
-            className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
-              isLight
-                ? 'bg-white border-indigo-200 hover:border-indigo-300'
-                : 'bg-slate-900/90 border-indigo-500/30 hover:border-indigo-500/50'
-            }`}
-          >
-            <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl group-hover:bg-indigo-500/20 transition" />
-            <div className="flex items-center justify-between text-indigo-500 text-xs mb-2">
-              <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
-                Đang Kê Khai (Hồ Sơ)
-              </span>
-              <FileSpreadsheet className="w-4 h-4 text-indigo-500" />
-            </div>
-            <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-indigo-700' : 'text-indigo-300'}`}>
-              {globalStats.blue.toLocaleString('vi-VN')}
-              <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>hồ sơ</span>
-            </div>
-            <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
-              isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
-            }`}>
-              <span>Chưa CCCD: <strong className="text-amber-500 font-bold">{syncSummary ? (syncSummary.canTimCccd + syncSummary.khongCoCccd) : 0}</strong></span>
-              <span>Sẵn sàng: <strong className="text-indigo-500 font-bold">{syncSummary?.daDongTap || 0}</strong></span>
-            </div>
-          </div>
-
-          {/* Card 4: Chưa Thực Hiện Kê Khai */}
+          {/* Card 3: Chưa Thực Hiện Kê Khai */}
           <div
             onClick={() => {
               setSelectedReportSheet('CHƯA THỰC HIỆN');
@@ -1648,7 +1671,7 @@ export default function DashboardPage() {
               setReportPage(1);
             }}
             className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
-              selectedReportSheet === 'CHƯA THỰC HIỆN'
+              selectedReportSheet === 'CHƯA THỰC HIỆN' && activeTab === 'progressReport'
                 ? 'ring-2 ring-rose-500 border-rose-500'
                 : isLight
                 ? 'bg-white border-amber-200 hover:border-amber-300'
@@ -1680,74 +1703,42 @@ export default function DashboardPage() {
               </span>
             </div>
           </div>
-        </section>
 
-        {/* Tab Navigation for Analytics: Giữ lại đúng 3 tab theo yêu cầu */}
-        <div className={`flex border-b gap-2 sm:gap-4 overflow-x-auto no-scrollbar ${
-          isLight ? 'border-slate-300' : 'border-slate-800'
-        }`}>
-          <button
+          {/* Card 4: Đang Kê Khai (Hồ Sơ) */}
+          <div
             onClick={() => {
+              setSelectedReportSheet('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
               setActiveTab('progressReport');
-              if (!syncSheetsData) fetchSyncSheetsReport();
+              setReportPage(1);
             }}
-            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 cursor-pointer ${
-              activeTab === 'progressReport'
-                ? 'border-indigo-500 text-indigo-500 font-black'
+            className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
+              selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)' && activeTab === 'progressReport'
+                ? 'ring-2 ring-indigo-500 border-indigo-500'
                 : isLight
-                ? 'border-transparent text-slate-500 hover:text-slate-800'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'bg-white border-indigo-200 hover:border-indigo-300'
+                : 'bg-slate-900/90 border-indigo-500/30 hover:border-indigo-500/50'
             }`}
           >
-            <TrendingUp className="w-4 h-4 text-indigo-500" />
-            <span>Báo Cáo Tiến Độ (4 Danh Sách & 16 Thôn)</span>
-            <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/20 text-indigo-500 font-bold border border-indigo-500/30">
-              {syncSummary ? syncSummary.totalDeclared : 242}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('villages')}
-            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 cursor-pointer ${
-              activeTab === 'villages'
-                ? 'border-emerald-500 text-emerald-500 font-black'
-                : isLight
-                ? 'border-transparent text-slate-500 hover:text-slate-800'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Building2 className="w-4 h-4 text-emerald-500" />
-            <span>Tiến Độ 16 Thôn / Buôn ({villageStats.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('cccd')}
-            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 cursor-pointer ${
-              activeTab === 'cccd'
-                ? 'border-purple-500 text-purple-500 font-black'
-                : isLight
-                ? 'border-transparent text-slate-500 hover:text-slate-800'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <HardDrive className="w-4 h-4 text-purple-500" />
-            <span>Kho CCCD (Quản Lý R2)</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('filescan')}
-            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 cursor-pointer ${
-              activeTab === 'filescan'
-                ? 'border-indigo-500 text-indigo-500 font-black'
-                : isLight
-                ? 'border-transparent text-slate-500 hover:text-slate-800'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <FolderOpen className="w-4 h-4 text-indigo-500" />
-            <span>Kho File Scan (Quản Lý R2)</span>
-          </button>
-        </div>
+            <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl group-hover:bg-indigo-500/20 transition" />
+            <div className="flex items-center justify-between text-indigo-500 text-xs mb-2">
+              <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                Đang Kê Khai (Hồ Sơ)
+              </span>
+              <FileSpreadsheet className="w-4 h-4 text-indigo-500" />
+            </div>
+            <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-indigo-700' : 'text-indigo-300'}`}>
+              {(syncSummary ? syncSummary.canTimCccd + syncSummary.khongCoCccd + syncSummary.daDongTap : 139).toLocaleString('vi-VN')}
+              <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>hồ sơ</span>
+            </div>
+            <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
+              isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
+            }`}>
+              <span>Chưa CCCD: <strong className="text-amber-500 font-bold">{syncSummary ? (syncSummary.canTimCccd + syncSummary.khongCoCccd) : 132}</strong></span>
+              <span>Sẵn sàng: <strong className="text-indigo-500 font-bold">{syncSummary?.daDongTap ?? 7}</strong></span>
+            </div>
+          </div>
+        </section>
 
         {/* TAB 3: DANH SÁCH CHI TIẾT TẤT CẢ THÔN / BUÔN */}
         {activeTab === 'villages' && (
@@ -1931,185 +1922,12 @@ export default function DashboardPage() {
                   title="Xuất bảng dữ liệu hiện tại ra file Excel (CSV UTF-8 with BOM)"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>Xuất Excel ({selectedReportSheet === 'THỐNG KÊ' ? '16 Thôn' : selectedReportSheet.slice(0, 15)})</span>
+                  <span>Xuất Excel ({selectedReportSheet.slice(0, 15)})</span>
                 </button>
               </div>
             </div>
 
-            {/* 5 Cards Giai Đoạn Tiến Độ */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-              {/* Card 0: Chưa Thực Hiện Kê Khai */}
-              <div
-                onClick={() => {
-                  setSelectedReportSheet('CHƯA THỰC HIỆN');
-                  setReportPage(1);
-                  setReportStatusFilter('ALL');
-                }}
-                className={`border rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group ${
-                  selectedReportSheet === 'CHƯA THỰC HIỆN'
-                    ? 'ring-2 ring-rose-500 border-rose-500'
-                    : isLight
-                    ? 'bg-rose-50/60 border-rose-200/80 hover:border-rose-400'
-                    : 'bg-slate-900/90 border-rose-500/30 hover:border-rose-500/60'
-                }`}
-              >
-                <div className="flex items-center justify-between text-xs mb-2">
-                  <span className="font-bold uppercase tracking-wider text-[10px] text-rose-500 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                    Phần 0: Chưa Kê Khai
-                  </span>
-                  <FileText className="w-4 h-4 text-rose-500" />
-                </div>
-                <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-rose-700' : 'text-rose-300'}`}>
-                  {chuaThucHienParcels.length.toLocaleString('vi-VN')}
-                  <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
-                </div>
-                <div className={`mt-2 text-[11px] pt-2 border-t flex items-center justify-between ${
-                  isLight ? 'border-rose-200/60 text-slate-600' : 'border-slate-800/80 text-slate-400'
-                }`}>
-                  <span>Chưa kê khai:</span>
-                  <strong className="text-rose-600 font-bold">Kê khai ngay</strong>
-                </div>
-              </div>
-
-              {/* Giai đoạn 1: Đang Kê Khai (Thiếu CCCD) */}
-              <div
-                onClick={() => {
-                  setSelectedReportSheet('THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)');
-                  setReportPage(1);
-                  setReportStatusFilter('ALL');
-                }}
-                className={`border rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group ${
-                  selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'
-                    ? 'ring-2 ring-amber-500 border-amber-500'
-                    : isLight
-                    ? 'bg-amber-50/60 border-amber-200/80 hover:border-amber-400'
-                    : 'bg-slate-900/90 border-amber-500/30 hover:border-amber-500/60'
-                }`}
-              >
-                <div className="flex items-center justify-between text-xs mb-2">
-                  <span className="font-bold uppercase tracking-wider text-[10px] text-amber-500 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                    Phần 1: Chưa Có CCCD
-                  </span>
-                  <Clock className="w-4 h-4 text-amber-500" />
-                </div>
-                <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-amber-700' : 'text-amber-300'}`}>
-                  {syncSummary ? (syncSummary.canTimCccd + syncSummary.khongCoCccd).toLocaleString('vi-VN') : '...'}
-                  <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
-                </div>
-                <div className={`mt-2 text-[11px] pt-2 border-t flex items-center justify-between ${
-                  isLight ? 'border-amber-200/60 text-slate-600' : 'border-slate-800/80 text-slate-400'
-                }`}>
-                  <span>Cần tìm: <strong className="text-amber-600 font-bold">{syncSummary?.canTimCccd || 0}</strong></span>
-                  <span>Không có: <strong className="text-rose-500 font-bold">{syncSummary?.khongCoCccd || 0}</strong></span>
-                </div>
-              </div>
-
-              {/* Giai đoạn 2: Sẵn Sàng Đóng Tập */}
-              <div
-                onClick={() => {
-                  setSelectedReportSheet('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
-                  setReportPage(1);
-                  setReportStatusFilter('ALL');
-                }}
-                className={`border rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group ${
-                  selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'
-                    ? 'ring-2 ring-indigo-500 border-indigo-500'
-                    : isLight
-                    ? 'bg-indigo-50/60 border-indigo-200/80 hover:border-indigo-400'
-                    : 'bg-slate-900/90 border-indigo-500/30 hover:border-indigo-500/60'
-                }`}
-              >
-                <div className="flex items-center justify-between text-xs mb-2">
-                  <span className="font-bold uppercase tracking-wider text-[10px] text-indigo-500 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-indigo-500" />
-                    Phần 2: Sẵn Sàng Đóng Tập
-                  </span>
-                  <ShieldCheck className="w-4 h-4 text-indigo-500" />
-                </div>
-                <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-indigo-700' : 'text-indigo-300'}`}>
-                  {syncSummary ? syncSummary.daDongTap.toLocaleString('vi-VN') : '...'}
-                  <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
-                </div>
-                <div className={`mt-2 text-[11px] pt-2 border-t flex items-center justify-between ${
-                  isLight ? 'border-indigo-200/60 text-slate-600' : 'border-slate-800/80 text-slate-400'
-                }`}>
-                  <span>Đã có PDF trên R2:</span>
-                  <strong className="text-indigo-600 font-bold">Sẵn sàng in/đóng tập</strong>
-                </div>
-              </div>
-
-              {/* Giai đoạn 3: Chờ Nhập */}
-              <div
-                onClick={() => {
-                  setSelectedReportSheet('CHỜ NHẬP');
-                  setReportPage(1);
-                  setReportStatusFilter('ALL');
-                }}
-                className={`border rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group ${
-                  selectedReportSheet === 'CHỜ NHẬP' || selectedReportSheet === 'NHẬP GGS'
-                    ? 'ring-2 ring-sky-500 border-sky-500'
-                    : isLight
-                    ? 'bg-sky-50/60 border-sky-200/80 hover:border-sky-400'
-                    : 'bg-slate-900/90 border-sky-500/30 hover:border-sky-500/60'
-                }`}
-              >
-                <div className="flex items-center justify-between text-xs mb-2">
-                  <span className="font-bold uppercase tracking-wider text-[10px] text-sky-500 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-sky-500" />
-                    Phần 3: Chờ Nhập (57 cột)
-                  </span>
-                  <FileSpreadsheet className="w-4 h-4 text-sky-500" />
-                </div>
-                <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-sky-700' : 'text-sky-300'}`}>
-                  {syncSummary ? (syncSummary.choNhap ?? syncSummary.nhapGgs).toLocaleString('vi-VN') : '...'}
-                  <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>hồ sơ</span>
-                </div>
-                <div className={`mt-2 text-[11px] pt-2 border-t flex items-center justify-between ${
-                  isLight ? 'border-sky-200/60 text-slate-600' : 'border-slate-800/80 text-slate-400'
-                }`}>
-                  <span>Chờ nhập GGS:</span>
-                  <strong className="text-sky-600 font-bold">57 cột chuẩn hóa</strong>
-                </div>
-              </div>
-
-              {/* Giai đoạn 4: Đã Giải Quyết */}
-              <div
-                onClick={() => {
-                  setSelectedReportSheet('ĐÃ GIẢI QUYẾT');
-                  setReportPage(1);
-                  setReportStatusFilter('ALL');
-                }}
-                className={`border rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group ${
-                  selectedReportSheet === 'ĐÃ GIẢI QUYẾT'
-                    ? 'ring-2 ring-emerald-500 border-emerald-500'
-                    : isLight
-                    ? 'bg-emerald-50/60 border-emerald-200/80 hover:border-emerald-400'
-                    : 'bg-slate-900/90 border-emerald-500/30 hover:border-emerald-500/60'
-                }`}
-              >
-                <div className="flex items-center justify-between text-xs mb-2">
-                  <span className="font-bold uppercase tracking-wider text-[10px] text-emerald-500 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    Phần 4: Đã Giải Quyết
-                  </span>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                </div>
-                <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-emerald-700' : 'text-emerald-300'}`}>
-                  {syncSummary ? syncSummary.daGiaiQuyet.toLocaleString('vi-VN') : '...'}
-                  <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
-                </div>
-                <div className={`mt-2 text-[11px] pt-2 border-t flex items-center justify-between ${
-                  isLight ? 'border-emerald-200/60 text-slate-600' : 'border-slate-800/80 text-slate-400'
-                }`}>
-                  <span>Đã lên GGS chính:</span>
-                  <strong className="text-emerald-600 font-bold">Hoàn tất</strong>
-                </div>
-              </div>
-            </div>
-
-            {/* Sub-tabs điều hướng 5 phần + 16 Thôn Buôn */}
+            {/* Sub-tabs điều hướng 5 phần danh sách */}
             <div className={`flex border-b gap-2 overflow-x-auto no-scrollbar pt-2 ${
               isLight ? 'border-slate-200' : 'border-slate-800'
             }`}>
@@ -2123,28 +1941,27 @@ export default function DashboardPage() {
                 {
                   id: 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)',
                   label: '1. Đang Kê Khai (Chưa có CCCD)',
-                  count: syncSummary ? syncSummary.canTimCccd + syncSummary.khongCoCccd : undefined,
+                  count: syncSummary ? syncSummary.canTimCccd + syncSummary.khongCoCccd : 132,
                   color: 'amber',
                 },
                 {
                   id: 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)',
                   label: '2. Sẵn Sàng Đóng Tập (Có CCCD)',
-                  count: syncSummary?.daDongTap,
+                  count: syncSummary?.daDongTap ?? 7,
                   color: 'indigo',
                 },
                 {
                   id: 'CHỜ NHẬP',
                   label: '3. Chờ Nhập (57 cột)',
-                  count: syncSummary?.choNhap ?? syncSummary?.nhapGgs,
+                  count: (syncSummary?.choNhap ?? syncSummary?.nhapGgs) ?? 7,
                   color: 'sky',
                 },
                 {
                   id: 'ĐÃ GIẢI QUYẾT',
                   label: '4. Đã Giải Quyết (GGS)',
-                  count: syncSummary?.daGiaiQuyet,
+                  count: syncSummary?.daGiaiQuyet ?? globalStats.green,
                   color: 'emerald',
                 },
-                { id: 'THỐNG KÊ', label: 'Bảng Thống Kê 16 Thôn / Buôn', count: 16, color: 'purple' },
               ].map((tab) => {
                 const isActive = selectedReportSheet === tab.id;
                 return (
@@ -2180,152 +1997,8 @@ export default function DashboardPage() {
               })}
             </div>
 
-            {/* BẢNG 1: HIỂN THỊ SHEET THỐNG KÊ (16 THÔN / BUÔN) */}
-            {selectedReportSheet === 'THỐNG KÊ' && (
-              <div className={`border rounded-2xl p-4 sm:p-5 shadow-sm space-y-4 ${
-                isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
-              }`}>
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <h3 className={`text-sm sm:text-base font-bold flex items-center gap-2 ${
-                      isLight ? 'text-slate-900' : 'text-white'
-                    }`}>
-                      <Building2 className="w-4 h-4 text-indigo-500" />
-                      Tiến Độ Thửa Đất Chưa Hoàn Thành Theo 16 Thôn / Buôn
-                    </h3>
-                    <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                      Bấm vào hàng của thôn bất kỳ để mở danh sách lọc các thửa tương ứng trên Bản đồ / Tra Cứu
-                    </p>
-                  </div>
-                  <span className={`text-xs px-3 py-1 rounded-xl border ${
-                    isLight ? 'bg-slate-50 text-slate-600 border-slate-200' : 'bg-slate-950 text-slate-400 border-slate-800'
-                  }`}>
-                    Tổng 16 thôn + chưa xác định
-                  </span>
-                </div>
-
-                {isLoadingSyncSheets && !syncSheetsData ? (
-                  <div className="py-12 text-center text-slate-400 space-y-2">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto text-indigo-500" />
-                    <p className="text-xs font-semibold">Đang tổng hợp số liệu realtime từ Cloudflare R2...</p>
-                  </div>
-                ) : (
-                  <div className={`overflow-x-auto rounded-xl border ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
-                    <table className={`w-full text-xs text-left ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                      <thead>
-                        <tr className={`border-b font-bold ${
-                          isLight ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-950 text-slate-400 border-slate-800'
-                        }`}>
-                          <th rowSpan={2} className={`py-2.5 px-3 text-center border-r w-12 font-bold ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>STT</th>
-                          <th rowSpan={2} className={`py-2.5 px-3 border-r font-bold min-w-[150px] ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>Tên Thôn / Buôn</th>
-                          <th colSpan={3} className={`py-1.5 px-3 text-center border-r font-bold ${
-                            isLight ? 'border-slate-200 bg-slate-50 text-slate-800' : 'border-slate-800 bg-slate-900/80 text-slate-300'
-                          }`}>
-                            Chưa Thực Hiện
-                          </th>
-                          <th colSpan={4} className={`py-1.5 px-3 text-center border-r font-bold ${
-                            isLight ? 'border-slate-200 bg-blue-50 text-blue-800' : 'border-slate-800 bg-slate-900/80 text-blue-300'
-                          }`}>
-                            Đã Kê Khai (Thu Thập Hồ Sơ)
-                          </th>
-                          <th rowSpan={2} className={`py-2.5 px-3 text-center font-bold ${
-                            isLight ? 'text-emerald-700 bg-emerald-50' : 'text-emerald-400 bg-emerald-950/20'
-                          }`}>
-                            Đã Hoàn Thành
-                          </th>
-                        </tr>
-                        <tr className={`border-b text-[11px] font-semibold ${
-                          isLight ? 'bg-slate-50/90 border-slate-200 text-slate-600' : 'bg-slate-950/90 border-slate-800 text-slate-400'
-                        }`}>
-                          <th className={`py-1.5 px-2 text-center border-r ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>Tổng</th>
-                          <th className={`py-1.5 px-2 text-center border-r text-amber-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>Có Tên</th>
-                          <th className={`py-1.5 px-2 text-center border-r ${isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'}`}>Không Tên</th>
-                          <th className={`py-1.5 px-2 text-center border-r text-blue-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>Tổng</th>
-                          <th className={`py-1.5 px-2 text-center border-r text-indigo-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>Có CCCD</th>
-                          <th className={`py-1.5 px-2 text-center border-r text-amber-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>Cần Tìm</th>
-                          <th className={`py-1.5 px-2 text-center border-r text-rose-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>Không CCCD</th>
-                        </tr>
-                      </thead>
-                      <tbody className={`divide-y ${isLight ? 'divide-slate-200' : 'divide-slate-800/60'}`}>
-                        {(() => {
-                          const rawRows = syncSheetsData?.['THỐNG KÊ'] || [];
-                          const tableHeaderIdx = rawRows.findIndex(
-                            (r) => Array.isArray(r) && r[0] === 'STT' && r[1] === 'Tên thôn / buôn'
-                          );
-                          const dataRows = tableHeaderIdx >= 0 ? rawRows.slice(tableHeaderIdx + 1) : [];
-
-                          if (dataRows.length === 0) {
-                            return (
-                              <tr>
-                                <td colSpan={10} className="py-8 text-center text-slate-500">
-                                  Chưa có dữ liệu thống kê. Bấm &quot;Làm Mới Realtime&quot; ở trên để tính toán.
-                                </td>
-                              </tr>
-                            );
-                          }
-
-                          return dataRows.map((row, idx) => {
-                            const isTotal = row[0] === 'TỔNG' || String(row[1]).includes('TOÀN XÃ');
-                            const thonName = String(row[1] || '');
-
-                            return (
-                              <tr
-                                key={idx}
-                                onClick={() => {
-                                  if (!isTotal) {
-                                    setVillageFilter(thonName);
-                                    setActiveTab('villages');
-                                  }
-                                }}
-                                className={`transition ${
-                                  isTotal
-                                    ? isLight
-                                      ? 'bg-indigo-50 font-black text-indigo-950 border-t-2 border-indigo-300'
-                                      : 'bg-indigo-950/40 font-black text-slate-100 border-t-2 border-indigo-500/40'
-                                    : isLight
-                                    ? 'hover:bg-slate-50 cursor-pointer'
-                                    : 'hover:bg-slate-800/50 cursor-pointer'
-                                }`}
-                              >
-                                <td className={`py-2 px-3 text-center border-r ${
-                                  isLight ? 'border-slate-200' : 'border-slate-800'
-                                } ${isTotal ? 'text-amber-500 font-black' : isLight ? 'text-slate-400' : 'text-slate-500'}`}>
-                                  {row[0]}
-                                </td>
-                                <td className={`py-2 px-3 border-r font-bold ${
-                                  isLight ? 'border-slate-200' : 'border-slate-800'
-                                } ${isTotal ? (isLight ? 'text-indigo-900' : 'text-amber-300') : (isLight ? 'text-slate-800' : 'text-slate-200')}`}>
-                                  {thonName}
-                                  {!isTotal && (
-                                    <span className="text-[10px] text-indigo-500 ml-1.5 opacity-0 group-hover:opacity-100 transition">
-                                      →
-                                    </span>
-                                  )}
-                                </td>
-                                <td className={`py-2 px-2 text-center border-r font-semibold ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>{row[2]}</td>
-                                <td className={`py-2 px-2 text-center border-r text-amber-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>{row[3]}</td>
-                                <td className={`py-2 px-2 text-center border-r ${isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'}`}>{row[4]}</td>
-                                <td className={`py-2 px-2 text-center border-r font-bold text-blue-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>{row[5]}</td>
-                                <td className={`py-2 px-2 text-center border-r text-indigo-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>{row[6]}</td>
-                                <td className={`py-2 px-2 text-center border-r text-amber-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>{row[7]}</td>
-                                <td className={`py-2 px-2 text-center border-r text-rose-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>{row[8]}</td>
-                                <td className={`py-2 px-3 text-center font-bold ${
-                                  isLight ? 'text-emerald-700 bg-emerald-50' : 'text-emerald-400 bg-emerald-950/10'
-                                }`}>{row[9]}</td>
-                              </tr>
-                            );
-                          });
-                        })()}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* BẢNG 2, 3, 4, 5: HIỂN THỊ CÁC SHEET CHI TIẾT (ĐÓNG TẬP, THIẾU CCCD, ĐÃ GIẢI QUYẾT, 57 CỘT) */}
-            {selectedReportSheet !== 'THỐNG KÊ' && (
-              <div className={`border rounded-2xl p-4 sm:p-5 shadow-sm space-y-4 ${
+            {/* BẢNG DỮ LIỆU CÁC SHEET CHI TIẾT (0. Chưa Kê Khai, 1. Chưa Có CCCD, 2. Sẵn Sàng Đóng Tập, 3. Chờ Nhập, 4. Đã Giải Quyết) */}
+            <div className={`border rounded-2xl p-4 sm:p-5 shadow-sm space-y-4 ${
                 isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
               }`}>
                 {(() => {
@@ -2344,7 +2017,7 @@ export default function DashboardPage() {
                         p.to_ban_do || '',
                         p.so_thua || '',
                         p.thon_xa || 'Chưa rõ thôn',
-                        p.chu_ho || 'Chưa có tên',
+                        p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG' ? (p.chu_ho || 'Chưa có tên') : 'Chưa có tên',
                         (p as any).ngay_sinh || '',
                         (p as any).gioi_tinh || 'Nam',
                         cccdText,
@@ -2703,56 +2376,7 @@ export default function DashboardPage() {
                           </div>
                         )}
 
-                        {/* Nút tác vụ chọn nhiều thửa nếu là sheet Chưa thực hiện */}
-                        {isChuaThucHienSheet && (
-                          <div className="flex flex-wrap items-center gap-2">
-                            {chuaThucHienSelectedCodes.size > 0 && (
-                              <>
-                                <span className={`text-xs font-bold px-2.5 py-1 rounded-lg border ${
-                                  isLight ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-emerald-950/60 text-emerald-300 border-emerald-600/50'
-                                }`}>
-                                  Đã chọn: {chuaThucHienSelectedCodes.size} thửa
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={handleCopySelectedChuaThucHienCodes}
-                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
-                                    isLight
-                                      ? 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300 shadow-xs'
-                                      : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
-                                  }`}
-                                  title="Sao chép các mã thửa đã chọn vào bộ nhớ tạm"
-                                >
-                                  <Copy className="w-3.5 h-3.5 text-emerald-500" />
-                                  <span>Sao chép mã</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setChuaThucHienSelectedCodes(new Set())}
-                                  className={`text-xs underline transition cursor-pointer ${
-                                    isLight ? 'text-slate-500 hover:text-slate-800' : 'text-slate-400 hover:text-slate-200'
-                                  }`}
-                                >
-                                  Bỏ chọn tất cả
-                                </button>
-                              </>
-                            )}
-                            {filtered.length > 0 && chuaThucHienSelectedCodes.size < filtered.length && (
-                              <button
-                                type="button"
-                                onClick={handleSelectAllFilteredChuaThucHien}
-                                className={`text-xs px-2.5 py-1 rounded-lg border transition font-semibold cursor-pointer ${
-                                  isLight
-                                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
-                                    : 'bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-400 border-emerald-800/60'
-                                }`}
-                                title="Tích chọn tất cả các thửa đang hiển thị theo bộ lọc hiện tại"
-                              >
-                                Tích chọn tất cả ({filtered.length} thửa đang lọc)
-                              </button>
-                            )}
-                          </div>
-                        )}
+
                       </div>
 
                       {/* Hàng bộ lọc: Thôn / Buôn, Trạng thái, Có tên/Không có tên, Sắp xếp A-Z, Hiển thị, Tìm kiếm */}
@@ -3009,15 +2633,7 @@ export default function DashboardPage() {
                                     } ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}
                                   >
                                     <div className="flex items-center gap-1.5 relative">
-                                      {isMaThuaHeader && (
-                                        <input
-                                          type="checkbox"
-                                          checked={isAllPageSelectedChuaThucHien}
-                                          onChange={toggleSelectAllPageChuaThucHien}
-                                          className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
-                                          title={isAllPageSelectedChuaThucHien ? 'Bỏ chọn cả trang này' : 'Chọn tất cả thửa trên trang này'}
-                                        />
-                                      )}
+                                      
                                       <span>{h}</span>
                                       {isMaThuaHeader && (
                                         <div className="relative inline-block text-left">
@@ -3025,6 +2641,11 @@ export default function DashboardPage() {
                                             type="button"
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              const rect = e.currentTarget.getBoundingClientRect();
+                                              setFilterPopupPos({
+                                                top: rect.bottom + 6,
+                                                left: Math.max(10, Math.min(rect.left, window.innerWidth - 300)),
+                                              });
                                               setChuaThucHienDropdownOpen((prev) => !prev);
                                               setTempSelectedMaThuas(new Set(appliedMaThuas));
                                             }}
@@ -3047,13 +2668,27 @@ export default function DashboardPage() {
                                           </button>
 
                                           {/* Popover Lọc kiểu Excel */}
-                                          {chuaThucHienDropdownOpen && (
-                                            <div
-                                              onClick={(e) => e.stopPropagation()}
-                                              className={`absolute left-0 top-full mt-2 w-72 max-w-[90vw] p-3 rounded-2xl shadow-2xl border z-50 text-left font-normal ${
-                                                isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-100'
-                                              }`}
-                                            >
+                                          {chuaThucHienDropdownOpen && filterPopupPos && (
+                                            <>
+                                              <div
+                                                className="fixed inset-0 z-[99998]"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setChuaThucHienDropdownOpen(false);
+                                                }}
+                                              />
+                                              <div
+                                                onClick={(e) => e.stopPropagation()}
+                                                style={{
+                                                  position: 'fixed',
+                                                  top: `${filterPopupPos.top}px`,
+                                                  left: `${filterPopupPos.left}px`,
+                                                  zIndex: 99999,
+                                                }}
+                                                className={`w-72 max-w-[90vw] p-3 rounded-2xl shadow-2xl border text-left font-normal ${
+                                                  isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-100'
+                                                }`}
+                                              >
                                               <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800 mb-2">
                                                 <span className="text-xs font-bold flex items-center gap-1.5">
                                                   <Filter className="w-3.5 h-3.5 text-emerald-500" />
@@ -3184,6 +2819,7 @@ export default function DashboardPage() {
                                                 </div>
                                               </div>
                                             </div>
+                                            </>
                                           )}
                                         </div>
                                       )}
@@ -3427,22 +3063,7 @@ export default function DashboardPage() {
                                       if (cIdx === 1 && isChuaThucHienSheet) {
                                         return (
                                           <td key={cIdx} className={`py-2 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
-                                            <div className="flex items-center gap-2">
-                                              <input
-                                                type="checkbox"
-                                                checked={isChuaThucHienChecked}
-                                                onChange={() => {
-                                                  setChuaThucHienSelectedCodes((prev) => {
-                                                    const next = new Set(prev);
-                                                    if (next.has(maThua)) next.delete(maThua);
-                                                    else next.add(maThua);
-                                                    return next;
-                                                  });
-                                                }}
-                                                className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
-                                              />
-                                              <span className="font-semibold text-emerald-700 dark:text-emerald-400">{cleanText}</span>
-                                            </div>
+                                            <span className="font-semibold text-emerald-700 dark:text-emerald-400">{cleanText}</span>
                                           </td>
                                         );
                                       }
@@ -3590,7 +3211,6 @@ export default function DashboardPage() {
                   );
                 })()}
               </div>
-            )}
           </div>
         )}
       </main>
