@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { Parcel, DeclarationFormData, AdditionalParcel } from '@/types';
 import { Printer, X, FileText, Download, CheckCircle2, ShieldCheck, MapPin, Image as ImageIcon, Loader2 } from 'lucide-react';
-import { generateReadyToPackPdf, downloadPdfBlob, ReadyToPackItem } from '@/utils/pdfPacker';
+import { generateReadyToPackPdf, downloadPdfBlob, ReadyToPackItem, cleanDisplayAddress } from '@/utils/pdfPacker';
 
 export interface PrintableDeclarationItem {
   parcel: Parcel;
@@ -240,7 +240,7 @@ export default function DeclarationPrintModal({
               stt: i + 1,
               so_thua: dp ? dp.so_thua : '',
               to_ban_do: dp ? dp.to_ban_do : '',
-              dia_chi: dp ? (dp.thon_xa ? `${dp.thon_xa}, Cư Pui` : 'Xã Cư Pui') : '',
+              dia_chi: dp ? cleanDisplayAddress(dp.thon_xa) : '',
               dien_tich: dp ? dp.dien_tich : '',
               loai_dat: dp ? dp.loai_dat : '',
               thoi_han: dp ? (dp.loai_dat?.includes('ONT') ? 'Lâu dài' : '50 năm') : '',

@@ -6,6 +6,7 @@ export interface ReadyToPackItem {
   to_ban_do: string;
   so_thua: string;
   thon_xa: string;
+  dia_chi?: string | null;
   chu_ho: string;
   dob?: string | null;
   gender?: string | null;
@@ -42,6 +43,22 @@ function cleanOwnerNameDisplay(name?: string): string {
   return name.replace(/^(hộ ông|hộ bà|ông|bà)\s*:?/i, '').trim();
 }
 
+export function cleanDisplayAddress(rawAddr?: string): string {
+  if (!rawAddr || !rawAddr.trim()) return 'Xã Cư Pui';
+  let addr = rawAddr.trim().replace(/,\s*$/, '');
+  
+  // Nếu chỉ có "Xã Cư Pui" hoặc "Cư Pui"
+  if (/^(x[ãa]\s*)?c[uư]\s*pui$/i.test(addr)) return 'Xã Cư Pui';
+
+  // Xóa sạch tất cả các đuôi lặp lại ", xã Cư Pui", "xã Cư Pui", ", Cư Pui"
+  addr = addr.replace(/([,\s]+x[ãa]\s*c[uư]\s*pui)+$/i, '');
+  addr = addr.replace(/([,\s]+c[uư]\s*pui)+$/i, '');
+  addr = addr.trim().replace(/,\s*$/, '');
+
+  if (!addr || /^(x[ãa]\s*)?c[uư]\s*pui$/i.test(addr)) return 'Xã Cư Pui';
+  return `${addr}, xã Cư Pui`;
+}
+
 async function loadBuffer(urlOrPath: string): Promise<ArrayBuffer> {
   const resp = await fetch(urlOrPath);
   if (!resp.ok) {
@@ -58,13 +75,13 @@ export async function generateReadyToPackPdf(
     throw new Error('Không có thửa đất nào để đóng tập.');
   }
 
-  onProgress?.(0, items.length, 'Đang chuẩn bị mẫu hồ sơ và font chữ...');
+  onProgress?.(0, items.length, 'Đang chuẩn bị mẫu hồ sơ và font chữ Calibri...');
 
-  // 1. Tải mẫu template.pdf và fonts (sử dụng font in đậm timesbd.ttf cho thông tin kê khai)
+  // 1. Tải mẫu template.pdf và fonts Calibri (sử dụng font in đậm calibrib.ttf cho toàn bộ thông tin kê khai)
   const [templateBytes, fontRegularBytes, fontBoldBytes] = await Promise.all([
     loadBuffer('/template.pdf'),
-    loadBuffer('/fonts/times.ttf'),
-    loadBuffer('/fonts/timesbd.ttf'),
+    loadBuffer('/fonts/calibri.ttf'),
+    loadBuffer('/fonts/calibrib.ttf'),
   ]);
 
   // 2. Gom nhóm các thửa theo Chủ hộ / Người sử dụng đất (y hệt logic PDF_Web_App)
@@ -211,7 +228,7 @@ export async function generateReadyToPackPdf(
     // ========================================================
     const tempDoc = await PDFDocument.load(templateBytes, { ignoreEncryption: true });
     tempDoc.registerFontkit(fontkit);
-    const timesFont = await tempDoc.embedFont(fontBoldBytes); // In đậm tất cả chữ ghi trên phiếu kê khai
+    const calibriFont = await tempDoc.embedFont(fontBoldBytes); // In đậm tất cả chữ ghi trên phiếu kê khai bằng font Calibri
 
     const p1 = tempDoc.getPages()[0];
     const pageH = p1.getHeight();
@@ -222,14 +239,14 @@ export async function generateReadyToPackPdf(
     const fitzToPdfY = (yFitz: number) => pageH - (yFitz + yOff);
 
     const cccdVal = firstRow.cccd || '';
-    const diaChiVal = firstRow.thon_xa ? `${firstRow.thon_xa}, xã Cư Pui` : 'Xã Cư Pui';
+    const diaChiVal = cleanDisplayAddress(firstRow.dia_chi || firstRow.thon_xa || '');
 
     // Họ tên, CCCD, địa chỉ chung
     p1.drawText(ownerDisplayName, {
       x: 209.76,
       y: fitzToPdfY(248),
       size: 11,
-      font: timesFont,
+      font: calibriFont,
       color: rgb(0, 0, 0),
     });
     if (cccdVal) {
@@ -237,22 +254,22 @@ export async function generateReadyToPackPdf(
         x: 306.45,
         y: fitzToPdfY(272),
         size: 11,
-        font: timesFont,
+        font: calibriFont,
         color: rgb(0, 0, 0),
       });
     }
     p1.drawText(diaChiVal, {
       x: 199.76,
       y: fitzToPdfY(320),
-      size: 10,
-      font: timesFont,
+      size: 11, // Cỡ chữ 11 đồng đều với các giá trị khác
+      font: calibriFont,
       color: rgb(0, 0, 0),
     });
     p1.drawText('Xã Cư Pui', {
       x: 199.76,
       y: fitzToPdfY(489),
       size: 11,
-      font: timesFont,
+      font: calibriFont,
       color: rgb(0, 0, 0),
     });
 
@@ -267,42 +284,42 @@ export async function generateReadyToPackPdf(
         x: 219.76,
         y: fitzToPdfY(465),
         size: 11,
-        font: timesFont,
+        font: calibriFont,
         color: rgb(0, 0, 0),
       });
       p1.drawText(String(r.to_ban_do || ''), {
         x: 416.41,
         y: fitzToPdfY(465),
         size: 11,
-        font: timesFont,
+        font: calibriFont,
         color: rgb(0, 0, 0),
       });
       p1.drawText(dienTichFormatted, {
         x: 187.08,
         y: fitzToPdfY(513),
         size: 11,
-        font: timesFont,
+        font: calibriFont,
         color: rgb(0, 0, 0),
       });
       p1.drawText(String(r.loai_dat || ''), {
         x: 257.08,
         y: fitzToPdfY(538),
         size: 11,
-        font: timesFont,
+        font: calibriFont,
         color: rgb(0, 0, 0),
       });
       p1.drawText(thoiHan, {
         x: 325.59,
         y: fitzToPdfY(562),
         size: 11,
-        font: timesFont,
+        font: calibriFont,
         color: rgb(0, 0, 0),
       });
       p1.drawText(nguonGoc, {
         x: 265.59,
         y: fitzToPdfY(586),
         size: 11,
-        font: timesFont,
+        font: calibriFont,
         color: rgb(0, 0, 0),
       });
 
@@ -323,35 +340,35 @@ export async function generateReadyToPackPdf(
         x: 219.76,
         y: fitzToPdfY(465),
         size: 11,
-        font: timesFont,
+        font: calibriFont,
         color: rgb(0, 0, 0),
       });
       p1.drawText(toBanDoList, {
         x: 416.41,
         y: fitzToPdfY(465),
         size: 10,
-        font: timesFont,
+        font: calibriFont,
         color: rgb(0, 0, 0),
       });
       p1.drawText(mucDichList, {
         x: 257.08,
         y: fitzToPdfY(538),
         size: 10,
-        font: timesFont,
+        font: calibriFont,
         color: rgb(0, 0, 0),
       });
       p1.drawText(thoiHanList, {
         x: 325.59,
         y: fitzToPdfY(562),
         size: 10,
-        font: timesFont,
+        font: calibriFont,
         color: rgb(0, 0, 0),
       });
       p1.drawText(nguonGocList, {
         x: 265.59,
         y: fitzToPdfY(586),
         size: 10,
-        font: timesFont,
+        font: calibriFont,
         color: rgb(0, 0, 0),
       });
 
