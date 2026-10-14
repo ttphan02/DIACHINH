@@ -5,7 +5,7 @@ import Link from 'next/link';
 import rawParcels from '@/data/parcels.json';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones } from '@/utils/geo';
-import { stripAccents, cleanCccd } from '@/utils/syncGoogleSheets';
+import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES } from '@/utils/syncGoogleSheets';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration } from '@/utils/declaration';
 import DeclarationPrintModal, { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
 import DashboardParcelModal from '@/components/DashboardParcelModal';
@@ -201,18 +201,15 @@ export default function DashboardPage() {
           lastCloudSigRef.current = sig;
           if (data.updatedAt) lastCloudUpdatedAtRef.current = data.updatedAt;
 
-          // HỢP NHẤT DỮ LIỆU CỤC BỘ & ĐÁM MÂY (Không bao giờ làm mất thửa vừa kê khai)
-          const localStored = getStoredDeclarations();
-          const combinedCodes = new Set<string>([...data.declaredCodes, ...localStored.declaredCodes]);
-          const combinedMap = { ...localStored.declarationsMap, ...cloudMap };
-
-          setDeclaredParcelCodes(combinedCodes);
-          setDeclarationsMap(combinedMap);
+          // CẬP NHẬT DỮ LIỆU ĐỒNG BỘ CHÍNH XÁC TỪ CLOUD R2
+          const cloudCodesSet = new Set<string>(data.declaredCodes);
+          setDeclaredParcelCodes(cloudCodesSet);
+          setDeclarationsMap(cloudMap);
 
           if (typeof window !== 'undefined') {
             try {
-              localStorage.setItem('diachinh_declared_codes', JSON.stringify(Array.from(combinedCodes)));
-              localStorage.setItem('diachinh_declarations_map', JSON.stringify(combinedMap));
+              localStorage.setItem('diachinh_declared_codes', JSON.stringify(data.declaredCodes));
+              localStorage.setItem('diachinh_declarations_map', JSON.stringify(cloudMap));
             } catch (e) {}
           }
         }
@@ -490,16 +487,18 @@ export default function DashboardPage() {
   // 3. Tính toán trạng thái thực tế của từng thửa
   const computedParcels = useMemo(() => {
     return parcels.map((p) => {
-      let finalStatus: ParcelStatus = p.trang_thai;
-      let isOnGgs = false;
-      let isDeclared = false;
+      const isOnGgs = ggsCodes.has(p.ma_thua);
+      const isDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(declarationsMap[p.ma_thua]);
 
-      if (ggsCodes.has(p.ma_thua)) {
+      let finalStatus: ParcelStatus;
+      if (isOnGgs || p.trang_thai === 'DA_SO_HOA_XANH') {
         finalStatus = 'DA_SO_HOA_XANH';
-        isOnGgs = true;
-      } else if (declaredParcelCodes.has(p.ma_thua) || declarationsMap[p.ma_thua]) {
+      } else if (isDeclared) {
         finalStatus = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
-        isDeclared = true;
+      } else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') {
+        finalStatus = 'CO_TEN_CHUA_SO_HOA_VANG';
+      } else {
+        finalStatus = 'CHUA_CO_TEN_XAM';
       }
 
       // Gộp thêm dữ liệu kê khai mới nhất từ LocalStorage (nếu có)
@@ -643,7 +642,7 @@ export default function DashboardPage() {
     > = {};
 
     computedParcels.forEach((p) => {
-      const vName = p.thon_xa?.trim() || 'Chưa rõ địa chỉ thôn';
+      const vName = getCanonicalVillage(p.thon_xa);
       if (!map[vName]) {
         map[vName] = {
           name: vName,
@@ -1460,14 +1459,14 @@ export default function DashboardPage() {
               <CheckCircle2 className="w-4 h-4 text-emerald-500" />
             </div>
             <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-emerald-700' : 'text-emerald-300'}`}>
-              {(globalStats.green + (syncSummary?.daGiaiQuyet || 0)).toLocaleString('vi-VN')}
+              {globalStats.green.toLocaleString('vi-VN')}
               <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
             </div>
             <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
               isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
             }`}>
-              <span>Đã số hóa: <strong className="text-emerald-600 font-bold">{globalStats.green.toLocaleString('vi-VN')}</strong></span>
-              <span>Đã giải quyết: <strong className="text-emerald-500 font-bold">{syncSummary?.daGiaiQuyet || 0}</strong></span>
+              <span>Đã số hóa (GGS): <strong className="text-emerald-600 font-bold">{globalStats.green.toLocaleString('vi-VN')}</strong></span>
+              <span>Đã giải quyết qua web: <strong className="text-emerald-500 font-bold">{syncSummary?.daGiaiQuyet || 0}</strong></span>
             </div>
           </div>
 
@@ -1492,7 +1491,7 @@ export default function DashboardPage() {
               <FileSpreadsheet className="w-4 h-4 text-indigo-500" />
             </div>
             <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-indigo-700' : 'text-indigo-300'}`}>
-              {(syncSummary ? (syncSummary.totalDeclared - syncSummary.daGiaiQuyet) : globalStats.blue).toLocaleString('vi-VN')}
+              {globalStats.blue.toLocaleString('vi-VN')}
               <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>hồ sơ</span>
             </div>
             <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${

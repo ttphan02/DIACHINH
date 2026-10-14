@@ -1,5 +1,5 @@
 import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
-import villageStatsData from '@/data/village_stats.json';
+import rawParcels from '@/data/parcels.json';
 import parcelMetaData from '@/data/parcel_meta.json';
 import { fetchOrGetCachedGgsData } from '@/utils/ggsData';
 
@@ -81,6 +81,56 @@ export function normalizeAddress(addr: string): string {
   if (a.includes('blak')) return 'Buôn Blăk, xã Cư Pui';
   if (['hoa phong', 'ho phong', 'thon 3', 'thon 4'].some((k) => a.includes(k))) return 'Thôn Hòa Phong, xã Cư Pui';
   return addr.trim() || 'xã Cư Pui';
+}
+
+export const CANONICAL_VILLAGES = [
+  'Thôn Ba Phường',
+  'Buôn Ngô',
+  'Buôn Bhung',
+  'Buôn Cư Phiang',
+  'Buôn Tliêr',
+  'Thôn Hòa Phong',
+  'Thôn Cẩm Phong',
+  'Thôn Noh Prông',
+  'Thôn Ea Khiêm',
+  'Buôn Đắk Tuôr',
+  'Buôn Khanh',
+  'Thôn Ea Uôl',
+  'Thôn Ea Lang',
+  'Thôn Ea Rớt',
+  'Thôn Cư Tê',
+  'Thôn Cư Rang',
+  'Thôn Ea Bar',
+  'Buôn Khóa',
+  'Buôn Blăk',
+  'Thôn Điện Tân',
+  'Chưa xác định',
+];
+
+export function getCanonicalVillage(addr: string): string {
+  if (!addr) return 'Chưa xác định';
+  const a = stripAccents(addr);
+  if (a.includes('ba phuong') || a.includes('3 phuong')) return 'Thôn Ba Phường';
+  if (a.includes('ngo')) return 'Buôn Ngô';
+  if (a.includes('bhung')) return 'Buôn Bhung';
+  if (a.includes('cu phiang') || a.includes('cu piang')) return 'Buôn Cư Phiang';
+  if (a.includes('tlier') || a.includes('tlia')) return 'Buôn Tliêr';
+  if (a.includes('hoa phong') || a.includes('ho phong')) return 'Thôn Hòa Phong';
+  if (a.includes('cam phong')) return 'Thôn Cẩm Phong';
+  if (a.includes('noh prong')) return 'Thôn Noh Prông';
+  if (a.includes('ea khiem')) return 'Thôn Ea Khiêm';
+  if (a.includes('dak tuor') || a.includes('dak tua')) return 'Buôn Đắk Tuôr';
+  if (a.includes('khanh')) return 'Buôn Khanh';
+  if (a.includes('ea uol')) return 'Thôn Ea Uôl';
+  if (a.includes('ea lang')) return 'Thôn Ea Lang';
+  if (a.includes('ea rot') || a.includes('rot')) return 'Thôn Ea Rớt';
+  if (a.includes('cu te')) return 'Thôn Cư Tê';
+  if (a.includes('cu rang')) return 'Thôn Cư Rang';
+  if (a.includes('ea bar') || a.includes('ea ba')) return 'Thôn Ea Bar';
+  if (a.includes('khoa')) return 'Buôn Khóa';
+  if (a.includes('blak')) return 'Buôn Blăk';
+  if (a.includes('dien tan')) return 'Thôn Điện Tân';
+  return 'Chưa xác định';
 }
 
 function parseNameAndType(rawName: string) {
@@ -624,61 +674,109 @@ export async function executeSyncToGoogleSheet(
       ]
     ];
 
-    const villageStats = villageStatsData as any;
-    const cotenByThon = villageStats.coten || {};
-    const khongtenByThon = villageStats.khongten || {};
-    const allThons = Object.keys(cotenByThon);
-    for (const t of Object.keys(khongtenByThon)) {
-      if (!allThons.includes(t) && t !== 'chưa sát định') allThons.push(t);
-    }
-    allThons.push('chưa sát định');
+    const vMap: Record<
+      string,
+      {
+        name: string;
+        coTen: number;
+        khongTen: number;
+        coCccd: number;
+        canTim: number;
+        khongCccd: number;
+        hoanThanh: number;
+      }
+    > = {};
+
+    CANONICAL_VILLAGES.forEach((v) => {
+      vMap[v] = {
+        name: v,
+        coTen: 0,
+        khongTen: 0,
+        coCccd: 0,
+        canTim: 0,
+        khongCccd: 0,
+        hoanThanh: 0,
+      };
+    });
+
+    // 1. Phân loại các hồ sơ đã kê khai nhưng CHƯA có trên GGS (stage 2, 1a, 1b)
+    stage2DaDongTap.forEach((it) => {
+      const v = getCanonicalVillage(it.thon_xa);
+      if (vMap[v]) vMap[v].coCccd++;
+      else vMap['Chưa xác định'].coCccd++;
+    });
+
+    stage1CanTimCccd.forEach((it) => {
+      const v = getCanonicalVillage(it.thon_xa);
+      if (vMap[v]) vMap[v].canTim++;
+      else vMap['Chưa xác định'].canTim++;
+    });
+
+    stage1KhongCoCccd.forEach((it) => {
+      const v = getCanonicalVillage(it.thon_xa);
+      if (vMap[v]) vMap[v].khongCccd++;
+      else vMap['Chưa xác định'].khongCccd++;
+    });
+
+    // 2. Thống kê toàn bộ các thửa đất trong cơ sở dữ liệu xã Cư Pui (11.280 thửa)
+    (rawParcels as any[]).forEach((p) => {
+      const v = getCanonicalVillage(p.thon_xa);
+      const row = vMap[v] || vMap['Chưa xác định'];
+
+      const isOnGgs = ggsCodes.has(p.ma_thua);
+      if (isOnGgs || p.trang_thai === 'DA_SO_HOA_XANH') {
+        row.hoanThanh++;
+      } else if (processedParcels.has(p.ma_thua)) {
+        // Đã được đếm ở nhóm kê khai (stage 2 / 1a / 1b) ở trên!
+      } else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') {
+        row.coTen++;
+      } else {
+        row.khongTen++;
+      }
+    });
 
     let sumChuaThucHienTot = 0, sumChuaThucHienCoTen = 0, sumChuaThucHienKhongTen = 0;
     let sumKeKhaiTot = 0, sumCoCccd = 0, sumCanTimCccd = 0, sumKhongCoCccd = 0, sumHoanThanh = 0;
 
-    allThons.forEach((thon, idx) => {
-      const ct = cotenByThon[thon] || { total: 0, daco: 0 };
-      const kt = khongtenByThon[thon] || { total: 0, daco: 0 };
-      const tKey = thon.toLowerCase().replace('thôn ', '').replace('buôn ', '');
-
-      const matchesThon = (it: any) => normalizeAddress(it.thon_xa || '').toLowerCase().includes(tKey);
-
-      // Số đã hoàn thành (GGS / Trangtinh1)
-      const nHoanThanh = stage4DaGiaiQuyet.filter(matchesThon).length || (ct.daco + kt.daco);
-
-      // Số đã kê khai theo từng nhóm
-      const nCoCccd = stage2DaDongTap.filter(matchesThon).length;
-      const nCanTim = stage1CanTimCccd.filter(matchesThon).length;
-      const nKhongCccd = stage1KhongCoCccd.filter(matchesThon).length;
-      const nKeKhai = nCoCccd + nCanTim + nKhongCccd;
-
-      // Số chưa thực hiện (Case có tên & Case không tên)
-      const nChuaThucHienCoTen = Math.max(0, ct.total - ct.daco);
-      const nChuaThucHienKhongTen = Math.max(0, kt.total - kt.daco);
-      const nChuaThucHienTot = nChuaThucHienCoTen + nChuaThucHienKhongTen;
+    CANONICAL_VILLAGES.forEach((vName, idx) => {
+      const row = vMap[vName];
+      const nChuaThucHienTot = row.coTen + row.khongTen;
+      const nKeKhai = row.coCccd + row.canTim + row.khongCccd;
 
       rowsTk.push([
-        String(idx + 1), thon,
-        String(nChuaThucHienTot), String(nChuaThucHienCoTen), String(nChuaThucHienKhongTen),
-        String(nKeKhai), String(nCoCccd), String(nCanTim), String(nKhongCccd),
-        String(nHoanThanh)
+        String(idx + 1),
+        vName,
+        String(nChuaThucHienTot),
+        String(row.coTen),
+        String(row.khongTen),
+        String(nKeKhai),
+        String(row.coCccd),
+        String(row.canTim),
+        String(row.khongCccd),
+        String(row.hoanThanh),
       ]);
 
       sumChuaThucHienTot += nChuaThucHienTot;
-      sumChuaThucHienCoTen += nChuaThucHienCoTen;
-      sumChuaThucHienKhongTen += nChuaThucHienKhongTen;
+      sumChuaThucHienCoTen += row.coTen;
+      sumChuaThucHienKhongTen += row.khongTen;
       sumKeKhaiTot += nKeKhai;
-      sumCoCccd += nCoCccd;
-      sumCanTimCccd += nCanTim;
-      sumKhongCoCccd += nKhongCccd;
-      sumHoanThanh += nHoanThanh;
+      sumCoCccd += row.coCccd;
+      sumCanTimCccd += row.canTim;
+      sumKhongCoCccd += row.khongCccd;
+      sumHoanThanh += row.hoanThanh;
     });
 
     rowsTk.push([
-      'TỔNG', 'TOÀN XÃ CƯ PUI',
-      String(sumChuaThucHienTot), String(sumChuaThucHienCoTen), String(sumChuaThucHienKhongTen),
-      String(sumKeKhaiTot), String(sumCoCccd), String(sumCanTimCccd), String(sumKhongCoCccd),
-      String(sumHoanThanh)
+      'TỔNG',
+      'TOÀN XÃ CƯ PUI',
+      String(sumChuaThucHienTot),
+      String(sumChuaThucHienCoTen),
+      String(sumChuaThucHienKhongTen),
+      String(sumKeKhaiTot),
+      String(sumCoCccd),
+      String(sumCanTimCccd),
+      String(sumKhongCoCccd),
+      String(sumHoanThanh),
     ]);
 
     function padRectangular(rows: string[][]): string[][] {

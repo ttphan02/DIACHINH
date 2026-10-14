@@ -213,25 +213,22 @@ export default function Home() {
           lastCloudSigRef.current = sig;
           if (data.updatedAt) lastCloudUpdatedAtRef.current = data.updatedAt;
 
-          // HỢP NHẤT DỮ LIỆU CỤC BỘ & ĐÁM MÂY (Tránh race-condition làm mất thửa vừa kê khai)
-          const localStored = getStoredDeclarations();
-          const combinedCodes = new Set<string>([...data.declaredCodes, ...localStored.declaredCodes]);
-          const combinedMap = { ...localStored.declarationsMap, ...cloudMap };
-
-          setDeclaredParcelCodes(combinedCodes);
-          setDeclarationsMap(combinedMap);
+          // CẬP NHẬT DỮ LIỆU ĐỒNG BỘ CHÍNH XÁC TỪ CLOUD R2
+          const cloudCodesSet = new Set<string>(data.declaredCodes);
+          setDeclaredParcelCodes(cloudCodesSet);
+          setDeclarationsMap(cloudMap);
 
           if (typeof window !== 'undefined') {
             try {
-              localStorage.setItem('diachinh_declared_codes', JSON.stringify(Array.from(combinedCodes)));
-              localStorage.setItem('diachinh_declarations_map', JSON.stringify(combinedMap));
+              localStorage.setItem('diachinh_declared_codes', JSON.stringify(data.declaredCodes));
+              localStorage.setItem('diachinh_declarations_map', JSON.stringify(cloudMap));
             } catch (e) {}
           }
 
           // Khôi phục selectedParcel nếu đang xem đúng thửa vừa bị xóa trên máy khác
           setSelectedParcel((curr) => {
             if (!curr) return null;
-            if (curr.is_declared && !combinedCodes.has(curr.ma_thua)) {
+            if (curr.is_declared && !cloudCodesSet.has(curr.ma_thua)) {
               const orig = parcels.find((p) => p.ma_thua === curr.ma_thua);
               return {
                 ...(orig || curr),
@@ -340,7 +337,7 @@ export default function Home() {
   const computedParcels = useMemo<Parcel[]>(() => {
     return parcels.map((p) => {
       const isOnGgs = isGgsLoaded ? ggsCodes.has(p.ma_thua) : false;
-      const isLocallyDeclared = declaredParcelCodes.has(p.ma_thua);
+      const isLocallyDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(declarationsMap[p.ma_thua]);
 
       let trang_thai: ParcelStatus;
       if (isOnGgs || p.trang_thai === 'DA_SO_HOA_XANH') {
