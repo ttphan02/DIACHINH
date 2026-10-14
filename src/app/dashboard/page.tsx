@@ -80,8 +80,8 @@ export default function DashboardPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
 
-  // Active view tab in Dashboard: Bỏ overview và landTypes theo yêu cầu
-  const [activeTab, setActiveTab] = useState<'table' | 'progressReport' | 'villages' | 'cccd'>('progressReport');
+  // Active view tab in Dashboard: Giữ lại 3 tab: Báo Cáo Tiến Độ (4 Danh Sách & 16 Thôn), Tiến Độ 16 Thôn / Buôn, và Kho CCCD
+  const [activeTab, setActiveTab] = useState<'progressReport' | 'villages' | 'cccd'>('progressReport');
 
   // Theme state: Dark mode hoặc Light mode (lưu vào localStorage)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
@@ -1282,11 +1282,11 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Card 2: Đã Số Hóa GGS (Xanh lá) */}
+          {/* Card 2: Đã Số Hóa & Đã Giải Quyết (Gộp chung phần Đã giải quyết và Đã số hóa lại làm 1) */}
           <div
             onClick={() => {
-              setStatusFilter('DA_SO_HOA_XANH');
-              setActiveTab('table');
+              setSelectedReportSheet('ĐÃ GIẢI QUYẾT');
+              setActiveTab('progressReport');
             }}
             className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
               isLight
@@ -1298,27 +1298,59 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between text-emerald-500 text-xs mb-2">
               <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                Đã Số Hóa (GGS)
+                Đã Số Hóa & Đã Giải Quyết
               </span>
               <CheckCircle2 className="w-4 h-4 text-emerald-500" />
             </div>
             <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-emerald-700' : 'text-emerald-300'}`}>
-              {globalStats.green.toLocaleString('vi-VN')}
+              {(globalStats.green + (syncSummary?.daGiaiQuyet || 0)).toLocaleString('vi-VN')}
               <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
             </div>
             <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
               isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
             }`}>
-              <span>Tỷ lệ hoàn thành:</span>
-              <strong className="text-emerald-500 font-bold">{globalStats.completionRate}%</strong>
+              <span>Đã số hóa: <strong className="text-emerald-600 font-bold">{globalStats.green.toLocaleString('vi-VN')}</strong></span>
+              <span>Đã giải quyết: <strong className="text-emerald-500 font-bold">{syncSummary?.daGiaiQuyet || 0}</strong></span>
             </div>
           </div>
 
-          {/* Card 3: Chưa kê khai - Có tên chủ (Vàng) */}
+          {/* Card 3: Hồ Sơ Đang Kê Khai (Chưa có CCCD, Sẵn sàng đóng tập, Chờ nhập GGS) */}
           <div
             onClick={() => {
-              setStatusFilter('CO_TEN_CHUA_SO_HOA_VANG');
-              setActiveTab('table');
+              setSelectedReportSheet('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
+              setActiveTab('progressReport');
+            }}
+            className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
+              isLight
+                ? 'bg-white border-indigo-200 hover:border-indigo-300'
+                : 'bg-slate-900/90 border-indigo-500/30 hover:border-indigo-500/50'
+            }`}
+          >
+            <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl group-hover:bg-indigo-500/20 transition" />
+            <div className="flex items-center justify-between text-indigo-500 text-xs mb-2">
+              <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                Đang Kê Khai (Hồ Sơ)
+              </span>
+              <FileSpreadsheet className="w-4 h-4 text-indigo-500" />
+            </div>
+            <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-indigo-700' : 'text-indigo-300'}`}>
+              {(syncSummary ? (syncSummary.totalDeclared - syncSummary.daGiaiQuyet) : globalStats.blue).toLocaleString('vi-VN')}
+              <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>hồ sơ</span>
+            </div>
+            <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
+              isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
+            }`}>
+              <span>Chưa CCCD: <strong className="text-amber-500 font-bold">{syncSummary ? (syncSummary.canTimCccd + syncSummary.khongCoCccd) : 0}</strong></span>
+              <span>Sẵn sàng: <strong className="text-indigo-500 font-bold">{syncSummary?.daDongTap || 0}</strong></span>
+            </div>
+          </div>
+
+          {/* Card 4: Tổng Chưa Kê Khai (Gộp chung phần có tên và không có tên lại thành 1 tổng nhưng vẫn chia riêng 2 phần) */}
+          <div
+            onClick={() => {
+              setSelectedReportSheet('THỐNG KÊ');
+              setActiveTab('progressReport');
             }}
             className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
               isLight
@@ -1330,153 +1362,30 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between text-amber-500 text-xs mb-2">
               <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                Chưa Kê Khai - Có Tên
+                Tổng Chưa Kê Khai
               </span>
               <Users className="w-4 h-4 text-amber-500" />
             </div>
             <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-amber-700' : 'text-amber-300'}`}>
-              {globalStats.yellow.toLocaleString('vi-VN')}
+              {(globalStats.yellow + globalStats.gray).toLocaleString('vi-VN')}
               <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
             </div>
             <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
               isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
             }`}>
-              <span>Chờ thu thập hồ sơ:</span>
-              <strong className="text-amber-500 font-bold">
-                {Math.round((globalStats.yellow / globalStats.total) * 1000) / 10}%
-              </strong>
-            </div>
-          </div>
-
-          {/* Card 4: Chưa kê khai - Không có tên (Trắng/Xám) */}
-          <div
-            onClick={() => {
-              setStatusFilter('CHUA_CO_TEN_XAM');
-              setActiveTab('table');
-            }}
-            className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
-              isLight
-                ? 'bg-white border-slate-200 hover:border-slate-300'
-                : 'bg-slate-900/90 border-slate-700/60 hover:border-slate-600'
-            }`}
-          >
-            <div className="absolute top-0 right-0 w-24 h-24 bg-slate-500/10 rounded-full blur-2xl group-hover:bg-slate-500/20 transition" />
-            <div className={`flex items-center justify-between text-xs mb-2 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
-                <span className={`w-2 h-2 rounded-full ${isLight ? 'bg-slate-400' : 'bg-slate-300'}`}></span>
-                Chưa Kê Khai - Không Tên
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                Có tên: <strong className="text-amber-600 dark:text-amber-400 font-bold">{globalStats.yellow.toLocaleString('vi-VN')}</strong>
               </span>
-              <Clock className={`w-4 h-4 ${isLight ? 'text-slate-400' : 'text-slate-400'}`} />
-            </div>
-            <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-              {globalStats.gray.toLocaleString('vi-VN')}
-              <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
-            </div>
-            <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
-              isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
-            }`}>
-              <span>Cần rà soát thực địa:</span>
-              <strong className={`font-bold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                {Math.round((globalStats.gray / globalStats.total) * 1000) / 10}%
-              </strong>
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                Không tên: <strong className={`font-bold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{globalStats.gray.toLocaleString('vi-VN')}</strong>
+              </span>
             </div>
           </div>
         </section>
 
-        {/* Tiêu điểm: Thanh đo tiến độ số hóa toàn diện */}
-        <section className={`border rounded-2xl p-4 sm:p-5 shadow-sm space-y-3 ${
-          isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
-        }`}>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <h2 className={`text-sm font-bold flex items-center gap-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                <TrendingUp className="w-4 h-4 text-blue-500" />
-                Cơ Cấu Tiến Độ Số Hóa Bản Đồ Địa Chính Xã Cư Pui
-              </h2>
-              <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                Đã số hóa {globalStats.green.toLocaleString('vi-VN')} / {globalStats.total.toLocaleString('vi-VN')} thửa ({globalStats.completionRate}%)
-                • Quy mô {globalStats.digitizedAreaHa} ha / {globalStats.totalAreaHa} ha
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-3 text-xs">
-              <div className="flex items-center gap-1.5 text-emerald-500">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                Đã số hóa ({globalStats.completionRate}%)
-              </div>
-              <div className="flex items-center gap-1.5 text-blue-500">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-                Đã kê khai ({globalStats.blue} thửa)
-              </div>
-              <div className="flex items-center gap-1.5 text-amber-500">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                Chưa kê khai - Có tên ({Math.round((globalStats.yellow / globalStats.total) * 1000) / 10}%)
-              </div>
-              <div className={`flex items-center gap-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                <span className={`w-2.5 h-2.5 rounded-full ${isLight ? 'bg-slate-400' : 'bg-slate-300'}`}></span>
-                Không có tên ({Math.round((globalStats.gray / globalStats.total) * 1000) / 10}%)
-              </div>
-            </div>
-          </div>
-
-          {/* Thanh Tiến độ Segmented Progress Bar */}
-          <div className={`w-full h-4 rounded-full overflow-hidden flex p-0.5 border ${
-            isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-950 border-slate-800'
-          }`}>
-            <div
-              style={{ width: `${(globalStats.green / globalStats.total) * 100}%` }}
-              className="h-full bg-emerald-500 rounded-l-full transition-all duration-500 hover:brightness-110"
-              title={`Đã số hóa: ${globalStats.green} thửa (${globalStats.completionRate}%)`}
-            />
-            {globalStats.blue > 0 && (
-              <div
-                style={{ width: `${(globalStats.blue / globalStats.total) * 100}%` }}
-                className="h-full bg-blue-500 transition-all duration-500 hover:brightness-110"
-                title={`Đã kê khai thực địa: ${globalStats.blue} thửa`}
-              />
-            )}
-            <div
-              style={{ width: `${(globalStats.yellow / globalStats.total) * 100}%` }}
-              className="h-full bg-amber-500 transition-all duration-500 hover:brightness-110"
-              title={`Chưa kê khai - Có tên: ${globalStats.yellow} thửa`}
-            />
-            <div
-              style={{ width: `${(globalStats.gray / globalStats.total) * 100}%` }}
-              className="h-full bg-slate-400 rounded-r-full transition-all duration-500 hover:brightness-110"
-              title={`Chưa kê khai - Không có tên: ${globalStats.gray} thửa`}
-            />
-          </div>
-
-          {/* Thông tin phụ trợ */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 text-xs">
-            <div className={`p-2.5 rounded-xl border ${
-              isLight ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-950/60 border-slate-800/60 text-slate-400'
-            }`}>
-              <span className={`block text-[10px] ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Định vị GPS chính xác:</span>
-              <strong className={`text-sm ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{globalStats.hasGpsCount.toLocaleString('vi-VN')} thửa</strong>{' '}
-              <span className="text-[10px] text-emerald-500">(99.6%)</span>
-            </div>
-            <div className={`p-2.5 rounded-xl border ${
-              isLight ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-950/60 border-slate-800/60 text-slate-400'
-            }`}>
-              <span className={`block text-[10px] ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Hồ sơ đã có CCCD:</span>
-              <strong className={`text-sm ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{globalStats.hasCccdCount.toLocaleString('vi-VN')} thửa</strong>
-            </div>
-            <div className={`p-2.5 rounded-xl border ${
-              isLight ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-950/60 border-slate-800/60 text-slate-400'
-            }`}>
-              <span className={`block text-[10px] ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Hồ sơ có ảnh scan / upload:</span>
-              <strong className={`text-sm ${isLight ? 'text-purple-600' : 'text-purple-300'}`}>{globalStats.withImagesCount.toLocaleString('vi-VN')} hồ sơ</strong>
-            </div>
-            <div className={`p-2.5 rounded-xl border ${
-              isLight ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-950/60 border-slate-800/60 text-slate-400'
-            }`}>
-              <span className={`block text-[10px] ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Chủ hộ độc nhất thu thập:</span>
-              <strong className={`text-sm ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{globalStats.uniqueOwnersCount.toLocaleString('vi-VN')} người</strong>
-            </div>
-          </div>
-        </section>
-
-        {/* Tab Navigation for Analytics */}
+        {/* Tab Navigation for Analytics: Giữ lại đúng 3 tab theo yêu cầu */}
         <div className={`flex border-b gap-2 sm:gap-4 overflow-x-auto no-scrollbar ${
           isLight ? 'border-slate-300' : 'border-slate-800'
         }`}>
@@ -1495,25 +1404,9 @@ export default function DashboardPage() {
           >
             <TrendingUp className="w-4 h-4 text-indigo-500" />
             <span>Báo Cáo Tiến Độ (4 Danh Sách & 16 Thôn)</span>
-            {syncSummary && (
-              <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/20 text-indigo-500 font-bold border border-indigo-500/30">
-                {syncSummary.totalDeclared}
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('table')}
-            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 cursor-pointer ${
-              activeTab === 'table'
-                ? 'border-blue-500 text-blue-500 font-black'
-                : isLight
-                ? 'border-transparent text-slate-500 hover:text-slate-800'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <FileSpreadsheet className="w-4 h-4 text-blue-500" />
-            <span>Tra Cứu & Quản Lý Kê Khai ({filteredParcels.length.toLocaleString('vi-VN')})</span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/20 text-indigo-500 font-bold border border-indigo-500/30">
+              {syncSummary ? syncSummary.totalDeclared : 242}
+            </span>
           </button>
 
           <button
@@ -1545,553 +1438,6 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {/* TAB 1: BẢNG DỮ LIỆU & QUẢN LÝ KÊ KHAI (MẶC ĐỊNH) */}
-        {activeTab === 'table' && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
-            {/* 4 NÚT LỌC NHANH TRẠNG THÁI THEO ĐÚNG YÊU CẦU */}
-            <div className="flex flex-wrap items-center gap-2 pb-1">
-              <span className="text-xs text-slate-400 font-semibold mr-1">Lọc nhanh:</span>
-              <button
-                onClick={() => {
-                  setStatusFilter('ALL');
-                  setCurrentPage(1);
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                  statusFilter === 'ALL'
-                    ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                Tất cả ({globalStats.total})
-              </button>
-
-              <button
-                onClick={() => {
-                  setStatusFilter('DA_SO_HOA_XANH');
-                  setCurrentPage(1);
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                  statusFilter === 'DA_SO_HOA_XANH'
-                    ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400'
-                    : 'bg-slate-800 text-emerald-300 hover:bg-slate-700 border border-emerald-500/30'
-                }`}
-              >
-                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                Đã số hóa ({globalStats.green})
-              </button>
-
-              <button
-                onClick={() => {
-                  setStatusFilter('DA_KE_KHAI_CHUA_SO_HOA_LAM');
-                  setCurrentPage(1);
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                  statusFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
-                    ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400'
-                    : 'bg-slate-800 text-blue-300 hover:bg-slate-700 border border-blue-500/30'
-                }`}
-              >
-                <span className="w-2 h-2 rounded-full bg-blue-400"></span>
-                Đã kê khai ({globalStats.blue})
-              </button>
-
-              <button
-                onClick={() => {
-                  setStatusFilter('CO_TEN_CHUA_SO_HOA_VANG');
-                  setCurrentPage(1);
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                  statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG'
-                    ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-400'
-                    : 'bg-slate-800 text-amber-300 hover:bg-slate-700 border border-amber-500/30'
-                }`}
-              >
-                <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                Chưa kê khai - Có tên ({globalStats.yellow})
-              </button>
-
-              <button
-                onClick={() => {
-                  setStatusFilter('CHUA_CO_TEN_XAM');
-                  setCurrentPage(1);
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                  statusFilter === 'CHUA_CO_TEN_XAM'
-                    ? 'bg-slate-700 text-white shadow-sm ring-2 ring-slate-400'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-600/30'
-                }`}
-              >
-                <span className="w-2 h-2 rounded-full bg-slate-300"></span>
-                Chưa kê khai - Không có tên ({globalStats.gray})
-              </button>
-            </div>
-
-            {/* Filter Toolbar */}
-            <div className="space-y-3">
-              <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
-                {/* Search Input */}
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    placeholder="Tìm theo số thửa, tờ BĐ, tên chủ hộ, CCCD..."
-                    className="w-full pl-9 pr-3 py-2 text-xs bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Reset button */}
-                {(statusFilter !== 'ALL' ||
-                  villageFilter !== 'ALL' ||
-                  landTypeFilter !== 'ALL' ||
-                  sheetFilter !== 'ALL' ||
-                  searchQuery) && (
-                  <button
-                    onClick={() => {
-                      setStatusFilter('ALL');
-                      setVillageFilter('ALL');
-                      setLandTypeFilter('ALL');
-                      setSheetFilter('ALL');
-                      setSearchQuery('');
-                      setCurrentPage(1);
-                    }}
-                    className="px-3 py-2 text-xs font-bold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl transition shrink-0 cursor-pointer"
-                  >
-                    Xóa tất cả bộ lọc
-                  </button>
-                )}
-              </div>
-
-              {/* Filter Dropdowns row */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                {/* Thôn / Buôn */}
-                <div>
-                  <label className="text-[10px] text-slate-400 mb-1 block">Thôn / Buôn:</label>
-                  <select
-                    value={villageFilter}
-                    onChange={(e) => {
-                      setVillageFilter(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full p-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="ALL">Tất cả thôn/buôn ({uniqueVillages.length})</option>
-                    {uniqueVillages.map((v) => (
-                      <option key={v} value={v}>
-                        {v}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Loại đất */}
-                <div>
-                  <label className="text-[10px] text-slate-400 mb-1 block">Loại đất:</label>
-                  <select
-                    value={landTypeFilter}
-                    onChange={(e) => {
-                      setLandTypeFilter(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full p-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="ALL">Tất cả loại đất ({uniqueLandTypes.length})</option>
-                    {uniqueLandTypes.map((lt) => (
-                      <option key={lt} value={lt}>
-                        {lt}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Tờ bản đồ */}
-                <div>
-                  <label className="text-[10px] text-slate-400 mb-1 block">Tờ bản đồ:</label>
-                  <select
-                    value={sheetFilter}
-                    onChange={(e) => {
-                      setSheetFilter(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full p-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="ALL">Tất cả tờ BĐ ({uniqueSheets.length})</option>
-                    {uniqueSheets.map((s) => (
-                      <option key={s} value={s}>
-                        Tờ {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Bộ lọc có ảnh hồ sơ */}
-                <div>
-                  <label className="text-[10px] text-slate-400 mb-1 block">Tài liệu ảnh:</label>
-                  <div className="p-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 flex items-center justify-between">
-                    <span>Hồ sơ có ảnh:</span>
-                    <strong className="text-purple-300">{globalStats.withImagesCount}</strong>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Results count & Batch Action Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400 pt-2 border-t border-slate-800">
-              <div className="flex items-center gap-3">
-                <div>
-                  Tìm thấy <strong>{filteredParcels.length.toLocaleString('vi-VN')}</strong> thửa đất phù hợp
-                </div>
-
-                {/* Báo số thửa đang chọn & Nút Đóng tập PDF */}
-                {selectedParcelCodes.size > 0 && (
-                  <div className="flex items-center gap-2 bg-blue-950/80 text-blue-300 border border-blue-500/30 px-3 py-1 rounded-xl font-bold animate-in fade-in">
-                    <span>Đang chọn {selectedParcelCodes.size} thửa</span>
-                    <button
-                      onClick={handleOpenPrintSelected}
-                      className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] flex items-center gap-1 shadow-md cursor-pointer"
-                    >
-                      <Printer className="w-3.5 h-3.5" />
-                      Đóng Tập PDF ({selectedParcelCodes.size} đơn)
-                    </button>
-                    <button
-                      onClick={() => setSelectedParcelCodes(new Set())}
-                      className="text-slate-400 hover:text-white text-[10px] underline ml-1 cursor-pointer"
-                    >
-                      Bỏ chọn
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="text-[11px]">Hiển thị:</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-white focus:outline-none"
-                >
-                  <option value={25}>25 dòng</option>
-                  <option value={50}>50 dòng</option>
-                  <option value={100}>100 dòng</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Table */}
-            <div className="overflow-x-auto rounded-xl border border-slate-800">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-950/80 text-slate-400 border-b border-slate-800 uppercase text-[10px] tracking-wider select-none">
-                  <tr>
-                    {/* Checkbox All */}
-                    <th className="p-3 w-8 text-center">
-                      <input
-                        type="checkbox"
-                        checked={isAllPageSelected}
-                        onChange={toggleSelectAllPage}
-                        className="rounded border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                        title="Chọn tất cả thửa trên trang này để đóng tập PDF"
-                      />
-                    </th>
-                    <th
-                      onClick={() => handleSort('so_thua')}
-                      className="p-3 cursor-pointer hover:text-white transition"
-                    >
-                      <div className="flex items-center gap-1">
-                        <span>Số Thửa</span>
-                        <ArrowUpDown className="w-3 h-3" />
-                      </div>
-                    </th>
-                    <th
-                      onClick={() => handleSort('to_ban_do')}
-                      className="p-3 cursor-pointer hover:text-white transition"
-                    >
-                      <div className="flex items-center gap-1">
-                        <span>Tờ BĐ</span>
-                        <ArrowUpDown className="w-3 h-3" />
-                      </div>
-                    </th>
-                    <th
-                      onClick={() => handleSort('chu_ho')}
-                      className="p-3 cursor-pointer hover:text-white transition"
-                    >
-                      <div className="flex items-center gap-1">
-                        <span>Chủ Thửa Đất</span>
-                        <ArrowUpDown className="w-3 h-3" />
-                      </div>
-                    </th>
-                    <th className="p-3">CCCD</th>
-                    <th className="p-3">Thôn / Buôn</th>
-                    <th className="p-3">Loại Đất</th>
-                    <th
-                      onClick={() => handleSort('dien_tich')}
-                      className="p-3 cursor-pointer hover:text-white transition text-right"
-                    >
-                      <div className="flex items-center justify-end gap-1">
-                        <span>Diện Tích</span>
-                        <ArrowUpDown className="w-3 h-3" />
-                      </div>
-                    </th>
-                    <th className="p-3 text-center">Hồ Sơ Ảnh</th>
-                    <th className="p-3 text-center">Trạng Thái</th>
-                    <th className="p-3 text-center">Thao Tác</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60">
-                  {paginatedParcels.length === 0 ? (
-                    <tr>
-                      <td colSpan={11} className="p-8 text-center text-slate-500">
-                        Không tìm thấy thửa đất nào phù hợp với bộ lọc hiện tại.
-                      </td>
-                    </tr>
-                  ) : (
-                    paginatedParcels.map((p) => {
-                      const isGreen = p.trang_thai === 'DA_SO_HOA_XANH';
-                      const isBlue = p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
-                      const isYellow = p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG';
-                      const isChecked = selectedParcelCodes.has(p.ma_thua);
-
-                      const decl = declarationsMap[p.ma_thua];
-                      const hasImg =
-                        Boolean(p.cccd_url) ||
-                        Boolean(p.svg_url) ||
-                        (Array.isArray(p.gcn_urls) && p.gcn_urls.length > 0) ||
-                        Boolean(decl?.anh_cccd_truoc) ||
-                        Boolean(decl?.anh_cccd_sau) ||
-                        Boolean(decl?.anh_gcn);
-
-                      return (
-                        <tr
-                          key={p.ma_thua}
-                          className={`hover:bg-slate-800/40 transition ${
-                            isChecked ? 'bg-blue-950/20' : ''
-                          }`}
-                        >
-                          {/* Checkbox row */}
-                          <td className="p-3 text-center">
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => toggleSelectParcel(p.ma_thua)}
-                              className="rounded border-slate-700 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                            />
-                          </td>
-
-                          {/* Số thửa - Bấm để mở Modal xem chi tiết */}
-                          <td className="p-3 font-mono font-bold text-white">
-                            <button
-                              onClick={() => handleOpenDetailModal(p)}
-                              className="hover:text-blue-400 hover:underline transition font-bold text-left cursor-pointer"
-                              title="Bấm để xem chi tiết thửa đất & hồ sơ kê khai"
-                            >
-                              Thửa {p.so_thua}
-                            </button>
-                          </td>
-
-                          <td className="p-3 font-mono text-slate-300">Tờ {p.to_ban_do}</td>
-
-                          {/* Chủ hộ */}
-                          <td className="p-3">
-                            <button
-                              onClick={() => handleOpenDetailModal(p)}
-                              className="text-left group cursor-pointer"
-                            >
-                              <strong className="text-white font-medium block group-hover:text-blue-300 transition">
-                                {p.chu_ho || <span className="text-slate-500 italic">Chưa có tên</span>}
-                              </strong>
-                              {decl?.created_at && (
-                                <span className="text-[10px] text-blue-400 flex items-center gap-1 mt-0.5">
-                                  <Clock className="w-2.5 h-2.5" />
-                                  Đã kê khai {new Date(decl.created_at).toLocaleDateString('vi-VN')}
-                                </span>
-                              )}
-                            </button>
-                          </td>
-
-                          <td className="p-3 font-mono text-[11px] text-slate-400">
-                            {p.cccd ? (
-                              <span className="text-slate-300">{p.cccd}</span>
-                            ) : (
-                              <span className="text-slate-600">---</span>
-                            )}
-                          </td>
-
-                          <td className="p-3 text-slate-300 truncate max-w-[160px]">{p.thon_xa}</td>
-
-                          <td className="p-3">
-                            <span className="font-mono px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 text-[11px] border border-slate-700">
-                              {p.loai_dat || '---'}
-                            </span>
-                          </td>
-
-                          <td className="p-3 text-right font-mono font-semibold text-slate-200">
-                            {p.dien_tich ? `${p.dien_tich} m²` : '---'}
-                          </td>
-
-                          {/* Cột Hồ sơ ảnh */}
-                          <td className="p-3 text-center">
-                            {hasImg ? (
-                              <button
-                                onClick={() => handleOpenDetailModal(p)}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30 hover:bg-purple-500/25 transition cursor-pointer"
-                                title="Bấm để xem ảnh CCCD / Giấy chứng nhận"
-                              >
-                                <ImageIcon className="w-3 h-3 text-purple-400" />
-                                <span>Có ảnh</span>
-                              </button>
-                            ) : (
-                              <span className="text-[11px] text-slate-600">---</span>
-                            )}
-                          </td>
-
-                          {/* Trạng thái */}
-                          <td className="p-3 text-center">
-                            {isGreen ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                                Đã số hóa
-                              </span>
-                            ) : isBlue ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">
-                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-                                Đã kê khai
-                              </span>
-                            ) : isYellow ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-                                Có tên
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-700/40 text-slate-400 border border-slate-600/30">
-                                Không có tên
-                              </span>
-                            )}
-                          </td>
-
-                          {/* Cột Thao Tác: Chi tiết, In đơn, Bản đồ */}
-                          <td className="p-3 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              {/* Xem chi tiết */}
-                              <button
-                                onClick={() => handleOpenDetailModal(p)}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-blue-300 border border-blue-500/30 transition cursor-pointer"
-                                title="Xem chi tiết thửa đất và hồ sơ kê khai"
-                              >
-                                <Eye className="w-3 h-3 text-blue-400" />
-                                <span>Chi tiết</span>
-                              </button>
-
-                              {/* Sửa và Xóa phiếu kê khai nếu thửa đã kê khai */}
-                              {(isBlue || Boolean(decl)) && (
-                                <>
-                                  <button
-                                    onClick={() => handleOpenEditDeclaration(p, decl)}
-                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 transition cursor-pointer"
-                                    title="Sửa thông tin phiếu kê khai"
-                                  >
-                                    <Pencil className="w-3 h-3 text-amber-400" />
-                                    <span>Sửa</span>
-                                  </button>
-
-                                  <button
-                                    onClick={() => setDeletingParcel(p)}
-                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-800 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30 transition cursor-pointer"
-                                    title="Xóa phiếu kê khai (quay về trạng thái ban đầu)"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                    <span>Xóa</span>
-                                  </button>
-                                </>
-                              )}
-
-                              {/* In đơn */}
-                              <button
-                                onClick={() => handleOpenPrintSingle(p)}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-purple-300 border border-purple-500/30 transition cursor-pointer"
-                                title="In hoặc xuất PDF Đơn kê khai thửa đất này"
-                              >
-                                <Printer className="w-3 h-3 text-purple-400" />
-                                <span>In đơn</span>
-                              </button>
-
-                              {/* Bản đồ */}
-                              <Link
-                                href={`/?to=${p.to_ban_do}&thua=${p.so_thua}&ma_thua=${p.ma_thua}`}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-blue-600/80 hover:bg-blue-600 text-white transition shadow-xs"
-                                title="Xem thửa này trên bản đồ vệ tinh"
-                              >
-                                <MapPin className="w-3 h-3" />
-                                <span>Bản đồ</span>
-                              </Link>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination Controls */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs pt-2">
-              <div className="text-slate-400">
-                Trang <strong>{currentPage}</strong> / <strong>{totalPages}</strong> (
-                {filteredParcels.length.toLocaleString('vi-VN')} kết quả)
-              </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setCurrentPage(1)}
-                  disabled={currentPage <= 1}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40 disabled:hover:text-slate-300 cursor-pointer"
-                >
-                  Đầu
-                </button>
-                <button
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage <= 1}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
-                >
-                  Trước
-                </button>
-
-                <div className="px-3 py-1.5 rounded-lg bg-slate-800 text-white font-bold">
-                  {currentPage}
-                </div>
-
-                <button
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={currentPage >= totalPages}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
-                >
-                  Sau
-                </button>
-                <button
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={currentPage >= totalPages}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
-                >
-                  Cuối
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* TAB 3: DANH SÁCH CHI TIẾT TẤT CẢ THÔN / BUÔN */}
         {activeTab === 'villages' && (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
@@ -2115,8 +1461,9 @@ export default function DashboardPage() {
                 <div
                   key={v.name}
                   onClick={() => {
-                    setVillageFilter(v.name);
-                    setActiveTab('table');
+                    setSelectedReportSheet('THỐNG KÊ');
+                    setReportSearchQuery(v.name);
+                    setActiveTab('progressReport');
                   }}
                   className="bg-slate-950/70 hover:bg-slate-950 p-4 rounded-xl border border-slate-800 hover:border-blue-500/50 transition cursor-pointer group"
                 >
@@ -2527,8 +1874,7 @@ export default function DashboardPage() {
                                 onClick={() => {
                                   if (!isTotal) {
                                     setVillageFilter(thonName);
-                                    setActiveTab('table');
-                                    setCurrentPage(1);
+                                    setActiveTab('villages');
                                   }
                                 }}
                                 className={`transition ${
