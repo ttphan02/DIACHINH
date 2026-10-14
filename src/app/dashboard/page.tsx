@@ -13,6 +13,7 @@ import DeclarationEditModal from '@/components/DeclarationEditModal';
 import VectorViewerModal from '@/components/VectorViewerModal';
 import CccdSupplementModal from '@/components/CccdSupplementModal';
 import CccdManagerTab from '@/components/CccdManagerTab';
+import CccdHoverPreviewCard from '@/components/CccdHoverPreviewCard';
 import {
   Camera,
   HardDrive,
@@ -50,6 +51,8 @@ import {
   Image as ImageIcon,
   Pencil,
   Trash2,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -77,8 +80,28 @@ export default function DashboardPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
 
-  // Active view tab in Dashboard
-  const [activeTab, setActiveTab] = useState<'overview' | 'villages' | 'landTypes' | 'table' | 'cccd' | 'progressReport'>('table');
+  // Active view tab in Dashboard: Bỏ overview và landTypes theo yêu cầu
+  const [activeTab, setActiveTab] = useState<'table' | 'progressReport' | 'villages' | 'cccd'>('progressReport');
+
+  // Theme state: Dark mode hoặc Light mode (lưu vào localStorage)
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('diachinh_dashboard_theme');
+      if (saved === 'light' || saved === 'dark') {
+        setTheme(saved);
+      }
+    } catch {}
+  }, []);
+
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    try {
+      localStorage.setItem('diachinh_dashboard_theme', next);
+    } catch {}
+  };
 
   // State Báo Cáo Tiến Độ 16 Thôn & Bảng Đóng Tập Nội Bộ (Đóng gói khép kín thay thế Google Sheets)
   const [syncSheetsData, setSyncSheetsData] = useState<Record<string, string[][]> | null>(null);
@@ -91,9 +114,12 @@ export default function DashboardPage() {
     khongCoCccd: number;
   } | null>(null);
   const [isLoadingSyncSheets, setIsLoadingSyncSheets] = useState(false);
-  const [selectedReportSheet, setSelectedReportSheet] = useState<string>('THỐNG KÊ');
+  const [selectedReportSheet, setSelectedReportSheet] = useState<string>('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
   const [reportSearchQuery, setReportSearchQuery] = useState<string>('');
   const [reportPage, setReportPage] = useState<number>(1);
+
+  // Checkbox Selection state cho THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD)
+  const [readyToPackSelectedCodes, setReadyToPackSelectedCodes] = useState<Set<string>>(new Set());
 
   // Checkbox Selection state for Batch PDF Export
   const [selectedParcelCodes, setSelectedParcelCodes] = useState<Set<string>>(new Set());
@@ -890,6 +916,76 @@ export default function DashboardPage() {
     URL.revokeObjectURL(url);
   };
 
+  // Đóng tập PDF các thửa Sẵn sàng đóng tập (có CCCD)
+  const handleBatchPrintReadyToPack = (specificCodes?: string[]) => {
+    const readyRows = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || [];
+    if (readyRows.length <= 1) {
+      alert('Hiện tại chưa có thửa nào sẵn sàng đóng tập (có CCCD).');
+      return;
+    }
+
+    const dataRows = readyRows.slice(1);
+    const filterSet = specificCodes && specificCodes.length > 0 ? new Set(specificCodes) : null;
+    const targetRows = filterSet ? dataRows.filter((r) => filterSet.has(String(r[1] || '').trim())) : dataRows;
+
+    if (targetRows.length === 0) {
+      alert('Chưa chọn thửa đất nào để đóng tập.');
+      return;
+    }
+
+    const itemsToPrint: PrintableDeclarationItem[] = [];
+
+    targetRows.forEach((row) => {
+      const maThua = String(row[1] || '').trim();
+      if (!maThua) return;
+      const cccdRaw = String(row[6] || '').replace(/^="|"$/g, '');
+      const cccdFileName = String(row[10] || '').replace(/.*"([^"]+\.pdf)".*/i, '$1');
+      const cccdUrl = cccdFileName && cccdFileName.endsWith('.pdf')
+        ? `https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/cccd/${cccdFileName}`
+        : null;
+
+      const p = computedParcels.find((cp) => cp.ma_thua === maThua) || {
+        ma_thua: maThua,
+        to_ban_do: String(row[2] || ''),
+        so_thua: String(row[3] || ''),
+        thon_xa: String(row[4] || ''),
+        ten_xa_goc: 'Xã Cư Pui',
+        chu_ho: String(row[5] || ''),
+        cccd: cccdRaw,
+        loai_dat: String(row[9] || 'DGT'),
+        dien_tich: String(row[8] || ''),
+        trang_thai: 'DA_KE_KHAI_CHUA_SO_HOA_LAM',
+        lat: null,
+        lng: null,
+        gmap_link: '',
+        cccd_url: cccdUrl,
+      };
+
+      const decl = declarationsMap[maThua] || {
+        ma_thua: maThua,
+        to_ban_do: row[2],
+        so_thua: row[3],
+        chu_dat_ten: row[5],
+        chu_dat_cccd: cccdRaw,
+        dien_tich: row[8],
+        loai_dat: row[9],
+        dia_chi_thua_dat: row[4],
+        anh_cccd_truoc: cccdUrl,
+      };
+
+      itemsToPrint.push({
+        parcel: { ...p, cccd_url: cccdUrl || p.cccd_url },
+        declaration: { ...decl, anh_cccd_truoc: cccdUrl || decl.anh_cccd_truoc },
+      });
+    });
+
+    if (itemsToPrint.length > 0) {
+      setPrintableItems(itemsToPrint);
+      setPrintModalTitle(`Tập Hồ Sơ Sẵn Sàng Đóng Tập (${itemsToPrint.length} thửa đất kèm CCCD)`);
+      setIsPrintModalOpen(true);
+    }
+  };
+
   // 10. ĐÓNG TẬP PDF ĐƠN KÊ KHAI HÔM NAY CHO VIỆC IN
   const handleOpenPrintToday = () => {
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -1037,10 +1133,16 @@ export default function DashboardPage() {
     URL.revokeObjectURL(url);
   };
 
+  const isLight = theme === 'light';
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
+    <div className={`min-h-screen flex flex-col font-sans transition-colors duration-200 selection:bg-blue-600 selection:text-white ${
+      isLight ? 'bg-slate-100 text-slate-800' : 'bg-slate-950 text-slate-100'
+    }`}>
       {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 shadow-lg no-print">
+      <header className={`sticky top-0 z-40 backdrop-blur-md border-b shadow-md transition-colors duration-200 no-print ${
+        isLight ? 'bg-white/95 border-slate-200' : 'bg-slate-900/90 border-slate-800'
+      }`}>
         <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 sm:gap-3">
             <Link
@@ -1052,14 +1154,16 @@ export default function DashboardPage() {
             </Link>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-1.5">
+                <h1 className={`text-base sm:text-lg font-black tracking-tight flex items-center gap-1.5 ${
+                  isLight ? 'text-slate-900' : 'text-white'
+                }`}>
                   Dashboard Địa Chính
-                  <span className="text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                  <span className="text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-500 border border-blue-500/30">
                     Xã Cư Pui
                   </span>
                 </h1>
               </div>
-              <p className="text-[11px] sm:text-xs text-slate-400 hidden sm:block">
+              <p className={`text-[11px] sm:text-xs hidden sm:block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                 Hệ thống giám sát tiến độ số hóa & quản trị cơ sở dữ liệu 5.943 thửa đất
               </p>
             </div>
@@ -1073,31 +1177,11 @@ export default function DashboardPage() {
                 setSelectedParcelForCccd('');
                 setIsCccdSupplementOpen(true);
               }}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition cursor-pointer border border-blue-400/30 ring-2 ring-blue-500/20"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-md shadow-indigo-600/30 transition cursor-pointer border border-blue-400/30 ring-2 ring-blue-500/20"
               title="Bổ sung ảnh CCCD, quét AI tự động, tạo PDF A4 chuẩn và lưu trực tiếp vào R2"
             >
               <Camera className="w-3.5 h-3.5 text-yellow-300 animate-pulse" />
               <span>Bổ Sung CCCD (Quét AI)</span>
-            </button>
-
-            {/* Nút Kho Quản Lý CCCD */}
-            <button
-              onClick={() => setActiveTab('cccd')}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/30 transition cursor-pointer"
-              title="Mở Kho Quản lý toàn bộ file CCCD trên Cloudflare R2 (Xem, thêm, xóa)"
-            >
-              <HardDrive className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Kho CCCD (R2)</span>
-            </button>
-
-            {/* Nút Xuất Excel Đã Kê Khai */}
-            <button
-              onClick={handleExportDeclaredExcel}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-600/90 hover:bg-amber-600 text-white shadow-md shadow-amber-600/20 transition cursor-pointer"
-              title="Tải về file Excel danh sách các thửa đã kê khai thu thập"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Xuất Excel Đã Kê Khai</span>
             </button>
 
             {/* Nút Xuất Excel Chuẩn Mẫu Đóng Tập EXCEL-MAUNHAP */}
@@ -1107,17 +1191,7 @@ export default function DashboardPage() {
               title="Xuất file theo cấu trúc 9 cột chuẩn của EXCEL-MAUNHAP.xlsx để nạp vào PDF_Web_App đóng tập"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Mẫu Nhập Đóng Tập</span>
-            </button>
-
-            {/* Nút Xuất 57 Cột Nhập GGS */}
-            <button
-              onClick={handleExport57Cot}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-600/90 hover:bg-rose-600 text-white shadow-md shadow-rose-600/20 transition cursor-pointer"
-              title="Xuất file chuẩn 57 cột nhập thẳng vào Google Sheets theo định dạng app_chuyendoi_diachinh_57cot"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Xuất 57 Cột GGS</span>
+              <span className="hidden sm:inline">Mẫu Nhập Đóng Tập</span>
             </button>
 
             {/* Nút Đóng tập PDF Hôm Nay */}
@@ -1130,7 +1204,6 @@ export default function DashboardPage() {
               <span>Đóng Tập PDF Hôm Nay</span>
             </button>
 
-
             {/* Nút Xuất Excel danh sách đang lọc */}
             <button
               onClick={handleExportCsv}
@@ -1141,60 +1214,29 @@ export default function DashboardPage() {
               <span className="hidden sm:inline">Xuất Excel Lọc</span>
             </button>
 
-            {/* Nút Báo Cáo Tiến Độ 16 Thôn & Đóng Tập Nội Bộ */}
+            {/* Nút Chuyển Giao Diện Light / Dark Mode */}
             <button
-              onClick={() => {
-                setActiveTab('progressReport');
-                if (!syncSheetsData) fetchSyncSheetsReport();
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20 transition cursor-pointer"
-              title="Xem Báo Cáo Thống Kê Tiến Độ 16 Thôn & Các Bảng Đóng Tập Nội Bộ (Thay thế Sheet THỐNG KÊ)"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline">Báo Cáo Tiến Độ 16 Thôn</span>
-            </button>
-
-            {/* Nút Lọc Thửa Có Tên */}
-            <button
-              onClick={() => {
-                setStatusFilter('CO_TEN_CHUA_SO_HOA_VANG');
-                setActiveTab('table');
-                setCurrentPage(1);
-              }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG' && activeTab === 'table'
-                  ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
-                  : 'bg-slate-800 text-amber-300 hover:bg-slate-700 border border-amber-500/30'
+              onClick={toggleTheme}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shadow-xs border ${
+                isLight
+                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200'
+                  : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-slate-700'
               }`}
-              title="Lọc nhanh các thửa có tên chủ đất nhưng chưa kê khai (Màu cam/vàng)"
+              title={isLight ? 'Chuyển sang Giao diện Tối (Dark mode)' : 'Chuyển sang Giao diện Sáng (Light mode)'}
             >
-              <span className="w-2 h-2 rounded-full bg-amber-400" />
-              <span className="hidden lg:inline">Thửa Có Tên</span>
-            </button>
-
-            {/* Nút Lọc Thửa Không Tên */}
-            <button
-              onClick={() => {
-                setStatusFilter('CHUA_CO_TEN_XAM');
-                setActiveTab('table');
-                setCurrentPage(1);
-              }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                statusFilter === 'CHUA_CO_TEN_XAM' && activeTab === 'table'
-                  ? 'bg-slate-600 text-white shadow-md'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-600'
-              }`}
-              title="Lọc nhanh các thửa chưa có tên (UBND xã, đất công, số hiệu - Màu trắng/xám)"
-            >
-              <span className="w-2 h-2 rounded-full bg-slate-400" />
-              <span className="hidden lg:inline">Thửa Không Tên</span>
+              {isLight ? <Moon className="w-3.5 h-3.5 text-indigo-600" /> : <Sun className="w-3.5 h-3.5 text-amber-400" />}
+              <span>{isLight ? 'Theme Tối' : 'Theme Sáng'}</span>
             </button>
 
             {/* Đồng bộ GGS */}
             <button
               onClick={() => fetchGgsCodes()}
               disabled={isSyncingGgs}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 transition disabled:opacity-60 shadow-xs cursor-pointer"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition disabled:opacity-60 shadow-xs cursor-pointer border ${
+                isLight
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                  : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border-cyan-500/30'
+              }`}
               title={lastSyncTime ? `Đồng bộ lúc ${lastSyncTime}` : 'Đồng bộ Google Sheets'}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncingGgs ? 'animate-spin text-cyan-400' : ''}`} />
@@ -1218,19 +1260,25 @@ export default function DashboardPage() {
         {/* Executive KPI Cards */}
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {/* Card 1: Tổng số thửa & Diện tích */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-sm hover:border-slate-700 transition relative overflow-hidden group">
+          <div className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group ${
+            isLight
+              ? 'bg-white border-slate-200 hover:border-slate-300'
+              : 'bg-slate-900/90 border-slate-800 hover:border-slate-700'
+          }`}>
             <div className="absolute top-0 right-0 w-24 h-24 bg-blue-600/10 rounded-full blur-2xl group-hover:bg-blue-600/20 transition" />
-            <div className="flex items-center justify-between text-slate-400 text-xs mb-2">
-              <span className="font-semibold uppercase tracking-wider text-[10px] text-slate-400">Tổng Thửa Quản Lý</span>
-              <Building2 className="w-4 h-4 text-blue-400" />
+            <div className={`flex items-center justify-between text-xs mb-2 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              <span className="font-semibold uppercase tracking-wider text-[10px]">Tổng Thửa Quản Lý</span>
+              <Building2 className="w-4 h-4 text-blue-500" />
             </div>
-            <div className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+            <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
               {globalStats.total.toLocaleString('vi-VN')}
-              <span className="text-xs font-normal text-slate-400 ml-1.5">thửa</span>
+              <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
             </div>
-            <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/80">
+            <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
+              isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
+            }`}>
               <span>Quy mô diện tích:</span>
-              <strong className="text-blue-400 font-bold">{globalStats.totalAreaHa.toLocaleString('vi-VN')} ha</strong>
+              <strong className="text-blue-500 font-bold">{globalStats.totalAreaHa.toLocaleString('vi-VN')} ha</strong>
             </div>
           </div>
 
@@ -1240,23 +1288,29 @@ export default function DashboardPage() {
               setStatusFilter('DA_SO_HOA_XANH');
               setActiveTab('table');
             }}
-            className="bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-4 shadow-sm hover:border-emerald-500/50 transition relative overflow-hidden group cursor-pointer"
+            className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
+              isLight
+                ? 'bg-white border-emerald-200 hover:border-emerald-300'
+                : 'bg-slate-900/90 border-emerald-500/30 hover:border-emerald-500/50'
+            }`}
           >
             <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl group-hover:bg-emerald-500/20 transition" />
-            <div className="flex items-center justify-between text-emerald-400 text-xs mb-2">
+            <div className="flex items-center justify-between text-emerald-500 text-xs mb-2">
               <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 Đã Số Hóa (GGS)
               </span>
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
             </div>
-            <div className="text-2xl sm:text-3xl font-black text-emerald-300 tracking-tight">
+            <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-emerald-700' : 'text-emerald-300'}`}>
               {globalStats.green.toLocaleString('vi-VN')}
-              <span className="text-xs font-normal text-slate-400 ml-1.5">thửa</span>
+              <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
             </div>
-            <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/80">
+            <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
+              isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
+            }`}>
               <span>Tỷ lệ hoàn thành:</span>
-              <strong className="text-emerald-400 font-bold">{globalStats.completionRate}%</strong>
+              <strong className="text-emerald-500 font-bold">{globalStats.completionRate}%</strong>
             </div>
           </div>
 
@@ -1266,23 +1320,29 @@ export default function DashboardPage() {
               setStatusFilter('CO_TEN_CHUA_SO_HOA_VANG');
               setActiveTab('table');
             }}
-            className="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-4 shadow-sm hover:border-amber-500/50 transition relative overflow-hidden group cursor-pointer"
+            className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
+              isLight
+                ? 'bg-white border-amber-200 hover:border-amber-300'
+                : 'bg-slate-900/90 border-amber-500/30 hover:border-amber-500/50'
+            }`}
           >
             <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 rounded-full blur-2xl group-hover:bg-amber-500/20 transition" />
-            <div className="flex items-center justify-between text-amber-400 text-xs mb-2">
+            <div className="flex items-center justify-between text-amber-500 text-xs mb-2">
               <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-amber-400"></span>
                 Chưa Kê Khai - Có Tên
               </span>
-              <Users className="w-4 h-4 text-amber-400" />
+              <Users className="w-4 h-4 text-amber-500" />
             </div>
-            <div className="text-2xl sm:text-3xl font-black text-amber-300 tracking-tight">
+            <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-amber-700' : 'text-amber-300'}`}>
               {globalStats.yellow.toLocaleString('vi-VN')}
-              <span className="text-xs font-normal text-slate-400 ml-1.5">thửa</span>
+              <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
             </div>
-            <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/80">
+            <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
+              isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
+            }`}>
               <span>Chờ thu thập hồ sơ:</span>
-              <strong className="text-amber-400 font-bold">
+              <strong className="text-amber-500 font-bold">
                 {Math.round((globalStats.yellow / globalStats.total) * 1000) / 10}%
               </strong>
             </div>
@@ -1294,23 +1354,29 @@ export default function DashboardPage() {
               setStatusFilter('CHUA_CO_TEN_XAM');
               setActiveTab('table');
             }}
-            className="bg-slate-900/90 border border-slate-700/60 rounded-2xl p-4 shadow-sm hover:border-slate-600 transition relative overflow-hidden group cursor-pointer"
+            className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
+              isLight
+                ? 'bg-white border-slate-200 hover:border-slate-300'
+                : 'bg-slate-900/90 border-slate-700/60 hover:border-slate-600'
+            }`}
           >
             <div className="absolute top-0 right-0 w-24 h-24 bg-slate-500/10 rounded-full blur-2xl group-hover:bg-slate-500/20 transition" />
-            <div className="flex items-center justify-between text-slate-400 text-xs mb-2">
+            <div className={`flex items-center justify-between text-xs mb-2 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
               <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-slate-300"></span>
+                <span className={`w-2 h-2 rounded-full ${isLight ? 'bg-slate-400' : 'bg-slate-300'}`}></span>
                 Chưa Kê Khai - Không Tên
               </span>
-              <Clock className="w-4 h-4 text-slate-400" />
+              <Clock className={`w-4 h-4 ${isLight ? 'text-slate-400' : 'text-slate-400'}`} />
             </div>
-            <div className="text-2xl sm:text-3xl font-black text-slate-200 tracking-tight">
+            <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
               {globalStats.gray.toLocaleString('vi-VN')}
-              <span className="text-xs font-normal text-slate-400 ml-1.5">thửa</span>
+              <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
             </div>
-            <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/80">
+            <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
+              isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
+            }`}>
               <span>Cần rà soát thực địa:</span>
-              <strong className="text-slate-300 font-bold">
+              <strong className={`font-bold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
                 {Math.round((globalStats.gray / globalStats.total) * 1000) / 10}%
               </strong>
             </div>
@@ -1318,40 +1384,44 @@ export default function DashboardPage() {
         </section>
 
         {/* Tiêu điểm: Thanh đo tiến độ số hóa toàn diện */}
-        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
+        <section className={`border rounded-2xl p-4 sm:p-5 shadow-sm space-y-3 ${
+          isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
+        }`}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
-              <h2 className="text-sm font-bold text-white flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-blue-400" />
+              <h2 className={`text-sm font-bold flex items-center gap-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                <TrendingUp className="w-4 h-4 text-blue-500" />
                 Cơ Cấu Tiến Độ Số Hóa Bản Đồ Địa Chính Xã Cư Pui
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                 Đã số hóa {globalStats.green.toLocaleString('vi-VN')} / {globalStats.total.toLocaleString('vi-VN')} thửa ({globalStats.completionRate}%)
                 • Quy mô {globalStats.digitizedAreaHa} ha / {globalStats.totalAreaHa} ha
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3 text-xs">
-              <div className="flex items-center gap-1.5 text-emerald-400">
+              <div className="flex items-center gap-1.5 text-emerald-500">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
                 Đã số hóa ({globalStats.completionRate}%)
               </div>
-              <div className="flex items-center gap-1.5 text-blue-400">
+              <div className="flex items-center gap-1.5 text-blue-500">
                 <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
                 Đã kê khai ({globalStats.blue} thửa)
               </div>
-              <div className="flex items-center gap-1.5 text-amber-400">
+              <div className="flex items-center gap-1.5 text-amber-500">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
                 Chưa kê khai - Có tên ({Math.round((globalStats.yellow / globalStats.total) * 1000) / 10}%)
               </div>
-              <div className="flex items-center gap-1.5 text-slate-400">
-                <span className="w-2.5 h-2.5 rounded-full bg-slate-300"></span>
+              <div className={`flex items-center gap-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                <span className={`w-2.5 h-2.5 rounded-full ${isLight ? 'bg-slate-400' : 'bg-slate-300'}`}></span>
                 Không có tên ({Math.round((globalStats.gray / globalStats.total) * 1000) / 10}%)
               </div>
             </div>
           </div>
 
           {/* Thanh Tiến độ Segmented Progress Bar */}
-          <div className="w-full h-4 bg-slate-950 rounded-full overflow-hidden flex p-0.5 border border-slate-800">
+          <div className={`w-full h-4 rounded-full overflow-hidden flex p-0.5 border ${
+            isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-950 border-slate-800'
+          }`}>
             <div
               style={{ width: `${(globalStats.green / globalStats.total) * 100}%` }}
               className="h-full bg-emerald-500 rounded-l-full transition-all duration-500 hover:brightness-110"
@@ -1377,107 +1447,101 @@ export default function DashboardPage() {
           </div>
 
           {/* Thông tin phụ trợ */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 text-xs text-slate-400">
-            <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60">
-              <span className="block text-[10px] text-slate-500">Định vị GPS chính xác:</span>
-              <strong className="text-slate-200 text-sm">{globalStats.hasGpsCount.toLocaleString('vi-VN')} thửa</strong>{' '}
-              <span className="text-[10px] text-emerald-400">(99.6%)</span>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 text-xs">
+            <div className={`p-2.5 rounded-xl border ${
+              isLight ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-950/60 border-slate-800/60 text-slate-400'
+            }`}>
+              <span className={`block text-[10px] ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Định vị GPS chính xác:</span>
+              <strong className={`text-sm ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{globalStats.hasGpsCount.toLocaleString('vi-VN')} thửa</strong>{' '}
+              <span className="text-[10px] text-emerald-500">(99.6%)</span>
             </div>
-            <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60">
-              <span className="block text-[10px] text-slate-500">Hồ sơ đã có CCCD:</span>
-              <strong className="text-slate-200 text-sm">{globalStats.hasCccdCount.toLocaleString('vi-VN')} thửa</strong>
+            <div className={`p-2.5 rounded-xl border ${
+              isLight ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-950/60 border-slate-800/60 text-slate-400'
+            }`}>
+              <span className={`block text-[10px] ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Hồ sơ đã có CCCD:</span>
+              <strong className={`text-sm ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{globalStats.hasCccdCount.toLocaleString('vi-VN')} thửa</strong>
             </div>
-            <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60">
-              <span className="block text-[10px] text-slate-500">Hồ sơ có ảnh scan / upload:</span>
-              <strong className="text-purple-300 text-sm">{globalStats.withImagesCount.toLocaleString('vi-VN')} hồ sơ</strong>
+            <div className={`p-2.5 rounded-xl border ${
+              isLight ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-950/60 border-slate-800/60 text-slate-400'
+            }`}>
+              <span className={`block text-[10px] ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Hồ sơ có ảnh scan / upload:</span>
+              <strong className={`text-sm ${isLight ? 'text-purple-600' : 'text-purple-300'}`}>{globalStats.withImagesCount.toLocaleString('vi-VN')} hồ sơ</strong>
             </div>
-            <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60">
-              <span className="block text-[10px] text-slate-500">Chủ hộ độc nhất thu thập:</span>
-              <strong className="text-slate-200 text-sm">{globalStats.uniqueOwnersCount.toLocaleString('vi-VN')} người</strong>
+            <div className={`p-2.5 rounded-xl border ${
+              isLight ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-950/60 border-slate-800/60 text-slate-400'
+            }`}>
+              <span className={`block text-[10px] ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>Chủ hộ độc nhất thu thập:</span>
+              <strong className={`text-sm ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{globalStats.uniqueOwnersCount.toLocaleString('vi-VN')} người</strong>
             </div>
           </div>
         </section>
 
         {/* Tab Navigation for Analytics */}
-        <div className="flex border-b border-slate-800 gap-2 sm:gap-4 overflow-x-auto no-scrollbar">
-          <button
-            onClick={() => setActiveTab('table')}
-            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 ${
-              activeTab === 'table'
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            Tra Cứu & Quản Lý Kê Khai ({filteredParcels.length.toLocaleString('vi-VN')})
-          </button>
-
+        <div className={`flex border-b gap-2 sm:gap-4 overflow-x-auto no-scrollbar ${
+          isLight ? 'border-slate-300' : 'border-slate-800'
+        }`}>
           <button
             onClick={() => {
               setActiveTab('progressReport');
               if (!syncSheetsData) fetchSyncSheetsReport();
             }}
-            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 ${
+            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 cursor-pointer ${
               activeTab === 'progressReport'
-                ? 'border-indigo-500 text-indigo-400'
+                ? 'border-indigo-500 text-indigo-500 font-black'
+                : isLight
+                ? 'border-transparent text-slate-500 hover:text-slate-800'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <TrendingUp className="w-4 h-4 text-indigo-400" />
-            Báo Cáo Tiến Độ (16 Thôn & Đóng Tập)
+            <TrendingUp className="w-4 h-4 text-indigo-500" />
+            <span>Báo Cáo Tiến Độ (4 Danh Sách & 16 Thôn)</span>
             {syncSummary && (
-              <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/20 text-indigo-300 font-bold border border-indigo-500/30">
+              <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/20 text-indigo-500 font-bold border border-indigo-500/30">
                 {syncSummary.totalDeclared}
               </span>
             )}
           </button>
 
           <button
-            onClick={() => setActiveTab('cccd')}
-            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 ${
-              activeTab === 'cccd'
-                ? 'border-indigo-500 text-indigo-400'
+            onClick={() => setActiveTab('table')}
+            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 cursor-pointer ${
+              activeTab === 'table'
+                ? 'border-blue-500 text-blue-500 font-black'
+                : isLight
+                ? 'border-transparent text-slate-500 hover:text-slate-800'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <HardDrive className="w-4 h-4 text-indigo-400" />
-            Kho CCCD (Quản Lý R2)
-          </button>
-
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 ${
-              activeTab === 'overview'
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <BarChart3 className="w-4 h-4" />
-            Bảng Tổng Quan
+            <FileSpreadsheet className="w-4 h-4 text-blue-500" />
+            <span>Tra Cứu & Quản Lý Kê Khai ({filteredParcels.length.toLocaleString('vi-VN')})</span>
           </button>
 
           <button
             onClick={() => setActiveTab('villages')}
-            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 ${
+            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 cursor-pointer ${
               activeTab === 'villages'
-                ? 'border-blue-500 text-blue-400'
+                ? 'border-emerald-500 text-emerald-500 font-black'
+                : isLight
+                ? 'border-transparent text-slate-500 hover:text-slate-800'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Building2 className="w-4 h-4" />
-            Tiến Độ Thôn / Buôn ({villageStats.length})
+            <Building2 className="w-4 h-4 text-emerald-500" />
+            <span>Tiến Độ 16 Thôn / Buôn ({villageStats.length})</span>
           </button>
 
           <button
-            onClick={() => setActiveTab('landTypes')}
-            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 ${
-              activeTab === 'landTypes'
-                ? 'border-blue-500 text-blue-400'
+            onClick={() => setActiveTab('cccd')}
+            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 cursor-pointer ${
+              activeTab === 'cccd'
+                ? 'border-purple-500 text-purple-500 font-black'
+                : isLight
+                ? 'border-transparent text-slate-500 hover:text-slate-800'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <PieChart className="w-4 h-4" />
-            Cơ Cấu Loại Đất ({landTypeStats.length})
+            <HardDrive className="w-4 h-4 text-purple-500" />
+            <span>Kho CCCD (Quản Lý R2)</span>
           </button>
         </div>
 
@@ -2028,139 +2092,6 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* TAB 2: BẢNG TỔNG QUAN & TOP THÔN */}
-        {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <Building2 className="w-4 h-4 text-blue-400" />
-                    Tiến Độ Số Hóa Tại Các Thôn / Buôn Trọng Điểm
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">Xếp hạng theo số lượng thửa đất cần quản lý</p>
-                </div>
-                <button
-                  onClick={() => setActiveTab('villages')}
-                  className="text-xs text-blue-400 hover:text-blue-300 font-semibold cursor-pointer"
-                >
-                  Xem tất cả ({villageStats.length}) →
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {villageStats.slice(0, 7).map((v, i) => (
-                  <div
-                    key={v.name}
-                    className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 hover:border-slate-700 transition"
-                  >
-                    <div className="flex items-center justify-between text-xs mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded-md bg-slate-800 text-slate-300 text-[10px] font-bold flex items-center justify-center shrink-0">
-                          {i + 1}
-                        </span>
-                        <strong className="text-slate-100 font-semibold truncate max-w-[200px] sm:max-w-none">
-                          {v.name}
-                        </strong>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-slate-400">
-                          <strong className="text-emerald-400">{v.green}</strong>/{v.total} thửa
-                        </span>
-                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold text-[11px]">
-                          {v.rate}%
-                        </span>
-                      </div>
-                    </div>
-                    <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden flex">
-                      <div style={{ width: `${v.rate}%` }} className="bg-emerald-500 h-full rounded-l-full" />
-                      <div
-                        style={{ width: `${v.total > 0 ? (v.yellow / v.total) * 100 : 0}%` }}
-                        className="bg-amber-500 h-full"
-                      />
-                      <div
-                        style={{ width: `${v.total > 0 ? (v.gray / v.total) * 100 : 0}%` }}
-                        className="bg-slate-700 h-full rounded-r-full"
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-slate-500 mt-1">
-                      <span>Diện tích: {v.totalAreaHa} ha</span>
-                      <span>Chờ số hóa: {v.yellow + v.gray} thửa</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <PieChart className="w-4 h-4 text-amber-400" />
-                    Cơ Cấu Loại Đất Chính
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">Phân bổ mục đích sử dụng đất</p>
-                </div>
-                <button
-                  onClick={() => setActiveTab('landTypes')}
-                  className="text-xs text-amber-400 hover:text-amber-300 font-semibold cursor-pointer"
-                >
-                  Chi tiết →
-                </button>
-              </div>
-
-              <div className="space-y-2.5">
-                {landTypeStats.slice(0, 6).map((lt) => (
-                  <div
-                    key={lt.code}
-                    className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex items-center justify-between text-xs"
-                  >
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-mono font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded text-[11px] border border-amber-400/20">
-                          {lt.code}
-                        </span>
-                        <span className="text-slate-300 font-medium">
-                          {lt.code === 'LUK'
-                            ? 'Đất trồng lúa nước còn lại'
-                            : lt.code === 'NHK'
-                            ? 'Đất nương rẫy trồng cây hàng năm'
-                            : lt.code === 'ONT'
-                            ? 'Đất ở tại nông thôn'
-                            : lt.code === 'LUC'
-                            ? 'Đất chuyên trồng lúa nước'
-                            : lt.code === 'CLN'
-                            ? 'Đất trồng cây lâu năm'
-                            : lt.code === 'BHK'
-                            ? 'Đất bằng trồng cây hàng năm khác'
-                            : 'Đất nông nghiệp / chuyên dùng'}
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-slate-500 mt-0.5 block">
-                        Quy mô: {lt.totalAreaHa} ha
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <strong className="text-slate-200 block">{lt.count.toLocaleString('vi-VN')}</strong>
-                      <span className="text-[10px] text-slate-400">{lt.percentCount}%</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="pt-2 border-t border-slate-800/80 text-center">
-                <Link
-                  href="/"
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-400 hover:text-blue-300 transition"
-                >
-                  <MapIcon className="w-3.5 h-3.5" />
-                  Mở bản đồ số trực quan 5.943 thửa đất →
-                </Link>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* TAB 3: DANH SÁCH CHI TIẾT TẤT CẢ THÔN / BUÔN */}
         {activeTab === 'villages' && (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
@@ -2228,70 +2159,6 @@ export default function DashboardPage() {
                   <div className="mt-2 text-[10px] text-blue-400 group-hover:underline flex items-center justify-between">
                     <span>Quy mô: {v.totalAreaHa} ha</span>
                     <span>Xem danh sách →</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 4: PHÂN BỔ LOẠI ĐẤT TOÀN XÃ */}
-        {activeTab === 'landTypes' && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
-            <div>
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <PieChart className="w-4 h-4 text-amber-400" />
-                Cơ Cấu & Diện Tích Phân Bổ Theo Mục Đích Sử Dụng Đất
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Toàn xã có {landTypeStats.length} mã loại đất với tổng diện tích {globalStats.totalAreaHa} ha
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {landTypeStats.map((lt) => (
-                <div
-                  key={lt.code}
-                  onClick={() => {
-                    setLandTypeFilter(lt.code);
-                    setActiveTab('table');
-                  }}
-                  className="bg-slate-950/70 hover:bg-slate-950 p-4 rounded-xl border border-slate-800 hover:border-amber-500/50 transition cursor-pointer group"
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="font-mono font-bold text-sm text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-lg border border-amber-400/20">
-                      {lt.code}
-                    </span>
-                    <span className="text-xs font-bold text-slate-300">{lt.percentCount}%</span>
-                  </div>
-
-                  <strong className="text-xs text-white block truncate mb-1">
-                    {lt.code === 'LUK'
-                      ? 'Đất trồng lúa nước còn lại'
-                      : lt.code === 'NHK'
-                      ? 'Đất nương rẫy trồng cây hàng năm'
-                      : lt.code === 'ONT'
-                      ? 'Đất ở tại nông thôn'
-                      : lt.code === 'LUC'
-                      ? 'Đất chuyên trồng lúa nước'
-                      : lt.code === 'CLN'
-                      ? 'Đất trồng cây lâu năm'
-                      : lt.code === 'BHK'
-                      ? 'Đất bằng trồng cây hàng năm khác'
-                      : lt.code === 'BCS'
-                      ? 'Đất bằng chưa sử dụng'
-                      : lt.code === 'HNK'
-                      ? 'Đất trồng cây hàng năm khác'
-                      : lt.code === 'RSX'
-                      ? 'Đất rừng sản xuất'
-                      : lt.code === 'NTS'
-                      ? 'Đất nuôi trồng thủy sản'
-                      : 'Mục đích sử dụng khác'}
-                  </strong>
-
-                  <div className="flex items-center justify-between text-xs text-slate-400 mt-3 pt-2 border-t border-slate-800/60">
-                    <span>Số lượng: <strong className="text-white">{lt.count.toLocaleString('vi-VN')} thửa</strong></span>
-                    <span>Diện tích: <strong className="text-amber-400">{lt.totalAreaHa} ha</strong></span>
                   </div>
                 </div>
               ))}
@@ -2368,53 +2235,36 @@ export default function DashboardPage() {
 
             {/* 4 Cards Giai Đoạn Tiến Độ */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {/* Giai đoạn 4: Đã Giải Quyết */}
+              {/* Giai đoạn 1: Đang Kê Khai (Thiếu CCCD) */}
               <div
                 onClick={() => {
-                  setSelectedReportSheet('ĐÃ GIẢI QUYẾT');
+                  setSelectedReportSheet('THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)');
                   setReportPage(1);
                 }}
-                className="bg-slate-900/90 border border-emerald-500/30 hover:border-emerald-500/60 rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group"
+                className={`border rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group ${
+                  selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'
+                    ? 'ring-2 ring-amber-500 border-amber-500'
+                    : isLight
+                    ? 'bg-amber-50/60 border-amber-200/80 hover:border-amber-400'
+                    : 'bg-slate-900/90 border-amber-500/30 hover:border-amber-500/60'
+                }`}
               >
-                <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                  <span className="font-bold uppercase tracking-wider text-[10px] text-emerald-400 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    Giai đoạn 4: Đã Giải Quyết
+                <div className="flex items-center justify-between text-xs mb-2">
+                  <span className="font-bold uppercase tracking-wider text-[10px] text-amber-500 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                    Phần 1: Chưa Có CCCD
                   </span>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <Clock className="w-4 h-4 text-amber-500" />
                 </div>
-                <div className="text-2xl sm:text-3xl font-black text-emerald-300 tracking-tight">
-                  {syncSummary ? syncSummary.daGiaiQuyet.toLocaleString('vi-VN') : '...'}
-                  <span className="text-xs font-normal text-slate-400 ml-1.5">thửa</span>
+                <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-amber-700' : 'text-amber-300'}`}>
+                  {syncSummary ? (syncSummary.canTimCccd + syncSummary.khongCoCccd).toLocaleString('vi-VN') : '...'}
+                  <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
                 </div>
-                <div className="mt-2 text-[11px] text-slate-400 pt-2 border-t border-slate-800/80 flex items-center justify-between">
-                  <span>Đã lên GGS chính:</span>
-                  <strong className="text-emerald-400 font-bold">Hoàn tất</strong>
-                </div>
-              </div>
-
-              {/* Giai đoạn 3: Chờ Nhập GGS */}
-              <div
-                onClick={() => {
-                  setSelectedReportSheet('NHẬP GGS');
-                  setReportPage(1);
-                }}
-                className="bg-slate-900/90 border border-sky-500/30 hover:border-sky-500/60 rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group"
-              >
-                <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                  <span className="font-bold uppercase tracking-wider text-[10px] text-sky-400 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-sky-400" />
-                    Giai đoạn 3: Nhập GGS (57 cột)
-                  </span>
-                  <FileSpreadsheet className="w-4 h-4 text-sky-400" />
-                </div>
-                <div className="text-2xl sm:text-3xl font-black text-sky-300 tracking-tight">
-                  {syncSummary ? syncSummary.nhapGgs.toLocaleString('vi-VN') : '...'}
-                  <span className="text-xs font-normal text-slate-400 ml-1.5">hồ sơ</span>
-                </div>
-                <div className="mt-2 text-[11px] text-slate-400 pt-2 border-t border-slate-800/80 flex items-center justify-between">
-                  <span>Đã scan sau ký:</span>
-                  <strong className="text-sky-400 font-bold">Sẵn sàng xuất file</strong>
+                <div className={`mt-2 text-[11px] pt-2 border-t flex items-center justify-between ${
+                  isLight ? 'border-amber-200/60 text-slate-600' : 'border-slate-800/80 text-slate-400'
+                }`}>
+                  <span>Cần tìm: <strong className="text-amber-600 font-bold">{syncSummary?.canTimCccd || 0}</strong></span>
+                  <span>Không có: <strong className="text-rose-500 font-bold">{syncSummary?.khongCoCccd || 0}</strong></span>
                 </div>
               </div>
 
@@ -2424,79 +2274,130 @@ export default function DashboardPage() {
                   setSelectedReportSheet('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
                   setReportPage(1);
                 }}
-                className="bg-slate-900/90 border border-indigo-500/30 hover:border-indigo-500/60 rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group"
+                className={`border rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group ${
+                  selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'
+                    ? 'ring-2 ring-indigo-500 border-indigo-500'
+                    : isLight
+                    ? 'bg-indigo-50/60 border-indigo-200/80 hover:border-indigo-400'
+                    : 'bg-slate-900/90 border-indigo-500/30 hover:border-indigo-500/60'
+                }`}
               >
-                <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                  <span className="font-bold uppercase tracking-wider text-[10px] text-indigo-400 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-indigo-400" />
-                    Giai đoạn 2: Đã Có CCCD
+                <div className="flex items-center justify-between text-xs mb-2">
+                  <span className="font-bold uppercase tracking-wider text-[10px] text-indigo-500 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                    Phần 2: Sẵn Sàng Đóng Tập
                   </span>
-                  <ShieldCheck className="w-4 h-4 text-indigo-400" />
+                  <ShieldCheck className="w-4 h-4 text-indigo-500" />
                 </div>
-                <div className="text-2xl sm:text-3xl font-black text-indigo-300 tracking-tight">
+                <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-indigo-700' : 'text-indigo-300'}`}>
                   {syncSummary ? syncSummary.daDongTap.toLocaleString('vi-VN') : '...'}
-                  <span className="text-xs font-normal text-slate-400 ml-1.5">thửa</span>
+                  <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
                 </div>
-                <div className="mt-2 text-[11px] text-slate-400 pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                <div className={`mt-2 text-[11px] pt-2 border-t flex items-center justify-between ${
+                  isLight ? 'border-indigo-200/60 text-slate-600' : 'border-slate-800/80 text-slate-400'
+                }`}>
                   <span>Đã có PDF trên R2:</span>
-                  <strong className="text-indigo-400 font-bold">Sẵn sàng đóng tập</strong>
+                  <strong className="text-indigo-600 font-bold">Sẵn sàng in/đóng tập</strong>
                 </div>
               </div>
 
-              {/* Giai đoạn 1: Đang Kê Khai (Thiếu CCCD) */}
+              {/* Giai đoạn 3: Chờ Nhập GGS */}
               <div
                 onClick={() => {
-                  setSelectedReportSheet('THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)');
+                  setSelectedReportSheet('NHẬP GGS');
                   setReportPage(1);
                 }}
-                className="bg-slate-900/90 border border-amber-500/30 hover:border-amber-500/60 rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group"
+                className={`border rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group ${
+                  selectedReportSheet === 'NHẬP GGS'
+                    ? 'ring-2 ring-sky-500 border-sky-500'
+                    : isLight
+                    ? 'bg-sky-50/60 border-sky-200/80 hover:border-sky-400'
+                    : 'bg-slate-900/90 border-sky-500/30 hover:border-sky-500/60'
+                }`}
               >
-                <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                  <span className="font-bold uppercase tracking-wider text-[10px] text-amber-400 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-amber-400" />
-                    Giai đoạn 1: Thiếu CCCD
+                <div className="flex items-center justify-between text-xs mb-2">
+                  <span className="font-bold uppercase tracking-wider text-[10px] text-sky-500 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-sky-500" />
+                    Phần 3: Nhập GGS (57 cột)
                   </span>
-                  <Clock className="w-4 h-4 text-amber-400" />
+                  <FileSpreadsheet className="w-4 h-4 text-sky-500" />
                 </div>
-                <div className="text-2xl sm:text-3xl font-black text-amber-300 tracking-tight">
-                  {syncSummary ? (syncSummary.canTimCccd + syncSummary.khongCoCccd).toLocaleString('vi-VN') : '...'}
-                  <span className="text-xs font-normal text-slate-400 ml-1.5">thửa</span>
+                <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-sky-700' : 'text-sky-300'}`}>
+                  {syncSummary ? syncSummary.nhapGgs.toLocaleString('vi-VN') : '...'}
+                  <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>hồ sơ</span>
                 </div>
-                <div className="mt-2 text-[11px] text-slate-400 pt-2 border-t border-slate-800/80 flex items-center justify-between">
-                  <span>Cần tìm: <strong className="text-amber-300">{syncSummary?.canTimCccd || 0}</strong></span>
-                  <span>Không có: <strong className="text-rose-400">{syncSummary?.khongCoCccd || 0}</strong></span>
+                <div className={`mt-2 text-[11px] pt-2 border-t flex items-center justify-between ${
+                  isLight ? 'border-sky-200/60 text-slate-600' : 'border-slate-800/80 text-slate-400'
+                }`}>
+                  <span>Đã scan sau ký:</span>
+                  <strong className="text-sky-600 font-bold">Sẵn sàng xuất file</strong>
+                </div>
+              </div>
+
+              {/* Giai đoạn 4: Đã Giải Quyết */}
+              <div
+                onClick={() => {
+                  setSelectedReportSheet('ĐÃ GIẢI QUYẾT');
+                  setReportPage(1);
+                }}
+                className={`border rounded-2xl p-4 shadow-sm transition cursor-pointer relative overflow-hidden group ${
+                  selectedReportSheet === 'ĐÃ GIẢI QUYẾT'
+                    ? 'ring-2 ring-emerald-500 border-emerald-500'
+                    : isLight
+                    ? 'bg-emerald-50/60 border-emerald-200/80 hover:border-emerald-400'
+                    : 'bg-slate-900/90 border-emerald-500/30 hover:border-emerald-500/60'
+                }`}
+              >
+                <div className="flex items-center justify-between text-xs mb-2">
+                  <span className="font-bold uppercase tracking-wider text-[10px] text-emerald-500 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Phần 4: Đã Giải Quyết
+                  </span>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                </div>
+                <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-emerald-700' : 'text-emerald-300'}`}>
+                  {syncSummary ? syncSummary.daGiaiQuyet.toLocaleString('vi-VN') : '...'}
+                  <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
+                </div>
+                <div className={`mt-2 text-[11px] pt-2 border-t flex items-center justify-between ${
+                  isLight ? 'border-emerald-200/60 text-slate-600' : 'border-slate-800/80 text-slate-400'
+                }`}>
+                  <span>Đã lên GGS chính:</span>
+                  <strong className="text-emerald-600 font-bold">Hoàn tất</strong>
                 </div>
               </div>
             </div>
 
-            {/* Sub-tabs điều hướng các bảng báo cáo */}
-            <div className="flex border-b border-slate-800 gap-2 overflow-x-auto no-scrollbar pt-2">
+            {/* Sub-tabs điều hướng 4 phần + 16 Thôn Buôn */}
+            <div className={`flex border-b gap-2 overflow-x-auto no-scrollbar pt-2 ${
+              isLight ? 'border-slate-200' : 'border-slate-800'
+            }`}>
               {[
-                { id: 'THỐNG KÊ', label: 'Bảng Thống Kê 16 Thôn / Buôn', count: 16 },
-                {
-                  id: 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)',
-                  label: 'Sẵn Sàng Đóng Tập (Có CCCD)',
-                  count: syncSummary?.daDongTap,
-                  color: 'indigo',
-                },
                 {
                   id: 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)',
-                  label: 'Đang Kê Khai (Thiếu CCCD)',
+                  label: '1. Đang Kê Khai (Chưa có CCCD)',
                   count: syncSummary ? syncSummary.canTimCccd + syncSummary.khongCoCccd : undefined,
                   color: 'amber',
                 },
                 {
-                  id: 'ĐÃ GIẢI QUYẾT',
-                  label: 'Đã Giải Quyết (GGS)',
-                  count: syncSummary?.daGiaiQuyet,
-                  color: 'emerald',
+                  id: 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)',
+                  label: '2. Sẵn Sàng Đóng Tập (Có CCCD)',
+                  count: syncSummary?.daDongTap,
+                  color: 'indigo',
                 },
                 {
                   id: 'NHẬP GGS',
-                  label: 'Nhập GGS (57 cột)',
+                  label: '3. Nhập GGS (57 cột)',
                   count: syncSummary?.nhapGgs,
                   color: 'sky',
                 },
+                {
+                  id: 'ĐÃ GIẢI QUYẾT',
+                  label: '4. Đã Giải Quyết (GGS)',
+                  count: syncSummary?.daGiaiQuyet,
+                  color: 'emerald',
+                },
+                { id: 'THỐNG KÊ', label: 'Bảng Thống Kê 16 Thôn / Buôn', count: 16, color: 'purple' },
               ].map((tab) => {
                 const isActive = selectedReportSheet === tab.id;
                 return (
@@ -2509,13 +2410,21 @@ export default function DashboardPage() {
                     }}
                     className={`py-2 px-3 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
                       isActive
-                        ? 'border-indigo-500 text-indigo-400 bg-indigo-500/5 rounded-t-lg'
+                        ? isLight
+                          ? 'border-indigo-600 text-indigo-700 bg-indigo-50/80 rounded-t-lg'
+                          : 'border-indigo-500 text-indigo-400 bg-indigo-500/10 rounded-t-lg'
+                        : isLight
+                        ? 'border-transparent text-slate-600 hover:text-slate-900'
                         : 'border-transparent text-slate-400 hover:text-slate-200'
                     }`}
                   >
                     <span>{tab.label}</span>
                     {typeof tab.count === 'number' && (
-                      <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-800 text-slate-300 font-bold border border-slate-700">
+                      <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold border ${
+                        isLight
+                          ? 'bg-slate-100 text-slate-700 border-slate-200'
+                          : 'bg-slate-800 text-slate-300 border-slate-700'
+                      }`}>
                         {tab.count}
                       </span>
                     )}
@@ -2526,55 +2435,71 @@ export default function DashboardPage() {
 
             {/* BẢNG 1: HIỂN THỊ SHEET THỐNG KÊ (16 THÔN / BUÔN) */}
             {selectedReportSheet === 'THỐNG KÊ' && (
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+              <div className={`border rounded-2xl p-4 sm:p-5 shadow-sm space-y-4 ${
+                isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
+              }`}>
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
-                    <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                      <Building2 className="w-4 h-4 text-indigo-400" />
+                    <h3 className={`text-sm sm:text-base font-bold flex items-center gap-2 ${
+                      isLight ? 'text-slate-900' : 'text-white'
+                    }`}>
+                      <Building2 className="w-4 h-4 text-indigo-500" />
                       Tiến Độ Thửa Đất Chưa Hoàn Thành Theo 16 Thôn / Buôn
                     </h3>
-                    <p className="text-xs text-slate-400 mt-0.5">
+                    <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                       Bấm vào hàng của thôn bất kỳ để mở danh sách lọc các thửa tương ứng trên Bản đồ / Tra Cứu
                     </p>
                   </div>
-                  <span className="text-xs text-slate-400 bg-slate-950 px-3 py-1 rounded-xl border border-slate-800">
+                  <span className={`text-xs px-3 py-1 rounded-xl border ${
+                    isLight ? 'bg-slate-50 text-slate-600 border-slate-200' : 'bg-slate-950 text-slate-400 border-slate-800'
+                  }`}>
                     Tổng 16 thôn + chưa xác định
                   </span>
                 </div>
 
                 {isLoadingSyncSheets && !syncSheetsData ? (
                   <div className="py-12 text-center text-slate-400 space-y-2">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto text-indigo-400" />
+                    <RefreshCw className="w-6 h-6 animate-spin mx-auto text-indigo-500" />
                     <p className="text-xs font-semibold">Đang tổng hợp số liệu realtime từ Cloudflare R2...</p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto rounded-xl border border-slate-800">
-                    <table className="w-full text-xs text-left text-slate-300">
+                  <div className={`overflow-x-auto rounded-xl border ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
+                    <table className={`w-full text-xs text-left ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
                       <thead>
-                        <tr className="bg-slate-950 border-b border-slate-800 text-slate-400">
-                          <th rowSpan={2} className="py-2.5 px-3 text-center border-r border-slate-800 w-12 font-bold">STT</th>
-                          <th rowSpan={2} className="py-2.5 px-3 border-r border-slate-800 font-bold min-w-[150px]">Tên Thôn / Buôn</th>
-                          <th colSpan={3} className="py-1.5 px-3 text-center border-r border-slate-800 bg-slate-900/80 font-bold text-slate-300">
+                        <tr className={`border-b font-bold ${
+                          isLight ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-950 text-slate-400 border-slate-800'
+                        }`}>
+                          <th rowSpan={2} className={`py-2.5 px-3 text-center border-r w-12 font-bold ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>STT</th>
+                          <th rowSpan={2} className={`py-2.5 px-3 border-r font-bold min-w-[150px] ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>Tên Thôn / Buôn</th>
+                          <th colSpan={3} className={`py-1.5 px-3 text-center border-r font-bold ${
+                            isLight ? 'border-slate-200 bg-slate-50 text-slate-800' : 'border-slate-800 bg-slate-900/80 text-slate-300'
+                          }`}>
                             Chưa Thực Hiện
                           </th>
-                          <th colSpan={4} className="py-1.5 px-3 text-center border-r border-slate-800 bg-slate-900/80 font-bold text-blue-300">
+                          <th colSpan={4} className={`py-1.5 px-3 text-center border-r font-bold ${
+                            isLight ? 'border-slate-200 bg-blue-50 text-blue-800' : 'border-slate-800 bg-slate-900/80 text-blue-300'
+                          }`}>
                             Đã Kê Khai (Thu Thập Hồ Sơ)
                           </th>
-                          <th rowSpan={2} className="py-2.5 px-3 text-center font-bold text-emerald-400 bg-emerald-950/20">
+                          <th rowSpan={2} className={`py-2.5 px-3 text-center font-bold ${
+                            isLight ? 'text-emerald-700 bg-emerald-50' : 'text-emerald-400 bg-emerald-950/20'
+                          }`}>
                             Đã Hoàn Thành
                           </th>
                         </tr>
-                        <tr className="bg-slate-950/90 border-b border-slate-800 text-[11px] text-slate-400">
-                          <th className="py-1.5 px-2 text-center border-r border-slate-800 font-semibold">Tổng</th>
-                          <th className="py-1.5 px-2 text-center border-r border-slate-800 font-semibold text-amber-400">Có Tên</th>
-                          <th className="py-1.5 px-2 text-center border-r border-slate-800 font-semibold text-slate-400">Không Tên</th>
-                          <th className="py-1.5 px-2 text-center border-r border-slate-800 font-semibold text-blue-400">Tổng</th>
-                          <th className="py-1.5 px-2 text-center border-r border-slate-800 font-semibold text-indigo-400">Có CCCD</th>
-                          <th className="py-1.5 px-2 text-center border-r border-slate-800 font-semibold text-amber-400">Cần Tìm</th>
-                          <th className="py-1.5 px-2 text-center border-r border-slate-800 font-semibold text-rose-400">Không CCCD</th>
+                        <tr className={`border-b text-[11px] font-semibold ${
+                          isLight ? 'bg-slate-50/90 border-slate-200 text-slate-600' : 'bg-slate-950/90 border-slate-800 text-slate-400'
+                        }`}>
+                          <th className={`py-1.5 px-2 text-center border-r ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>Tổng</th>
+                          <th className={`py-1.5 px-2 text-center border-r text-amber-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>Có Tên</th>
+                          <th className={`py-1.5 px-2 text-center border-r ${isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'}`}>Không Tên</th>
+                          <th className={`py-1.5 px-2 text-center border-r text-blue-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>Tổng</th>
+                          <th className={`py-1.5 px-2 text-center border-r text-indigo-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>Có CCCD</th>
+                          <th className={`py-1.5 px-2 text-center border-r text-amber-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>Cần Tìm</th>
+                          <th className={`py-1.5 px-2 text-center border-r text-rose-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>Không CCCD</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-800/60">
+                      <tbody className={`divide-y ${isLight ? 'divide-slate-200' : 'divide-slate-800/60'}`}>
                         {(() => {
                           const rawRows = syncSheetsData?.['THỐNG KÊ'] || [];
                           const tableHeaderIdx = rawRows.findIndex(
@@ -2608,29 +2533,39 @@ export default function DashboardPage() {
                                 }}
                                 className={`transition ${
                                   isTotal
-                                    ? 'bg-indigo-950/40 font-black text-slate-100 border-t-2 border-indigo-500/40'
+                                    ? isLight
+                                      ? 'bg-indigo-50 font-black text-indigo-950 border-t-2 border-indigo-300'
+                                      : 'bg-indigo-950/40 font-black text-slate-100 border-t-2 border-indigo-500/40'
+                                    : isLight
+                                    ? 'hover:bg-slate-50 cursor-pointer'
                                     : 'hover:bg-slate-800/50 cursor-pointer'
                                 }`}
                               >
-                                <td className={`py-2 px-3 text-center border-r border-slate-800 ${isTotal ? 'text-amber-400 font-black' : 'text-slate-500'}`}>
+                                <td className={`py-2 px-3 text-center border-r ${
+                                  isLight ? 'border-slate-200' : 'border-slate-800'
+                                } ${isTotal ? 'text-amber-500 font-black' : isLight ? 'text-slate-400' : 'text-slate-500'}`}>
                                   {row[0]}
                                 </td>
-                                <td className={`py-2 px-3 border-r border-slate-800 font-bold ${isTotal ? 'text-amber-300' : 'text-slate-200'}`}>
+                                <td className={`py-2 px-3 border-r font-bold ${
+                                  isLight ? 'border-slate-200' : 'border-slate-800'
+                                } ${isTotal ? (isLight ? 'text-indigo-900' : 'text-amber-300') : (isLight ? 'text-slate-800' : 'text-slate-200')}`}>
                                   {thonName}
                                   {!isTotal && (
-                                    <span className="text-[10px] text-indigo-400 ml-1.5 opacity-0 group-hover:opacity-100 transition">
+                                    <span className="text-[10px] text-indigo-500 ml-1.5 opacity-0 group-hover:opacity-100 transition">
                                       →
                                     </span>
                                   )}
                                 </td>
-                                <td className="py-2 px-2 text-center border-r border-slate-800 font-semibold">{row[2]}</td>
-                                <td className="py-2 px-2 text-center border-r border-slate-800 text-amber-400">{row[3]}</td>
-                                <td className="py-2 px-2 text-center border-r border-slate-800 text-slate-400">{row[4]}</td>
-                                <td className="py-2 px-2 text-center border-r border-slate-800 font-bold text-blue-400">{row[5]}</td>
-                                <td className="py-2 px-2 text-center border-r border-slate-800 text-indigo-300">{row[6]}</td>
-                                <td className="py-2 px-2 text-center border-r border-slate-800 text-amber-300">{row[7]}</td>
-                                <td className="py-2 px-2 text-center border-r border-slate-800 text-rose-400">{row[8]}</td>
-                                <td className="py-2 px-3 text-center font-bold text-emerald-400 bg-emerald-950/10">{row[9]}</td>
+                                <td className={`py-2 px-2 text-center border-r font-semibold ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>{row[2]}</td>
+                                <td className={`py-2 px-2 text-center border-r text-amber-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>{row[3]}</td>
+                                <td className={`py-2 px-2 text-center border-r ${isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800 text-slate-400'}`}>{row[4]}</td>
+                                <td className={`py-2 px-2 text-center border-r font-bold text-blue-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>{row[5]}</td>
+                                <td className={`py-2 px-2 text-center border-r text-indigo-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>{row[6]}</td>
+                                <td className={`py-2 px-2 text-center border-r text-amber-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>{row[7]}</td>
+                                <td className={`py-2 px-2 text-center border-r text-rose-500 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>{row[8]}</td>
+                                <td className={`py-2 px-3 text-center font-bold ${
+                                  isLight ? 'text-emerald-700 bg-emerald-50' : 'text-emerald-400 bg-emerald-950/10'
+                                }`}>{row[9]}</td>
                               </tr>
                             );
                           });
@@ -2644,34 +2579,9 @@ export default function DashboardPage() {
 
             {/* BẢNG 2, 3, 4, 5: HIỂN THỊ CÁC SHEET CHI TIẾT (ĐÓNG TẬP, THIẾU CCCD, ĐÃ GIẢI QUYẾT, 57 CỘT) */}
             {selectedReportSheet !== 'THỐNG KÊ' && (
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                      <FileSpreadsheet className="w-4 h-4 text-indigo-400" />
-                      {selectedReportSheet}
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Danh sách chi tiết được tạo tự động • Hỗ trợ tìm kiếm nhanh & xuất file Excel
-                    </p>
-                  </div>
-
-                  {/* Thanh tìm kiếm trong sheet */}
-                  <div className="relative w-full sm:w-64">
-                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                    <input
-                      type="text"
-                      placeholder="Tìm theo tên, mã thửa, CCCD..."
-                      value={reportSearchQuery}
-                      onChange={(e) => {
-                        setReportSearchQuery(e.target.value);
-                        setReportPage(1);
-                      }}
-                      className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                </div>
-
+              <div className={`border rounded-2xl p-4 sm:p-5 shadow-sm space-y-4 ${
+                isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
+              }`}>
                 {(() => {
                   const rawSheet = syncSheetsData?.[selectedReportSheet] || [];
                   const headers = rawSheet[0] || [];
@@ -2683,69 +2593,225 @@ export default function DashboardPage() {
                     return row.some((cell) => stripAccents(String(cell || '')).includes(q));
                   });
 
+                  const isReadyToPackSheet = selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)';
                   const pageSize = 20;
                   const totalPages = Math.ceil(filtered.length / pageSize) || 1;
                   const pagedRows = filtered.slice((reportPage - 1) * pageSize, reportPage * pageSize);
 
+                  const pageCodes = pagedRows.map((r) => String(r[1] || '').trim()).filter(Boolean);
+                  const isAllPageSelected = pageCodes.length > 0 && pageCodes.every((c) => readyToPackSelectedCodes.has(c));
+
+                  const toggleSelectAllPageReadyToPack = () => {
+                    setReadyToPackSelectedCodes((prev) => {
+                      const next = new Set(prev);
+                      if (isAllPageSelected) {
+                        pageCodes.forEach((c) => next.delete(c));
+                      } else {
+                        pageCodes.forEach((c) => next.add(c));
+                      }
+                      return next;
+                    });
+                  };
+
                   return (
-                    <div className="space-y-3">
-                      <div className="overflow-x-auto rounded-xl border border-slate-800">
-                        <table className="w-full text-xs text-left text-slate-300">
-                          <thead className="bg-slate-950 border-b border-slate-800 text-slate-400 font-bold">
+                    <div className="space-y-4">
+                      {/* Toolbar trên cùng của bảng */}
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                        <div>
+                          <h3 className={`text-sm sm:text-base font-bold flex items-center gap-2 ${
+                            isLight ? 'text-slate-900' : 'text-white'
+                          }`}>
+                            <FileSpreadsheet className="w-4 h-4 text-indigo-500" />
+                            {selectedReportSheet}
+                          </h3>
+                          <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isReadyToPackSheet
+                              ? 'Hồ sơ đã đầy đủ CCCD và sẵn sàng đóng tập PDF • Hover vào ô Xem CCCD để xem chi tiết'
+                              : 'Danh sách chi tiết được tạo tự động • Hỗ trợ tìm kiếm nhanh & xuất file Excel'}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          {/* Nút ĐÓNG TẬP PDF HỒ SƠ - NỔI BẬT NHẤT TRÊN SHEET SẲN SÀNG ĐÓNG TẬP */}
+                          {isReadyToPackSheet && (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleBatchPrintReadyToPack(
+                                    readyToPackSelectedCodes.size > 0
+                                      ? Array.from(readyToPackSelectedCodes)
+                                      : undefined
+                                  )
+                                }
+                                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-md shadow-indigo-600/30 transition cursor-pointer"
+                                title="Đóng tập PDF hồ sơ kê khai kèm file CCCD R2"
+                              >
+                                <Printer className="w-3.5 h-3.5 text-indigo-200" />
+                                <span>
+                                  {readyToPackSelectedCodes.size > 0
+                                    ? `Đóng Tập PDF (${readyToPackSelectedCodes.size} thửa đã chọn)`
+                                    : `Đóng Tập PDF Tất Cả (${filtered.length} thửa)`}
+                                </span>
+                              </button>
+
+                              {readyToPackSelectedCodes.size > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setReadyToPackSelectedCodes(new Set())}
+                                  className={`text-xs underline transition cursor-pointer ${
+                                    isLight ? 'text-slate-500 hover:text-slate-800' : 'text-slate-400 hover:text-slate-200'
+                                  }`}
+                                >
+                                  Bỏ chọn
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Thanh tìm kiếm trong sheet */}
+                          <div className="relative w-full sm:w-60">
+                            <Search className={`w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 ${
+                              isLight ? 'text-slate-400' : 'text-slate-500'
+                            }`} />
+                            <input
+                              type="text"
+                              placeholder="Tìm theo tên, mã thửa, CCCD..."
+                              value={reportSearchQuery}
+                              onChange={(e) => {
+                                setReportSearchQuery(e.target.value);
+                                setReportPage(1);
+                              }}
+                              className={`w-full pl-9 pr-3 py-1.5 rounded-xl text-xs focus:outline-none focus:border-indigo-500 ${
+                                isLight
+                                  ? 'bg-slate-50 border border-slate-300 text-slate-800 placeholder:text-slate-400 focus:bg-white'
+                                  : 'bg-slate-950 border border-slate-800 text-slate-200 placeholder:text-slate-500'
+                              }`}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Bảng dữ liệu chi tiết */}
+                      <div className={`overflow-x-auto rounded-xl border ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
+                        <table className={`w-full text-xs text-left ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                          <thead className={`border-b font-bold ${
+                            isLight ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-950 text-slate-400 border-slate-800'
+                          }`}>
                             <tr>
+                              {isReadyToPackSheet && (
+                                <th className={`w-10 px-3 py-2.5 text-center border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isAllPageSelected}
+                                    onChange={toggleSelectAllPageReadyToPack}
+                                    className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                    title={isAllPageSelected ? 'Bỏ chọn trang này' : 'Chọn tất cả trang này'}
+                                  />
+                                </th>
+                              )}
                               {headers.map((h, hIdx) => (
-                                <th key={hIdx} className="py-2.5 px-3 whitespace-nowrap border-r border-slate-800/80">
+                                <th key={hIdx} className={`py-2.5 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
                                   {h}
                                 </th>
                               ))}
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-800/60">
+                          <tbody className={`divide-y ${isLight ? 'divide-slate-200' : 'divide-slate-800/60'}`}>
                             {pagedRows.length === 0 ? (
                               <tr>
-                                <td colSpan={Math.max(headers.length, 1)} className="py-8 text-center text-slate-500">
+                                <td colSpan={Math.max(headers.length + (isReadyToPackSheet ? 1 : 0), 1)} className="py-8 text-center text-slate-500">
                                   {filtered.length === 0 && reportSearchQuery
                                     ? 'Không tìm thấy kết quả phù hợp với từ khóa.'
                                     : 'Chưa có hồ sơ trong danh sách này.'}
                                 </td>
                               </tr>
                             ) : (
-                              pagedRows.map((row, rIdx) => (
-                                <tr key={rIdx} className="hover:bg-slate-800/40 transition">
-                                  {row.map((cell, cIdx) => {
-                                    const cellStr = String(cell || '');
+                              pagedRows.map((row, rIdx) => {
+                                const maThua = String(row[1] || '').trim();
+                                const isChecked = readyToPackSelectedCodes.has(maThua);
 
-                                    // Hiển thị nút bấm nếu là Hyperlink file PDF
-                                    const linkMatch = cellStr.match(/HYPERLINK\("([^"]+)";\s*"([^"]+)"\)/i);
-                                    if (linkMatch) {
-                                      const href = linkMatch[1];
-                                      const text = linkMatch[2];
+                                return (
+                                  <tr
+                                    key={rIdx}
+                                    className={`transition ${
+                                      isChecked
+                                        ? isLight
+                                          ? 'bg-indigo-50/70'
+                                          : 'bg-indigo-950/30'
+                                        : isLight
+                                        ? 'hover:bg-slate-50'
+                                        : 'hover:bg-slate-800/40'
+                                    }`}
+                                  >
+                                    {isReadyToPackSheet && (
+                                      <td className={`w-10 px-3 py-2 text-center border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
+                                        <input
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={() => {
+                                            setReadyToPackSelectedCodes((prev) => {
+                                              const next = new Set(prev);
+                                              if (next.has(maThua)) next.delete(maThua);
+                                              else next.add(maThua);
+                                              return next;
+                                            });
+                                          }}
+                                          className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                        />
+                                      </td>
+                                    )}
+
+                                    {row.map((cell, cIdx) => {
+                                      const cellStr = String(cell || '');
+
+                                      // Hiển thị nút bấm Xem CCCD / Xem PDF kèm Card Hover nổi
+                                      const linkMatch = cellStr.match(/HYPERLINK\("([^"]+)";\s*"([^"]+)"\)/i);
+                                      if (linkMatch) {
+                                        const href = linkMatch[1];
+                                        const text = linkMatch[2];
+                                        const ownerName = String(row[5] || row[4] || '').trim();
+                                        const cccdVal = String(row[6] || '').replace(/^="|"$/g, '').trim();
+
+                                        return (
+                                          <td key={cIdx} className={`py-2 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
+                                            <CccdHoverPreviewCard
+                                              fileUrl={href}
+                                              filename={text}
+                                              ownerName={ownerName || undefined}
+                                              cccdNumber={cccdVal || undefined}
+                                              theme={theme}
+                                            >
+                                              <a
+                                                href={href}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition shadow-xs ${
+                                                  isLight
+                                                    ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+                                                    : 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
+                                                }`}
+                                              >
+                                                <Eye className="w-3.5 h-3.5 text-indigo-500" />
+                                                <span>Xem CCCD</span>
+                                              </a>
+                                            </CccdHoverPreviewCard>
+                                          </td>
+                                        );
+                                      }
+
+                                      // Hiển thị chuỗi định dạng Excel (="...")
+                                      const cleanText = cellStr.replace(/^="|"$/g, '');
+
                                       return (
-                                        <td key={cIdx} className="py-2 px-3 whitespace-nowrap border-r border-slate-800/60">
-                                          <a
-                                            href={href}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 text-[11px] font-bold border border-indigo-500/30 transition"
-                                          >
-                                            <Eye className="w-3 h-3" />
-                                            <span>{text}</span>
-                                          </a>
+                                        <td key={cIdx} className={`py-2 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
+                                          {cleanText}
                                         </td>
                                       );
-                                    }
-
-                                    // Hiển thị chuỗi định dạng Excel (="...")
-                                    const cleanText = cellStr.replace(/^="|"$/g, '');
-
-                                    return (
-                                      <td key={cIdx} className="py-2 px-3 whitespace-nowrap border-r border-slate-800/60">
-                                        {cleanText}
-                                      </td>
-                                    );
-                                  })}
-                                </tr>
-                              ))
+                                    })}
+                                  </tr>
+                                );
+                              })
                             )}
                           </tbody>
                         </table>
@@ -2753,7 +2819,9 @@ export default function DashboardPage() {
 
                       {/* Phân trang */}
                       {filtered.length > pageSize && (
-                        <div className="flex items-center justify-between text-xs text-slate-400 pt-2">
+                        <div className={`flex items-center justify-between text-xs pt-2 ${
+                          isLight ? 'text-slate-600' : 'text-slate-400'
+                        }`}>
                           <span>
                             Hiển thị {(reportPage - 1) * pageSize + 1} -{' '}
                             {Math.min(reportPage * pageSize, filtered.length)} / {filtered.length} kết quả
@@ -2763,18 +2831,26 @@ export default function DashboardPage() {
                               type="button"
                               onClick={() => setReportPage((p) => Math.max(1, p - 1))}
                               disabled={reportPage <= 1}
-                              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 transition cursor-pointer"
+                              className={`px-2.5 py-1 rounded-lg disabled:opacity-40 transition cursor-pointer border ${
+                                isLight
+                                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                              }`}
                             >
                               Trước
                             </button>
-                            <span className="px-2 text-slate-300 font-bold">
+                            <span className={`px-2 font-bold ${isLight ? 'text-slate-800' : 'text-slate-300'}`}>
                               {reportPage} / {totalPages}
                             </span>
                             <button
                               type="button"
                               onClick={() => setReportPage((p) => Math.min(totalPages, p + 1))}
                               disabled={reportPage >= totalPages}
-                              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 transition cursor-pointer"
+                              className={`px-2.5 py-1 rounded-lg disabled:opacity-40 transition cursor-pointer border ${
+                                isLight
+                                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                              }`}
                             >
                               Sau
                             </button>

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import CccdHoverPreviewCard from '@/components/CccdHoverPreviewCard';
 import {
   Search,
   Plus,
@@ -353,17 +354,25 @@ export default function CccdManagerTab({
                 {/* Actions: Xem PDF & Xóa */}
                 <div className="flex items-center justify-between pt-1 border-t border-slate-900">
                   <div className="flex items-center gap-1.5">
-                    {/* Nút Xem file PDF */}
-                    <a
-                      href={file.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 text-xs font-semibold border border-indigo-500/30 transition"
-                      title="Mở xem file PDF trên Cloudflare R2"
+                    {/* Nút Xem file PDF có Hover Card Preview */}
+                    <CccdHoverPreviewCard
+                      fileUrl={file.url}
+                      filename={file.filename}
+                      cccdNumber={file.cccdNumber}
+                      ownerName={file.ownerName}
+                      fileSize={formatFileSize(file.size)}
                     >
-                      <Eye className="w-3 h-3" />
-                      <span>Xem PDF</span>
-                    </a>
+                      <a
+                        href={file.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 text-xs font-semibold border border-indigo-500/30 transition cursor-pointer"
+                        title="Mở xem file PDF trên Cloudflare R2"
+                      >
+                        <Eye className="w-3 h-3" />
+                        <span>Xem PDF</span>
+                      </a>
+                    </CccdHoverPreviewCard>
                   </div>
 
                   {/* Nút Xóa */}
