@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { PDFDocument } from 'pdf-lib';
-import { executeSyncToGoogleSheet, cleanCccd, cleanName } from '@/utils/syncGoogleSheets';
+import { executeSyncToGoogleSheet, cleanCccd, cleanName, invalidateR2Cache } from '@/utils/syncGoogleSheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -129,17 +129,42 @@ export async function POST(request: Request) {
     const r2Key = `cccd/${fileName}`;
 
     if (bucket) {
+      // NGUYÊN TẮC: Nếu số CCCD đã có trong R2 rồi thì lấy cái hiện tại thay thế cái đã có trong R2 đó luôn!
+      if (cccdClean && cccdClean.length >= 9) {
+        try {
+          // List các file trong cccd/ để tìm bất kỳ file cũ nào mang số CCCD này
+          const listRes: any = await bucket.list({ prefix: 'cccd/', limit: 1000 });
+          for (const obj of listRes?.objects || []) {
+            const key = obj.key;
+            const fn = key.replace(/^cccd\//, '');
+            // Nếu file này chứa đúng số CCCD và khác tên file mới sắp ghi -> xóa file cũ
+            if (
+              key !== r2Key &&
+              (fn.startsWith(`${cccdClean}.`) || fn.startsWith(`${cccdClean}_`) || fn.includes(cccdClean))
+            ) {
+              console.log(`>>> Thay thế CCCD cũ trong R2: Xóa file cũ ${key} để cập nhật file mới ${r2Key}`);
+              await bucket.delete(key);
+            }
+          }
+        } catch (err) {
+          console.warn('Lỗi khi rà soát và xóa file CCCD cũ trên R2:', err);
+        }
+      }
+
       await bucket.put(r2Key, pdfBytes, {
         httpMetadata: {
           contentType: 'application/pdf',
           cacheControl: 'public, max-age=31536000, immutable',
         },
       });
+
+      // Xóa cache R2 files để hệ thống cập nhật file mới ngay lập tức
+      invalidateR2Cache();
     }
 
     const r2PublicUrl = `https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/${r2Key}`;
 
-    // Cập nhật thông tin phiếu kê khai nếu có liên kết thửa
+    // Cập nhật thông tin phiếu kê khai nếu có liên kết thửa hoặc trùng số CCCD
     let updatedDeclarations: Record<string, any> = {};
     if (bucket) {
       try {
@@ -147,11 +172,29 @@ export async function POST(request: Request) {
         if (declObj) {
           const payload = JSON.parse(await declObj.text());
           const map = payload.declarationsMap || {};
-          if (ma_thua && map[ma_thua]) {
-            map[ma_thua].cccd = cccdClean || map[ma_thua].cccd;
-            map[ma_thua].cccd_chu_ho = cccdClean || map[ma_thua].cccd_chu_ho;
-            if (nameClean) map[ma_thua].chu_ho = nameClean;
-            map[ma_thua].anh_cccd_pdf = r2PublicUrl;
+          let changed = false;
+
+          for (const [code, decl] of Object.entries(map as Record<string, any>)) {
+            const curCccd = cleanCccd(decl.cccd || decl.chu_dat_cccd || decl.cccd_chu_ho);
+            if (
+              (cccdClean && curCccd === cccdClean) ||
+              (ma_thua && code === ma_thua)
+            ) {
+              if (cccdClean) {
+                decl.cccd = cccdClean;
+                decl.cccd_chu_ho = cccdClean;
+                decl.chu_dat_cccd = cccdClean;
+              }
+              if (nameClean) {
+                decl.chu_ho = nameClean;
+                decl.chu_dat_ten = nameClean;
+              }
+              decl.anh_cccd_pdf = r2PublicUrl;
+              changed = true;
+            }
+          }
+
+          if (changed) {
             payload.updatedAt = new Date().toISOString();
             await bucket.put(KEY_ALL_DECLARATIONS, JSON.stringify(payload, null, 2), {
               httpMetadata: { contentType: 'application/json' },

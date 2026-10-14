@@ -175,6 +175,10 @@ async function getCachedGgsData(): Promise<{
 
 let cachedR2Files: { cccdFiles: Set<string>; scanFiles: Set<string>; timestamp: number } | null = null;
 
+export function invalidateR2Cache(): void {
+  cachedR2Files = null;
+}
+
 // Lấy toàn bộ danh sách file CCCD và file SCAN trên R2 với phân trang đầy đủ (cache 60s)
 async function getR2StorageFiles(r2Bucket?: any): Promise<{ cccdFiles: Set<string>; scanFiles: Set<string> }> {
   const now = Date.now();
