@@ -165,6 +165,18 @@ export default function DashboardPage() {
   const [savingRowCodes, setSavingRowCodes] = useState<Set<string>>(new Set());
   const [inlineSaveToast, setInlineSaveToast] = useState<string | null>(null);
 
+  // Độ rộng cột tuỳ chỉnh trên danh sách (kéo thu nhỏ/mở rộng & nhấn đúp tự căn chiều rộng tối thiểu)
+  const [colWidths, setColWidths] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('diachinh_dashboard_col_widths');
+      if (saved) {
+        setColWidths(JSON.parse(saved));
+      }
+    } catch {}
+  }, []);
+
   // Checkbox Selection state cho THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD)
   const [readyToPackSelectedCodes, setReadyToPackSelectedCodes] = useState<Set<string>>(new Set());
   const [packagedParcelCodes, setPackagedParcelCodes] = useState<Set<string>>(new Set());
@@ -503,17 +515,13 @@ export default function DashboardPage() {
     setDeclaredParcelCodes(new Set(updatedCodes));
     setDeclarationsMap(updatedMap);
 
-    // Gửi realtime lên Cloudflare R2
+    // Gửi realtime lên Cloudflare R2 (không hiện popup thông báo làm phiền)
     try {
-      const res = await fetch('/api/declarations', {
+      await fetch('/api/declarations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedDecl),
       });
-      if (res.ok) {
-        setInlineSaveToast(`✓ Đã lưu thay đổi Thửa ${updatedDecl.so_thua || maThua} realtime`);
-        setTimeout(() => setInlineSaveToast(null), 2500);
-      }
     } catch (e) {
       console.warn('Lỗi lưu realtime:', e);
     } finally {
@@ -523,6 +531,170 @@ export default function DashboardPage() {
         return next;
       });
     }
+  };
+
+  // -------------------------------------------------------------
+  // ĐIỀU CHỈNH ĐỘ RỘNG CỘT DANH SÁCH (KÉO THU NHỎ / NHẤN ĐÚP CĂN TỰ ĐỘNG)
+  // -------------------------------------------------------------
+  const getDefaultColWidth = (header: string, idx: number): number => {
+    const h = (header || '').toLowerCase();
+    if (idx === 0 && (h.includes('stt') || h === '')) return 50;
+    if (h.includes('mã thửa')) return 110;
+    if (h.includes('tờ')) return 70;
+    if (h.includes('thửa')) return 75;
+    if (h.includes('thôn') || h.includes('buôn')) return 120;
+    if (h.includes('họ') || h.includes('tên') || h.includes('chủ')) return 175;
+    if (h.includes('sinh')) return 85;
+    if (h.includes('giới tính')) return 75;
+    if (h.includes('cccd') && !h.includes('xem') && !h.includes('file')) return 125;
+    if (h.includes('diện tích')) return 90;
+    if (h.includes('loại đất')) return 80;
+    if (h.includes('nguồn gốc')) return 120;
+    if (h.includes('cccd') && (h.includes('xem') || h.includes('file'))) return 105;
+    if (h.includes('ghi chú')) return 140;
+    return 110;
+  };
+
+  const getColWidth = (idx: number, header: string): number => {
+    const key = `${selectedReportSheet}_${idx}`;
+    return colWidths[key] ?? getDefaultColWidth(header, idx);
+  };
+
+  const handleResizeStart = (colIdx: number, header: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const colKey = colIdx === -1 ? `${selectedReportSheet}_status` : `${selectedReportSheet}_${colIdx}`;
+    const startWidth = colIdx === -1 ? (colWidths[colKey] ?? 110) : getColWidth(colIdx, header);
+
+    let currentWidth = startWidth;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+      // Cho phép kéo thu nhỏ tối đa xuống 30px
+      currentWidth = Math.max(30, Math.round(startWidth + delta));
+      setColWidths((prev) => ({
+        ...prev,
+        [colKey]: currentWidth,
+      }));
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setColWidths((prev) => {
+        const next = { ...prev, [colKey]: currentWidth };
+        try {
+          localStorage.setItem('diachinh_dashboard_col_widths', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  const handleResizeTouchStart = (colIdx: number, header: string, e: React.TouchEvent) => {
+    e.stopPropagation();
+    if (e.touches.length !== 1) return;
+    const startX = e.touches[0].clientX;
+    const colKey = colIdx === -1 ? `${selectedReportSheet}_status` : `${selectedReportSheet}_${colIdx}`;
+    const startWidth = colIdx === -1 ? (colWidths[colKey] ?? 110) : getColWidth(colIdx, header);
+
+    let currentWidth = startWidth;
+
+    const onTouchMove = (moveEvent: TouchEvent) => {
+      if (moveEvent.touches.length !== 1) return;
+      const delta = moveEvent.touches[0].clientX - startX;
+      currentWidth = Math.max(30, Math.round(startWidth + delta));
+      setColWidths((prev) => ({
+        ...prev,
+        [colKey]: currentWidth,
+      }));
+    };
+
+    const onTouchEnd = () => {
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+      setColWidths((prev) => {
+        const next = { ...prev, [colKey]: currentWidth };
+        try {
+          localStorage.setItem('diachinh_dashboard_col_widths', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    };
+
+    window.addEventListener('touchmove', onTouchMove);
+    window.addEventListener('touchend', onTouchEnd);
+  };
+
+  const handleAutoFit = (colIdx: number, header: string, sampleRows: any[][]) => {
+    const colKey = colIdx === -1 ? `${selectedReportSheet}_status` : `${selectedReportSheet}_${colIdx}`;
+    const hLower = (header || '').toLowerCase();
+    const isMaThuaHeader = colIdx === 1 && selectedReportSheet === 'CHƯA THỰC HIỆN';
+    const isNameHeader = /họ và tên|chủ đất/i.test(header);
+
+    if (colIdx === -1) {
+      setColWidths((prev) => {
+        const next = { ...prev, [colKey]: 110 };
+        try {
+          localStorage.setItem('diachinh_dashboard_col_widths', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      return;
+    }
+
+    let canvas: HTMLCanvasElement | null = null;
+    try {
+      canvas = document.createElement('canvas');
+    } catch {}
+    const ctx = canvas?.getContext('2d');
+
+    const measureText = (text: string, font: string = '12px Inter, sans-serif') => {
+      if (ctx) {
+        ctx.font = font;
+        return ctx.measureText(text).width;
+      }
+      return text.length * 7.5;
+    };
+
+    // Chiều rộng tiêu đề cột (kèm khoảng cách padding và nút bấm lọc/sắp xếp nếu có)
+    const headerTextWidth = measureText(header, 'bold 12px Inter, sans-serif');
+    let extraHeader = 20; // padding 10px mỗi bên
+    if (isMaThuaHeader) extraHeader += 46; // Nút lọc Excel và badge số lượng
+    if (isNameHeader) extraHeader += 30; // Icon sắp xếp A-Z
+    let maxW = headerTextWidth + extraHeader;
+
+    const isCccdView = hLower.includes('cccd') && (hLower.includes('xem') || hLower.includes('file'));
+    if (isCccdView) {
+      maxW = Math.max(maxW, 95);
+    } else {
+      // Đo độ rộng của nội dung các dòng (dòng hiện tại hoặc tối đa 100 dòng mẫu)
+      (sampleRows || []).slice(0, 100).forEach((row) => {
+        const rawVal = String(row[colIdx] || '').replace(/^="|"$/g, '');
+        const cellW = measureText(rawVal, '12px Inter, sans-serif') + 20; // 20px padding
+        if (cellW > maxW) {
+          maxW = cellW;
+        }
+      });
+    }
+
+    // Căn chiều rộng tối thiểu vừa bằng nội dung (tối thiểu 35px)
+    const fittedWidth = Math.max(35, Math.ceil(maxW) + 6);
+    setColWidths((prev) => {
+      const next = { ...prev, [colKey]: fittedWidth };
+      try {
+        localStorage.setItem('diachinh_dashboard_col_widths', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
   };
 
   const handleSaveEditedDeclaration = (data: DeclarationFormData) => {
@@ -2900,13 +3072,19 @@ export default function DashboardPage() {
 
                       {/* Bảng dữ liệu chi tiết - HỖ TRỢ NHẬP & SỬA TRỰC TIẾP NHƯ EXCEL */}
                       <div className={`overflow-x-auto rounded-xl border ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
-                        <table className={`w-full text-xs text-left ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                        <table
+                          style={{ tableLayout: 'fixed', width: 'max-content', minWidth: '100%' }}
+                          className={`text-xs text-left ${isLight ? 'text-slate-700' : 'text-slate-300'}`}
+                        >
                           <thead className={`border-b font-bold ${
                             isLight ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-950 text-slate-400 border-slate-800'
                           }`}>
                             <tr>
                               {isReadyToPackSheet && (
-                                <th className={`w-10 px-3 py-2.5 text-center border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
+                                <th
+                                  style={{ width: '40px', minWidth: '40px', maxWidth: '40px' }}
+                                  className={`w-10 px-3 py-2.5 text-center border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}
+                                >
                                   <input
                                     type="checkbox"
                                     checked={isAllPageSelected}
@@ -2919,9 +3097,11 @@ export default function DashboardPage() {
                               {headers.map((h, hIdx) => {
                                 const isNameHeader = hIdx === nameColIdx;
                                 const isMaThuaHeader = hIdx === 1 && isChuaThucHienSheet;
+                                const colW = getColWidth(hIdx, h);
                                 return (
                                   <th
                                     key={hIdx}
+                                    style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
                                     onClick={
                                       isNameHeader
                                         ? () => {
@@ -2932,13 +3112,13 @@ export default function DashboardPage() {
                                           }
                                         : undefined
                                     }
-                                    className={`py-2.5 px-3 whitespace-nowrap border-r select-none ${
+                                    className={`py-2.5 px-2 relative border-r select-none overflow-visible ${
                                       isNameHeader ? 'cursor-pointer hover:bg-indigo-500/10' : ''
                                     } ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}
                                   >
-                                    <div className="flex items-center gap-1.5 relative">
+                                    <div className="flex items-center gap-1.5 relative min-w-0 pr-1">
                                       
-                                      <span>{h}</span>
+                                      <span className="truncate" title={h}>{h}</span>
                                       {isMaThuaHeader && (
                                         <div className="relative inline-block text-left">
                                           <button
@@ -3147,15 +3327,50 @@ export default function DashboardPage() {
                                         </span>
                                       )}
                                     </div>
+                                    {/* Vùng kéo thu nhỏ / mở rộng & nhấn đúp tự căn chiều rộng */}
+                                    <div
+                                      onMouseDown={(e) => handleResizeStart(hIdx, h, e)}
+                                      onTouchStart={(e) => handleResizeTouchStart(hIdx, h, e)}
+                                      onDoubleClick={(e) => {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        handleAutoFit(hIdx, h, pagedRows.length > 0 ? pagedRows : allRows);
+                                      }}
+                                      className="absolute right-0 top-0 bottom-0 w-3 translate-x-1.5 cursor-col-resize z-20 group hover:bg-indigo-500/20 flex items-center justify-center select-none"
+                                      title="Kéo để thu nhỏ/mở rộng cột, nhấn đúp vào giữa để tự căn vừa nội dung"
+                                    >
+                                      <div className="w-[1.5px] h-full bg-slate-300 dark:bg-slate-700/80 group-hover:bg-indigo-500 group-hover:w-[2.5px] transition-all" />
+                                    </div>
                                   </th>
                                 );
                               })}
                               {/* Cột Trạng thái / Thao tác */}
-                              <th className={`w-28 px-3 py-2.5 text-center border-r font-bold whitespace-nowrap ${
-                                isLight ? 'border-slate-200 bg-slate-200/60' : 'border-slate-800/80 bg-slate-900'
-                              }`}>
-                                Trạng thái
-                              </th>
+                              {(() => {
+                                const statusW = colWidths[`${selectedReportSheet}_status`] ?? 110;
+                                return (
+                                  <th
+                                    style={{ width: `${statusW}px`, minWidth: `${statusW}px`, maxWidth: `${statusW}px` }}
+                                    className={`px-2 py-2.5 text-center border-r font-bold relative select-none overflow-visible ${
+                                      isLight ? 'border-slate-200 bg-slate-200/60' : 'border-slate-800/80 bg-slate-900'
+                                    }`}
+                                  >
+                                    <span className="truncate">Trạng thái</span>
+                                    <div
+                                      onMouseDown={(e) => handleResizeStart(-1, 'Trạng thái', e)}
+                                      onTouchStart={(e) => handleResizeTouchStart(-1, 'Trạng thái', e)}
+                                      onDoubleClick={(e) => {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        handleAutoFit(-1, 'Trạng thái', pagedRows);
+                                      }}
+                                      className="absolute right-0 top-0 bottom-0 w-3 translate-x-1.5 cursor-col-resize z-20 group hover:bg-indigo-500/20 flex items-center justify-center select-none"
+                                      title="Kéo để thu nhỏ/mở rộng, nhấn đúp vào giữa để tự căn vừa nội dung"
+                                    >
+                                      <div className="w-[1.5px] h-full bg-slate-300 dark:bg-slate-700/80 group-hover:bg-indigo-500 group-hover:w-[2.5px] transition-all" />
+                                    </div>
+                                  </th>
+                                );
+                              })()}
                             </tr>
                           </thead>
                           <tbody className={`divide-y ${isLight ? 'divide-slate-200' : 'divide-slate-800/60'}`}>
@@ -3193,7 +3408,10 @@ export default function DashboardPage() {
                                     }`}
                                   >
                                     {isReadyToPackSheet && (
-                                      <td className={`w-10 px-3 py-2 text-center border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
+                                      <td
+                                        style={{ width: '40px', minWidth: '40px', maxWidth: '40px' }}
+                                        className={`w-10 px-3 py-2 text-center border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                      >
                                         <input
                                           type="checkbox"
                                           checked={isChecked}
@@ -3214,24 +3432,31 @@ export default function DashboardPage() {
                                       const cellStr = String(cell || '');
                                       const headerName = headers[cIdx] || '';
                                       const hLower = headerName.toLowerCase();
+                                      const colW = getColWidth(cIdx, headerName);
 
                                       // Cột Phân loại trạng thái (Làm nổi bật badge)
                                       if (cIdx === statusColIdx && isChuaCoCccdSheet) {
                                         const isCanTim = cellStr.includes('CẦN TÌM');
                                         return (
-                                          <td key={cIdx} className={`py-2 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
-                                            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[11px] border ${
-                                              isCanTim
-                                                ? isLight
-                                                  ? 'bg-amber-50 text-amber-800 border-amber-300'
-                                                  : 'bg-amber-950/50 text-amber-300 border-amber-500/40'
-                                                : isLight
-                                                ? 'bg-rose-50 text-rose-800 border-rose-300'
-                                                : 'bg-rose-950/50 text-rose-300 border-rose-500/40'
-                                            }`}>
-                                              <span className={`w-1.5 h-1.5 rounded-full ${isCanTim ? 'bg-amber-500' : 'bg-rose-500'}`} />
-                                              {cellStr}
-                                            </span>
+                                          <td
+                                            key={cIdx}
+                                            style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                            className={`py-2 px-2 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                          >
+                                            <div className="truncate">
+                                              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[11px] border ${
+                                                isCanTim
+                                                  ? isLight
+                                                    ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                                    : 'bg-amber-950/50 text-amber-300 border-amber-500/40'
+                                                  : isLight
+                                                  ? 'bg-rose-50 text-rose-800 border-rose-300'
+                                                  : 'bg-rose-950/50 text-rose-300 border-rose-500/40'
+                                              }`}>
+                                                <span className={`w-1.5 h-1.5 rounded-full ${isCanTim ? 'bg-amber-500' : 'bg-rose-500'}`} />
+                                                <span className="truncate">{cellStr}</span>
+                                              </span>
+                                            </div>
                                           </td>
                                         );
                                       }
@@ -3245,36 +3470,42 @@ export default function DashboardPage() {
                                         const cccdVal = String(row[8] || '').replace(/^="|"$/g, '').trim();
 
                                         return (
-                                          <td key={cIdx} className={`py-2 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
-                                            <CccdHoverPreviewCard
-                                              fileUrl={href}
-                                              filename={text}
-                                              ownerName={ownerName || undefined}
-                                              cccdNumber={cccdVal || undefined}
-                                              theme={theme}
-                                            >
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  e.preventDefault();
-                                                  setPreviewPdfModal({
-                                                    isOpen: true,
-                                                    url: href,
-                                                    title: `CCCD: ${ownerName || text}`,
-                                                    filename: text,
-                                                  });
-                                                }}
-                                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition shadow-xs cursor-pointer ${
-                                                  isLight
-                                                    ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
-                                                    : 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
-                                                }`}
-                                                title="Xem trực tiếp file CCCD trên giao diện"
+                                          <td
+                                            key={cIdx}
+                                            style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                            className={`py-2 px-2 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                          >
+                                            <div className="truncate">
+                                              <CccdHoverPreviewCard
+                                                fileUrl={href}
+                                                filename={text}
+                                                ownerName={ownerName || undefined}
+                                                cccdNumber={cccdVal || undefined}
+                                                theme={theme}
                                               >
-                                                <Eye className="w-3.5 h-3.5 text-indigo-500" />
-                                                <span>Xem CCCD</span>
-                                              </button>
-                                            </CccdHoverPreviewCard>
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.preventDefault();
+                                                    setPreviewPdfModal({
+                                                      isOpen: true,
+                                                      url: href,
+                                                      title: `CCCD: ${ownerName || text}`,
+                                                      filename: text,
+                                                    });
+                                                  }}
+                                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition shadow-xs cursor-pointer ${
+                                                    isLight
+                                                      ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+                                                      : 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
+                                                  }`}
+                                                  title="Xem trực tiếp file CCCD trên giao diện"
+                                                >
+                                                  <Eye className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                                  <span className="truncate">Xem CCCD</span>
+                                                </button>
+                                              </CccdHoverPreviewCard>
+                                            </div>
                                           </td>
                                         );
                                       }
@@ -3293,34 +3524,14 @@ export default function DashboardPage() {
                                       const isOriginCol = hLower.includes('nguồn gốc');
                                       const isNoteCol = hLower.includes('ghi chú') || hLower.includes('hướng dẫn');
 
-                                      // 1. Ô Giới tính (Dropdown Nam/Nữ trực tiếp)
-                                      if (isGenderCol) {
-                                        return (
-                                          <td key={cIdx} className={`py-1.5 px-2 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
-                                            <select
-                                              value={displayVal || 'Nam'}
-                                              onChange={(e) => {
-                                                const v = e.target.value;
-                                                handleInlineCellChange(maThua, cIdx, v);
-                                                handleInlineCellCommit(maThua, cIdx, headerName, v, row);
-                                              }}
-                                              className={`px-1.5 py-1 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 transition cursor-pointer ${
-                                                isLight
-                                                  ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
-                                                  : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
-                                              }`}
-                                            >
-                                              <option value="Nam">Nam</option>
-                                              <option value="Nữ">Nữ</option>
-                                            </select>
-                                          </td>
-                                        );
-                                      }
-
-                                      // 2. Ô Nguồn gốc sử dụng đất (Dropdown Khai hoang / Thừa kế / Tặng cho trực tiếp)
+                                      // 1. Ô Nguồn gốc sử dụng đất (Dropdown Khai hoang / Thừa kế / Tặng cho trực tiếp)
                                       if (isOriginCol) {
                                         return (
-                                          <td key={cIdx} className={`py-1.5 px-2 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
+                                          <td
+                                            key={cIdx}
+                                            style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                            className={`py-1 px-1.5 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                          >
                                             <select
                                               value={displayVal || 'Khai hoang'}
                                               onChange={(e) => {
@@ -3328,7 +3539,7 @@ export default function DashboardPage() {
                                                 handleInlineCellChange(maThua, cIdx, v);
                                                 handleInlineCellCommit(maThua, cIdx, headerName, v, row);
                                               }}
-                                              className={`px-1.5 py-1 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 transition cursor-pointer ${
+                                              className={`w-full min-w-0 px-1.5 py-1 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 transition cursor-pointer truncate ${
                                                 isLight
                                                   ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
                                                   : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
@@ -3342,10 +3553,14 @@ export default function DashboardPage() {
                                         );
                                       }
 
-                                      // 3. Các ô nhập chữ trực tiếp như Excel (Họ tên, Năm sinh, Số CCCD, Diện tích, Loại đất, Ghi chú)
-                                      if (isNameCol || isDobCol || isCccdCol || isAreaCol || isLandTypeCol || isNoteCol) {
+                                      // 2. Các ô nhập chữ trực tiếp như Excel (Họ tên, Năm sinh, Giới tính, Số CCCD, Diện tích, Loại đất, Ghi chú)
+                                      if (isNameCol || isDobCol || isGenderCol || isCccdCol || isAreaCol || isLandTypeCol || isNoteCol) {
                                         return (
-                                          <td key={cIdx} className={`p-1 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
+                                          <td
+                                            key={cIdx}
+                                            style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                            className={`p-1 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                          >
                                             <input
                                               type="text"
                                               value={displayVal}
@@ -3356,8 +3571,18 @@ export default function DashboardPage() {
                                                   (e.target as HTMLInputElement).blur();
                                                 }
                                               }}
-                                              placeholder={isCccdCol ? '12 số CCCD...' : isNameCol ? 'Nhập họ tên...' : isDobCol ? 'YYYY...' : 'Nhập...'}
-                                              className={`w-full min-w-[80px] px-2 py-1 text-xs rounded border border-transparent hover:border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-white font-medium transition ${
+                                              placeholder={
+                                                isGenderCol
+                                                  ? 'Nam / Nữ...'
+                                                  : isCccdCol
+                                                  ? '12 số CCCD...'
+                                                  : isNameCol
+                                                  ? 'Nhập họ tên...'
+                                                  : isDobCol
+                                                  ? 'YYYY...'
+                                                  : 'Nhập...'
+                                              }
+                                              className={`w-full min-w-0 px-2 py-1 text-xs rounded border border-transparent hover:border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-white font-medium transition truncate ${
                                                 isNameCol ? 'font-bold' : ''
                                               } ${
                                                 isLight
@@ -3369,11 +3594,17 @@ export default function DashboardPage() {
                                         );
                                       }
 
-                                      // 4. Các cột định danh cố định (STT, Mã thửa, Tờ BĐ, Số thửa, Thôn / Buôn, Trạng thái)
+                                      // 3. Các cột định danh cố định (STT, Mã thửa, Tờ BĐ, Số thửa, Thôn / Buôn, Trạng thái)
                                       if (cIdx === 1 && isChuaThucHienSheet) {
                                         return (
-                                          <td key={cIdx} className={`py-2 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
-                                            <span className="font-semibold text-emerald-700 dark:text-emerald-400">{cleanText}</span>
+                                          <td
+                                            key={cIdx}
+                                            style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                            className={`py-2 px-2.5 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                          >
+                                            <div className="truncate">
+                                              <span className="font-semibold text-emerald-700 dark:text-emerald-400">{cleanText}</span>
+                                            </div>
                                           </td>
                                         );
                                       }
@@ -3381,14 +3612,18 @@ export default function DashboardPage() {
                                       if (cIdx === 1 && isReadyToPackSheet) {
                                         const isPackaged = packagedParcelCodes.has(maThua);
                                         return (
-                                          <td key={cIdx} className={`py-2 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
-                                            <div className="flex items-center gap-1.5">
-                                              <span className="font-semibold text-indigo-700 dark:text-indigo-400">{cleanText}</span>
+                                          <td
+                                            key={cIdx}
+                                            style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                            className={`py-2 px-2 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                          >
+                                            <div className="flex items-center gap-1.5 truncate">
+                                              <span className="font-semibold text-indigo-700 dark:text-indigo-400 truncate">{cleanText}</span>
                                               {isPackaged ? (
                                                 <button
                                                   type="button"
                                                   onClick={() => toggleParcelPackagedStatus(maThua)}
-                                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 cursor-pointer"
+                                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 cursor-pointer shrink-0"
                                                   title="Đã đóng tập PDF. Bấm để chuyển lại Chưa đóng nếu muốn in lại."
                                                 >
                                                   <CheckCircle2 className="w-2.5 h-2.5" />
@@ -3396,7 +3631,7 @@ export default function DashboardPage() {
                                                 </button>
                                               ) : (
                                                 <span
-                                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse"
+                                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse shrink-0"
                                                   title="Hồ sơ mới chưa đóng tập PDF"
                                                 >
                                                   <Sparkles className="w-2.5 h-2.5" />
@@ -3409,42 +3644,57 @@ export default function DashboardPage() {
                                       }
 
                                       return (
-                                        <td key={cIdx} className={`py-2 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
-                                          {cleanText}
+                                        <td
+                                          key={cIdx}
+                                          style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                          className={`py-2 px-2.5 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                        >
+                                          <div className="truncate" title={cleanText}>
+                                            {cleanText}
+                                          </div>
                                         </td>
                                       );
                                     })}
 
                                     {/* Cột Trạng thái / Sửa nhanh */}
-                                    <td className={`w-28 px-2 py-2 text-center whitespace-nowrap border-r ${
-                                      isLight ? 'border-slate-200' : 'border-slate-800/60'
-                                    }`}>
-                                      {isSaving ? (
-                                        <span className="inline-flex items-center gap-1 text-[11px] text-amber-500 font-bold">
-                                          <RefreshCw className="w-3 h-3 animate-spin" />
-                                          <span>Đang lưu</span>
-                                        </span>
-                                      ) : hasEdited ? (
-                                        <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 font-bold">
-                                          <Check className="w-3 h-3 text-emerald-500" />
-                                          <span>Đã lưu</span>
-                                        </span>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleEditRowParcel(maThua, row)}
-                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border transition cursor-pointer ${
-                                            isLight
-                                              ? 'text-slate-500 hover:text-slate-800 border-slate-200 hover:bg-slate-100'
-                                              : 'text-slate-400 hover:text-slate-200 border-slate-700/60 hover:bg-slate-800'
+                                    {(() => {
+                                      const statusW = colWidths[`${selectedReportSheet}_status`] ?? 110;
+                                      return (
+                                        <td
+                                          style={{ width: `${statusW}px`, minWidth: `${statusW}px`, maxWidth: `${statusW}px` }}
+                                          className={`px-2 py-2 text-center border-r overflow-hidden ${
+                                            isLight ? 'border-slate-200' : 'border-slate-800/60'
                                           }`}
-                                          title="Bấm để mở form xem chi tiết / in phiếu"
                                         >
-                                          <Pencil className="w-3 h-3 text-slate-400" />
-                                          <span>Chi tiết</span>
-                                        </button>
-                                      )}
-                                    </td>
+                                          <div className="truncate">
+                                            {isSaving ? (
+                                              <span className="inline-flex items-center gap-1 text-[11px] text-amber-500 font-bold">
+                                                <RefreshCw className="w-3 h-3 animate-spin" />
+                                                <span>Đang lưu</span>
+                                              </span>
+                                            ) : hasEdited ? (
+                                              <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 font-bold">
+                                                <Check className="w-3 h-3 text-emerald-500" />
+                                                <span>Đã lưu</span>
+                                              </span>
+                                            ) : (
+                                              <button
+                                                type="button"
+                                                onClick={() => handleEditRowParcel(maThua, row)}
+                                                className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold border transition ${
+                                                  isLight
+                                                    ? 'bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 border-slate-300'
+                                                    : 'bg-slate-800 hover:bg-indigo-950/40 text-slate-300 hover:text-indigo-300 border-slate-700'
+                                                }`}
+                                              >
+                                                <Pencil className="w-3 h-3 text-indigo-500 shrink-0" />
+                                                <span>Sửa</span>
+                                              </button>
+                                            )}
+                                          </div>
+                                        </td>
+                                      );
+                                    })()}
                                   </tr>
                                 );
                               })
