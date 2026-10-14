@@ -99,5 +99,6 @@ export interface DeclarationFormData {
   is_correction?: boolean;
   ly_do_sai?: string;
   thua_kem_theo?: AdditionalParcel[];
+  device_id?: string; // Mã định danh thiết bị đã kê khai thửa đất này
 }
 

@@ -35,6 +35,8 @@ import {
 import { downloadFile, autoDetectBoundaries, formatBoundaryText, processAndUploadImage, getResolvedImageUrl } from '@/utils/geo';
 import CccdImageEditorModal from '@/components/CccdImageEditorModal';
 import { AdditionalParcel } from '@/types';
+import { cleanCccd } from '@/utils/syncGoogleSheets';
+import { getOrCreateDeviceId } from '@/utils/declaration';
 
 interface ParcelDetailPanelProps {
   parcel: Parcel | null;
@@ -153,6 +155,35 @@ export default function ParcelDetailPanel({
   const [chuDatGioiTinh, setChuDatGioiTinh] = useState<'Nam' | 'Nữ'>('Nam');
   const [chuDatCccd, setChuDatCccd] = useState('');
   const [chuDatDiaChi, setChuDatDiaChi] = useState('');
+
+  // Tự động kiểm tra xem số CCCD đã có file ảnh trên DB hay chưa
+  const [cccdCheckResult, setCccdCheckResult] = useState<{ exists: boolean; filename?: string; url?: string } | null>(null);
+  const [isCheckingCccd, setIsCheckingCccd] = useState(false);
+
+  useEffect(() => {
+    const clean = cleanCccd(chuDatCccd);
+    if (clean.length === 12) {
+      let active = true;
+      setIsCheckingCccd(true);
+      fetch(`/api/cccd?check=${clean}`)
+        .then((r) => r.json() as Promise<{ exists: boolean; filename?: string; url?: string }>)
+        .then((res) => {
+          if (active) setCccdCheckResult(res);
+        })
+        .catch(() => {
+          if (active) setCccdCheckResult(null);
+        })
+        .finally(() => {
+          if (active) setIsCheckingCccd(false);
+        });
+      return () => {
+        active = false;
+      };
+    } else {
+      setCccdCheckResult(null);
+      setIsCheckingCccd(false);
+    }
+  }, [chuDatCccd]);
   const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai hoang');
   const [nguoiKeKhaiTen, setNguoiKeKhaiTen] = useState('');
   const [nguoiKeKhaiSdt, setNguoiKeKhaiSdt] = useState('');
@@ -466,6 +497,7 @@ export default function ParcelDetailPanel({
       anh_gcn_list: gcnUploadedFiles.length > 0 ? gcnUploadedFiles.map((f) => f.url) : undefined,
       ghi_chu: ghiChu,
       thua_kem_theo: additionalParcels,
+      device_id: getOrCreateDeviceId(),
     });
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
@@ -492,6 +524,7 @@ export default function ParcelDetailPanel({
       ghi_chu: `[BÁO SAI / BỔ SUNG THỬA GGS: ${lyDoBaoSai}] ${ghiChu}`.trim(),
       is_correction: true,
       ly_do_sai: lyDoBaoSai,
+      device_id: getOrCreateDeviceId(),
     });
     setCorrectionSuccess(true);
     setTimeout(() => {
@@ -1160,6 +1193,30 @@ export default function ParcelDetailPanel({
                     placeholder="Số CCCD chuẩn"
                     className="w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
                   />
+                  {cccdCheckResult?.exists && (
+                    <div className="mt-1 flex items-center justify-between px-2 py-1 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-[11px] font-semibold animate-in fade-in">
+                      <div className="flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>Đã có hình ảnh cccd</span>
+                      </div>
+                      {cccdCheckResult.url && (
+                        <a
+                          href={cccdCheckResult.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] text-emerald-800 underline font-bold"
+                        >
+                          Xem file
+                        </a>
+                      )}
+                    </div>
+                  )}
+                  {isCheckingCccd && (
+                    <div className="mt-1 text-[10px] text-slate-400 flex items-center gap-1">
+                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                      <span>Đang kiểm tra CCCD...</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1477,6 +1534,30 @@ export default function ParcelDetailPanel({
                     placeholder="Nhập 12 chữ số CCCD..."
                     className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold tracking-wider"
                   />
+                  {cccdCheckResult?.exists && (
+                    <div className="mt-1.5 flex items-center justify-between px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-xs font-semibold animate-in fade-in">
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>Đã có hình ảnh cccd</span>
+                      </div>
+                      {cccdCheckResult.url && (
+                        <a
+                          href={cccdCheckResult.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] text-emerald-800 underline font-bold"
+                        >
+                          Xem file
+                        </a>
+                      )}
+                    </div>
+                  )}
+                  {isCheckingCccd && (
+                    <div className="mt-1 text-[11px] text-slate-400 flex items-center gap-1">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <span>Đang kiểm tra file CCCD...</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Địa chỉ thường trú */}

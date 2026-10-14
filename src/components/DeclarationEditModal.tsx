@@ -25,7 +25,10 @@ import {
   Crop,
   RefreshCw,
   CheckCircle2,
+  Loader2,
 } from 'lucide-react';
+import { cleanCccd } from '@/utils/syncGoogleSheets';
+import { getOrCreateDeviceId } from '@/utils/declaration';
 
 interface DeclarationEditModalProps {
   isOpen: boolean;
@@ -54,6 +57,35 @@ export default function DeclarationEditModal({
   const [chuDatGioiTinh, setChuDatGioiTinh] = useState<'Nam' | 'Nữ'>('Nam');
   const [chuDatCccd, setChuDatCccd] = useState('');
   const [chuDatDiaChi, setChuDatDiaChi] = useState('');
+
+  // Tự động kiểm tra xem số CCCD đã có file ảnh trên DB hay chưa
+  const [cccdCheckResult, setCccdCheckResult] = useState<{ exists: boolean; filename?: string; url?: string } | null>(null);
+  const [isCheckingCccd, setIsCheckingCccd] = useState(false);
+
+  useEffect(() => {
+    const clean = cleanCccd(chuDatCccd);
+    if (clean.length === 12) {
+      let active = true;
+      setIsCheckingCccd(true);
+      fetch(`/api/cccd?check=${clean}`)
+        .then((r) => r.json() as Promise<{ exists: boolean; filename?: string; url?: string }>)
+        .then((res) => {
+          if (active) setCccdCheckResult(res);
+        })
+        .catch(() => {
+          if (active) setCccdCheckResult(null);
+        })
+        .finally(() => {
+          if (active) setIsCheckingCccd(false);
+        });
+      return () => {
+        active = false;
+      };
+    } else {
+      setCccdCheckResult(null);
+      setIsCheckingCccd(false);
+    }
+  }, [chuDatCccd]);
   const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai hoang');
   const [giapDong, setGiapDong] = useState('');
   const [giapTay, setGiapTay] = useState('');
@@ -278,6 +310,7 @@ export default function DeclarationEditModal({
       anh_gcn_list: anhGcnList.length > 0 ? anhGcnList : undefined,
       ghi_chu: ghiChu,
       thua_kem_theo: thuaKemTheo,
+      device_id: declaration?.device_id || getOrCreateDeviceId(),
     };
     onSave(data);
     onClose();
@@ -403,6 +436,30 @@ export default function DeclarationEditModal({
                   placeholder="12 chữ số CCCD..."
                   className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold tracking-wider"
                 />
+                {cccdCheckResult?.exists && (
+                  <div className="mt-1.5 flex items-center justify-between px-2.5 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-xs font-semibold animate-in fade-in">
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                      <span>Đã có hình ảnh cccd</span>
+                    </div>
+                    {cccdCheckResult.url && (
+                      <a
+                        href={cccdCheckResult.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-emerald-300 underline font-bold"
+                      >
+                        Xem file
+                      </a>
+                    )}
+                  </div>
+                )}
+                {isCheckingCccd && (
+                  <div className="mt-1 text-[11px] text-slate-400 flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>Đang kiểm tra file CCCD...</span>
+                  </div>
+                )}
               </div>
 
               <div className="sm:col-span-2">

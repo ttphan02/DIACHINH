@@ -13,6 +13,7 @@ import VectorViewerModal from '@/components/VectorViewerModal';
 import CccdSupplementModal from '@/components/CccdSupplementModal';
 import CccdManagerTab from '@/components/CccdManagerTab';
 import CccdHoverPreviewCard from '@/components/CccdHoverPreviewCard';
+import ExportMissingCccdModal from '@/components/ExportMissingCccdModal';
 import ScanFileManagerTab from '@/components/ScanFileManagerTab';
 import { generateReadyToPackPdf, downloadPdfBlob, ReadyToPackItem } from '@/utils/pdfPacker';
 import { generateStatisticsPdf } from '@/utils/exportStatisticsPdf';
@@ -164,6 +165,7 @@ export default function DashboardPage() {
   const [cellEdits, setCellEdits] = useState<Record<string, Record<number, string>>>({});
   const [savingRowCodes, setSavingRowCodes] = useState<Set<string>>(new Set());
   const [inlineSaveToast, setInlineSaveToast] = useState<string | null>(null);
+  const [isExportMissingCccdOpen, setIsExportMissingCccdOpen] = useState(false);
 
   // Độ rộng cột tuỳ chỉnh trên danh sách (kéo thu nhỏ/mở rộng & nhấn đúp tự căn chiều rộng tối thiểu)
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
@@ -3034,6 +3036,17 @@ export default function DashboardPage() {
                               Đặt lại
                             </button>
                           )}
+
+                          {/* Nút Xuất Ảnh Cần Thu Thập CCCD (Dạng ảnh 16:9 Dọc) */}
+                          <button
+                            type="button"
+                            onClick={() => setIsExportMissingCccdOpen(true)}
+                            className="text-xs px-3 py-1.5 rounded-xl border font-bold transition flex items-center gap-1.5 cursor-pointer bg-rose-600 hover:bg-rose-500 text-white shadow-xs"
+                            title="Xuất ảnh danh sách cần thu thập CCCD (Tỷ lệ 16:9 dọc có 2 cột)"
+                          >
+                            <Users className="w-3.5 h-3.5" />
+                            <span>Xuất DS Cần CCCD</span>
+                          </button>
                         </div>
 
                         {/* Ô tìm kiếm theo từ khóa */}
@@ -3983,6 +3996,15 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Modal Xuất Danh Sách Cần Thu Thập CCCD Dạng Ảnh 16:9 Dọc */}
+      <ExportMissingCccdModal
+        isOpen={isExportMissingCccdOpen}
+        onClose={() => setIsExportMissingCccdOpen(false)}
+        parcels={parcels}
+        declarationsMap={declarationsMap}
+        theme={theme}
+      />
     </div>
   );
 }

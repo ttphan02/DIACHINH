@@ -2,6 +2,36 @@ import { DeclarationFormData } from '@/types';
 
 export const DECLARED_CODES_KEY = 'diachinh_declared_codes';
 export const DECLARATIONS_MAP_KEY = 'diachinh_declarations_map';
+export const DEVICE_ID_KEY = 'diachinh_device_id';
+
+/**
+ * Lấy hoặc khởi tạo mã định danh duy nhất cho thiết bị (điện thoại / máy tính)
+ */
+export function getOrCreateDeviceId(): string {
+  if (typeof window === 'undefined') return 'SERVER';
+  try {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!id || !id.trim()) {
+      // Tạo mã ngắn gọn dễ nhận biết, ví dụ: MAY_A8F2
+      const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+      id = `MAY_${rand}`;
+      localStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id.trim();
+  } catch {
+    return 'MAY_DEF';
+  }
+}
+
+/**
+ * Cho phép cán bộ đổi tên thiết bị / tên cán bộ theo ý muốn (vd: CANBO_NAM, MAY_SO_1)
+ */
+export function setCustomDeviceId(newId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(DEVICE_ID_KEY, newId.trim());
+  } catch {}
+}
 
 /**
  * Đọc an toàn danh sách mã thửa đã kê khai và bản đồ phiếu kê khai từ localStorage
@@ -137,14 +167,24 @@ export function saveOrUpdateDeclaration(formData: DeclarationFormData): {
   removedCodes.forEach((c) => delete updatedMap[c]);
 
   const timestamp = new Date().toISOString();
+  const currentDeviceId = getOrCreateDeviceId();
+  const deviceId = formData.device_id || previousDecl?.device_id || currentDeviceId;
   const fullDeclData = {
     ...formData,
+    device_id: deviceId,
     created_at: previousDecl?.created_at || timestamp,
     updated_at: timestamp,
   };
 
   addedCodes.forEach((code) => {
     updatedMap[code] = fullDeclData;
+  });
+
+  // Tự động gán device_id cho các thửa cũ đã kê khai trên máy này nếu chưa có
+  Object.keys(updatedMap).forEach((code) => {
+    if (updatedMap[code] && !updatedMap[code].device_id) {
+      updatedMap[code].device_id = currentDeviceId;
+    }
   });
 
   if (typeof window !== 'undefined') {

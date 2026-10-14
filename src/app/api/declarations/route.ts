@@ -184,6 +184,7 @@ export async function POST(request: Request) {
     const timestamp = new Date().toISOString();
     const fullDeclData = {
       ...formData,
+      device_id: formData.device_id || previousDecl?.device_id || 'MAY_DEF',
       created_at: previousDecl?.created_at || timestamp,
       updated_at: timestamp,
     };

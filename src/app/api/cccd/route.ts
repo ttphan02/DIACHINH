@@ -5,6 +5,7 @@ import {
   ListObjectsV2Command,
   PutObjectCommand,
   DeleteObjectCommand,
+  HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { executeSyncToGoogleSheet, cleanCccd, cleanName } from '@/utils/syncGoogleSheets';
 
@@ -61,9 +62,90 @@ async function deleteObjectFromR2(key: string) {
   return false;
 }
 
-// GET /api/cccd - Lấy danh sách toàn bộ file CCCD trên R2 kèm thông tin liên kết thửa
-export async function GET() {
+// GET /api/cccd - Lấy danh sách toàn bộ file CCCD trên R2 kèm thông tin liên kết thửa (hoặc kiểm tra 1 số CCCD cụ thể)
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const checkParam = searchParams.get('check') || searchParams.get('cccd');
+
+    // 1. Kiểm tra nhanh 1 số CCCD cụ thể có file PDF trên R2 hay chưa
+    if (checkParam) {
+      const clean = cleanCccd(checkParam);
+      if (!clean) {
+        return NextResponse.json({ exists: false });
+      }
+
+      const bucket = await getR2Binding();
+      const s3 = getS3Client();
+      const targetKey = `cccd/${clean}.pdf`;
+      let found = false;
+
+      if (bucket) {
+        try {
+          const obj = await bucket.head(targetKey);
+          if (obj) found = true;
+        } catch {}
+      }
+
+      if (!found && s3) {
+        try {
+          await s3.send(
+            new HeadObjectCommand({
+              Bucket: R2_BUCKET,
+              Key: targetKey,
+            })
+          );
+          found = true;
+        } catch {}
+      }
+
+      if (found) {
+        return NextResponse.json({
+          exists: true,
+          filename: `${clean}.pdf`,
+          url: `/api/image/cccd/${encodeURIComponent(clean + '.pdf')}`,
+        });
+      }
+
+      return NextResponse.json({ exists: false });
+    }
+
+    // 2. Lấy danh sách tóm tắt tất cả các số CCCD đã có file PDF trên R2
+    if (searchParams.get('list_only')) {
+      const bucket = await getR2Binding();
+      const s3 = getS3Client();
+      let objects: Array<{ key: string }> = [];
+
+      if (bucket) {
+        try {
+          const listRes: any = await bucket.list({ prefix: 'cccd/', limit: 1000 });
+          objects = listRes.objects || [];
+        } catch {}
+      }
+      if (objects.length === 0 && s3) {
+        try {
+          const res = await s3.send(
+            new ListObjectsV2Command({
+              Bucket: R2_BUCKET,
+              Prefix: 'cccd/',
+              MaxKeys: 1000,
+            })
+          );
+          objects = (res.Contents || []).map((c) => ({ key: c.Key || '' }));
+        } catch {}
+      }
+
+      const cccdNumbers = objects
+        .map((o) => o.key.replace(/^cccd\//, '').replace(/\.pdf$/i, '').trim())
+        .filter((c) => cleanCccd(c).length === 12);
+
+      return NextResponse.json({
+        success: true,
+        count: cccdNumbers.length,
+        cccdList: cccdNumbers,
+      });
+    }
+
     const bucket = await getR2Binding();
     const s3 = getS3Client();
 

@@ -8,6 +8,7 @@ import ParcelDetailPanel from '@/components/ParcelDetailPanel';
 import VectorViewerModal from '@/components/VectorViewerModal';
 import CccdSupplementModal from '@/components/CccdSupplementModal';
 import CccdUploadBottomSheet from '@/components/CccdUploadBottomSheet';
+import ExportMissingCccdModal from '@/components/ExportMissingCccdModal';
 import MapSheetMultiSelect from '@/components/MapSheetMultiSelect';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration } from '@/utils/declaration';
@@ -22,6 +23,7 @@ import {
   BarChart3,
   FileText,
   Camera,
+  Users,
 } from 'lucide-react';
 
 // Dynamic import Leaflet Map (SSR disabled)
@@ -105,6 +107,7 @@ export default function Home() {
   // Danh sách các thửa đã kê khai trên hệ thống (lưu trong localStorage để bền vững)
   const [declaredParcelCodes, setDeclaredParcelCodes] = useState<Set<string>>(new Set());
   const [declarationsMap, setDeclarationsMap] = useState<Record<string, any>>({});
+  const [isExportMissingCccdOpen, setIsExportMissingCccdOpen] = useState(false);
 
   // Kê khai gộp nhiều thửa đất chung một phiếu
   const [additionalParcels, setAdditionalParcels] = useState<AdditionalParcel[]>([]);
@@ -1151,6 +1154,17 @@ export default function Home() {
                   <Camera className="w-3.5 h-3.5 text-purple-400" />
                   <span className="hidden xs:inline">Tải Lên CCCD</span>
                 </button>
+
+                {/* Nút Xuất DS Cần Thu Thập CCCD (Dạng ảnh 16:9 Dọc) */}
+                <button
+                  type="button"
+                  onClick={() => setIsExportMissingCccdOpen(true)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-rose-950 hover:bg-rose-900 text-rose-300 font-bold rounded-xl transition shrink-0 border border-rose-500/40 shadow-xs cursor-pointer"
+                  title="Xuất ảnh danh sách cần thu thập CCCD (Tỷ lệ 16:9 dọc có 2 cột)"
+                >
+                  <Users className="w-3.5 h-3.5 text-rose-400" />
+                  <span className="hidden xs:inline">Cần Thu CCCD</span>
+                </button>
               </div>
             </div>
 
@@ -1206,6 +1220,15 @@ export default function Home() {
           fetchCloudDeclarations();
           fetchGgsCodes(true);
         }}
+      />
+
+      {/* Modal Xuất Danh Sách Cần Thu Thập CCCD Dạng Ảnh 16:9 Dọc */}
+      <ExportMissingCccdModal
+        isOpen={isExportMissingCccdOpen}
+        onClose={() => setIsExportMissingCccdOpen(false)}
+        parcels={parcels}
+        declarationsMap={declarationsMap}
+        theme="dark"
       />
     </main>
   );
