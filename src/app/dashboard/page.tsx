@@ -189,6 +189,76 @@ export default function DashboardPage() {
   const [appliedMaThuas, setAppliedMaThuas] = useState<Set<string>>(new Set());
   const [filterPopupPos, setFilterPopupPos] = useState<{ top: number; left: number } | null>(null);
 
+  // Kéo thả di chuyển popover Lọc Mã Thửa khi nhấn giữ header
+  const isDraggingPopupRef = useRef(false);
+  const dragStartRef = useRef<{ mouseX: number; mouseY: number; initialLeft: number; initialTop: number }>({
+    mouseX: 0,
+    mouseY: 0,
+    initialLeft: 0,
+    initialTop: 0,
+  });
+
+  const handlePopupHeaderMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    e.preventDefault();
+    isDraggingPopupRef.current = true;
+    dragStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      initialLeft: filterPopupPos?.left || 100,
+      initialTop: filterPopupPos?.top || 100,
+    };
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isDraggingPopupRef.current) return;
+      const dx = ev.clientX - dragStartRef.current.mouseX;
+      const dy = ev.clientY - dragStartRef.current.mouseY;
+      const newLeft = Math.max(10, Math.min(window.innerWidth - 300, dragStartRef.current.initialLeft + dx));
+      const newTop = Math.max(10, Math.min(window.innerHeight - 300, dragStartRef.current.initialTop + dy));
+      setFilterPopupPos({ left: newLeft, top: newTop });
+    };
+
+    const handleMouseUp = () => {
+      isDraggingPopupRef.current = false;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handlePopupHeaderTouchStart = (e: React.TouchEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    const touch = e.touches[0];
+    isDraggingPopupRef.current = true;
+    dragStartRef.current = {
+      mouseX: touch.clientX,
+      mouseY: touch.clientY,
+      initialLeft: filterPopupPos?.left || 100,
+      initialTop: filterPopupPos?.top || 100,
+    };
+
+    const handleTouchMove = (ev: TouchEvent) => {
+      if (!isDraggingPopupRef.current || !ev.touches[0]) return;
+      const t = ev.touches[0];
+      const dx = t.clientX - dragStartRef.current.mouseX;
+      const dy = t.clientY - dragStartRef.current.mouseY;
+      const newLeft = Math.max(10, Math.min(window.innerWidth - 300, dragStartRef.current.initialLeft + dx));
+      const newTop = Math.max(10, Math.min(window.innerHeight - 300, dragStartRef.current.initialTop + dy));
+      setFilterPopupPos({ left: newLeft, top: newTop });
+    };
+
+    const handleTouchEnd = () => {
+      isDraggingPopupRef.current = false;
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+
+    window.addEventListener('touchmove', handleTouchMove);
+    window.addEventListener('touchend', handleTouchEnd);
+  };
+
   // Modal xem trực tiếp file PDF CCCD (không mở url ngoài)
   const [previewPdfModal, setPreviewPdfModal] = useState<{
     isOpen: boolean;
@@ -1725,38 +1795,86 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Card 4: Đang Kê Khai (Hồ Sơ) */}
+          {/* Card 4: Đang Kê Khai (Hồ Sơ) - Tích hợp 2 ô con Chưa CCCD và Có CCCD (Đóng tập) */}
           <div
-            onClick={() => {
-              setSelectedReportSheet('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
-              setActiveTab('progressReport');
-              setReportPage(1);
-            }}
-            className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
-              selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)' && activeTab === 'progressReport'
+            className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group ${
+              (selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)' || selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)') && activeTab === 'progressReport'
                 ? 'ring-2 ring-indigo-500 border-indigo-500'
                 : isLight
                 ? 'bg-white border-indigo-200 hover:border-indigo-300'
                 : 'bg-slate-900/90 border-indigo-500/30 hover:border-indigo-500/50'
             }`}
           >
-            <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl group-hover:bg-indigo-500/20 transition" />
-            <div className="flex items-center justify-between text-indigo-500 text-xs mb-2">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl group-hover:bg-indigo-500/20 transition pointer-events-none" />
+            <div className="flex items-center justify-between text-indigo-500 text-xs mb-1.5">
               <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
                 Đang Kê Khai (Hồ Sơ)
               </span>
               <FileSpreadsheet className="w-4 h-4 text-indigo-500" />
             </div>
-            <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-indigo-700' : 'text-indigo-300'}`}>
+            <div className={`text-2xl sm:text-3xl font-black tracking-tight mb-2 ${isLight ? 'text-indigo-700' : 'text-indigo-300'}`}>
               {(syncSummary ? syncSummary.canTimCccd + syncSummary.khongCoCccd + syncSummary.daDongTap : 139).toLocaleString('vi-VN')}
               <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>hồ sơ</span>
             </div>
-            <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
-              isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
-            }`}>
-              <span>Chưa CCCD: <strong className="text-amber-500 font-bold">{syncSummary ? (syncSummary.canTimCccd + syncSummary.khongCoCccd) : 132}</strong></span>
-              <span>Sẵn sàng: <strong className="text-indigo-500 font-bold">{syncSummary?.daDongTap ?? 7}</strong></span>
+
+            {/* 2 Ô con lồng bên trong theo yêu cầu */}
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedReportSheet('THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)');
+                  setActiveTab('progressReport');
+                  setReportPage(1);
+                  setReportSearchQuery('');
+                }}
+                className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+                  selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)' && activeTab === 'progressReport'
+                    ? 'bg-rose-500/20 border-rose-500 ring-2 ring-rose-500/50'
+                    : isLight
+                    ? 'bg-rose-50/70 hover:bg-rose-100/80 border-rose-200'
+                    : 'bg-rose-950/30 hover:bg-rose-950/50 border-rose-800/60'
+                }`}
+                title="Bấm để xem danh sách 132 thửa đang kê khai chưa có CCCD"
+              >
+                <div className="text-[10px] font-bold uppercase text-rose-500 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                  Chưa CCCD
+                </div>
+                <div className="text-base sm:text-lg font-black text-rose-600 dark:text-rose-400 mt-0.5">
+                  {syncSummary ? syncSummary.canTimCccd + syncSummary.khongCoCccd : 132}
+                  <span className="text-[10px] font-normal ml-1 text-slate-500">thửa</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedReportSheet('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
+                  setActiveTab('progressReport');
+                  setReportPage(1);
+                  setReportSearchQuery('');
+                }}
+                className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+                  selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)' && activeTab === 'progressReport'
+                    ? 'bg-indigo-500/20 border-indigo-500 ring-2 ring-indigo-500/50'
+                    : isLight
+                    ? 'bg-indigo-50/70 hover:bg-indigo-100/80 border-indigo-200'
+                    : 'bg-indigo-950/30 hover:bg-indigo-950/50 border-indigo-800/60'
+                }`}
+                title="Bấm để xem danh sách 7 thửa sẵn sàng đóng tập kèm CCCD"
+              >
+                <div className="text-[10px] font-bold uppercase text-indigo-500 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                  Có CCCD
+                </div>
+                <div className="text-base sm:text-lg font-black text-indigo-600 dark:text-indigo-400 mt-0.5">
+                  {syncSummary?.daDongTap ?? 7}
+                  <span className="text-[10px] font-normal ml-1 text-slate-500">thửa</span>
+                </div>
+              </button>
             </div>
           </div>
         </section>
@@ -1890,143 +2008,172 @@ export default function DashboardPage() {
         {/* TAB 6: BÁO CÁO TIẾN ĐỘ 16 THÔN & ĐÓNG TẬP NỘI BỘ (THAY THẾ THỐNG KÊ & DSTONG GGS) */}
         {activeTab === 'progressReport' && (
           <div className="space-y-5 animate-in fade-in duration-150">
-            {/* 4 Nhóm Danh Sách Tiến Độ Dạng Ô Thẻ Tương Tác (Theo phong cách 4 Thẻ KPI trên) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              {[
-                {
-                  id: 'CHƯA THỰC HIỆN',
-                  index: '0',
-                  label: '0. Chưa Thực Hiện (Chưa Kê Khai)',
-                  shortTitle: 'Chưa Thực Hiện',
-                  count: chuaThucHienParcels.length,
-                  subLabel: `Có tên: ${globalStats.yellow.toLocaleString('vi-VN')}`,
-                  subLabelRight: `Không tên: ${globalStats.gray.toLocaleString('vi-VN')}`,
-                  icon: Users,
-                  borderActive: 'border-amber-500 ring-2 ring-amber-500/50',
-                  bgActiveLight: 'bg-amber-50/70',
-                  bgActiveDark: 'bg-amber-950/20',
-                  textCount: isLight ? 'text-amber-700' : 'text-amber-300',
-                  dotColor: 'bg-amber-400',
-                  glowColor: 'bg-amber-500/10 group-hover:bg-amber-500/20',
-                },
-                {
-                  id: 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)',
-                  index: '1',
-                  label: '1. Đang Kê Khai (Chưa có CCCD)',
-                  shortTitle: 'Đang Kê Khai (Chưa CCCD)',
-                  count: syncSummary ? syncSummary.canTimCccd + syncSummary.khongCoCccd : 132,
-                  subLabel: `Cần tìm: ${syncSummary?.canTimCccd ?? 0}`,
-                  subLabelRight: `Chưa có: ${syncSummary?.khongCoCccd ?? 0}`,
-                  icon: FileSpreadsheet,
-                  borderActive: 'border-rose-500 ring-2 ring-rose-500/50',
-                  bgActiveLight: 'bg-rose-50/70',
-                  bgActiveDark: 'bg-rose-950/20',
-                  textCount: isLight ? 'text-rose-700' : 'text-rose-300',
-                  dotColor: 'bg-rose-500 animate-pulse',
-                  glowColor: 'bg-rose-500/10 group-hover:bg-rose-500/20',
-                },
-                {
-                  id: 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)',
-                  index: '2',
-                  label: '2. Sẵn Sàng Đóng Tập (Có CCCD)',
-                  shortTitle: 'Sẵn Sàng Đóng Tập',
-                  count: syncSummary?.daDongTap ?? 7,
-                  subLabel: 'Hồ sơ đủ CCCD',
-                  subLabelRight: 'Sẵn sàng in & scan',
-                  icon: Printer,
-                  borderActive: 'border-indigo-500 ring-2 ring-indigo-500/50',
-                  bgActiveLight: 'bg-indigo-50/70',
-                  bgActiveDark: 'bg-indigo-950/20',
-                  textCount: isLight ? 'text-indigo-700' : 'text-indigo-300',
-                  dotColor: 'bg-indigo-500 animate-pulse',
-                  glowColor: 'bg-indigo-500/10 group-hover:bg-indigo-500/20',
-                },
-                {
-                  id: 'ĐÃ GIẢI QUYẾT',
-                  index: '3',
-                  label: '3. Đã Giải Quyết (GGS & Đã Scan)',
-                  shortTitle: 'Đã Giải Quyết',
-                  count: syncSummary?.daGiaiQuyet ?? globalStats.green,
-                  subLabel: 'Đã scan & GGS',
-                  subLabelRight: 'Hoàn tất quy trình',
-                  icon: CheckCircle2,
-                  borderActive: 'border-emerald-500 ring-2 ring-emerald-500/50',
-                  bgActiveLight: 'bg-emerald-50/70',
-                  bgActiveDark: 'bg-emerald-950/20',
-                  textCount: isLight ? 'text-emerald-700' : 'text-emerald-300',
-                  dotColor: 'bg-emerald-500',
-                  glowColor: 'bg-emerald-500/10 group-hover:bg-emerald-500/20',
-                },
-              ].map((card) => {
-                const isActive = selectedReportSheet === card.id;
-                const IconComponent = card.icon;
-                return (
-                  <button
-                    key={card.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedReportSheet(card.id);
-                      setReportPage(1);
-                      setReportSearchQuery('');
-                    }}
-                    className={`text-left border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
-                      isActive
-                        ? `${card.borderActive} ${isLight ? card.bgActiveLight : card.bgActiveDark}`
-                        : isLight
-                        ? 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-md'
-                        : 'bg-slate-900/90 border-slate-800 hover:border-slate-700 hover:shadow-md'
-                    }`}
-                  >
-                    <div className={`absolute top-0 right-0 w-24 h-24 ${card.glowColor} rounded-full blur-2xl transition`} />
-
-                    <div className="flex items-center justify-between text-xs mb-2">
-                      <span className={`font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5 ${
-                        isActive
-                          ? isLight ? 'text-slate-900 font-black' : 'text-white font-black'
-                          : isLight ? 'text-slate-500' : 'text-slate-400'
-                      }`}>
-                        <span className={`w-2 h-2 rounded-full ${card.dotColor}`} />
-                        {card.index}. {card.shortTitle}
-                      </span>
-                      <IconComponent className={`w-4 h-4 ${
-                        isActive ? (isLight ? 'text-slate-900' : 'text-white') : isLight ? 'text-slate-400' : 'text-slate-500'
-                      }`} />
-                    </div>
-
-                    <div className={`text-2xl sm:text-3xl font-black tracking-tight ${card.textCount}`}>
-                      {card.count.toLocaleString('vi-VN')}
-                      <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
-                    </div>
-
-                    <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
-                      isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
-                    }`}>
-                      <span>{card.subLabel}</span>
-                      <span className="font-semibold">{card.subLabelRight}</span>
-                    </div>
-
-                    {/* Indicator pill khi đang chọn */}
-                    {isActive && (
-                      <div className="mt-2.5 flex items-center justify-center">
-                        <span className={`w-full text-center text-[10px] font-black py-0.5 rounded-md border ${
-                          isLight ? 'bg-white/90 text-slate-800 border-slate-300' : 'bg-slate-800/90 text-slate-200 border-slate-700'
-                        }`}>
-                          Đang hiển thị danh sách này
-                        </span>
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
             {/* BẢNG DỮ LIỆU CÁC SHEET CHI TIẾT (0. Chưa Kê Khai, 1. Chưa Có CCCD, 2. Sẵn Sàng Đóng Tập, 3. Chờ Nhập, 4. Đã Giải Quyết) */}
             <div className={`border rounded-2xl p-4 sm:p-5 shadow-sm space-y-4 ${
                 isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
               }`}>
                 {(() => {
                   let rawSheet = syncSheetsData?.[selectedReportSheet] || [];
+
+                  // Fallback 1: CHƯA THỰC HIỆN
                   if (selectedReportSheet === 'CHƯA THỰC HIỆN') {
+                    const headersChuaThucHien = [
+                      'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất (dự kiến)',
+                      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
+                      'Trạng thái dữ liệu'
+                    ];
+                    const rowsChuaThucHien = chuaThucHienParcels.map((p, idx) => {
+                      const cccdText = p.cccd ? `="${p.cccd}"` : 'Chưa có';
+                      return [
+                        String(idx + 1),
+                        p.ma_thua,
+                        p.to_ban_do || '',
+                        p.so_thua || '',
+                        p.thon_xa || 'Chưa rõ thôn',
+                        p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG' ? (p.chu_ho || 'Chưa có tên') : 'Chưa có tên',
+                        (p as any).ngay_sinh || '',
+                        (p as any).gioi_tinh || 'Nam',
+                        cccdText,
+                        p.dien_tich || '0',
+                        p.loai_dat || 'DGT',
+                        'Khai hoang',
+                        p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG' ? 'Có tên (Chưa kê khai)' : 'Chưa cập nhật / Không có DL'
+                      ];
+                    });
+                    rawSheet = [headersChuaThucHien, ...rowsChuaThucHien];
+                  }
+
+                  // Fallback 2: THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD)
+                  if ((!rawSheet || rawSheet.length <= 1) && selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)') {
+                    const headersPack = [
+                      'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
+                      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
+                      'Xem file PDF CCCD (Bấm vào xem)', 'Trạng thái đóng tập'
+                    ];
+                    const declaredKeys = new Set(Object.keys(declarationsMap));
+                    const readyParcels = computedParcels.filter((p) => {
+                      if (p.trang_thai === 'DA_SO_HOA_XANH' || ggsCodes.has(p.ma_thua)) return false;
+                      const decl = declarationsMap[p.ma_thua];
+                      if (!decl && !declaredKeys.has(p.ma_thua)) return false;
+                      const hasCccd = Boolean(
+                        decl?.chu_dat_cccd ||
+                        decl?.cccd_chu_ho ||
+                        decl?.anh_cccd_truoc ||
+                        decl?.anh_cccd_sau ||
+                        p.cccd ||
+                        p.cccd_url
+                      );
+                      return hasCccd;
+                    });
+
+                    const rowsPack = readyParcels.map((p, idx) => {
+                      const decl = declarationsMap[p.ma_thua] || {};
+                      const cccdVal = decl.chu_dat_cccd || decl.cccd_chu_ho || p.cccd || '';
+                      const cccdFileName = `${cccdVal}.pdf`;
+                      const cccdLink = `/api/image/cccd/${encodeURIComponent(cccdFileName)}`;
+                      const cccdFormula = cccdVal ? `=HYPERLINK("${cccdLink}"; "${cccdFileName}")` : '';
+                      return [
+                        String(idx + 1),
+                        p.ma_thua,
+                        p.to_ban_do || '',
+                        p.so_thua || '',
+                        p.thon_xa || 'Xã Cư Pui',
+                        decl.chu_dat_ten || p.chu_ho || 'Chưa có tên',
+                        decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '',
+                        decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam',
+                        cccdVal ? `="${cccdVal}"` : '',
+                        p.dien_tich || '',
+                        p.loai_dat || 'DGT',
+                        decl.nguon_goc_su_dung || 'Khai hoang',
+                        cccdFormula,
+                        'ĐỦ HỒ SƠ - SẴN SÀNG ĐÓNG TẬP'
+                      ];
+                    });
+                    rawSheet = [headersPack, ...rowsPack];
+                  }
+
+                  // Fallback 3: THỬA ĐANG KÊ KHAI (CHƯA CÓ CCCD)
+                  if ((!rawSheet || rawSheet.length <= 1) && selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)') {
+                    const headersUnpack = [
+                      'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
+                      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
+                      'Phân loại trạng thái', 'Ghi chú & Hướng dẫn'
+                    ];
+                    const declaredKeys = new Set(Object.keys(declarationsMap));
+                    const unpackParcels = computedParcels.filter((p) => {
+                      if (p.trang_thai === 'DA_SO_HOA_XANH' || ggsCodes.has(p.ma_thua)) return false;
+                      const decl = declarationsMap[p.ma_thua];
+                      if (!decl && !declaredKeys.has(p.ma_thua)) return false;
+                      const hasCccd = Boolean(
+                        decl?.chu_dat_cccd ||
+                        decl?.cccd_chu_ho ||
+                        decl?.anh_cccd_truoc ||
+                        decl?.anh_cccd_sau ||
+                        p.cccd ||
+                        p.cccd_url
+                      );
+                      return !hasCccd;
+                    });
+
+                    const rowsUnpack = unpackParcels.map((p, idx) => {
+                      const decl = declarationsMap[p.ma_thua] || {};
+                      const cccdVal = decl.chu_dat_cccd || decl.cccd_chu_ho || p.cccd || '';
+                      const isCanTim = Boolean(cccdVal);
+                      return [
+                        String(idx + 1),
+                        p.ma_thua,
+                        p.to_ban_do || '',
+                        p.so_thua || '',
+                        p.thon_xa || 'Xã Cư Pui',
+                        decl.chu_dat_ten || p.chu_ho || 'Chưa có tên',
+                        decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '',
+                        decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam',
+                        cccdVal ? `="${cccdVal}"` : '',
+                        p.dien_tich || '',
+                        p.loai_dat || 'DGT',
+                        decl.nguon_goc_su_dung || 'Khai hoang',
+                        isCanTim ? 'CẦN TÌM CCCD' : 'KHÔNG CÓ CCCD',
+                        isCanTim
+                          ? 'Đã có thông tin CCCD nhưng chưa có tệp ảnh/PDF trên R2'
+                          : 'Chưa có CCCD - Cần liên hệ chủ hộ thu thập'
+                      ];
+                    });
+                    rawSheet = [headersUnpack, ...rowsUnpack];
+                  }
+
+                  // Fallback 4: ĐÃ GIẢI QUYẾT
+                  if ((!rawSheet || rawSheet.length <= 1) && selectedReportSheet === 'ĐÃ GIẢI QUYẾT') {
+                    const headersDone = [
+                      'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
+                      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
+                      'Trạng thái giải quyết'
+                    ];
+                    const doneParcels = computedParcels.filter(
+                      (p) => p.trang_thai === 'DA_SO_HOA_XANH' || ggsCodes.has(p.ma_thua)
+                    );
+                    const rowsDone = doneParcels.map((p, idx) => {
+                      const decl = declarationsMap[p.ma_thua] || {};
+                      const cccdVal = decl.chu_dat_cccd || p.cccd || '';
+                      return [
+                        String(idx + 1),
+                        p.ma_thua,
+                        p.to_ban_do || '',
+                        p.so_thua || '',
+                        p.thon_xa || 'Xã Cư Pui',
+                        p.chu_ho || decl.chu_dat_ten || 'Chưa xác định',
+                        decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '',
+                        decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam',
+                        cccdVal ? `="${cccdVal}"` : '',
+                        p.dien_tich || '',
+                        p.loai_dat || 'DGT',
+                        decl.nguon_goc_su_dung || 'Khai hoang',
+                        'ĐÃ GIẢI QUYẾT (GGS & FILE SCAN)'
+                      ];
+                    });
+                    rawSheet = [headersDone, ...rowsDone];
+                  }
+
+                  if (selectedReportSheet === 'CHƯA THỰC HIỆN' && false) {
                     const headersChuaThucHien = [
                       'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất (dự kiến)',
                       'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
@@ -2785,10 +2932,16 @@ export default function DashboardPage() {
                                                   isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-100'
                                                 }`}
                                               >
-                                              <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800 mb-2">
+                                              <div
+                                                onMouseDown={handlePopupHeaderMouseDown}
+                                                onTouchStart={handlePopupHeaderTouchStart}
+                                                className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800 mb-2 cursor-grab active:cursor-grabbing select-none"
+                                                title="Nhấn giữ và kéo để di chuyển bảng lọc"
+                                              >
                                                 <span className="text-xs font-bold flex items-center gap-1.5">
                                                   <Filter className="w-3.5 h-3.5 text-emerald-500" />
                                                   Lọc Mã Thửa (Excel)
+                                                  <span className="text-[10px] text-slate-400 font-normal ml-1">⋮⋮ kéo di chuyển</span>
                                                 </span>
                                                 <button
                                                   type="button"
