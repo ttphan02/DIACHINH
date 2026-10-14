@@ -1869,70 +1869,130 @@ export default function DashboardPage() {
         {/* TAB 6: BÁO CÁO TIẾN ĐỘ 16 THÔN & ĐÓNG TẬP NỘI BỘ (THAY THẾ THỐNG KÊ & DSTONG GGS) */}
         {activeTab === 'progressReport' && (
           <div className="space-y-5 animate-in fade-in duration-150">
-            {/* Sub-tabs điều hướng 5 phần danh sách */}
-            <div className={`flex border-b gap-2 overflow-x-auto no-scrollbar pt-2 ${
-              isLight ? 'border-slate-200' : 'border-slate-800'
-            }`}>
+            {/* 4 Nhóm Danh Sách Tiến Độ Dạng Ô Thẻ Tương Tác (Theo phong cách 4 Thẻ KPI trên) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               {[
                 {
                   id: 'CHƯA THỰC HIỆN',
+                  index: '0',
                   label: '0. Chưa Thực Hiện (Chưa Kê Khai)',
+                  shortTitle: 'Chưa Thực Hiện',
                   count: chuaThucHienParcels.length,
-                  color: 'rose',
+                  subLabel: `Có tên: ${globalStats.yellow.toLocaleString('vi-VN')}`,
+                  subLabelRight: `Không tên: ${globalStats.gray.toLocaleString('vi-VN')}`,
+                  icon: Users,
+                  borderActive: 'border-amber-500 ring-2 ring-amber-500/50',
+                  bgActiveLight: 'bg-amber-50/70',
+                  bgActiveDark: 'bg-amber-950/20',
+                  textCount: isLight ? 'text-amber-700' : 'text-amber-300',
+                  dotColor: 'bg-amber-400',
+                  glowColor: 'bg-amber-500/10 group-hover:bg-amber-500/20',
                 },
                 {
                   id: 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)',
+                  index: '1',
                   label: '1. Đang Kê Khai (Chưa có CCCD)',
+                  shortTitle: 'Đang Kê Khai (Chưa CCCD)',
                   count: syncSummary ? syncSummary.canTimCccd + syncSummary.khongCoCccd : 132,
-                  color: 'amber',
+                  subLabel: `Cần tìm: ${syncSummary?.canTimCccd ?? 0}`,
+                  subLabelRight: `Chưa có: ${syncSummary?.khongCoCccd ?? 0}`,
+                  icon: FileSpreadsheet,
+                  borderActive: 'border-rose-500 ring-2 ring-rose-500/50',
+                  bgActiveLight: 'bg-rose-50/70',
+                  bgActiveDark: 'bg-rose-950/20',
+                  textCount: isLight ? 'text-rose-700' : 'text-rose-300',
+                  dotColor: 'bg-rose-500 animate-pulse',
+                  glowColor: 'bg-rose-500/10 group-hover:bg-rose-500/20',
                 },
                 {
                   id: 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)',
+                  index: '2',
                   label: '2. Sẵn Sàng Đóng Tập (Có CCCD)',
+                  shortTitle: 'Sẵn Sàng Đóng Tập',
                   count: syncSummary?.daDongTap ?? 7,
-                  color: 'indigo',
-                },
-                {
-                  id: 'CHỜ NHẬP',
-                  label: '3. Chờ Nhập (57 cột)',
-                  count: (syncSummary?.choNhap ?? syncSummary?.nhapGgs) ?? 7,
-                  color: 'sky',
+                  subLabel: 'Hồ sơ đủ CCCD',
+                  subLabelRight: 'Sẵn sàng in & scan',
+                  icon: Printer,
+                  borderActive: 'border-indigo-500 ring-2 ring-indigo-500/50',
+                  bgActiveLight: 'bg-indigo-50/70',
+                  bgActiveDark: 'bg-indigo-950/20',
+                  textCount: isLight ? 'text-indigo-700' : 'text-indigo-300',
+                  dotColor: 'bg-indigo-500 animate-pulse',
+                  glowColor: 'bg-indigo-500/10 group-hover:bg-indigo-500/20',
                 },
                 {
                   id: 'ĐÃ GIẢI QUYẾT',
-                  label: '4. Đã Giải Quyết (GGS)',
+                  index: '3',
+                  label: '3. Đã Giải Quyết (GGS & Đã Scan)',
+                  shortTitle: 'Đã Giải Quyết',
                   count: syncSummary?.daGiaiQuyet ?? globalStats.green,
-                  color: 'emerald',
+                  subLabel: 'Đã scan & GGS',
+                  subLabelRight: 'Hoàn tất quy trình',
+                  icon: CheckCircle2,
+                  borderActive: 'border-emerald-500 ring-2 ring-emerald-500/50',
+                  bgActiveLight: 'bg-emerald-50/70',
+                  bgActiveDark: 'bg-emerald-950/20',
+                  textCount: isLight ? 'text-emerald-700' : 'text-emerald-300',
+                  dotColor: 'bg-emerald-500',
+                  glowColor: 'bg-emerald-500/10 group-hover:bg-emerald-500/20',
                 },
-              ].map((tab) => {
-                const isActive = selectedReportSheet === tab.id;
+              ].map((card) => {
+                const isActive = selectedReportSheet === card.id;
+                const IconComponent = card.icon;
                 return (
                   <button
-                    key={tab.id}
+                    key={card.id}
+                    type="button"
                     onClick={() => {
-                      setSelectedReportSheet(tab.id);
+                      setSelectedReportSheet(card.id);
                       setReportPage(1);
                       setReportSearchQuery('');
                     }}
-                    className={`py-2 px-3 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                    className={`text-left border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
                       isActive
-                        ? isLight
-                          ? 'border-indigo-600 text-indigo-700 bg-indigo-50/80 rounded-t-lg'
-                          : 'border-indigo-500 text-indigo-400 bg-indigo-500/10 rounded-t-lg'
+                        ? `${card.borderActive} ${isLight ? card.bgActiveLight : card.bgActiveDark}`
                         : isLight
-                        ? 'border-transparent text-slate-600 hover:text-slate-900'
-                        : 'border-transparent text-slate-400 hover:text-slate-200'
+                        ? 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-md'
+                        : 'bg-slate-900/90 border-slate-800 hover:border-slate-700 hover:shadow-md'
                     }`}
                   >
-                    <span>{tab.label}</span>
-                    {typeof tab.count === 'number' && (
-                      <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold border ${
-                        isLight
-                          ? 'bg-slate-100 text-slate-700 border-slate-200'
-                          : 'bg-slate-800 text-slate-300 border-slate-700'
+                    <div className={`absolute top-0 right-0 w-24 h-24 ${card.glowColor} rounded-full blur-2xl transition`} />
+
+                    <div className="flex items-center justify-between text-xs mb-2">
+                      <span className={`font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5 ${
+                        isActive
+                          ? isLight ? 'text-slate-900 font-black' : 'text-white font-black'
+                          : isLight ? 'text-slate-500' : 'text-slate-400'
                       }`}>
-                        {tab.count}
+                        <span className={`w-2 h-2 rounded-full ${card.dotColor}`} />
+                        {card.index}. {card.shortTitle}
                       </span>
+                      <IconComponent className={`w-4 h-4 ${
+                        isActive ? (isLight ? 'text-slate-900' : 'text-white') : isLight ? 'text-slate-400' : 'text-slate-500'
+                      }`} />
+                    </div>
+
+                    <div className={`text-2xl sm:text-3xl font-black tracking-tight ${card.textCount}`}>
+                      {card.count.toLocaleString('vi-VN')}
+                      <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
+                    </div>
+
+                    <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
+                      isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
+                    }`}>
+                      <span>{card.subLabel}</span>
+                      <span className="font-semibold">{card.subLabelRight}</span>
+                    </div>
+
+                    {/* Indicator pill khi đang chọn */}
+                    {isActive && (
+                      <div className="mt-2.5 flex items-center justify-center">
+                        <span className={`w-full text-center text-[10px] font-black py-0.5 rounded-md border ${
+                          isLight ? 'bg-white/90 text-slate-800 border-slate-300' : 'bg-slate-800/90 text-slate-200 border-slate-700'
+                        }`}>
+                          Đang hiển thị danh sách này
+                        </span>
+                      </div>
                     )}
                   </button>
                 );
@@ -1944,7 +2004,7 @@ export default function DashboardPage() {
                 isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
               }`}>
                 {(() => {
-                  let rawSheet = syncSheetsData?.[selectedReportSheet] || (selectedReportSheet === 'CHỜ NHẬP' ? syncSheetsData?.['NHẬP GGS'] : undefined) || [];
+                  let rawSheet = syncSheetsData?.[selectedReportSheet] || [];
                   if (selectedReportSheet === 'CHƯA THỰC HIỆN') {
                     const headersChuaThucHien = [
                       'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất (dự kiến)',
@@ -2323,7 +2383,7 @@ export default function DashboardPage() {
                         <button
                           type="button"
                           onClick={() => handleExportReportSheet(selectedReportSheet)}
-                          disabled={!syncSheetsData || (!syncSheetsData[selectedReportSheet] && (selectedReportSheet !== 'CHỜ NHẬP' || !syncSheetsData['NHẬP GGS']))}
+                          disabled={!syncSheetsData || !syncSheetsData[selectedReportSheet]}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 transition disabled:opacity-50 cursor-pointer"
                           title="Xuất bảng dữ liệu hiện tại ra file Excel"
                         >

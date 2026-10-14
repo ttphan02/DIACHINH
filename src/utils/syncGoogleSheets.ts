@@ -473,18 +473,33 @@ export async function executeSyncToGoogleSheet(
       }
 
       // NẾU THỬA ĐÓ CÓ FILE SCAN TRONG R2 RỒI -> CHUYỂN THẲNG QUA ĐÃ GIẢI QUYẾT!
+      const toRaw = String(toMoi || '').trim();
+      const thuaRaw = String(thuaMoi || '').trim();
+      const toNum = String(parseInt(toRaw, 10) || toRaw);
+      const toPad = toNum.padStart(2, '0');
+      const thuaNum = String(parseInt(thuaRaw, 10) || thuaRaw);
+
       let foundScan = '';
       for (const sf of scanFiles) {
         if (
           sf.includes(maThua) ||
-          sf.includes(`${toMoi}_${thuaMoi}`) ||
-          sf.includes(`${toMoi}-${thuaMoi}`) ||
-          (cccd && sf.includes(cccd))
+          sf.includes(`${toRaw}_${thuaRaw}`) ||
+          sf.includes(`${toRaw}-${thuaRaw}`) ||
+          sf.includes(`${toNum}_${thuaNum}`) ||
+          sf.includes(`${toNum}-${thuaNum}`) ||
+          sf.includes(`${toPad}_${thuaNum}`) ||
+          sf.includes(`${toPad}-${thuaNum}`) ||
+          (cccd && cccd.length >= 9 && sf.includes(cccd))
         ) {
           foundScan = sf;
           break;
         }
       }
+
+      if (!foundScan && (decl.file_scan_pdf || decl.anh_ho_so_pdf || decl.scan_file)) {
+        foundScan = decl.file_scan_pdf || decl.anh_ho_so_pdf || decl.scan_file;
+      }
+
       if (foundScan) {
         item.scan_file = foundScan;
         stage4DaGiaiQuyet.push(item);
@@ -538,7 +553,6 @@ export async function executeSyncToGoogleSheet(
       if (foundCccd) {
         item.cccd_file = foundCccd;
         stage2DaDongTap.push(item);
-        stage3ChoNhap.push(item);
         continue;
       }
 
@@ -803,8 +817,8 @@ export async function executeSyncToGoogleSheet(
       summary: {
         totalDeclared,
         daGiaiQuyet: stage4DaGiaiQuyet.length,
-        choNhap: stage3ChoNhap.length,
-        nhapGgs: stage3ChoNhap.length,
+        choNhap: 0,
+        nhapGgs: 0,
         daDongTap: stage2DaDongTap.length,
         canTimCccd: stage1CanTimCccd.length,
         khongCoCccd: stage1KhongCoCccd.length,
