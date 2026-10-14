@@ -15,6 +15,11 @@ import {
   AlertCircle,
   Loader2,
   CheckCircle2,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Scan,
+  Move,
 } from 'lucide-react';
 
 interface SelectedCccdImage {
@@ -33,6 +38,60 @@ interface CccdUploadBottomSheetProps {
   onSuccess?: () => void;
 }
 
+type DragMode = 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e' | null;
+
+// Tối ưu hóa ảnh tải lên trên điện thoại: nén nhẹ & giới hạn kích thước tối đa 1600px để tránh lag RAM
+async function optimizeImageForMobile(
+  file: File,
+  maxDim = 1600
+): Promise<{ previewUrl: string; size: number }> {
+  return new Promise((resolve) => {
+    // Nếu ảnh quá nhỏ (< 300KB), dùng trực tiếp
+    if (file.size < 300 * 1024) {
+      const url = URL.createObjectURL(file);
+      resolve({ previewUrl: url, size: file.size });
+      return;
+    }
+
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      let { width, height } = img;
+
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+        resolve({ previewUrl: dataUrl, size: Math.round(dataUrl.length * 0.75) });
+        return;
+      }
+      resolve({ previewUrl: objectUrl, size: file.size });
+    };
+
+    img.onerror = () => {
+      resolve({ previewUrl: objectUrl, size: file.size });
+    };
+
+    img.src = objectUrl;
+  });
+}
+
 export default function CccdUploadBottomSheet({
   isOpen,
   onClose,
@@ -40,6 +99,7 @@ export default function CccdUploadBottomSheet({
 }: CccdUploadBottomSheetProps) {
   const [images, setImages] = useState<SelectedCccdImage[]>([]);
   const [editingImageId, setEditingImageId] = useState<string | null>(null);
+  const [isOptimizing, setIsOptimizing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; message: string }>({
     current: 0,
@@ -51,20 +111,32 @@ export default function CccdUploadBottomSheet({
 
   // Crop State
   const [cropRatioMode, setCropRatioMode] = useState<'cccd' | 'free'>('cccd');
+  const [imageZoom, setImageZoom] = useState<number>(1);
   const cropContainerRef = useRef<HTMLDivElement>(null);
   const cropImageRef = useRef<HTMLImageElement>(null);
+
   const [cropBox, setCropBox] = useState<{ x: number; y: number; w: number; h: number }>({
     x: 20,
     y: 20,
     w: 260,
     h: 164, // ~1.586 ratio
   });
-  const [isDraggingCrop, setIsDraggingCrop] = useState<boolean>(false);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number; boxX: number; boxY: number }>({
+
+  const [dragMode, setDragMode] = useState<DragMode>(null);
+  const [dragStart, setDragStart] = useState<{
+    x: number;
+    y: number;
+    boxX: number;
+    boxY: number;
+    boxW: number;
+    boxH: number;
+  }>({
     x: 0,
     y: 0,
     boxX: 0,
     boxY: 0,
+    boxW: 0,
+    boxH: 0,
   });
 
   const showToast = (msg: string) => {
@@ -74,33 +146,69 @@ export default function CccdUploadBottomSheet({
     }, 3500);
   };
 
+  // Căn khung chuẩn CCCD tự động (85.6mm x 53.98mm = tỷ lệ 1.586)
+  const handleFitCccdFrame = useCallback(() => {
+    if (!cropContainerRef.current) return;
+    const containerW = cropContainerRef.current.clientWidth;
+    const containerH = cropContainerRef.current.clientHeight;
+
+    // Chiếm khoảng 82% chiều ngang hoặc vừa chiều dọc
+    let targetW = Math.min(containerW * 0.85, 380);
+    let targetH = Math.round(targetW / 1.586);
+
+    if (targetH > containerH * 0.82) {
+      targetH = Math.round(containerH * 0.82);
+      targetW = Math.round(targetH * 1.586);
+    }
+
+    const targetX = Math.max(10, Math.round((containerW - targetW) / 2));
+    const targetY = Math.max(10, Math.round((containerH - targetH) / 2));
+
+    setCropBox({
+      x: targetX,
+      y: targetY,
+      w: targetW,
+      h: targetH,
+    });
+    setImageZoom(1);
+    setCropRatioMode('cccd');
+  }, []);
+
   // Khi người dùng chọn tệp từ máy / điện thoại
-  const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
+    setIsOptimizing(true);
     const newItems: SelectedCccdImage[] = [];
-    Array.from(files).forEach((file) => {
-      if (file.type.startsWith('image/')) {
-        const url = URL.createObjectURL(file);
+
+    const fileList = Array.from(files).filter((f) => f.type.startsWith('image/'));
+
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList[i];
+      try {
+        const { previewUrl, size } = await optimizeImageForMobile(file, 1600);
         newItems.push({
-          id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+          id: `${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`,
           file,
           name: file.name,
-          originalUrl: url,
-          previewUrl: url,
+          originalUrl: previewUrl,
+          previewUrl,
           isCropped: false,
-          size: file.size,
+          size,
         });
+      } catch (err) {
+        console.warn('Lỗi tối ưu ảnh:', err);
       }
-    });
+    }
+
+    setIsOptimizing(false);
 
     if (newItems.length > 0) {
       setImages((prev) => [...prev, ...newItems]);
-      showToast(`Đã chọn ${newItems.length} ảnh CCCD. Bạn có thể nhấn vào ảnh để cắt/xoay.`);
+      showToast(`Đã nạp ${newItems.length} ảnh CCCD. Chạm vào ảnh để căn chỉnh cắt / zoom.`);
     }
 
-    // Reset input để có thể chọn lại cùng file nếu muốn
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -120,6 +228,7 @@ export default function CccdUploadBottomSheet({
   // Mở giao diện cắt ảnh
   const handleStartCrop = (img: SelectedCccdImage) => {
     setEditingImageId(img.id);
+    setImageZoom(1);
   };
 
   const editingImage = images.find((img) => img.id === editingImageId);
@@ -127,17 +236,9 @@ export default function CccdUploadBottomSheet({
   // Tự động căn chỉnh khung cắt khi mở ảnh hoặc đổi tỉ lệ
   useEffect(() => {
     if (editingImage && cropContainerRef.current) {
-      const containerW = Math.min(cropContainerRef.current.clientWidth - 40, 360);
-      const targetW = Math.max(containerW, 200);
-      const targetH = cropRatioMode === 'cccd' ? Math.round(targetW / 1.586) : Math.round(targetW * 0.7);
-      setCropBox({
-        x: Math.max(10, Math.round((cropContainerRef.current.clientWidth - targetW) / 2)),
-        y: 30,
-        w: targetW,
-        h: targetH,
-      });
+      handleFitCccdFrame();
     }
-  }, [editingImageId, cropRatioMode]);
+  }, [editingImageId, handleFitCccdFrame]);
 
   // Xoay ảnh 90 độ bằng HTML Canvas
   const handleRotateImage = () => {
@@ -156,45 +257,160 @@ export default function CccdUploadBottomSheet({
       ctx.rotate((90 * Math.PI) / 180);
       ctx.drawImage(img, -img.width / 2, -img.height / 2);
 
-      const rotatedUrl = canvas.toDataURL('image/jpeg', 0.95);
+      const rotatedUrl = canvas.toDataURL('image/jpeg', 0.92);
       setImages((prev) =>
         prev.map((item) => (item.id === editingImage.id ? { ...item, previewUrl: rotatedUrl } : item))
       );
+      handleFitCccdFrame();
     };
   };
 
-  // Xử lý kéo thả khung cắt trên điện thoại / chuột
-  const handleCropPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+  // Bắt đầu kéo thả hoặc thay đổi kích thước khung cắt
+  const handlePointerDownAction = (
+    mode: DragMode,
+    e: React.PointerEvent<HTMLDivElement>
+  ) => {
     e.stopPropagation();
-    setIsDraggingCrop(true);
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+
+    setDragMode(mode);
     setDragStart({
       x: e.clientX,
       y: e.clientY,
       boxX: cropBox.x,
       boxY: cropBox.y,
+      boxW: cropBox.w,
+      boxH: cropBox.h,
     });
   };
 
-  const handleCropPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDraggingCrop || !cropContainerRef.current) return;
+  // Di chuyển chuột hoặc ngón tay cảm ứng trên khung cắt
+  const handlePointerMoveAction = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragMode || !cropContainerRef.current) return;
     const deltaX = e.clientX - dragStart.x;
     const deltaY = e.clientY - dragStart.y;
 
     const maxW = cropContainerRef.current.clientWidth;
     const maxH = cropContainerRef.current.clientHeight;
 
-    const newX = Math.max(0, Math.min(dragStart.boxX + deltaX, maxW - cropBox.w));
-    const newY = Math.max(0, Math.min(dragStart.boxY + deltaY, maxH - cropBox.h));
+    const minSize = 35; // kích thước nhỏ nhất cho phép kéo nhỏ lại trong chế độ tự do
 
-    setCropBox((prev) => ({
-      ...prev,
-      x: newX,
-      y: newY,
-    }));
+    if (dragMode === 'move') {
+      const newX = Math.max(0, Math.min(dragStart.boxX + deltaX, maxW - cropBox.w));
+      const newY = Math.max(0, Math.min(dragStart.boxY + deltaY, maxH - cropBox.h));
+      setCropBox((prev) => ({ ...prev, x: newX, y: newY }));
+      return;
+    }
+
+    // Chế độ Tự Do: Kéo tự do mọi hướng và mọi kích thước nhỏ/to
+    if (cropRatioMode === 'free') {
+      let { boxX: newX, boxY: newY, boxW: newW, boxH: newH } = dragStart;
+
+      if (dragMode === 'se') {
+        newW = Math.max(minSize, Math.min(dragStart.boxW + deltaX, maxW - dragStart.boxX));
+        newH = Math.max(minSize, Math.min(dragStart.boxH + deltaY, maxH - dragStart.boxY));
+      } else if (dragMode === 'sw') {
+        const potentialW = dragStart.boxW - deltaX;
+        if (potentialW >= minSize && dragStart.boxX + deltaX >= 0) {
+          newW = potentialW;
+          newX = dragStart.boxX + deltaX;
+        }
+        newH = Math.max(minSize, Math.min(dragStart.boxH + deltaY, maxH - dragStart.boxY));
+      } else if (dragMode === 'ne') {
+        newW = Math.max(minSize, Math.min(dragStart.boxW + deltaX, maxW - dragStart.boxX));
+        const potentialH = dragStart.boxH - deltaY;
+        if (potentialH >= minSize && dragStart.boxY + deltaY >= 0) {
+          newH = potentialH;
+          newY = dragStart.boxY + deltaY;
+        }
+      } else if (dragMode === 'nw') {
+        const potentialW = dragStart.boxW - deltaX;
+        if (potentialW >= minSize && dragStart.boxX + deltaX >= 0) {
+          newW = potentialW;
+          newX = dragStart.boxX + deltaX;
+        }
+        const potentialH = dragStart.boxH - deltaY;
+        if (potentialH >= minSize && dragStart.boxY + deltaY >= 0) {
+          newH = potentialH;
+          newY = dragStart.boxY + deltaY;
+        }
+      } else if (dragMode === 'e') {
+        newW = Math.max(minSize, Math.min(dragStart.boxW + deltaX, maxW - dragStart.boxX));
+      } else if (dragMode === 's') {
+        newH = Math.max(minSize, Math.min(dragStart.boxH + deltaY, maxH - dragStart.boxY));
+      } else if (dragMode === 'w') {
+        const potentialW = dragStart.boxW - deltaX;
+        if (potentialW >= minSize && dragStart.boxX + deltaX >= 0) {
+          newW = potentialW;
+          newX = dragStart.boxX + deltaX;
+        }
+      } else if (dragMode === 'n') {
+        const potentialH = dragStart.boxH - deltaY;
+        if (potentialH >= minSize && dragStart.boxY + deltaY >= 0) {
+          newH = potentialH;
+          newY = dragStart.boxY + deltaY;
+        }
+      }
+
+      setCropBox({ x: newX, y: newY, w: newW, h: newH });
+      return;
+    }
+
+    // Chế độ Chuẩn CCCD: Giữ tỷ lệ vàng 1.586
+    const ratio = 1.5858;
+    if (dragMode === 'se' || dragMode === 'e' || dragMode === 's') {
+      const newW = Math.max(60, Math.min(dragStart.boxW + deltaX, maxW - dragStart.boxX));
+      const newH = Math.round(newW / ratio);
+      if (dragStart.boxY + newH <= maxH) {
+        setCropBox((prev) => ({ ...prev, w: newW, h: newH }));
+      }
+    } else if (dragMode === 'sw' || dragMode === 'w') {
+      const potentialW = dragStart.boxW - deltaX;
+      const newH = Math.round(potentialW / ratio);
+      if (potentialW >= 60 && dragStart.boxX + deltaX >= 0 && dragStart.boxY + newH <= maxH) {
+        setCropBox({
+          x: dragStart.boxX + deltaX,
+          y: dragStart.boxY,
+          w: potentialW,
+          h: newH,
+        });
+      }
+    } else if (dragMode === 'ne' || dragMode === 'n') {
+      const newW = Math.max(60, Math.min(dragStart.boxW + deltaX, maxW - dragStart.boxX));
+      const newH = Math.round(newW / ratio);
+      const newY = dragStart.boxY + (dragStart.boxH - newH);
+      if (newY >= 0) {
+        setCropBox({
+          x: dragStart.boxX,
+          y: newY,
+          w: newW,
+          h: newH,
+        });
+      }
+    } else if (dragMode === 'nw') {
+      const potentialW = dragStart.boxW - deltaX;
+      const newH = Math.round(potentialW / ratio);
+      const newX = dragStart.boxX + deltaX;
+      const newY = dragStart.boxY + (dragStart.boxH - newH);
+      if (potentialW >= 60 && newX >= 0 && newY >= 0) {
+        setCropBox({
+          x: newX,
+          y: newY,
+          w: potentialW,
+          h: newH,
+        });
+      }
+    }
   };
 
-  const handleCropPointerUp = () => {
-    setIsDraggingCrop(false);
+  const handlePointerUpAction = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragMode) {
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+      setDragMode(null);
+    }
   };
 
   // Lưu ảnh đã cắt
@@ -207,7 +423,7 @@ export default function CccdUploadBottomSheet({
     const imgRect = imgEl.getBoundingClientRect();
     const containerRect = containerEl.getBoundingClientRect();
 
-    // Tọa độ của khung cắt so với ảnh hiển thị
+    // Tọa độ của khung cắt so với ảnh hiển thị thực tế (đã tính zoom)
     const cropRelativeX = cropBox.x - (imgRect.left - containerRect.left);
     const cropRelativeY = cropBox.y - (imgRect.top - containerRect.top);
 
@@ -226,16 +442,18 @@ export default function CccdUploadBottomSheet({
     }
 
     const canvas = document.createElement('canvas');
-    canvas.width = realCropW;
-    canvas.height = realCropH;
+    canvas.width = Math.round(realCropW);
+    canvas.height = Math.round(realCropH);
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     const sourceImg = new Image();
     sourceImg.src = editingImage.previewUrl;
     sourceImg.onload = () => {
-      ctx.drawImage(sourceImg, realCropX, realCropY, realCropW, realCropH, 0, 0, realCropW, realCropH);
-      const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.95);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(sourceImg, realCropX, realCropY, realCropW, realCropH, 0, 0, canvas.width, canvas.height);
+      const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.92);
 
       setImages((prev) =>
         prev.map((item) =>
@@ -245,7 +463,7 @@ export default function CccdUploadBottomSheet({
         )
       );
       setEditingImageId(null);
-      showToast('✓ Đã lưu ảnh cắt thành công!');
+      showToast('✓ Đã lưu ảnh CCCD đã cắt!');
     };
   };
 
@@ -354,12 +572,12 @@ export default function CccdUploadBottomSheet({
         onClick={onClose}
       />
 
-      {/* Bottom Sheet Drawer - Trượt từ dưới lên (Mobile) hoặc Panel góc trái/dưới (Desktop) */}
+      {/* Bottom Sheet Drawer */}
       <div
         className={`fixed z-50 bg-white transition-all duration-300 ease-in-out shadow-2xl flex flex-col ${
           isOpen
-            ? 'w-full lg:w-[480px] h-[82vh] max-h-[88vh] lg:h-[85vh] lg:bottom-4 lg:left-4 bottom-0 left-0 rounded-t-3xl lg:rounded-3xl border-t lg:border border-slate-200 opacity-100 translate-y-0 pointer-events-auto'
-            : 'w-full lg:w-[480px] h-[82vh] max-h-[88vh] lg:h-[85vh] lg:bottom-4 lg:left-4 bottom-0 left-0 rounded-t-3xl lg:rounded-3xl border-0 opacity-0 translate-y-full pointer-events-none'
+            ? 'w-full lg:w-[500px] h-[86vh] max-h-[90vh] lg:h-[88vh] lg:bottom-4 lg:left-4 bottom-0 left-0 rounded-t-3xl lg:rounded-3xl border-t lg:border border-slate-200 opacity-100 translate-y-0 pointer-events-auto'
+            : 'w-full lg:w-[500px] h-[86vh] max-h-[90vh] lg:h-[88vh] lg:bottom-4 lg:left-4 bottom-0 left-0 rounded-t-3xl lg:rounded-3xl border-0 opacity-0 translate-y-full pointer-events-none'
         }`}
       >
         {/* Nút kéo / pill trên mobile */}
@@ -418,6 +636,14 @@ export default function CccdUploadBottomSheet({
           className="hidden"
         />
 
+        {/* Loading khi đang tối ưu ảnh trên điện thoại */}
+        {isOptimizing && (
+          <div className="mx-4 mt-2 p-2.5 bg-purple-50 text-purple-700 text-xs font-bold rounded-xl flex items-center gap-2 animate-pulse border border-purple-200">
+            <Loader2 className="w-4 h-4 animate-spin text-purple-600 shrink-0" />
+            <span>Đang xử lý & tối ưu hóa ảnh mượt mà cho điện thoại...</span>
+          </div>
+        )}
+
         {/* Toast thông báo nhanh */}
         {toastMessage && (
           <div className="mx-4 mt-2 px-3.5 py-2 bg-slate-900 text-white text-xs font-semibold rounded-xl shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
@@ -426,37 +652,54 @@ export default function CccdUploadBottomSheet({
           </div>
         )}
 
-        {/* GIAO DIỆN CẮT ẢNH (MODAL CẮT NẰM TRONG SHEET) */}
+        {/* GIAO DIỆN CẮT ẢNH CHUYÊN NGHIỆP CÓ ZOOM & KÉO THU PHÓNG TỰ DO */}
         {editingImage ? (
-          <div className="flex-1 flex flex-col p-4 overflow-hidden bg-slate-950 text-white">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className="flex-1 flex flex-col p-3 sm:p-4 overflow-hidden bg-slate-950 text-white select-none">
+            {/* Thanh công cụ cắt trên cùng */}
+            <div className="flex items-center justify-between pb-2.5 border-b border-slate-800 gap-2 flex-wrap">
               <div className="flex items-center gap-2">
-                <Crop className="w-4 h-4 text-purple-400" />
-                <span className="text-xs font-bold truncate max-w-[180px]">{editingImage.name}</span>
+                <Crop className="w-4 h-4 text-purple-400 shrink-0" />
+                <span className="text-xs font-bold truncate max-w-[130px] sm:max-w-[160px]">{editingImage.name}</span>
               </div>
 
-              <div className="flex items-center gap-2">
-                {/* Đổi tỉ lệ cắt */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {/* Chế độ: Chuẩn CCCD vs Tự do */}
                 <div className="flex items-center bg-slate-800 rounded-lg p-0.5 text-[11px] font-bold">
                   <button
                     type="button"
-                    onClick={() => setCropRatioMode('cccd')}
-                    className={`px-2 py-1 rounded-md transition ${
-                      cropRatioMode === 'cccd' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
+                    onClick={() => {
+                      setCropRatioMode('cccd');
+                      handleFitCccdFrame();
+                    }}
+                    className={`px-2 py-1 rounded-md transition cursor-pointer ${
+                      cropRatioMode === 'cccd' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                     }`}
+                    title="Khóa khung theo tỷ lệ thẻ căn cước chuẩn (1.586)"
                   >
                     Chuẩn CCCD
                   </button>
                   <button
                     type="button"
                     onClick={() => setCropRatioMode('free')}
-                    className={`px-2 py-1 rounded-md transition ${
-                      cropRatioMode === 'free' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'
+                    className={`px-2 py-1 rounded-md transition cursor-pointer ${
+                      cropRatioMode === 'free' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                     }`}
+                    title="Kéo thả tự do mọi kích thước nhỏ/to tùy ý"
                   >
                     Tự do
                   </button>
                 </div>
+
+                {/* Nút Vừa khung */}
+                <button
+                  type="button"
+                  onClick={handleFitCccdFrame}
+                  className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-emerald-400 rounded-lg text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+                  title="Tự động căn chỉnh vừa khung thẻ CCCD"
+                >
+                  <Maximize2 className="w-3 h-3" />
+                  <span className="hidden sm:inline">Vừa khung</span>
+                </button>
 
                 {/* Xoay 90 độ */}
                 <button
@@ -471,48 +714,183 @@ export default function CccdUploadBottomSheet({
               </div>
             </div>
 
-            {/* Vùng xem ảnh và khung cắt tương tác */}
+            {/* Vùng xem ảnh và khung cắt tương tác với Pointer Events */}
             <div
               ref={cropContainerRef}
-              onPointerMove={handleCropPointerMove}
-              onPointerUp={handleCropPointerUp}
-              className="flex-1 relative my-3 bg-black/60 rounded-2xl overflow-hidden flex items-center justify-center select-none touch-none"
+              onPointerMove={handlePointerMoveAction}
+              onPointerUp={handlePointerUpAction}
+              className="flex-1 relative my-2 bg-black/75 rounded-2xl overflow-hidden flex items-center justify-center touch-none select-none"
             >
-              {/* Ảnh đang cắt */}
-              <img
-                ref={cropImageRef}
-                src={editingImage.previewUrl}
-                alt="Đang cắt"
-                className="max-w-full max-h-full object-contain pointer-events-none"
-              />
-
-              {/* Khung cắt di động */}
+              {/* Ảnh đang cắt hỗ trợ CSS Zoom mượt mà */}
               <div
-                onPointerDown={handleCropPointerDown}
+                className="w-full h-full flex items-center justify-center transition-transform duration-100 ease-out"
+                style={{
+                  transform: `scale(${imageZoom})`,
+                  transformOrigin: 'center center',
+                }}
+              >
+                <img
+                  ref={cropImageRef}
+                  src={editingImage.previewUrl}
+                  alt="Đang cắt"
+                  className="max-w-full max-h-full object-contain pointer-events-none select-none"
+                  draggable={false}
+                />
+              </div>
+
+              {/* Khung cắt di động & thu phóng */}
+              <div
+                onPointerDown={(e) => handlePointerDownAction('move', e)}
                 style={{
                   left: `${cropBox.x}px`,
                   top: `${cropBox.y}px`,
                   width: `${cropBox.w}px`,
                   height: `${cropBox.h}px`,
                 }}
-                className={`absolute border-2 border-emerald-400 bg-emerald-500/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.65)] cursor-move rounded-lg flex flex-col justify-between p-1 transition-shadow ${
-                  isDraggingCrop ? 'ring-2 ring-emerald-300 ring-offset-1' : ''
+                className={`absolute border-2 border-emerald-400 bg-emerald-500/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.72)] cursor-move rounded-lg flex flex-col justify-between p-1 transition-shadow touch-none ${
+                  dragMode ? 'ring-2 ring-emerald-300 ring-offset-1' : ''
                 }`}
               >
-                <div className="flex items-center justify-between text-[10px] text-emerald-300 font-black px-1">
-                  <span>CCCD</span>
-                  <span>Kéo để căn</span>
+                {/* Header hiển thị chế độ */}
+                <div className="flex items-center justify-between text-[10px] text-emerald-300 font-black px-1 pointer-events-none select-none">
+                  <span className="bg-black/60 px-1 py-0.2 rounded">
+                    {cropRatioMode === 'cccd' ? 'CCCD (1.59)' : `${Math.round(cropBox.w)}×${Math.round(cropBox.h)}`}
+                  </span>
+                  <span className="bg-black/60 px-1 py-0.2 rounded text-[9px]">Kéo góc để thu nhỏ</span>
                 </div>
-                {/* 4 góc điểm định vị */}
-                <div className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-emerald-400 border border-white rounded-full pointer-events-none" />
-                <div className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-emerald-400 border border-white rounded-full pointer-events-none" />
-                <div className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-emerald-400 border border-white rounded-full pointer-events-none" />
-                <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-emerald-400 border border-white rounded-full pointer-events-none" />
+
+                {/* Đường lưới định vị 1/3 (Rule of Thirds) */}
+                <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none opacity-20">
+                  <div className="border-r border-b border-emerald-300" />
+                  <div className="border-r border-b border-emerald-300" />
+                  <div className="border-b border-emerald-300" />
+                  <div className="border-r border-b border-emerald-300" />
+                  <div className="border-r border-b border-emerald-300" />
+                  <div className="border-b border-emerald-300" />
+                  <div className="border-r border-emerald-300" />
+                  <div className="border-r border-emerald-300" />
+                  <div />
+                </div>
+
+                {/* 4 NÚT TAY CẦM GÓC CẢM ỨNG LỚN (Touch handles cho Mobile & Chuột) */}
+                {/* Góc Trên - Trái (NW) */}
+                <div
+                  onPointerDown={(e) => handlePointerDownAction('nw', e)}
+                  className="absolute -top-3 -left-3 w-7 h-7 flex items-center justify-center cursor-nwse-resize z-20 touch-none"
+                  title="Kéo góc trên-trái"
+                >
+                  <div className="w-3.5 h-3.5 bg-emerald-400 border-2 border-white rounded-full shadow-md" />
+                </div>
+
+                {/* Góc Trên - Phải (NE) */}
+                <div
+                  onPointerDown={(e) => handlePointerDownAction('ne', e)}
+                  className="absolute -top-3 -right-3 w-7 h-7 flex items-center justify-center cursor-nesw-resize z-20 touch-none"
+                  title="Kéo góc trên-phải"
+                >
+                  <div className="w-3.5 h-3.5 bg-emerald-400 border-2 border-white rounded-full shadow-md" />
+                </div>
+
+                {/* Góc Dưới - Trái (SW) */}
+                <div
+                  onPointerDown={(e) => handlePointerDownAction('sw', e)}
+                  className="absolute -bottom-3 -left-3 w-7 h-7 flex items-center justify-center cursor-nesw-resize z-20 touch-none"
+                  title="Kéo góc dưới-trái"
+                >
+                  <div className="w-3.5 h-3.5 bg-emerald-400 border-2 border-white rounded-full shadow-md" />
+                </div>
+
+                {/* Góc Dưới - Phải (SE) */}
+                <div
+                  onPointerDown={(e) => handlePointerDownAction('se', e)}
+                  className="absolute -bottom-3 -right-3 w-7 h-7 flex items-center justify-center cursor-nwse-resize z-20 touch-none"
+                  title="Kéo góc dưới-phải"
+                >
+                  <div className="w-3.5 h-3.5 bg-emerald-400 border-2 border-white rounded-full shadow-md" />
+                </div>
+
+                {/* 4 ĐIỂM CẠNH (Dành cho chế độ Tự do) */}
+                {cropRatioMode === 'free' && (
+                  <>
+                    {/* Cạnh Trên */}
+                    <div
+                      onPointerDown={(e) => handlePointerDownAction('n', e)}
+                      className="absolute -top-2 left-1/2 -translate-x-1/2 w-8 h-4 flex items-center justify-center cursor-ns-resize z-10 touch-none"
+                    >
+                      <div className="w-4 h-1.5 bg-emerald-400 border border-white rounded-full" />
+                    </div>
+                    {/* Cạnh Dưới */}
+                    <div
+                      onPointerDown={(e) => handlePointerDownAction('s', e)}
+                      className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-8 h-4 flex items-center justify-center cursor-ns-resize z-10 touch-none"
+                    >
+                      <div className="w-4 h-1.5 bg-emerald-400 border border-white rounded-full" />
+                    </div>
+                    {/* Cạnh Trái */}
+                    <div
+                      onPointerDown={(e) => handlePointerDownAction('w', e)}
+                      className="absolute top-1/2 -left-2 -translate-y-1/2 w-4 h-8 flex items-center justify-center cursor-ew-resize z-10 touch-none"
+                    >
+                      <div className="w-1.5 h-4 bg-emerald-400 border border-white rounded-full" />
+                    </div>
+                    {/* Cạnh Phải */}
+                    <div
+                      onPointerDown={(e) => handlePointerDownAction('e', e)}
+                      className="absolute top-1/2 -right-2 -translate-y-1/2 w-4 h-8 flex items-center justify-center cursor-ew-resize z-10 touch-none"
+                    >
+                      <div className="w-1.5 h-4 bg-emerald-400 border border-white rounded-full" />
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Thanh điều khiển Zoom ảnh linh hoạt */}
+            <div className="flex items-center justify-between px-2 py-1.5 bg-slate-900 rounded-xl mb-2 text-xs">
+              <div className="flex items-center gap-1 text-slate-400">
+                <Scan className="w-3.5 h-3.5 text-purple-400" />
+                <span className="text-[11px] font-semibold">Thu phóng ảnh:</span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setImageZoom((prev) => Math.max(1, +(prev - 0.15).toFixed(2)))}
+                  disabled={imageZoom <= 1}
+                  className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 transition cursor-pointer"
+                  title="Thu nhỏ ảnh"
+                >
+                  <ZoomOut className="w-3.5 h-3.5" />
+                </button>
+
+                <span className="text-[11px] font-mono font-bold w-12 text-center text-emerald-400">
+                  {Math.round(imageZoom * 100)}%
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setImageZoom((prev) => Math.min(3, +(prev + 0.15).toFixed(2)))}
+                  disabled={imageZoom >= 3}
+                  className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 transition cursor-pointer"
+                  title="Phóng to ảnh"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                </button>
+
+                {imageZoom > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setImageZoom(1)}
+                    className="text-[10px] text-amber-400 underline ml-1 cursor-pointer"
+                  >
+                    Reset
+                  </button>
+                )}
               </div>
             </div>
 
             {/* Thanh nút bấm Hủy & Lưu cắt */}
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex items-center gap-3 pt-1">
               <button
                 type="button"
                 onClick={() => setEditingImageId(null)}
@@ -563,7 +941,7 @@ export default function CccdUploadBottomSheet({
                 </button>
 
                 <p className="text-[11px] text-slate-400 mt-4">
-                  Hỗ trợ định dạng JPG, PNG • Tự động xoay, cắt và nhận diện AI
+                  Hỗ trợ định dạng JPG, PNG • Tự động xoay, căn zoom và nhận diện AI mượt mà
                 </p>
               </div>
             ) : (
@@ -575,7 +953,7 @@ export default function CccdUploadBottomSheet({
                     <div className="flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-purple-600 shrink-0" />
                       <span className="font-medium text-[11px] sm:text-xs">
-                        Nhấn vào 1 ảnh bất kỳ để <strong>cắt & xoay căn chỉnh</strong> trước khi tải lên.
+                        Nhấn vào 1 ảnh bất kỳ để <strong>cắt, zoom & xoay</strong> trước khi tải lên.
                       </span>
                     </div>
 
@@ -607,6 +985,7 @@ export default function CccdUploadBottomSheet({
                             src={item.previewUrl}
                             alt={item.name}
                             className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                            loading="lazy"
                           />
 
                           {/* Badge trạng thái */}
