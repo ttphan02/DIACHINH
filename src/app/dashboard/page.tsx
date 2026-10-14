@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones } from '@/utils/geo';
 import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES } from '@/utils/syncGoogleSheets';
-import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration } from '@/utils/declaration';
+import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId } from '@/utils/declaration';
 import DeclarationPrintModal, { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
 import DashboardParcelModal from '@/components/DashboardParcelModal';
 import DeclarationEditModal from '@/components/DeclarationEditModal';
@@ -175,6 +175,10 @@ export default function DashboardPage() {
       const saved = localStorage.getItem('diachinh_dashboard_col_widths');
       if (saved) {
         setColWidths(JSON.parse(saved));
+      }
+      const savedEdits = localStorage.getItem('diachinh_table_cell_edits');
+      if (savedEdits) {
+        setCellEdits(JSON.parse(savedEdits));
       }
     } catch {}
   }, []);
@@ -453,13 +457,19 @@ export default function DashboardPage() {
 
   // Cập nhật giá trị ô trực tiếp khi người dùng gõ phím
   const handleInlineCellChange = (maThua: string, colIdx: number, val: string) => {
-    setCellEdits((prev) => ({
-      ...prev,
-      [maThua]: {
-        ...(prev[maThua] || {}),
-        [colIdx]: val,
-      },
-    }));
+    setCellEdits((prev) => {
+      const next = {
+        ...prev,
+        [maThua]: {
+          ...(prev[maThua] || {}),
+          [colIdx]: val,
+        },
+      };
+      try {
+        localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
   };
 
   // Lưu giá trị vào Local Declarations và đồng bộ Realtime lên Cloudflare R2
@@ -483,7 +493,16 @@ export default function DashboardPage() {
 
     if (!fieldKey) return;
 
-    // Tìm parcel gốc hoặc dựng từ row
+    // Trong danh sách "CHƯA THỰC HIỆN": người dùng chỉ đang nhập nháp các ô.
+    // Dữ liệu đã được lưu trong ô tạm (cellEdits).
+    // Tuyệt đối không tự ý lưu thành hồ sơ kê khai chính thức lúc này để tránh việc vừa bấm chuột ra ngoài ô
+    // thì thửa đất tự động biến mất và nhảy sang "THỬA ĐANG KÊ KHAI" hoặc "THỬA SẲN SÀNG ĐÓNG TẬP".
+    // Chỉ khi người dùng chủ động bấm nút "Kê khai" trên dòng thì mới chính thức chuyển dữ liệu!
+    if (selectedReportSheet === 'CHƯA THỰC HIỆN') {
+      return;
+    }
+
+    // Tìm parcel gốc hoặc dựng từ row (đối với các sheet đã kê khai)
     let p = computedParcels.find((cp) => cp.ma_thua === maThua);
     const existingDecl = declarationsMap[maThua] || {
       ma_thua: maThua,
@@ -526,6 +545,99 @@ export default function DashboardPage() {
       });
     } catch (e) {
       console.warn('Lỗi lưu realtime:', e);
+    } finally {
+      setSavingRowCodes((prev) => {
+        const next = new Set(prev);
+        next.delete(maThua);
+        return next;
+      });
+    }
+  };
+
+  // Xác nhận kê khai thửa đất từ danh sách CHƯA THỰC HIỆN
+  const handleCommitChuaThucHienDeclaration = async (maThua: string, row: any[]) => {
+    const p = computedParcels.find((cp) => cp.ma_thua === maThua);
+    const edits = cellEdits[maThua] || {};
+
+    const toBanDo = String(edits[2] ?? row[2] ?? p?.to_ban_do ?? '').trim();
+    const soThua = String(edits[3] ?? row[3] ?? p?.so_thua ?? '').trim();
+    const thonXa = String(edits[4] ?? row[4] ?? p?.thon_xa ?? '').trim();
+
+    let chuDatTen = String(edits[5] ?? row[5] ?? p?.chu_ho ?? '').trim();
+    if (chuDatTen === 'Chưa có tên') chuDatTen = '';
+
+    const chuDatNamSinh = String(edits[6] ?? row[6] ?? (p as any)?.ngay_sinh ?? '').trim();
+    const chuDatGioiTinh = String(edits[7] ?? row[7] ?? (p as any)?.gioi_tinh ?? 'Nam').trim();
+    const rawCccd = String(edits[8] ?? row[8] ?? p?.cccd ?? '').replace(/^="|"$/g, '').trim();
+    const cleanCccdVal = cleanCccd(rawCccd);
+
+    const dienTich = String(edits[9] ?? row[9] ?? p?.dien_tich ?? '').trim();
+    const loaiDat = String(edits[10] ?? row[10] ?? p?.loai_dat ?? 'DGT').trim();
+    const nguonGoc = String(edits[11] ?? row[11] ?? 'Khai hoang').trim();
+    const ghiChu = String(edits[12] ?? row[12] ?? '').trim();
+
+    const diaChi = thonXa ? `${thonXa}, xã Cư Pui` : 'xã Cư Pui';
+    const deviceId = getOrCreateDeviceId();
+
+    const newDecl: DeclarationFormData = {
+      ma_thua: maThua,
+      to_ban_do: toBanDo,
+      so_thua: soThua,
+      chu_dat_ten: chuDatTen || (p?.chu_ho && p.chu_ho !== 'Chưa có tên' ? p.chu_ho : `Chủ Thửa ${soThua}`),
+      chu_dat_nam_sinh: chuDatNamSinh,
+      chu_dat_gioi_tinh: chuDatGioiTinh || 'Nam',
+      chu_dat_cccd: cleanCccdVal,
+      chu_dat_dia_chi: diaChi,
+      dien_tich: dienTich,
+      loai_dat: loaiDat,
+      nguon_goc: nguonGoc,
+      ghi_chu: ghiChu,
+      device_id: deviceId,
+    };
+
+    // Đánh dấu đang lưu
+    setSavingRowCodes((prev) => new Set(prev).add(maThua));
+
+    // Cập nhật state local
+    const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(newDecl);
+    lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
+    setDeclaredParcelCodes(new Set(updatedCodes));
+    setDeclarationsMap(updatedMap);
+
+    // Xóa nháp của mã thửa này khỏi cellEdits
+    setCellEdits((prev) => {
+      const next = { ...prev };
+      delete next[maThua];
+      try {
+        localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    // Bỏ chọn nếu mã thửa này đang được chọn
+    setChuaThucHienSelectedCodes((prev) => {
+      if (!prev.has(maThua)) return prev;
+      const next = new Set(prev);
+      next.delete(maThua);
+      return next;
+    });
+
+    // Xác định danh sách đích
+    const hasCccd = cleanCccdVal && cleanCccdVal.length === 12;
+    const targetLabel = hasCccd ? 'Sẵn Sàng Đóng Tập (Có CCCD)' : 'Đang Kê Khai (Chưa có CCCD)';
+    setInlineSaveToast(`✓ Đã kê khai Thửa ${soThua} (Tờ ${toBanDo}). Dữ liệu đã chuyển sang [${targetLabel}]!`);
+    setTimeout(() => setInlineSaveToast(null), 4500);
+
+    // Gửi realtime lên Cloudflare R2
+    try {
+      await fetch('/api/declarations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newDecl),
+      });
+      fetchSyncSheetsReport();
+    } catch (e) {
+      console.warn('Lỗi lưu kê khai:', e);
     } finally {
       setSavingRowCodes((prev) => {
         const next = new Set(prev);
@@ -2627,6 +2739,23 @@ export default function DashboardPage() {
                     setTimeout(() => setInlineSaveToast(null), 3000);
                   };
 
+                  const handleBatchCommitChuaThucHien = async () => {
+                    if (chuaThucHienSelectedCodes.size === 0) return;
+                    const selectedCodesList = Array.from(chuaThucHienSelectedCodes);
+
+                    let countDone = 0;
+                    for (const code of selectedCodesList) {
+                      const row = filtered.find((r) => String(r[1] || '').trim() === code);
+                      if (row) {
+                        await handleCommitChuaThucHienDeclaration(code, row);
+                        countDone++;
+                      }
+                    }
+                    setChuaThucHienSelectedCodes(new Set());
+                    setInlineSaveToast(`✓ Đã kê khai thành công ${countDone} thửa đất đã chọn!`);
+                    setTimeout(() => setInlineSaveToast(null), 4000);
+                  };
+
                   const isAnyFilterActive =
                     Boolean(reportSearchQuery) ||
                     reportVillageFilter !== 'ALL' ||
@@ -2804,6 +2933,44 @@ export default function DashboardPage() {
                                     </button>
                                   )}
                                 </>
+                              )}
+
+                              {isChuaThucHienSheet && chuaThucHienSelectedCodes.size > 0 && (
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={handleBatchCommitChuaThucHien}
+                                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-600/30"
+                                    title="Kê khai đồng loạt các thửa đã chọn và chuyển dữ liệu sang danh sách tương ứng"
+                                  >
+                                    <FileText className="w-3.5 h-3.5 text-white" />
+                                    <span>Kê Khai ({chuaThucHienSelectedCodes.size} thửa đã chọn)</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={handleCopySelectedChuaThucHienCodes}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                                      isLight
+                                        ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                                    }`}
+                                    title="Sao chép các mã thửa đã chọn"
+                                  >
+                                    <Copy className="w-3.5 h-3.5 inline mr-1 text-slate-400" />
+                                    <span>Sao chép mã</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => setChuaThucHienSelectedCodes(new Set())}
+                                    className={`text-xs underline transition cursor-pointer ${
+                                      isLight ? 'text-slate-500 hover:text-slate-800' : 'text-slate-400 hover:text-slate-200'
+                                    }`}
+                                  >
+                                    Bỏ chọn ({chuaThucHienSelectedCodes.size})
+                                  </button>
+                                </div>
                               )}
 
                               {readyToPackSelectedCodes.size > 0 && (
@@ -3359,7 +3526,7 @@ export default function DashboardPage() {
                               })}
                               {/* Cột Trạng thái / Thao tác */}
                               {(() => {
-                                const statusW = colWidths[`${selectedReportSheet}_status`] ?? 110;
+                                const statusW = colWidths[`${selectedReportSheet}_status`] ?? (isChuaThucHienSheet ? 130 : 110);
                                 return (
                                   <th
                                     style={{ width: `${statusW}px`, minWidth: `${statusW}px`, maxWidth: `${statusW}px` }}
@@ -3367,7 +3534,7 @@ export default function DashboardPage() {
                                       isLight ? 'border-slate-200 bg-slate-200/60' : 'border-slate-800/80 bg-slate-900'
                                     }`}
                                   >
-                                    <span className="truncate">Trạng thái</span>
+                                    <span className="truncate">{isChuaThucHienSheet ? 'Kê khai' : 'Trạng thái'}</span>
                                     <div
                                       onMouseDown={(e) => handleResizeStart(-1, 'Trạng thái', e)}
                                       onTouchStart={(e) => handleResizeTouchStart(-1, 'Trạng thái', e)}
@@ -3669,9 +3836,9 @@ export default function DashboardPage() {
                                       );
                                     })}
 
-                                    {/* Cột Trạng thái / Sửa nhanh */}
+                                    {/* Cột Trạng thái / Sửa nhanh / Kê khai */}
                                     {(() => {
-                                      const statusW = colWidths[`${selectedReportSheet}_status`] ?? 110;
+                                      const statusW = colWidths[`${selectedReportSheet}_status`] ?? (isChuaThucHienSheet ? 130 : 110);
                                       return (
                                         <td
                                           style={{ width: `${statusW}px`, minWidth: `${statusW}px`, maxWidth: `${statusW}px` }}
@@ -3679,12 +3846,42 @@ export default function DashboardPage() {
                                             isLight ? 'border-slate-200' : 'border-slate-800/60'
                                           }`}
                                         >
-                                          <div className="truncate">
+                                          <div className="flex items-center justify-center gap-1.5">
                                             {isSaving ? (
                                               <span className="inline-flex items-center gap-1 text-[11px] text-amber-500 font-bold">
                                                 <RefreshCw className="w-3 h-3 animate-spin" />
                                                 <span>Đang lưu</span>
                                               </span>
+                                            ) : isChuaThucHienSheet ? (
+                                              <>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleCommitChuaThucHienDeclaration(maThua, row)}
+                                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition shadow-xs cursor-pointer ${
+                                                    hasEdited
+                                                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white ring-2 ring-emerald-400/40 shadow-emerald-600/30'
+                                                      : isLight
+                                                      ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300'
+                                                      : 'bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border border-emerald-700'
+                                                  }`}
+                                                  title="Nhấn để hoàn tất kê khai thửa này và chuyển sang danh sách Đang kê khai / Sẵn sàng đóng tập"
+                                                >
+                                                  <FileText className="w-3.5 h-3.5 shrink-0" />
+                                                  <span>Kê khai</span>
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleEditRowParcel(maThua, row)}
+                                                  className={`p-1 rounded-lg border transition cursor-pointer ${
+                                                    isLight
+                                                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-300'
+                                                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                                                  }`}
+                                                  title="Mở form kê khai đầy đủ"
+                                                >
+                                                  <Pencil className="w-3 h-3 shrink-0" />
+                                                </button>
+                                              </>
                                             ) : hasEdited ? (
                                               <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 font-bold">
                                                 <Check className="w-3 h-3 text-emerald-500" />
