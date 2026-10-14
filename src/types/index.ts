@@ -66,6 +66,11 @@ export interface AdditionalParcel {
 
 export interface DeclarationFormData {
   ma_thua: string;
+  to_ban_do?: string;
+  so_thua?: string;
+  dien_tich?: string;
+  loai_dat?: string;
+  nguon_goc?: string;
   // 1.1 Cá nhân
   chu_dat_ten: string; // Họ tên cá nhân *
   chu_dat_nam_sinh?: string; // Năm sinh *

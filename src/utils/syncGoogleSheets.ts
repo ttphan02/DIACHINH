@@ -513,7 +513,7 @@ export async function executeSyncToGoogleSheet(
     // SHEET 4: THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)
     const headersPack = [
       'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
-      'Năm sinh', 'Giới tính', 'Số CCCD', 'Nguồn CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
+      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
       'Xem file PDF CCCD (Bấm vào xem)', 'Trạng thái đóng tập'
     ];
     const rowsPack: string[][] = [headersPack];
@@ -523,7 +523,7 @@ export async function executeSyncToGoogleSheet(
       const cccdText = it.cccd ? `="${it.cccd}"` : '';
       rowsPack.push([
         String(idx + 1), it.ma_thua, it.to_ban_do, it.so_thua, it.thon_xa,
-        it.chu_ho, it.dob || '', it.gender || 'Nam', cccdText, it.cccd_source,
+        it.chu_ho, it.dob || '', it.gender || 'Nam', cccdText,
         String(it.dien_tich || ''), it.loai_dat || 'DGT', it.nguon_goc || 'Khai hoang',
         cccdFormula, 'ĐỦ HỒ SƠ - SẴN SÀNG ĐÓNG TẬP'
       ]);
@@ -533,7 +533,7 @@ export async function executeSyncToGoogleSheet(
     // SHEET 5: THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)
     const headersUnpack = [
       'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
-      'Năm sinh', 'Giới tính', 'Số CCCD', 'Nguồn CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
+      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
       'Phân loại trạng thái', 'Ghi chú & Hướng dẫn xử lý'
     ];
     const rowsUnpack: string[][] = [headersUnpack];
@@ -542,7 +542,7 @@ export async function executeSyncToGoogleSheet(
       const cccdText = it.cccd ? `="${it.cccd}"` : 'Chưa có';
       rowsUnpack.push([
         String(idx + 1), it.ma_thua, it.to_ban_do, it.so_thua, it.thon_xa,
-        it.chu_ho, it.dob || '', it.gender || 'Nam', cccdText, it.cccd_source,
+        it.chu_ho, it.dob || '', it.gender || 'Nam', cccdText,
         String(it.dien_tich || ''), it.loai_dat || 'DGT', it.nguon_goc || 'Khai hoang',
         it.phan_loai, it.ghi_chu
       ]);

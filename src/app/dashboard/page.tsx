@@ -123,6 +123,17 @@ export default function DashboardPage() {
   const [reportPageSize, setReportPageSize] = useState<number | 'ALL'>(20);
   const [reportPage, setReportPage] = useState<number>(1);
 
+  // Sắp xếp danh sách theo tên chủ đất A -> Z
+  const [sortNameOrder, setSortNameOrder] = useState<'none' | 'asc' | 'desc'>('none');
+
+  // Lọc thửa Có tên / Không có tên trong danh sách "Chưa Thực Hiện"
+  const [chuaThucHienNameFilter, setChuaThucHienNameFilter] = useState<'ALL' | 'CO_TEN' | 'CHUA_CO_TEN'>('ALL');
+
+  // Chỉnh sửa & Nhập trực tiếp trên bảng như Excel
+  const [cellEdits, setCellEdits] = useState<Record<string, Record<number, string>>>({});
+  const [savingRowCodes, setSavingRowCodes] = useState<Set<string>>(new Set());
+  const [inlineSaveToast, setInlineSaveToast] = useState<string | null>(null);
+
   // Checkbox Selection state cho THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD)
   const [readyToPackSelectedCodes, setReadyToPackSelectedCodes] = useState<Set<string>>(new Set());
 
@@ -262,6 +273,94 @@ export default function DashboardPage() {
         nguon_goc: 'Khai hoang',
       };
       handleOpenEditDeclaration(p, decl);
+    }
+  };
+
+  // Cập nhật giá trị ô trực tiếp khi người dùng gõ phím
+  const handleInlineCellChange = (maThua: string, colIdx: number, val: string) => {
+    setCellEdits((prev) => ({
+      ...prev,
+      [maThua]: {
+        ...(prev[maThua] || {}),
+        [colIdx]: val,
+      },
+    }));
+  };
+
+  // Lưu giá trị vào Local Declarations và đồng bộ Realtime lên Cloudflare R2
+  const handleInlineCellCommit = async (
+    maThua: string,
+    colIdx: number,
+    headerName: string,
+    newValue: string,
+    row: any[]
+  ) => {
+    const hLower = headerName.toLowerCase();
+    let fieldKey: keyof DeclarationFormData | '' = '';
+    if (hLower.includes('họ và tên') || hLower.includes('chủ đất')) fieldKey = 'chu_dat_ten';
+    else if (hLower.includes('năm sinh') || hLower.includes('ngày sinh')) fieldKey = 'chu_dat_nam_sinh';
+    else if (hLower.includes('giới tính')) fieldKey = 'chu_dat_gioi_tinh';
+    else if (hLower.includes('cccd') && !hLower.includes('xem') && !hLower.includes('file')) fieldKey = 'chu_dat_cccd';
+    else if (hLower.includes('diện tích')) fieldKey = 'dien_tich';
+    else if (hLower.includes('loại đất')) fieldKey = 'loai_dat';
+    else if (hLower.includes('nguồn gốc')) fieldKey = 'nguon_goc';
+    else if (hLower.includes('ghi chú') || hLower.includes('hướng dẫn')) fieldKey = 'ghi_chu';
+
+    if (!fieldKey) return;
+
+    // Tìm parcel gốc hoặc dựng từ row
+    let p = computedParcels.find((cp) => cp.ma_thua === maThua);
+    const existingDecl = declarationsMap[maThua] || {
+      ma_thua: maThua,
+      to_ban_do: String(row[2] || p?.to_ban_do || ''),
+      so_thua: String(row[3] || p?.so_thua || ''),
+      chu_dat_ten: String(row[5] || p?.chu_ho || ''),
+      chu_dat_nam_sinh: String(row[6] || (p as any)?.ngay_sinh || ''),
+      chu_dat_gioi_tinh: String(row[7] || (p as any)?.gioi_tinh || 'Nam'),
+      chu_dat_cccd: String(row[8] || p?.cccd || '').replace(/^="|"$/g, ''),
+      chu_dat_dia_chi: p?.thon_xa ? `${p.thon_xa}, xã Cư Pui` : `${row[4] || ''}, xã Cư Pui`,
+      dien_tich: String(row[9] || p?.dien_tich || ''),
+      loai_dat: String(row[10] || p?.loai_dat || 'DGT'),
+      nguon_goc: String(row[11] || 'Khai hoang'),
+    };
+
+    const formattedValue = fieldKey === 'chu_dat_cccd' ? cleanCccd(newValue) : newValue.trim();
+
+    // Nếu không thay đổi gì thì bỏ qua
+    if (existingDecl[fieldKey] === formattedValue) return;
+
+    const updatedDecl: DeclarationFormData = {
+      ...existingDecl,
+      [fieldKey]: formattedValue,
+    };
+
+    // Đánh dấu đang lưu
+    setSavingRowCodes((prev) => new Set(prev).add(maThua));
+
+    // Cập nhật state local
+    const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(updatedDecl);
+    setDeclaredParcelCodes(new Set(updatedCodes));
+    setDeclarationsMap(updatedMap);
+
+    // Gửi realtime lên Cloudflare R2
+    try {
+      const res = await fetch('/api/declarations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedDecl),
+      });
+      if (res.ok) {
+        setInlineSaveToast(`✓ Đã lưu thay đổi Thửa ${updatedDecl.so_thua || maThua} realtime`);
+        setTimeout(() => setInlineSaveToast(null), 2500);
+      }
+    } catch (e) {
+      console.warn('Lỗi lưu realtime:', e);
+    } finally {
+      setSavingRowCodes((prev) => {
+        const next = new Set(prev);
+        next.delete(maThua);
+        return next;
+      });
     }
   };
 
@@ -2091,7 +2190,7 @@ export default function DashboardPage() {
                   if (selectedReportSheet === 'CHƯA THỰC HIỆN') {
                     const headersChuaThucHien = [
                       'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất (dự kiến)',
-                      'Năm sinh', 'Giới tính', 'Số CCCD', 'Nguồn CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
+                      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
                       'Trạng thái dữ liệu'
                     ];
                     const rowsChuaThucHien = chuaThucHienParcels.map((p, idx) => {
@@ -2106,7 +2205,6 @@ export default function DashboardPage() {
                         (p as any).ngay_sinh || '',
                         (p as any).gioi_tinh || 'Nam',
                         cccdText,
-                        p.cccd ? 'Dữ liệu SMK' : '',
                         p.dien_tich || '0',
                         p.loai_dat || 'DGT',
                         'Khai hoang',
@@ -2115,14 +2213,26 @@ export default function DashboardPage() {
                     });
                     rawSheet = [headersChuaThucHien, ...rowsChuaThucHien];
                   }
-                  const headers = rawSheet[0] || [];
-                  const allRows = rawSheet.slice(1) || [];
+                  const headers = [...(rawSheet[0] || [])];
+                  const allRows = (rawSheet.slice(1) || []).map((r) => [...r]);
 
-                  // Nhận diện cột Thôn / Buôn và Phân loại trạng thái
+                  // Bỏ cột "Nguồn CCCD" khỏi bất kỳ sheet nào nếu tồn tại
+                  const nguonCccdColIdx = headers.findIndex((h) => /nguồn.*cccd/i.test(h));
+                  if (nguonCccdColIdx >= 0) {
+                    headers.splice(nguonCccdColIdx, 1);
+                    allRows.forEach((r) => r.splice(nguonCccdColIdx, 1));
+                  }
+
+                  // Nhận diện cột Thôn / Buôn, Họ và tên và Phân loại trạng thái
                   const villageColIdx = headers.findIndex((h) => /thôn|buôn/i.test(h));
+                  const nameColIdx = headers.findIndex((h) => /họ và tên|chủ đất/i.test(h));
                   const statusColIdx = headers.findIndex((h) => /phân loại/i.test(h));
 
-                  // Danh sách Thôn / Buôn và số lượng thửa
+                  const isChuaThucHienSheet = selectedReportSheet === 'CHƯA THỰC HIỆN';
+                  const isReadyToPackSheet = selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)';
+                  const isChuaCoCccdSheet = selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)';
+
+                  // Thống kê Thôn / Buôn và số lượng thửa
                   const villageCounts: Record<string, number> = {};
                   allRows.forEach((r) => {
                     if (villageColIdx >= 0) {
@@ -2131,6 +2241,23 @@ export default function DashboardPage() {
                     }
                   });
                   const availableVillages = Object.keys(villageCounts).sort((a, b) => a.localeCompare(b, 'vi'));
+
+                  // Thống kê Có tên / Không có tên cho sheet Chưa thực hiện
+                  let countCoTen = 0;
+                  let countChuaCoTen = 0;
+                  if (isChuaThucHienSheet && nameColIdx >= 0) {
+                    allRows.forEach((r) => {
+                      const maThua = String(r[1] || '').trim();
+                      const nameVal = String(cellEdits[maThua]?.[nameColIdx] || r[nameColIdx] || '').trim();
+                      const isNamed =
+                        nameVal &&
+                        nameVal !== 'Chưa có tên' &&
+                        !nameVal.toLowerCase().includes('không có') &&
+                        !nameVal.toLowerCase().includes('chưa có');
+                      if (isNamed) countCoTen++;
+                      else countChuaCoTen++;
+                    });
+                  }
 
                   // Danh sách Phân loại trạng thái (cho sheet Chưa có CCCD)
                   const statusCounts: Record<string, number> = {};
@@ -2143,16 +2270,21 @@ export default function DashboardPage() {
 
                   // Áp dụng bộ lọc
                   const filtered = allRows.filter((row) => {
-                    // 1. Tìm kiếm text
+                    const maThua = String(row[1] || '').trim();
+
+                    // 1. Tìm kiếm text (soát cả giá trị vừa nhập trực tiếp)
                     if (reportSearchQuery) {
                       const q = stripAccents(reportSearchQuery);
-                      const match = row.some((cell) => stripAccents(String(cell || '')).includes(q));
+                      const match = row.some((cell, cIdx) => {
+                        const val = String(cellEdits[maThua]?.[cIdx] ?? cell ?? '');
+                        return stripAccents(val).includes(q);
+                      });
                       if (!match) return false;
                     }
 
                     // 2. Lọc theo Thôn / Buôn
                     if (reportVillageFilter !== 'ALL' && villageColIdx >= 0) {
-                      const v = String(row[villageColIdx] || '').trim();
+                      const v = String(cellEdits[maThua]?.[villageColIdx] ?? row[villageColIdx] ?? '').trim();
                       if (v !== reportVillageFilter) return false;
                     }
 
@@ -2162,12 +2294,32 @@ export default function DashboardPage() {
                       if (st !== reportStatusFilter) return false;
                     }
 
+                    // 4. Lọc thửa Có tên / Không có tên (cho sheet Chưa thực hiện)
+                    if (isChuaThucHienSheet && nameColIdx >= 0 && chuaThucHienNameFilter !== 'ALL') {
+                      const nameVal = String(cellEdits[maThua]?.[nameColIdx] ?? row[nameColIdx] ?? '').trim();
+                      const isNamed =
+                        nameVal &&
+                        nameVal !== 'Chưa có tên' &&
+                        !nameVal.toLowerCase().includes('không có') &&
+                        !nameVal.toLowerCase().includes('chưa có');
+                      if (chuaThucHienNameFilter === 'CO_TEN' && !isNamed) return false;
+                      if (chuaThucHienNameFilter === 'CHUA_CO_TEN' && isNamed) return false;
+                    }
+
                     return true;
                   });
 
-                  const isReadyToPackSheet = selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)';
-                  const isChuaCoCccdSheet = selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)';
-                  const isChuaThucHienSheet = selectedReportSheet === 'CHƯA THỰC HIỆN';
+                  // 5. Sắp xếp theo Tên chủ đất A -> Z hoặc Z -> A
+                  if (nameColIdx >= 0 && sortNameOrder !== 'none') {
+                    filtered.sort((a, b) => {
+                      const maA = String(a[1] || '').trim();
+                      const maB = String(b[1] || '').trim();
+                      const nameA = String(cellEdits[maA]?.[nameColIdx] ?? a[nameColIdx] ?? '').trim();
+                      const nameB = String(cellEdits[maB]?.[nameColIdx] ?? b[nameColIdx] ?? '').trim();
+                      const cmp = nameA.localeCompare(nameB, 'vi', { sensitivity: 'base' });
+                      return sortNameOrder === 'asc' ? cmp : -cmp;
+                    });
+                  }
 
                   // Phân trang và Chế độ hiển thị Toàn bộ danh sách
                   const isAllRowsMode = reportPageSize === 'ALL';
@@ -2197,10 +2349,20 @@ export default function DashboardPage() {
                     Boolean(reportSearchQuery) ||
                     reportVillageFilter !== 'ALL' ||
                     reportStatusFilter !== 'ALL' ||
+                    chuaThucHienNameFilter !== 'ALL' ||
+                    sortNameOrder !== 'none' ||
                     reportPageSize === 'ALL';
 
                   return (
                     <div className="space-y-4">
+                      {/* Toast báo lưu realtime thành công */}
+                      {inlineSaveToast && (
+                        <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-xl text-xs font-bold flex items-center gap-2 animate-in fade-in">
+                          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <span>{inlineSaveToast}</span>
+                        </div>
+                      )}
+
                       {/* Toolbar trên cùng của bảng */}
                       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                         <div>
@@ -2221,12 +2383,12 @@ export default function DashboardPage() {
                           </div>
                           <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                             {isChuaThucHienSheet
-                              ? 'Danh sách các thửa đất chưa kê khai • Thiết kế theo từng Thôn Buôn • Bạn có thể bấm "Kê Khai" ngay trên danh sách này'
+                              ? 'Danh sách các thửa đất chưa kê khai • Nhập hoặc sửa trực tiếp trên bảng như Excel • Tự động lưu & đồng bộ realtime'
                               : isReadyToPackSheet
-                              ? 'Hồ sơ đã đầy đủ CCCD và sẵn sàng đóng tập PDF • Hover vào ô Xem CCCD để xem chi tiết • Bấm "Sửa" để cập nhật dữ liệu realtime'
+                              ? 'Hồ sơ đã đầy đủ CCCD và sẵn sàng đóng tập PDF • Nhập sửa trực tiếp như Excel • Hover vào ô Xem CCCD để xem chi tiết'
                               : isChuaCoCccdSheet
-                              ? 'Danh sách cần bổ sung CCCD • Lọc theo Thôn buôn hoặc Phân loại để thu thập thuận tiện • Bấm "Sửa" để nhập bổ sung'
-                              : 'Danh sách chi tiết được tạo tự động • Hỗ trợ tìm kiếm nhanh, sửa thông tin & xuất file Excel'}
+                              ? 'Danh sách cần bổ sung CCCD • Nhập sửa trực tiếp như Excel • Lọc theo Thôn buôn hoặc Phân loại để thu thập thuận tiện'
+                              : 'Danh sách chi tiết được tạo tự động • Nhập sửa trực tiếp như Excel • Hỗ trợ tìm kiếm nhanh & xuất file'}
                           </p>
                         </div>
 
@@ -2270,7 +2432,7 @@ export default function DashboardPage() {
                         )}
                       </div>
 
-                      {/* Hàng bộ lọc: Thôn / Buôn, Trạng thái, Hiển thị theo phần / Toàn bộ, Tìm kiếm */}
+                      {/* Hàng bộ lọc: Thôn / Buôn, Trạng thái, Có tên/Không có tên, Sắp xếp A-Z, Hiển thị, Tìm kiếm */}
                       <div className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2.5 transition-colors ${
                         isLight ? 'bg-slate-50/80 border-slate-200' : 'bg-slate-950/60 border-slate-800'
                       }`}>
@@ -2307,7 +2469,36 @@ export default function DashboardPage() {
                             </div>
                           )}
 
-                          {/* 2. LỌC THEO PHÂN LOẠI TRẠNG THÁI (Đang Kê Khai - Chưa Có CCCD) */}
+                          {/* 2. LỌC THỬA CÓ TÊN / KHÔNG CÓ TÊN (ở mục Chưa thực hiện) */}
+                          {isChuaThucHienSheet && (
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-[11px] font-bold ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>
+                                Chủ đất:
+                              </span>
+                              <select
+                                value={chuaThucHienNameFilter}
+                                onChange={(e) => {
+                                  setChuaThucHienNameFilter(e.target.value as any);
+                                  setReportPage(1);
+                                }}
+                                className={`text-xs px-2.5 py-1.5 rounded-xl border font-bold transition focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                                  chuaThucHienNameFilter !== 'ALL'
+                                    ? isLight
+                                      ? 'bg-emerald-100 border-emerald-400 text-emerald-900'
+                                      : 'bg-emerald-950/70 border-emerald-500/50 text-emerald-200'
+                                    : isLight
+                                    ? 'bg-white border-slate-300 text-slate-800'
+                                    : 'bg-slate-900 border-slate-700 text-slate-200'
+                                }`}
+                              >
+                                <option value="ALL">Tất cả ({allRows.length})</option>
+                                <option value="CO_TEN">Có tên ({countCoTen})</option>
+                                <option value="CHUA_CO_TEN">Không có tên ({countChuaCoTen})</option>
+                              </select>
+                            </div>
+                          )}
+
+                          {/* 3. LỌC THEO PHÂN LOẠI TRẠNG THÁI (Đang Kê Khai - Chưa Có CCCD) */}
                           {isChuaCoCccdSheet && statusColIdx >= 0 && (
                             <div className="flex items-center gap-1.5">
                               <span className={`text-[11px] font-bold ${isLight ? 'text-amber-700' : 'text-amber-400'}`}>
@@ -2340,7 +2531,33 @@ export default function DashboardPage() {
                             </div>
                           )}
 
-                          {/* 3. DẠNG HIỂN THỊ: THEO PHẦN (1/7, 2/7) HOẶC TOÀN BỘ */}
+                          {/* 4. NÚT SẮP XẾP TÊN A -> Z */}
+                          {nameColIdx >= 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSortNameOrder((prev) => (prev === 'none' ? 'asc' : prev === 'asc' ? 'desc' : 'none'));
+                                setReportPage(1);
+                              }}
+                              className={`text-xs px-2.5 py-1.5 rounded-xl border font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                                sortNameOrder !== 'none'
+                                  ? isLight
+                                    ? 'bg-indigo-100 border-indigo-400 text-indigo-800'
+                                    : 'bg-indigo-950/80 border-indigo-500/60 text-indigo-300'
+                                  : isLight
+                                  ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                  : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                              }`}
+                              title="Bấm để đổi: Sắp xếp Tên A→Z, Z→A hoặc Mặc định"
+                            >
+                              <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500" />
+                              <span>
+                                {sortNameOrder === 'asc' ? 'Tên: A → Z' : sortNameOrder === 'desc' ? 'Tên: Z → A' : 'Sắp xếp Tên A-Z'}
+                              </span>
+                            </button>
+                          )}
+
+                          {/* 5. DẠNG HIỂN THỊ: THEO PHẦN (1/7, 2/7) HOẶC TOÀN BỘ */}
                           <div className="flex items-center gap-1.5">
                             <span className={`text-[11px] font-bold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
                               Hiển thị:
@@ -2377,6 +2594,8 @@ export default function DashboardPage() {
                                 setReportSearchQuery('');
                                 setReportVillageFilter('ALL');
                                 setReportStatusFilter('ALL');
+                                setChuaThucHienNameFilter('ALL');
+                                setSortNameOrder('none');
                                 setReportPageSize(20);
                                 setReportPage(1);
                               }}
@@ -2426,7 +2645,7 @@ export default function DashboardPage() {
                         </div>
                       </div>
 
-                      {/* Bảng dữ liệu chi tiết */}
+                      {/* Bảng dữ liệu chi tiết - HỖ TRỢ NHẬP & SỬA TRỰC TIẾP NHƯ EXCEL */}
                       <div className={`overflow-x-auto rounded-xl border ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
                         <table className={`w-full text-xs text-left ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
                           <thead className={`border-b font-bold ${
@@ -2444,16 +2663,44 @@ export default function DashboardPage() {
                                   />
                                 </th>
                               )}
-                              {headers.map((h, hIdx) => (
-                                <th key={hIdx} className={`py-2.5 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}>
-                                  {h}
-                                </th>
-                              ))}
-                              {/* Cột Thao tác */}
+                              {headers.map((h, hIdx) => {
+                                const isNameHeader = hIdx === nameColIdx;
+                                return (
+                                  <th
+                                    key={hIdx}
+                                    onClick={
+                                      isNameHeader
+                                        ? () => {
+                                            setSortNameOrder((prev) =>
+                                              prev === 'none' ? 'asc' : prev === 'asc' ? 'desc' : 'none'
+                                            );
+                                            setReportPage(1);
+                                          }
+                                        : undefined
+                                    }
+                                    className={`py-2.5 px-3 whitespace-nowrap border-r select-none ${
+                                      isNameHeader ? 'cursor-pointer hover:bg-indigo-500/10' : ''
+                                    } ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}
+                                  >
+                                    <div className="flex items-center gap-1.5">
+                                      <span>{h}</span>
+                                      {isNameHeader && (
+                                        <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                      )}
+                                      {isNameHeader && sortNameOrder !== 'none' && (
+                                        <span className="text-[10px] px-1 py-0.2 bg-indigo-500 text-white rounded font-black">
+                                          {sortNameOrder === 'asc' ? 'A→Z' : 'Z→A'}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </th>
+                                );
+                              })}
+                              {/* Cột Trạng thái / Thao tác */}
                               <th className={`w-28 px-3 py-2.5 text-center border-r font-bold whitespace-nowrap ${
                                 isLight ? 'border-slate-200 bg-slate-200/60' : 'border-slate-800/80 bg-slate-900'
                               }`}>
-                                Thao tác
+                                Trạng thái
                               </th>
                             </tr>
                           </thead>
@@ -2470,6 +2717,8 @@ export default function DashboardPage() {
                               pagedRows.map((row, rIdx) => {
                                 const maThua = String(row[1] || '').trim();
                                 const isChecked = readyToPackSelectedCodes.has(maThua);
+                                const isSaving = savingRowCodes.has(maThua);
+                                const hasEdited = Boolean(cellEdits[maThua]);
 
                                 return (
                                   <tr
@@ -2504,6 +2753,8 @@ export default function DashboardPage() {
 
                                     {row.map((cell, cIdx) => {
                                       const cellStr = String(cell || '');
+                                      const headerName = headers[cIdx] || '';
+                                      const hLower = headerName.toLowerCase();
 
                                       // Cột Phân loại trạng thái (Làm nổi bật badge)
                                       if (cIdx === statusColIdx && isChuaCoCccdSheet) {
@@ -2531,8 +2782,8 @@ export default function DashboardPage() {
                                       if (linkMatch) {
                                         const href = linkMatch[1];
                                         const text = linkMatch[2];
-                                        const ownerName = String(row[5] || row[4] || '').trim();
-                                        const cccdVal = String(row[8] || row[6] || '').replace(/^="|"$/g, '').trim();
+                                        const ownerName = String(cellEdits[maThua]?.[nameColIdx] ?? row[nameColIdx] ?? '').trim();
+                                        const cccdVal = String(row[8] || '').replace(/^="|"$/g, '').trim();
 
                                         return (
                                           <td key={cIdx} className={`py-2 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
@@ -2563,7 +2814,95 @@ export default function DashboardPage() {
 
                                       // Hiển thị chuỗi định dạng Excel (="...")
                                       const cleanText = cellStr.replace(/^="|"$/g, '');
+                                      const displayVal = cellEdits[maThua]?.[cIdx] !== undefined ? cellEdits[maThua][cIdx] : cleanText;
 
+                                      // Kiểm tra xem cột này có cho phép sửa trực tiếp như Excel không
+                                      const isNameCol = hLower.includes('họ và tên') || hLower.includes('chủ đất');
+                                      const isDobCol = hLower.includes('năm sinh') || hLower.includes('ngày sinh');
+                                      const isGenderCol = hLower.includes('giới tính');
+                                      const isCccdCol = hLower.includes('cccd') && !hLower.includes('xem') && !hLower.includes('file');
+                                      const isAreaCol = hLower.includes('diện tích');
+                                      const isLandTypeCol = hLower.includes('loại đất');
+                                      const isOriginCol = hLower.includes('nguồn gốc');
+                                      const isNoteCol = hLower.includes('ghi chú') || hLower.includes('hướng dẫn');
+
+                                      // 1. Ô Giới tính (Dropdown Nam/Nữ trực tiếp)
+                                      if (isGenderCol) {
+                                        return (
+                                          <td key={cIdx} className={`py-1.5 px-2 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
+                                            <select
+                                              value={displayVal || 'Nam'}
+                                              onChange={(e) => {
+                                                const v = e.target.value;
+                                                handleInlineCellChange(maThua, cIdx, v);
+                                                handleInlineCellCommit(maThua, cIdx, headerName, v, row);
+                                              }}
+                                              className={`px-1.5 py-1 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 transition cursor-pointer ${
+                                                isLight
+                                                  ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
+                                                  : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+                                              }`}
+                                            >
+                                              <option value="Nam">Nam</option>
+                                              <option value="Nữ">Nữ</option>
+                                            </select>
+                                          </td>
+                                        );
+                                      }
+
+                                      // 2. Ô Nguồn gốc sử dụng đất (Dropdown Khai hoang / Thừa kế / Tặng cho trực tiếp)
+                                      if (isOriginCol) {
+                                        return (
+                                          <td key={cIdx} className={`py-1.5 px-2 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
+                                            <select
+                                              value={displayVal || 'Khai hoang'}
+                                              onChange={(e) => {
+                                                const v = e.target.value;
+                                                handleInlineCellChange(maThua, cIdx, v);
+                                                handleInlineCellCommit(maThua, cIdx, headerName, v, row);
+                                              }}
+                                              className={`px-1.5 py-1 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 transition cursor-pointer ${
+                                                isLight
+                                                  ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
+                                                  : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+                                              }`}
+                                            >
+                                              <option value="Khai hoang">Khai hoang</option>
+                                              <option value="Nhận Thừa Kế">Nhận Thừa Kế</option>
+                                              <option value="Nhận Tặng Cho">Nhận Tặng Cho</option>
+                                            </select>
+                                          </td>
+                                        );
+                                      }
+
+                                      // 3. Các ô nhập chữ trực tiếp như Excel (Họ tên, Năm sinh, Số CCCD, Diện tích, Loại đất, Ghi chú)
+                                      if (isNameCol || isDobCol || isCccdCol || isAreaCol || isLandTypeCol || isNoteCol) {
+                                        return (
+                                          <td key={cIdx} className={`p-1 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
+                                            <input
+                                              type="text"
+                                              value={displayVal}
+                                              onChange={(e) => handleInlineCellChange(maThua, cIdx, e.target.value)}
+                                              onBlur={(e) => handleInlineCellCommit(maThua, cIdx, headerName, e.target.value, row)}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                  (e.target as HTMLInputElement).blur();
+                                                }
+                                              }}
+                                              placeholder={isCccdCol ? '12 số CCCD...' : isNameCol ? 'Nhập họ tên...' : isDobCol ? 'YYYY...' : 'Nhập...'}
+                                              className={`w-full min-w-[80px] px-2 py-1 text-xs rounded border border-transparent hover:border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-white font-medium transition ${
+                                                isNameCol ? 'font-bold' : ''
+                                              } ${
+                                                isLight
+                                                  ? 'text-slate-800 hover:bg-slate-100/50'
+                                                  : 'text-slate-100 focus:bg-slate-800 hover:bg-slate-800/40'
+                                              }`}
+                                            />
+                                          </td>
+                                        );
+                                      }
+
+                                      // 4. Các cột định danh cố định (STT, Mã thửa, Tờ BĐ, Số thửa, Thôn / Buôn, Trạng thái)
                                       return (
                                         <td key={cIdx} className={`py-2 px-3 whitespace-nowrap border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}>
                                           {cleanText}
@@ -2571,33 +2910,33 @@ export default function DashboardPage() {
                                       );
                                     })}
 
-                                    {/* Cột Thao Tác (Kê khai ngay / Sửa thông tin) */}
-                                    <td className={`w-28 px-3 py-2 text-center whitespace-nowrap border-r ${
+                                    {/* Cột Trạng thái / Sửa nhanh */}
+                                    <td className={`w-28 px-2 py-2 text-center whitespace-nowrap border-r ${
                                       isLight ? 'border-slate-200' : 'border-slate-800/60'
                                     }`}>
-                                      {isChuaThucHienSheet ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleEditRowParcel(maThua, row)}
-                                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-black bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-xs transition cursor-pointer transform active:scale-95"
-                                          title="Bấm để mở phiếu kê khai ngay thửa đất này"
-                                        >
-                                          <Sparkles className="w-3.5 h-3.5" />
-                                          <span>Kê Khai</span>
-                                        </button>
+                                      {isSaving ? (
+                                        <span className="inline-flex items-center gap-1 text-[11px] text-amber-500 font-bold">
+                                          <RefreshCw className="w-3 h-3 animate-spin" />
+                                          <span>Đang lưu</span>
+                                        </span>
+                                      ) : hasEdited ? (
+                                        <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 font-bold">
+                                          <Check className="w-3 h-3 text-emerald-500" />
+                                          <span>Đã lưu</span>
+                                        </span>
                                       ) : (
                                         <button
                                           type="button"
                                           onClick={() => handleEditRowParcel(maThua, row)}
-                                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer shadow-2xs ${
+                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border transition cursor-pointer ${
                                             isLight
-                                              ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
-                                              : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                              ? 'text-slate-500 hover:text-slate-800 border-slate-200 hover:bg-slate-100'
+                                              : 'text-slate-400 hover:text-slate-200 border-slate-700/60 hover:bg-slate-800'
                                           }`}
-                                          title="Chỉnh sửa mọi thông tin thửa đất và lưu đồng bộ realtime"
+                                          title="Bấm để mở form xem chi tiết / in phiếu"
                                         >
-                                          <Pencil className="w-3 h-3 text-amber-500" />
-                                          <span>Sửa</span>
+                                          <Pencil className="w-3 h-3 text-slate-400" />
+                                          <span>Chi tiết</span>
                                         </button>
                                       )}
                                     </td>
