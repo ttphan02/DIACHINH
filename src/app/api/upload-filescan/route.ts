@@ -1,11 +1,23 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
+import {
+  S3Client,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  DeleteObjectCommand,
+} from '@aws-sdk/client-s3';
 import { executeSyncToGoogleSheet } from '@/utils/syncGoogleSheets';
 
 export const dynamic = 'force-dynamic';
 
 const KEY_ALL_DECLARATIONS = 'declarations/all.json';
-const R2_PUBLIC_BASE = 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
+const R2_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
+const R2_ACCESS_KEY = process.env.CLOUDFLARE_R2_ACCESS_KEY_ID;
+const R2_SECRET_KEY = process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY;
+const R2_BUCKET = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'diachinh-storage';
+const R2_PUBLIC_BASE =
+  process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL ||
+  'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
 
 async function getR2Binding(): Promise<any | null> {
   try {
@@ -14,6 +26,20 @@ async function getR2Binding(): Promise<any | null> {
   } catch {
     return null;
   }
+}
+
+function getS3Client(): S3Client | null {
+  if (R2_ACCOUNT_ID && R2_ACCESS_KEY && R2_SECRET_KEY) {
+    return new S3Client({
+      region: 'auto',
+      endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: {
+        accessKeyId: R2_ACCESS_KEY,
+        secretAccessKey: R2_SECRET_KEY,
+      },
+    });
+  }
+  return null;
 }
 
 // Chuyển base64 sang Uint8Array
@@ -27,36 +53,134 @@ function base64ToUint8Array(base64: string): Uint8Array {
   return bytes;
 }
 
-// GET /api/upload-filescan - Lấy danh sách toàn bộ file PDF scan trong folder filescan/
-export async function GET(request: Request) {
+async function putObjectToR2(key: string, body: Uint8Array | ArrayBuffer, contentType: string) {
+  const bucket = await getR2Binding();
+  if (bucket) {
+    await bucket.put(key, body, {
+      httpMetadata: {
+        contentType,
+        cacheControl: 'public, max-age=31536000, immutable',
+      },
+    });
+    return true;
+  }
+  const s3 = getS3Client();
+  if (s3) {
+    const bytes = body instanceof Uint8Array ? body : new Uint8Array(body);
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: R2_BUCKET,
+        Key: key,
+        Body: bytes,
+        ContentType: contentType,
+        CacheControl: 'public, max-age=31536000, immutable',
+      })
+    );
+    return true;
+  }
+  throw new Error('Không thể kết nối Cloudflare R2 (Binding hoặc S3)');
+}
+
+async function deleteObjectFromR2(key: string) {
+  const bucket = await getR2Binding();
+  if (bucket) {
+    await bucket.delete(key);
+    return true;
+  }
+  const s3 = getS3Client();
+  if (s3) {
+    await s3.send(
+      new DeleteObjectCommand({
+        Bucket: R2_BUCKET,
+        Key: key,
+      })
+    );
+    return true;
+  }
+  return false;
+}
+
+// GET /api/upload-filescan - Lấy danh sách toàn bộ file PDF scan trong folder filescan/ và scanhoso/
+export async function GET() {
   try {
     const bucket = await getR2Binding();
-    if (!bucket) {
-      return NextResponse.json({ success: false, error: 'Không thể kết nối Cloudflare R2 Bucket' }, { status: 500 });
+    const s3 = getS3Client();
+
+    let allObjects: Array<{ key: string; size: number; uploaded?: string | Date | null }> = [];
+
+    if (bucket) {
+      try {
+        const listRes: any = await bucket.list({ prefix: 'filescan/', limit: 1000 });
+        const objects = listRes.objects || [];
+        let objectsScanHoso: any[] = [];
+        try {
+          const listHoso: any = await bucket.list({ prefix: 'scanhoso/', limit: 1000 });
+          objectsScanHoso = listHoso.objects || [];
+        } catch {}
+        allObjects = [...objects, ...objectsScanHoso];
+      } catch (err) {
+        console.warn('Lỗi list qua R2 binding:', err);
+      }
     }
 
-    // Đọc danh sách file trong filescan/ và scanhoso/
-    const listRes: any = await bucket.list({ prefix: 'filescan/', limit: 1000 });
-    const objects = listRes.objects || [];
+    // Fallback qua S3 SDK nếu bucket binding không có hoặc chưa lấy được
+    if (allObjects.length === 0 && s3) {
+      try {
+        const cmd1 = new ListObjectsV2Command({
+          Bucket: R2_BUCKET,
+          Prefix: 'filescan/',
+          MaxKeys: 1000,
+        });
+        const res1 = await s3.send(cmd1);
+        const list1 = (res1.Contents || []).map((c) => ({
+          key: c.Key || '',
+          size: c.Size || 0,
+          uploaded: c.LastModified || null,
+        }));
 
-    let objectsScanHoso: any[] = [];
-    try {
-      const listHoso: any = await bucket.list({ prefix: 'scanhoso/', limit: 1000 });
-      objectsScanHoso = listHoso.objects || [];
-    } catch {}
+        const cmd2 = new ListObjectsV2Command({
+          Bucket: R2_BUCKET,
+          Prefix: 'scanhoso/',
+          MaxKeys: 1000,
+        });
+        const res2 = await s3.send(cmd2);
+        const list2 = (res2.Contents || []).map((c) => ({
+          key: c.Key || '',
+          size: c.Size || 0,
+          uploaded: c.LastModified || null,
+        }));
 
-    const allObjects = [...objects, ...objectsScanHoso];
+        allObjects = [...list1, ...list2];
+      } catch (err) {
+        console.warn('Lỗi list filescan qua S3 SDK:', err);
+      }
+    }
 
     // Đọc declarations để tìm liên kết chủ sở hữu & thửa đất
     let declarationsMap: Record<string, any> = {};
-    try {
-      const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
-      if (declObj) {
-        const payload = JSON.parse(await declObj.text());
-        declarationsMap = payload.declarationsMap || {};
+    if (bucket) {
+      try {
+        const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
+        if (declObj) {
+          const payload = JSON.parse(await declObj.text());
+          declarationsMap = payload.declarationsMap || {};
+        }
+      } catch (e) {
+        console.warn('Lỗi đọc declarationsMap cho filescan qua bucket:', e);
       }
-    } catch (e) {
-      console.warn('Lỗi đọc declarationsMap cho filescan:', e);
+    }
+    if (Object.keys(declarationsMap).length === 0) {
+      try {
+        const res = await fetch(`${R2_PUBLIC_BASE}/${KEY_ALL_DECLARATIONS}?t=${Date.now()}`, {
+          cache: 'no-store',
+        });
+        if (res.ok) {
+          const payload: any = await res.json();
+          declarationsMap = payload.declarationsMap || {};
+        }
+      } catch (e) {
+        console.warn('Lỗi fetch declarationsMap qua public URL:', e);
+      }
     }
 
     const files = allObjects
@@ -65,7 +189,6 @@ export async function GET(request: Request) {
         const filename = fullKey.replace(/^(filescan|scanhoso)\//, '');
         if (!filename) return null;
 
-        // Trích xuất tờ / thửa từ tên file: e.g. "CHUACOGIAY_24478_4_154_DDK.pdf" hoặc "4-154-DDK.pdf"
         let matchedTo = '';
         let matchedThua = '';
         let matchedOwner = '';
@@ -115,7 +238,12 @@ export async function GET(request: Request) {
     });
   } catch (error: any) {
     console.error('Lỗi GET /api/upload-filescan:', error);
-    return NextResponse.json({ success: false, error: error.message || 'Lỗi server' }, { status: 500 });
+    return NextResponse.json({
+      success: true,
+      total: 0,
+      files: [],
+      warning: error.message || 'Lỗi server',
+    });
   }
 }
 
@@ -123,12 +251,6 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const contentType = request.headers.get('content-type') || '';
-    const bucket = await getR2Binding();
-
-    if (!bucket) {
-      return NextResponse.json({ success: false, error: 'Không thể kết nối Cloudflare R2 Bucket' }, { status: 500 });
-    }
-
     const uploadedFiles: Array<{ filename: string; r2Url: string; size: number }> = [];
 
     if (contentType.includes('application/json')) {
@@ -143,12 +265,7 @@ export async function POST(request: Request) {
           const r2Key = `filescan/${fn}`;
           const bytes = base64ToUint8Array(item.fileBase64);
 
-          await bucket.put(r2Key, bytes, {
-            httpMetadata: {
-              contentType: 'application/pdf',
-              cacheControl: 'public, max-age=31536000, immutable',
-            },
-          });
+          await putObjectToR2(r2Key, bytes, 'application/pdf');
           uploadedFiles.push({
             filename: fn,
             r2Url: `${R2_PUBLIC_BASE}/${r2Key}`,
@@ -163,12 +280,7 @@ export async function POST(request: Request) {
         const r2Key = `filescan/${fn}`;
         const bytes = body.bytes ? new Uint8Array(body.bytes) : base64ToUint8Array(body.fileBase64);
 
-        await bucket.put(r2Key, bytes, {
-          httpMetadata: {
-            contentType: 'application/pdf',
-            cacheControl: 'public, max-age=31536000, immutable',
-          },
-        });
+        await putObjectToR2(r2Key, bytes, 'application/pdf');
         uploadedFiles.push({
           filename: fn,
           r2Url: `${R2_PUBLIC_BASE}/${r2Key}`,
@@ -188,12 +300,7 @@ export async function POST(request: Request) {
       const r2Key = `filescan/${filename}`;
       const arrayBuffer = await file.arrayBuffer();
 
-      await bucket.put(r2Key, arrayBuffer, {
-        httpMetadata: {
-          contentType: file.type || 'application/pdf',
-          cacheControl: 'public, max-age=31536000, immutable',
-        },
-      });
+      await putObjectToR2(r2Key, arrayBuffer, file.type || 'application/pdf');
 
       uploadedFiles.push({
         filename,
@@ -210,8 +317,20 @@ export async function POST(request: Request) {
 
     // Đọc danh sách kê khai và kích hoạt đồng bộ Google Sheet
     try {
-      const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
-      const declMap = declObj ? JSON.parse(await declObj.text()).declarationsMap || {} : {};
+      const bucket = await getR2Binding();
+      let declMap: Record<string, any> = {};
+      if (bucket) {
+        const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
+        declMap = declObj ? JSON.parse(await declObj.text()).declarationsMap || {} : {};
+      } else {
+        const res = await fetch(`${R2_PUBLIC_BASE}/${KEY_ALL_DECLARATIONS}?t=${Date.now()}`, {
+          cache: 'no-store',
+        });
+        if (res.ok) {
+          const payload: any = await res.json();
+          declMap = payload.declarationsMap || {};
+        }
+      }
       executeSyncToGoogleSheet(declMap, bucket).catch((err) =>
         console.error('Lỗi sync Google Sheet sau khi upload filescan:', err)
       );
@@ -234,11 +353,6 @@ export async function POST(request: Request) {
 // DELETE /api/upload-filescan - Xóa file scan khỏi R2
 export async function DELETE(request: Request) {
   try {
-    const bucket = await getR2Binding();
-    if (!bucket) {
-      return NextResponse.json({ success: false, error: 'Không thể kết nối Cloudflare R2' }, { status: 500 });
-    }
-
     const { searchParams } = new URL(request.url);
     let filename = searchParams.get('file') || searchParams.get('filename');
 
@@ -257,9 +371,9 @@ export async function DELETE(request: Request) {
     const r2Key = `filescan/${cleanFn}`;
 
     console.log(`>>> Đang xóa file scan: ${r2Key}`);
-    await bucket.delete(r2Key);
+    await deleteObjectFromR2(r2Key);
     try {
-      await bucket.delete(`scanhoso/${cleanFn}`);
+      await deleteObjectFromR2(`scanhoso/${cleanFn}`);
     } catch {}
 
     return NextResponse.json({

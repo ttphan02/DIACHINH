@@ -1869,64 +1869,6 @@ export default function DashboardPage() {
         {/* TAB 6: BÁO CÁO TIẾN ĐỘ 16 THÔN & ĐÓNG TẬP NỘI BỘ (THAY THẾ THỐNG KÊ & DSTONG GGS) */}
         {activeTab === 'progressReport' && (
           <div className="space-y-5 animate-in fade-in duration-150">
-            {/* Banner Header */}
-            <div className={`border rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-              isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
-            }`}>
-              <div>
-                <div className="flex items-center gap-2">
-                  <div className={`p-2 rounded-xl border ${
-                    isLight ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
-                  }`}>
-                    <TrendingUp className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h2 className={`text-base sm:text-lg font-black flex items-center gap-2 ${
-                      isLight ? 'text-slate-900' : 'text-white'
-                    }`}>
-                      Báo Cáo Thống Kê Tiến Độ 16 Thôn & Đóng Tập
-                      <span className={`text-xs px-2 py-0.5 rounded-full border font-bold ${
-                        isLight ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                      }`}>
-                        Đóng Gói Khép Kín 100%
-                      </span>
-                    </h2>
-                    <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                      Toàn bộ logic tính toán 4 giai đoạn tiến độ và 16 thôn buôn được gói gọn trực tiếp trong Web & Cloudflare R2
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => fetchSyncSheetsReport()}
-                  disabled={isLoadingSyncSheets}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border transition disabled:opacity-50 cursor-pointer shadow-xs ${
-                    isLight
-                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                      : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border-cyan-500/30'
-                  }`}
-                  title="Tính toán và làm mới lại toàn bộ báo cáo từ Cloudflare R2"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingSyncSheets ? 'animate-spin text-cyan-500' : ''}`} />
-                  <span>{isLoadingSyncSheets ? 'Đang tính toán...' : 'Làm Mới Realtime'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleExportReportSheet(selectedReportSheet)}
-                  disabled={!syncSheetsData || (!syncSheetsData[selectedReportSheet] && (selectedReportSheet !== 'CHỜ NHẬP' || !syncSheetsData['NHẬP GGS']))}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 transition disabled:opacity-50 cursor-pointer"
-                  title="Xuất bảng dữ liệu hiện tại ra file Excel (CSV UTF-8 with BOM)"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Xuất Excel ({selectedReportSheet.slice(0, 15)})</span>
-                </button>
-              </div>
-            </div>
-
             {/* Sub-tabs điều hướng 5 phần danh sách */}
             <div className={`flex border-b gap-2 overflow-x-auto no-scrollbar pt-2 ${
               isLight ? 'border-slate-200' : 'border-slate-800'
@@ -2263,7 +2205,8 @@ export default function DashboardPage() {
                           </p>
                         </div>
 
-                        {/* Nút tác vụ đóng tập nếu là sheet Sẵn sàng đóng tập */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {/* Nút tác vụ đóng tập nếu là sheet Sẵn sàng đóng tập */}
                         {isReadyToPackSheet && (
                           <div className="flex items-center gap-2">
                             <button
@@ -2376,10 +2319,21 @@ export default function DashboardPage() {
                           </div>
                         )}
 
-
+                        {/* Nút Xuất Excel chuyển xuống Toolbar của bảng */}
+                        <button
+                          type="button"
+                          onClick={() => handleExportReportSheet(selectedReportSheet)}
+                          disabled={!syncSheetsData || (!syncSheetsData[selectedReportSheet] && (selectedReportSheet !== 'CHỜ NHẬP' || !syncSheetsData['NHẬP GGS']))}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 transition disabled:opacity-50 cursor-pointer"
+                          title="Xuất bảng dữ liệu hiện tại ra file Excel"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Xuất Excel ({selectedReportSheet.slice(0, 15)})</span>
+                        </button>
                       </div>
+                    </div>
 
-                      {/* Hàng bộ lọc: Thôn / Buôn, Trạng thái, Có tên/Không có tên, Sắp xếp A-Z, Hiển thị, Tìm kiếm */}
+                    {/* Hàng bộ lọc: Thôn / Buôn, Trạng thái, Có tên/Không có tên, Sắp xếp A-Z, Hiển thị, Tìm kiếm */}
                       <div className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2.5 transition-colors ${
                         isLight ? 'bg-slate-50/80 border-slate-200' : 'bg-slate-950/60 border-slate-800'
                       }`}>

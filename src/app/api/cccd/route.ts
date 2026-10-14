@@ -1,11 +1,23 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
+import {
+  S3Client,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  DeleteObjectCommand,
+} from '@aws-sdk/client-s3';
 import { executeSyncToGoogleSheet, cleanCccd, cleanName } from '@/utils/syncGoogleSheets';
 
 export const dynamic = 'force-dynamic';
 
 const KEY_ALL_DECLARATIONS = 'declarations/all.json';
-const R2_PUBLIC_BASE = 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
+const R2_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
+const R2_ACCESS_KEY = process.env.CLOUDFLARE_R2_ACCESS_KEY_ID;
+const R2_SECRET_KEY = process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY;
+const R2_BUCKET = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'diachinh-storage';
+const R2_PUBLIC_BASE =
+  process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL ||
+  'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
 
 async function getR2Binding(): Promise<any | null> {
   try {
@@ -16,28 +28,100 @@ async function getR2Binding(): Promise<any | null> {
   }
 }
 
+function getS3Client(): S3Client | null {
+  if (R2_ACCOUNT_ID && R2_ACCESS_KEY && R2_SECRET_KEY) {
+    return new S3Client({
+      region: 'auto',
+      endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: {
+        accessKeyId: R2_ACCESS_KEY,
+        secretAccessKey: R2_SECRET_KEY,
+      },
+    });
+  }
+  return null;
+}
+
+async function deleteObjectFromR2(key: string) {
+  const bucket = await getR2Binding();
+  if (bucket) {
+    await bucket.delete(key);
+    return true;
+  }
+  const s3 = getS3Client();
+  if (s3) {
+    await s3.send(
+      new DeleteObjectCommand({
+        Bucket: R2_BUCKET,
+        Key: key,
+      })
+    );
+    return true;
+  }
+  return false;
+}
+
 // GET /api/cccd - Lấy danh sách toàn bộ file CCCD trên R2 kèm thông tin liên kết thửa
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const bucket = await getR2Binding();
-    if (!bucket) {
-      return NextResponse.json({ success: false, error: 'Không thể kết nối Cloudflare R2' }, { status: 500 });
+    const s3 = getS3Client();
+
+    let objects: Array<{ key: string; size: number; uploaded?: string | Date | null }> = [];
+
+    if (bucket) {
+      try {
+        const listRes: any = await bucket.list({ prefix: 'cccd/', limit: 1000 });
+        objects = listRes.objects || [];
+      } catch (err) {
+        console.warn('Lỗi list CCCD qua R2 binding:', err);
+      }
     }
 
-    // Đọc danh sách file trong cccd/
-    const listRes: any = await bucket.list({ prefix: 'cccd/', limit: 1000 });
-    const objects = listRes.objects || [];
+    // Fallback qua S3 SDK nếu bucket binding không có hoặc lỗi
+    if (objects.length === 0 && s3) {
+      try {
+        const cmd = new ListObjectsV2Command({
+          Bucket: R2_BUCKET,
+          Prefix: 'cccd/',
+          MaxKeys: 1000,
+        });
+        const res = await s3.send(cmd);
+        objects = (res.Contents || []).map((c) => ({
+          key: c.Key || '',
+          size: c.Size || 0,
+          uploaded: c.LastModified || null,
+        }));
+      } catch (err) {
+        console.warn('Lỗi list CCCD qua S3 SDK:', err);
+      }
+    }
 
     // Đọc declarations để tìm liên kết
     let declarationsMap: Record<string, any> = {};
-    try {
-      const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
-      if (declObj) {
-        const payload = JSON.parse(await declObj.text());
-        declarationsMap = payload.declarationsMap || {};
+    if (bucket) {
+      try {
+        const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
+        if (declObj) {
+          const payload = JSON.parse(await declObj.text());
+          declarationsMap = payload.declarationsMap || {};
+        }
+      } catch (e) {
+        console.warn('Lỗi đọc declarationsMap qua bucket:', e);
       }
-    } catch (e) {
-      console.warn('Lỗi đọc declarationsMap:', e);
+    }
+    if (Object.keys(declarationsMap).length === 0) {
+      try {
+        const res = await fetch(`${R2_PUBLIC_BASE}/${KEY_ALL_DECLARATIONS}?t=${Date.now()}`, {
+          cache: 'no-store',
+        });
+        if (res.ok) {
+          const payload: any = await res.json();
+          declarationsMap = payload.declarationsMap || {};
+        }
+      } catch (e) {
+        console.warn('Lỗi fetch declarationsMap qua public URL:', e);
+      }
     }
 
     // Lập bản đồ tra cứu từ cccd/ma_thua -> declaration
@@ -106,18 +190,18 @@ export async function GET(request: Request) {
     });
   } catch (error: any) {
     console.error('Lỗi GET /api/cccd:', error);
-    return NextResponse.json({ success: false, error: error.message || 'Lỗi server' }, { status: 500 });
+    return NextResponse.json({
+      success: true,
+      total: 0,
+      files: [],
+      warning: error.message || 'Lỗi server',
+    });
   }
 }
 
 // DELETE /api/cccd - Xóa file CCCD khỏi R2 và hủy liên kết khỏi thửa đất, sau đó tự động sync Google Sheet
 export async function DELETE(request: Request) {
   try {
-    const bucket = await getR2Binding();
-    if (!bucket) {
-      return NextResponse.json({ success: false, error: 'Không thể kết nối Cloudflare R2' }, { status: 500 });
-    }
-
     const { searchParams } = new URL(request.url);
     let filename = searchParams.get('file');
 
@@ -138,14 +222,26 @@ export async function DELETE(request: Request) {
     const r2Key = `cccd/${cleanFn}`;
 
     console.log(`>>> Đang xóa file CCCD: ${r2Key}`);
-    await bucket.delete(r2Key);
+    await deleteObjectFromR2(r2Key);
 
     // Cập nhật declarations: hủy liên kết nếu có
+    const bucket = await getR2Binding();
+    const s3 = getS3Client();
     let updatedDeclarations: Record<string, any> = {};
+
     try {
-      const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
-      if (declObj) {
-        const payload = JSON.parse(await declObj.text());
+      let payload: any = null;
+      if (bucket) {
+        const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
+        if (declObj) payload = JSON.parse(await declObj.text());
+      } else {
+        const res = await fetch(`${R2_PUBLIC_BASE}/${KEY_ALL_DECLARATIONS}?t=${Date.now()}`, {
+          cache: 'no-store',
+        });
+        if (res.ok) payload = await res.json();
+      }
+
+      if (payload) {
         const map = payload.declarationsMap || {};
         let changed = false;
 
@@ -154,16 +250,27 @@ export async function DELETE(request: Request) {
           if (cleanFn.includes(code) || (cClean && cleanFn.includes(cClean)) || decl.anh_cccd_pdf?.includes(cleanFn)) {
             // Hủy liên kết file CCCD
             decl.anh_cccd_pdf = '';
-            // Nếu file tên chứa CCCD thì vẫn giữ số CCCD hoặc xóa nếu là gán sai
             changed = true;
           }
         }
 
         if (changed) {
           payload.updatedAt = new Date().toISOString();
-          await bucket.put(KEY_ALL_DECLARATIONS, JSON.stringify(payload, null, 2), {
-            httpMetadata: { contentType: 'application/json' },
-          });
+          const jsonStr = JSON.stringify(payload, null, 2);
+          if (bucket) {
+            await bucket.put(KEY_ALL_DECLARATIONS, jsonStr, {
+              httpMetadata: { contentType: 'application/json' },
+            });
+          } else if (s3) {
+            await s3.send(
+              new PutObjectCommand({
+                Bucket: R2_BUCKET,
+                Key: KEY_ALL_DECLARATIONS,
+                Body: Buffer.from(jsonStr, 'utf8'),
+                ContentType: 'application/json',
+              })
+            );
+          }
         }
         updatedDeclarations = map;
       }
