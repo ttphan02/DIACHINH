@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import rawParcels from '@/data/parcels.json';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones } from '@/utils/geo';
 import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES } from '@/utils/syncGoogleSheets';
@@ -64,7 +63,32 @@ import {
 } from 'lucide-react';
 
 export default function DashboardPage() {
-  const [parcels] = useState<Parcel[]>(rawParcels as Parcel[]);
+  const [parcels, setParcels] = useState<Parcel[]>([]);
+  const [isLoadingParcels, setIsLoadingParcels] = useState(true);
+
+  // Nạp 11.280 thửa đất xã Cư Pui bất đồng bộ phía client từ CDN, tránh lỗi Cloudflare 1102 khi SSR
+  useEffect(() => {
+    let isMounted = true;
+    fetch('/data/parcels.json')
+      .then((res) => {
+        if (!res.ok) throw new Error('Không thể nạp dữ liệu thửa đất');
+        return res.json() as Promise<Parcel[]>;
+      })
+      .then((data) => {
+        if (isMounted) {
+          setParcels(data);
+          setIsLoadingParcels(false);
+        }
+      })
+      .catch((err) => {
+        console.error('Lỗi nạp danh sách thửa đất:', err);
+        if (isMounted) setIsLoadingParcels(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Google Sheets & Realtime state
   const [ggsCodes, setGgsCodes] = useState<Set<string>>(new Set());
@@ -1691,6 +1715,14 @@ export default function DashboardPage() {
           </div>
         </div>
       </header>
+
+      {/* Thanh trạng thái nạp cơ sở dữ liệu 11.280 thửa đất từ CDN */}
+      {isLoadingParcels && (
+        <div className="w-full bg-blue-600/10 border-b border-blue-500/20 px-4 py-1.5 flex items-center justify-center gap-2 text-xs font-semibold text-blue-400 no-print">
+          <div className="w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin shrink-0"></div>
+          <span>Đang nạp cơ sở dữ liệu 11.280 thửa đất xã Cư Pui từ CDN...</span>
+        </div>
+      )}
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-5">

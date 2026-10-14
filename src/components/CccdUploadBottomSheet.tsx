@@ -115,6 +115,12 @@ export default function CccdUploadBottomSheet({
   const cropContainerRef = useRef<HTMLDivElement>(null);
   const cropImageRef = useRef<HTMLImageElement>(null);
 
+  // Multi-touch Pinch to Zoom trên màn hình điện thoại
+  const touchStartDistRef = useRef<number | null>(null);
+  const touchStartZoomRef = useRef<number>(1);
+  const imageZoomRef = useRef<number>(imageZoom);
+  imageZoomRef.current = imageZoom;
+
   const [cropBox, setCropBox] = useState<{ x: number; y: number; w: number; h: number }>({
     x: 20,
     y: 20,
@@ -240,6 +246,55 @@ export default function CccdUploadBottomSheet({
     }
   }, [editingImageId, handleFitCccdFrame]);
 
+  // Hỗ trợ thu phóng ảnh tự nhiên 2 ngón tay (Pinch-to-zoom) trên điện thoại cảm ứng
+  useEffect(() => {
+    const container = cropContainerRef.current;
+    if (!container) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        setDragMode(null);
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        touchStartDistRef.current = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        touchStartZoomRef.current = imageZoomRef.current;
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && touchStartDistRef.current && touchStartDistRef.current > 0) {
+        if (e.cancelable) {
+          e.preventDefault();
+        }
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        const ratio = dist / touchStartDistRef.current;
+        const targetZoom = +(touchStartZoomRef.current * ratio).toFixed(2);
+        const clampedZoom = Math.min(3.5, Math.max(0.6, targetZoom));
+        setImageZoom(clampedZoom);
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        touchStartDistRef.current = null;
+      }
+    };
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: false });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd);
+    container.addEventListener('touchcancel', handleTouchEnd);
+
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchcancel', handleTouchEnd);
+    };
+  }, [editingImageId]);
+
   // Xoay ảnh 90 độ bằng HTML Canvas
   const handleRotateImage = () => {
     if (!editingImage) return;
@@ -287,6 +342,7 @@ export default function CccdUploadBottomSheet({
 
   // Di chuyển chuột hoặc ngón tay cảm ứng trên khung cắt
   const handlePointerMoveAction = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (touchStartDistRef.current !== null) return;
     if (!dragMode || !cropContainerRef.current) return;
     const deltaX = e.clientX - dragStart.x;
     const deltaY = e.clientY - dragStart.y;
@@ -846,17 +902,18 @@ export default function CccdUploadBottomSheet({
             </div>
 
             {/* Thanh điều khiển Zoom ảnh linh hoạt */}
-            <div className="flex items-center justify-between px-2 py-1.5 bg-slate-900 rounded-xl mb-2 text-xs">
-              <div className="flex items-center gap-1 text-slate-400">
-                <Scan className="w-3.5 h-3.5 text-purple-400" />
-                <span className="text-[11px] font-semibold">Thu phóng ảnh:</span>
+            <div className="flex flex-wrap items-center justify-between px-2.5 py-1.5 bg-slate-900 rounded-xl mb-2 text-xs gap-2">
+              <div className="flex items-center gap-1.5 text-slate-400">
+                <Scan className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                <span className="text-[11px] font-semibold">Thu phóng:</span>
+                <span className="text-[10px] text-slate-400 hidden sm:inline">(Hỗ trợ 2 ngón tay pinch-zoom)</span>
               </div>
 
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setImageZoom((prev) => Math.max(1, +(prev - 0.15).toFixed(2)))}
-                  disabled={imageZoom <= 1}
+                  onClick={() => setImageZoom((prev) => Math.max(0.6, +(prev - 0.15).toFixed(2)))}
+                  disabled={imageZoom <= 0.6}
                   className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 transition cursor-pointer"
                   title="Thu nhỏ ảnh"
                 >
@@ -869,21 +926,21 @@ export default function CccdUploadBottomSheet({
 
                 <button
                   type="button"
-                  onClick={() => setImageZoom((prev) => Math.min(3, +(prev + 0.15).toFixed(2)))}
-                  disabled={imageZoom >= 3}
+                  onClick={() => setImageZoom((prev) => Math.min(3.5, +(prev + 0.15).toFixed(2)))}
+                  disabled={imageZoom >= 3.5}
                   className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 transition cursor-pointer"
                   title="Phóng to ảnh"
                 >
                   <ZoomIn className="w-3.5 h-3.5" />
                 </button>
 
-                {imageZoom > 1 && (
+                {imageZoom !== 1 && (
                   <button
                     type="button"
                     onClick={() => setImageZoom(1)}
                     className="text-[10px] text-amber-400 underline ml-1 cursor-pointer"
                   >
-                    Reset
+                    100%
                   </button>
                 )}
               </div>

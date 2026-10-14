@@ -1,9 +1,9 @@
 import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
-import rawParcels from '@/data/parcels.json';
-import parcelMetaData from '@/data/parcel_meta.json';
+import parcelsBriefData from '@/data/parcels_brief.json';
 import { fetchOrGetCachedGgsData } from '@/utils/ggsData';
 
-const parcelMeta = parcelMetaData as unknown as Record<string, [string, string, string]>;
+// parcelsBrief: ma_thua -> [dien_tich, loai_dat, thon_xa, statusFlag (0: KHONG_TEN, 1: CO_TEN, 2: DA_SO_HOA)]
+const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
 
 const R2_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const R2_ACCESS_KEY = process.env.CLOUDFLARE_R2_ACCESS_KEY_ID;
@@ -433,7 +433,7 @@ export async function executeSyncToGoogleSheet(
       }
 
       const chuHoNorm = stripAccents(chuHo);
-      const meta = parcelMeta[maThua];
+      const meta = parcelsBrief[maThua];
       const fallbackDt = meta ? meta[0] : '';
       const fallbackLoaiDat = meta ? meta[1] : '';
       const fallbackThon = meta ? meta[2] : '';
@@ -734,22 +734,24 @@ export async function executeSyncToGoogleSheet(
       else vMap['Chưa xác định'].khongCccd++;
     });
 
-    // 2. Thống kê toàn bộ các thửa đất trong cơ sở dữ liệu xã Cư Pui (11.280 thửa)
-    (rawParcels as any[]).forEach((p) => {
-      const v = getCanonicalVillage(p.thon_xa);
+    // 2. Thống kê toàn bộ các thửa đất trong cơ sở dữ liệu xã Cư Pui (11.280 thửa) từ dữ liệu rút gọn siêu nhẹ
+    for (const [maThua, item] of Object.entries(parcelsBrief)) {
+      const thonXa = item[2] || '';
+      const statusFlag = item[3]; // 0: KHONG_TEN, 1: CO_TEN_CHUA_SO_HOA_VANG, 2: DA_SO_HOA_XANH
+      const v = getCanonicalVillage(thonXa);
       const row = vMap[v] || vMap['Chưa xác định'];
 
-      const isOnGgs = ggsCodes.has(p.ma_thua);
-      if (isOnGgs || p.trang_thai === 'DA_SO_HOA_XANH') {
+      const isOnGgs = ggsCodes.has(maThua);
+      if (isOnGgs || statusFlag === 2) {
         row.hoanThanh++;
-      } else if (processedParcels.has(p.ma_thua)) {
+      } else if (processedParcels.has(maThua)) {
         // Đã được đếm ở nhóm kê khai (stage 2 / 1a / 1b) ở trên!
-      } else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') {
+      } else if (statusFlag === 1) {
         row.coTen++;
       } else {
         row.khongTen++;
       }
-    });
+    }
 
     let sumChuaThucHienTot = 0, sumChuaThucHienCoTen = 0, sumChuaThucHienKhongTen = 0;
     let sumKeKhaiTot = 0, sumCoCccd = 0, sumCanTimCccd = 0, sumKhongCoCccd = 0, sumHoanThanh = 0;

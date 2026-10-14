@@ -3,7 +3,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import rawParcels from '@/data/parcels.json';
 import { Parcel, ParcelStatus, NeighborParcel, DeclarationFormData, AdditionalParcel } from '@/types';
 import ParcelDetailPanel from '@/components/ParcelDetailPanel';
 import VectorViewerModal from '@/components/VectorViewerModal';
@@ -37,7 +36,33 @@ const CadastralMap = dynamic(() => import('@/components/CadastralMap'), {
 });
 
 export default function Home() {
-  const [parcels] = useState<Parcel[]>(rawParcels as Parcel[]);
+  const [parcels, setParcels] = useState<Parcel[]>([]);
+  const [isLoadingParcels, setIsLoadingParcels] = useState(true);
+
+  // Tải dữ liệu 11.280 thửa đất bất đồng bộ phía trình duyệt từ CDN tĩnh, giải phóng 100% tài nguyên Cloudflare Worker SSR (ngăn lỗi 1102)
+  useEffect(() => {
+    let isMounted = true;
+    fetch('/data/parcels.json')
+      .then((res) => {
+        if (!res.ok) throw new Error('Không thể nạp dữ liệu thửa đất');
+        return res.json() as Promise<Parcel[]>;
+      })
+      .then((data) => {
+        if (isMounted) {
+          setParcels(data);
+          setIsLoadingParcels(false);
+        }
+      })
+      .catch((err) => {
+        console.error('Lỗi nạp danh sách thửa đất:', err);
+        if (isMounted) setIsLoadingParcels(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<ParcelStatus | 'ALL'>('ALL');
@@ -1128,6 +1153,14 @@ export default function Home() {
                 </button>
               </div>
             </div>
+
+            {/* Chỉ báo nạp cơ sở dữ liệu thửa đất bất đồng bộ */}
+            {isLoadingParcels && (
+              <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-slate-950/90 text-white border border-blue-500/40 px-4 py-2 rounded-2xl shadow-2xl flex items-center gap-2.5 backdrop-blur-md animate-in fade-in">
+                <div className="w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin shrink-0"></div>
+                <span className="text-xs font-semibold text-slate-200">Đang nạp 11.280 thửa đất xã Cư Pui...</span>
+              </div>
+            )}
 
             {/* Bản đồ Leaflet phủ 100% diện tích màn hình */}
             <CadastralMap
