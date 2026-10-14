@@ -146,6 +146,15 @@ export async function generateReadyToPackPdf(
       }
     }
 
+    // Dự phòng tìm theo mã thửa (to_thua.jpg: định dạng của 1.859 tệp ảnh CCCD thực tế trên R2)
+    const targetCodes = [firstRow.ma_thua, ...rows.map((r) => r.ma_thua)].filter(Boolean);
+    for (const code of Array.from(new Set(targetCodes))) {
+      for (const ext of ['.jpg', '.jpeg', '.pdf', '.png']) {
+        possibleUrls.push(`/api/image/cccd/${encodeURIComponent(code + ext)}`);
+        possibleUrls.push(`https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/cccd/${encodeURIComponent(code + ext)}`);
+      }
+    }
+
     for (const url of possibleUrls) {
       try {
         const cccdRes = await fetch(url);
