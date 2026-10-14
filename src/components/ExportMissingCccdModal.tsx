@@ -17,6 +17,8 @@ import {
   ChevronRight,
   Edit2,
   Check,
+  Layers,
+  Loader2,
 } from 'lucide-react';
 import { Parcel, DeclarationFormData } from '@/types';
 import { getOrCreateDeviceId, setCustomDeviceId } from '@/utils/declaration';
@@ -59,18 +61,19 @@ export default function ExportMissingCccdModal({
   // Lọc
   const [filterDeviceMode, setFilterDeviceMode] = useState<'THIS_DEVICE' | 'ALL_DEVICES'>('THIS_DEVICE');
   const [selectedVillage, setSelectedVillage] = useState<string>('ALL');
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
 
-  // Danh sách CCCD đã có trên DB (fetch từ API /api/cccd?list_only=1)
+  // Danh sách CCCD đã có trên Cloudflare R2
   const [existingCccdSet, setExistingCccdSet] = useState<Set<string>>(new Set());
   const [isLoadingCccdList, setIsLoadingCccdList] = useState(false);
 
-  // Phân trang ảnh nếu số người đông (> 40 người / trang)
+  // Phân trang ảnh: Đúng 24 cái tên / ảnh (chia làm 2 cột, mỗi cột 12 tên)
+  const ITEMS_PER_PAGE = 24;
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 40;
 
-  // Trạng thái copy/share
+  // Trạng thái copy/share/download
   const [copySuccess, setCopySuccess] = useState(false);
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -105,49 +108,40 @@ export default function ExportMissingCccdModal({
     setIsEditingDeviceId(false);
   };
 
-  // Tổng hợp danh sách người cần thu thập CCCD
-  const missingCccdList: MissingCccdPerson[] = useMemo(() => {
+  // Lập danh sách công dân ĐÃ KÊ KHAI nhưng CHƯA CÓ FILE ẢNH CCCD trên R2
+  const missingCccdList = useMemo(() => {
     const mapByCitizen = new Map<string, MissingCccdPerson>();
 
-    // Đọc mã thửa đã kê khai cục bộ trên máy này để hỗ trợ dữ liệu cũ
-    let localDeclaredCodes = new Set<string>();
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('diachinh_declared_codes');
-        if (saved) localDeclaredCodes = new Set(JSON.parse(saved));
-      } catch {}
-    }
-
-    // Duyệt qua tất cả các phiếu kê khai
-    Object.entries(declarationsMap || {}).forEach(([maThua, decl]: [string, any]) => {
+    // Duyệt qua tất cả các bản ghi kê khai
+    Object.entries(declarationsMap).forEach(([parcelCode, decl]) => {
       if (!decl) return;
 
-      const cccdRaw = String(decl.chu_dat_cccd || decl.cccd || '').replace(/^="|"$/g, '').trim();
-      const cccdClean = cleanCccd(cccdRaw);
+      const declDeviceId = decl.device_id ? String(decl.device_id).trim() : 'MAY_DEF';
 
-      // Kiểm tra xem đã có hình ảnh / file CCCD trên DB chưa
-      const hasCccdFileOnDb =
-        (cccdClean.length === 12 && existingCccdSet.has(cccdClean)) ||
-        Boolean(decl.anh_cccd_truoc) ||
-        Boolean(decl.cccd_url);
-
-      // Nếu đã có CCCD trên DB rồi thì BỎ QUA (không cần thu thập)
-      if (hasCccdFileOnDb) return;
-
-      // Xác định thiết bị kê khai
-      const declDeviceId = decl.device_id || (localDeclaredCodes.has(maThua) ? deviceId : 'UNKNOWN');
-
-      // Lọc theo thiết bị nếu chọn THIS_DEVICE
-      if (filterDeviceMode === 'THIS_DEVICE') {
-        const isMatch = declDeviceId === deviceId || localDeclaredCodes.has(maThua);
-        if (!isMatch) return;
+      // Lọc theo chế độ thiết bị
+      if (filterDeviceMode === 'THIS_DEVICE' && declDeviceId !== deviceId) {
+        return;
       }
 
-      // Thông tin thửa & người
-      const name = String(decl.chu_dat_ten || decl.chu_ho || 'Chưa rõ tên').trim();
+      // Lấy số CCCD (nếu đã nhập trong kê khai)
+      const cccdRaw = decl.chu_dat_cccd || '';
+      const cccdClean = cleanCccd(cccdRaw);
+
+      // Nếu đã có file PDF trên R2 cho số CCCD này => KHÔNG THIẾU
+      if (cccdClean.length === 12 && existingCccdSet.has(cccdClean)) {
+        return;
+      }
+
+      // Lấy họ tên chủ đất
+      const name = String(decl.chu_dat_ten || decl.chu_ho || '').trim();
+      if (!name) return;
+
+      // Lấy thông tin số thửa, tờ bản đồ
       const soThua = String(decl.so_thua || '').trim();
       const toBanDo = String(decl.to_ban_do || '').trim();
-      const thonXa = String(decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || '').replace(/,\s*xã Cư Pui.*$/i, '').trim() || 'Chưa rõ thôn';
+      const thonXa = String(decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || '')
+        .replace(/,\s*xã Cư Pui.*$/i, '')
+        .trim() || 'Chưa rõ thôn';
 
       // Gom nhóm theo Họ tên + Thôn (tránh trùng lặp 1 người có nhiều thửa)
       const groupKey = `${name.toLowerCase()}___${thonXa.toLowerCase()}`;
@@ -200,8 +194,16 @@ export default function ExportMissingCccdModal({
     return Array.from(s).sort((a, b) => a.localeCompare(b, 'vi'));
   }, [missingCccdList]);
 
-  // Phân trang
+  // Phân trang: 24 người / ảnh
   const totalPages = Math.max(1, Math.ceil(missingCccdList.length / ITEMS_PER_PAGE));
+
+  // Reset trang nếu vượt quá
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(1);
+    }
+  }, [totalPages, currentPage]);
+
   const pagedItems = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
     return missingCccdList.slice(start, start + ITEMS_PER_PAGE);
@@ -225,7 +227,7 @@ export default function ExportMissingCccdModal({
     });
   }, [isOpen, pagedItems, deviceId, currentPage, totalPages, missingCccdList.length, selectedVillage]);
 
-  // Hàm vẽ poster chuẩn tỷ lệ 9:16 (1080x1920)
+  // Hàm vẽ poster chuẩn tỷ lệ 9:16 (1080x1920) với 24 cái tên (12 tên / cột)
   const renderCanvasImage = (
     ctx: CanvasRenderingContext2D,
     items: MissingCccdPerson[],
@@ -248,7 +250,7 @@ export default function ExportMissingCccdModal({
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, W, H);
 
-    // Hoa văn tinh tế trên nền
+    // Hoa văn lưới tinh tế trên nền
     ctx.fillStyle = 'rgba(255, 255, 255, 0.015)';
     for (let i = 0; i < W; i += 40) {
       ctx.fillRect(i, 0, 1, H);
@@ -273,47 +275,48 @@ export default function ExportMissingCccdModal({
 
     // Quốc hiệu / Tên cơ quan
     ctx.fillStyle = '#94a3b8';
-    ctx.font = 'bold 22px Inter, sans-serif';
+    ctx.font = "bold 22px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
     ctx.textAlign = 'center';
     ctx.fillText('UBND XÃ CƯ PUI • CÔNG TÁC ĐỊA CHÍNH - ĐO ĐẠC', W / 2, 85);
 
     // Tiêu đề to nổi bật
     ctx.fillStyle = '#f8fafc';
-    ctx.font = '900 52px Inter, sans-serif';
+    ctx.font = "900 52px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
     ctx.fillText('CẦN THU THẬP CCCD', W / 2, 155);
 
     // Thanh tag thông tin
     const tagY = 185;
-    ctx.fillStyle = 'rgba(239, 68, 68, 0.15)';
-    ctx.strokeStyle = 'rgba(239, 68, 68, 0.4)';
-    ctx.lineWidth = 1.5;
-    const tagW = 760;
-    const tagH = 50;
+    const tagW = 860;
+    const tagH = 54;
     const tagX = (W - tagW) / 2;
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.16)';
+    ctx.strokeStyle = 'rgba(239, 68, 68, 0.45)';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.roundRect(tagX, tagY, tagW, tagH, 25);
+    ctx.roundRect(tagX, tagY, tagW, tagH, 27);
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = '#fca5a5';
-    ctx.font = 'bold 20px Inter, sans-serif';
+    ctx.font = "bold 20px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
     ctx.textAlign = 'center';
     const nowStr = new Date().toLocaleDateString('vi-VN');
+    const pageLabel = meta.totalPages > 1 ? `ẢNH ${meta.pageIndex}/${meta.totalPages}` : 'ẢNH 1/1';
     ctx.fillText(
-      `Máy: ${meta.deviceId} • Tổng: ${meta.totalCount} người • Ngày: ${nowStr} ${meta.totalPages > 1 ? `(Trang ${meta.pageIndex}/${meta.totalPages})` : ''}`,
+      `Máy: ${meta.deviceId} • Tổng: ${meta.totalCount} người • ${pageLabel} • Ngày: ${nowStr}`,
       W / 2,
-      tagY + 32
+      tagY + 35
     );
 
-    // 3. NỘI DUNG 2 CỘT TÊN CÔNG DÂN
+    // 3. NỘI DUNG 2 CỘT TÊN CÔNG DÂN (MỖI CỘT TỐI ĐA 12 TÊN = 24 TÊN / ẢNH)
     const colY = 265;
-    const colBottom = 1800;
+    const colBottom = 1810;
     const colH = colBottom - colY;
     const colW = 485;
     const col1X = 40;
     const col2X = 555;
 
-    // Chia danh sách làm 2 cột
+    // Chia danh sách 24 người thành 2 cột 12 người
     const half = Math.ceil(items.length / 2);
     const col1Items = items.slice(0, half);
     const col2Items = items.slice(half);
@@ -321,108 +324,125 @@ export default function ExportMissingCccdModal({
     const renderColumn = (colItems: MissingCccdPerson[], startIdx: number, startX: number) => {
       // Header cột
       const headGrad = ctx.createLinearGradient(startX, colY, startX + colW, colY);
-      headGrad.addColorStop(0, 'rgba(30, 41, 59, 0.9)');
-      headGrad.addColorStop(1, 'rgba(51, 65, 85, 0.9)');
+      headGrad.addColorStop(0, 'rgba(30, 41, 59, 0.95)');
+      headGrad.addColorStop(1, 'rgba(51, 65, 85, 0.95)');
       ctx.fillStyle = headGrad;
       ctx.beginPath();
-      ctx.roundRect(startX, colY, colW, 46, 12);
+      ctx.roundRect(startX, colY, colW, 48, 12);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)';
+      ctx.lineWidth = 1.5;
       ctx.stroke();
 
       ctx.fillStyle = '#38bdf8';
-      ctx.font = 'bold 20px Inter, sans-serif';
+      ctx.font = "bold 20px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
       ctx.textAlign = 'left';
       ctx.fillText(
         `DANH SÁCH (${startIdx + 1} - ${startIdx + colItems.length})`,
-        startX + 18,
-        colY + 30
+        startX + 20,
+        colY + 31
       );
 
-      // Render từng hàng
-      const maxRows = Math.max(20, Math.ceil(ITEMS_PER_PAGE / 2));
+      // 12 hàng mỗi cột: Chiều cao mỗi thẻ ~116px (chữ to, thoáng, cực kỳ dễ nhìn)
+      const maxRows = 12;
       const rowH = (colH - 60) / maxRows;
 
       colItems.forEach((item, rIdx) => {
-        const itemY = colY + 56 + rIdx * rowH;
+        const itemY = colY + 58 + rIdx * rowH;
         const globalIdx = startIdx + rIdx + 1;
+        const cardH = rowH - 8;
 
-        // Nền hàng (xen kẽ nhẹ)
+        // Nền hàng (xen kẽ)
         if (rIdx % 2 === 0) {
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
         } else {
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.015)';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.02)';
         }
         ctx.beginPath();
-        ctx.roundRect(startX, itemY, colW, rowH - 6, 10);
+        ctx.roundRect(startX, itemY, colW, cardH, 12);
         ctx.fill();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.lineWidth = 1;
         ctx.stroke();
 
         // Huy hiệu STT tròn
-        const badgeR = 16;
-        const badgeX = startX + 26;
-        const badgeY = itemY + (rowH - 6) / 2;
-        ctx.fillStyle = '#6366f1';
+        const badgeR = 20;
+        const badgeX = startX + 30;
+        const badgeY = itemY + cardH / 2;
+        const badgeGrad = ctx.createLinearGradient(badgeX - badgeR, badgeY - badgeR, badgeX + badgeR, badgeY + badgeR);
+        badgeGrad.addColorStop(0, '#6366f1');
+        badgeGrad.addColorStop(1, '#4f46e5');
+        ctx.fillStyle = badgeGrad;
         ctx.beginPath();
         ctx.arc(badgeX, badgeY, badgeR, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 15px Inter, sans-serif';
+        ctx.font = "bold 17px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
         ctx.textAlign = 'center';
-        ctx.fillText(String(globalIdx), badgeX, badgeY + 5);
+        ctx.fillText(String(globalIdx), badgeX, badgeY + 6);
 
-        // Tên công dân (In hoa, to, đậm)
-        ctx.fillStyle = '#f8fafc';
-        ctx.font = 'bold 21px Inter, sans-serif';
+        // Tên công dân (In hoa, cỡ chữ 24px đậm, cực kỳ sắc nét trên điện thoại)
+        ctx.fillStyle = '#ffffff';
+        ctx.font = "bold 24px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
         ctx.textAlign = 'left';
-        const nameX = startX + 54;
-        const nameY = itemY + (rowH - 6) / 2 - 4;
-        
-        // Cắt tên nếu quá dài
+        const nameX = startX + 62;
+        const nameY = itemY + cardH / 2 - 8;
+
         let displayName = item.name.toUpperCase();
-        if (ctx.measureText(displayName).width > 410) {
-          displayName = displayName.substring(0, 24) + '...';
+        if (ctx.measureText(displayName).width > 400) {
+          while (displayName.length > 3 && ctx.measureText(displayName + '...').width > 400) {
+            displayName = displayName.slice(0, -1);
+          }
+          displayName += '...';
         }
         ctx.fillText(displayName, nameX, nameY);
 
-        // Dòng phụ: Thửa / Tờ / Thôn
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = '14px Inter, sans-serif';
-        const subY = itemY + (rowH - 6) / 2 + 18;
-        const thuaStr = item.soThuaList.length > 0 ? `Thửa ${item.soThuaList.slice(0, 3).join(', ')}` : '';
+        // Dòng phụ: Thửa / Tờ / Thôn (Cỡ chữ 16px)
+        const subY = itemY + cardH / 2 + 22;
+        ctx.font = "16px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+
+        const thuaStr = item.soThuaList.length > 0 ? `Thửa ${item.soThuaList.slice(0, 4).join(', ')}` : '';
         const toStr = item.toBanDoList.length > 0 ? `(Tờ ${item.toBanDoList[0]})` : '';
         const thonStr = item.thonXa ? `• ${item.thonXa}` : '';
         const fullSub = `${thuaStr} ${toStr} ${thonStr}`.trim();
-        ctx.fillText(fullSub.substring(0, 36), nameX, subY);
+
+        ctx.fillStyle = '#38bdf8';
+        let displaySub = fullSub;
+        if (ctx.measureText(displaySub).width > 405) {
+          while (displaySub.length > 3 && ctx.measureText(displaySub + '...').width > 405) {
+            displaySub = displaySub.slice(0, -1);
+          }
+          displaySub += '...';
+        }
+        ctx.fillText(displaySub, nameX, subY);
       });
     };
 
-    // Vẽ cột 1 và cột 2
+    // Vẽ 2 cột
     renderColumn(col1Items, (meta.pageIndex - 1) * ITEMS_PER_PAGE, col1X);
     renderColumn(col2Items, (meta.pageIndex - 1) * ITEMS_PER_PAGE + col1Items.length, col2X);
 
     // 4. FOOTER
     const footY = 1825;
-    ctx.fillStyle = 'rgba(239, 68, 68, 0.15)';
-    ctx.strokeStyle = 'rgba(239, 68, 68, 0.4)';
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.16)';
+    ctx.strokeStyle = 'rgba(239, 68, 68, 0.45)';
     ctx.beginPath();
-    ctx.roundRect(40, footY, W - 80, 55, 14);
+    ctx.roundRect(40, footY, W - 80, 58, 14);
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = '#fca5a5';
-    ctx.font = 'bold 18px Inter, sans-serif';
+    ctx.font = "bold 20px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
     ctx.textAlign = 'center';
     ctx.fillText(
       '⚠ LƯU Ý: Vui lòng chụp rõ nét 2 mặt CCCD gửi Cán bộ để hoàn tất đóng tập hồ sơ',
       W / 2,
-      footY + 34
+      footY + 36
     );
   };
 
-  // Tải ảnh về máy
+  // Tải ảnh trang hiện tại về máy
   const handleDownloadImage = () => {
     if (!canvasRef.current) return;
     const canvas = canvasRef.current;
@@ -431,12 +451,65 @@ export default function ExportMissingCccdModal({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `DS_CAN_THU_THAP_CCCD_${deviceId}_Trang${currentPage}.jpg`;
+      a.download = `DS_CAN_THU_THAP_CCCD_${deviceId}_Anh_${currentPage}_tren_${totalPages}.jpg`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }, 'image/jpeg', 0.95);
+  };
+
+  // Tải TẤT CẢ các ảnh (Ảnh 1, Ảnh 2, Ảnh 3...) tuần tự
+  const handleDownloadAllImages = async () => {
+    if (missingCccdList.length === 0 || isDownloadingAll) return;
+    setIsDownloadingAll(true);
+    try {
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = 1080;
+      tempCanvas.height = 1920;
+      const tempCtx = tempCanvas.getContext('2d');
+      if (!tempCtx) return;
+
+      for (let p = 1; p <= totalPages; p++) {
+        const start = (p - 1) * ITEMS_PER_PAGE;
+        const pageItems = missingCccdList.slice(start, start + ITEMS_PER_PAGE);
+
+        renderCanvasImage(tempCtx, pageItems, {
+          deviceId,
+          pageIndex: p,
+          totalPages,
+          totalCount: missingCccdList.length,
+          villageName: selectedVillage !== 'ALL' ? selectedVillage : 'Toàn Xã',
+        });
+
+        await new Promise<void>((resolve) => {
+          tempCanvas.toBlob((blob) => {
+            if (blob) {
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `DS_CAN_THU_THAP_CCCD_${deviceId}_Anh_${p}_tren_${totalPages}.jpg`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              setTimeout(() => {
+                URL.revokeObjectURL(url);
+                resolve();
+              }, 300);
+            } else {
+              resolve();
+            }
+          }, 'image/jpeg', 0.95);
+        });
+
+        // Đợi 400ms giữa các ảnh để trình duyệt không chặn popup download
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    } catch (err) {
+      console.error('Lỗi tải tất cả ảnh:', err);
+    } finally {
+      setIsDownloadingAll(false);
+    }
   };
 
   // Chia sẻ Zalo hoặc lưu vào bộ sưu tập
@@ -445,19 +518,22 @@ export default function ExportMissingCccdModal({
     const canvas = canvasRef.current;
     canvas.toBlob(async (blob) => {
       if (!blob) return;
-      const file = new File([blob], `DS_CAN_THU_THAP_CCCD_${deviceId}.jpg`, { type: 'image/jpeg' });
+      const file = new File(
+        [blob],
+        `DS_CAN_THU_THAP_CCCD_${deviceId}_Anh_${currentPage}.jpg`,
+        { type: 'image/jpeg' }
+      );
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
           await navigator.share({
-            title: 'Danh Sách Cần Thu Thập CCCD',
-            text: `Danh sách công dân cần thu thập CCCD (Thiết bị: ${deviceId})`,
+            title: `Danh Sách Cần Thu Thập CCCD (Ảnh ${currentPage}/${totalPages})`,
+            text: `Danh sách công dân cần thu thập CCCD - Thiết bị: ${deviceId} (Ảnh ${currentPage}/${totalPages})`,
             files: [file],
           });
         } catch (e) {
           console.warn('Hủy chia sẻ:', e);
         }
       } else {
-        // Fallback tải về nếu không hỗ trợ Web Share API
         handleDownloadImage();
       }
     }, 'image/jpeg', 0.95);
@@ -500,7 +576,7 @@ export default function ExportMissingCccdModal({
               <h2 className="text-sm sm:text-base font-bold flex items-center gap-2">
                 Xuất DS Cần Thu Thập CCCD
                 <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-rose-500 text-white">
-                  16:9 Dọc
+                  24 Tên / Ảnh (16:9 Dọc)
                 </span>
               </h2>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
@@ -585,7 +661,7 @@ export default function ExportMissingCccdModal({
             {/* Thống kê số lượng */}
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-500 border border-rose-500/20">
-                Tìm thấy: <strong>{missingCccdList.length}</strong> công dân cần thu CCCD
+                Tìm thấy: <strong>{missingCccdList.length}</strong> công dân • ({totalPages} ảnh)
               </span>
               {isLoadingCccdList && (
                 <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
@@ -643,35 +719,65 @@ export default function ExportMissingCccdModal({
               </p>
             </div>
           ) : (
-            <div className="relative flex flex-col items-center">
+            <div className="relative flex flex-col items-center w-full">
               {/* Canvas 1080x1920 (hiển thị co nhỏ vừa khung nhìn) */}
-              <div className="rounded-2xl overflow-hidden shadow-2xl border border-slate-800 bg-slate-950 max-h-[58vh] aspect-[9/16] flex items-center justify-center">
+              <div className="rounded-2xl overflow-hidden shadow-2xl border border-slate-800 bg-slate-950 max-h-[54vh] aspect-[9/16] flex items-center justify-center">
                 <canvas
                   ref={canvasRef}
                   className="w-full h-full object-contain"
-                  style={{ maxHeight: '58vh' }}
+                  style={{ maxHeight: '54vh' }}
                 />
               </div>
 
-              {/* Điều hướng trang nếu số người đông */}
+              {/* Điều hướng nhanh giữa các ảnh nếu có nhiều hơn 1 ảnh (> 24 tên) */}
               {totalPages > 1 && (
-                <div className="flex items-center gap-3 mt-3">
+                <div className="flex flex-wrap items-center justify-center gap-2 mt-3 w-full">
                   <button
                     type="button"
                     disabled={currentPage <= 1}
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40"
+                    className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 transition cursor-pointer"
+                    title="Ảnh trước"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <span className="text-xs font-bold text-slate-300">
-                    Trang {currentPage} / {totalPages}
-                  </span>
+
+                  <div className="flex flex-wrap items-center justify-center gap-1.5 max-w-[85vw] overflow-x-auto py-1">
+                    {Array.from({ length: totalPages }).map((_, idx) => {
+                      const pageNum = idx + 1;
+                      const startNum = idx * ITEMS_PER_PAGE + 1;
+                      const endNum = Math.min((idx + 1) * ITEMS_PER_PAGE, missingCccdList.length);
+                      const isAct = pageNum === currentPage;
+                      return (
+                        <button
+                          key={pageNum}
+                          type="button"
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                            isAct
+                              ? 'bg-rose-600 text-white shadow-md'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+                          }`}
+                        >
+                          <span>Ảnh {pageNum}</span>
+                          <span
+                            className={`text-[10px] px-1.5 py-0.2 rounded-md ${
+                              isAct ? 'bg-black/25 text-white' : 'bg-slate-900 text-slate-400'
+                            }`}
+                          >
+                            {startNum}-{endNum}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
                   <button
                     type="button"
                     disabled={currentPage >= totalPages}
                     onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40"
+                    className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 transition cursor-pointer"
+                    title="Ảnh kế tiếp"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </button>
@@ -684,7 +790,7 @@ export default function ExportMissingCccdModal({
         {/* Footer Hành Động */}
         <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="text-[11px] text-slate-400">
-            Ảnh chuẩn khổ <strong>1080 x 1920 px (16:9 Dọc)</strong> • Chia 2 cột sắc nét dễ xem trên điện thoại
+            Khổ <strong>1080 x 1920 px (16:9 Dọc)</strong> • <strong>24 tên / ảnh</strong> (12 tên mỗi cột) sắc nét, dễ đọc trên điện thoại
           </div>
 
           <div className="flex items-center gap-2">
@@ -701,7 +807,7 @@ export default function ExportMissingCccdModal({
               }`}
             >
               {copySuccess ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copySuccess ? 'Đã sao chép ảnh' : 'Sao chép ảnh'}</span>
+              <span>{copySuccess ? 'Đã chép' : 'Sao chép ảnh'}</span>
             </button>
 
             <button
@@ -714,6 +820,25 @@ export default function ExportMissingCccdModal({
               <span>Gửi qua Zalo</span>
             </button>
 
+            {/* Nút Tải tất cả các ảnh nếu có nhiều trang */}
+            {totalPages > 1 && (
+              <button
+                type="button"
+                disabled={missingCccdList.length === 0 || isDownloadingAll}
+                onClick={handleDownloadAllImages}
+                className="px-3 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white flex items-center gap-1.5 shadow-xs transition cursor-pointer disabled:opacity-40"
+                title={`Tải xuống toàn bộ ${totalPages} ảnh`}
+              >
+                {isDownloadingAll ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Layers className="w-3.5 h-3.5" />
+                )}
+                <span>{isDownloadingAll ? 'Đang tải...' : `Tải tất cả (${totalPages} ảnh)`}</span>
+              </button>
+            )}
+
+            {/* Nút Tải ảnh hiện tại */}
             <button
               type="button"
               disabled={missingCccdList.length === 0}
@@ -721,7 +846,7 @@ export default function ExportMissingCccdModal({
               className="px-4 py-2 rounded-xl text-xs font-black bg-rose-600 hover:bg-rose-500 text-white flex items-center gap-1.5 shadow-md transition cursor-pointer disabled:opacity-40"
             >
               <Download className="w-4 h-4" />
-              <span>Tải Ảnh Về Máy</span>
+              <span>{totalPages > 1 ? `Tải Ảnh ${currentPage}` : 'Tải Ảnh Về Máy'}</span>
             </button>
           </div>
         </div>
