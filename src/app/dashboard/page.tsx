@@ -2842,6 +2842,18 @@ export default function DashboardPage() {
                         </div>
 
                         <div className="flex items-center gap-2 flex-wrap">
+                          {/* Nút Xuất DS Cần Thu CCCD cho mục Đang kê khai (Chưa có CCCD) */}
+                          {isChuaCoCccdSheet && (
+                            <button
+                              type="button"
+                              onClick={() => setIsExportMissingCccdOpen(true)}
+                              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-rose-600/30"
+                              title="Xuất ảnh danh sách cần thu thập CCCD theo từng thôn buôn"
+                            >
+                              <Users className="w-3.5 h-3.5 text-white" />
+                              <span>Xuất DS Cần CCCD</span>
+                            </button>
+                          )}
                           {/* Nút tác vụ đóng tập nếu là sheet Sẵn sàng đóng tập */}
                         {isReadyToPackSheet && (() => {
                           const allFilteredCodes = filtered.map((r) => String(r[1] || '').trim()).filter(Boolean);

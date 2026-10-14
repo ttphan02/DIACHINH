@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { DeclarationFormData } from '@/types';
+import parcelsBriefData from '@/data/parcels_brief.json';
+
+const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
+
 export const dynamic = 'force-dynamic';
 
 const R2_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -182,8 +186,11 @@ export async function POST(request: Request) {
     }
 
     const timestamp = new Date().toISOString();
+    const canonicalAddr = (rootMaThua && parcelsBrief[rootMaThua]?.[2]) || '';
     const fullDeclData = {
       ...formData,
+      dia_chi_thua_dat: canonicalAddr || formData.dia_chi_thua_dat || 'xã Cư Pui',
+      chu_dat_dia_chi: canonicalAddr || formData.chu_dat_dia_chi || 'xã Cư Pui',
       device_id: formData.device_id || previousDecl?.device_id || 'MAY_DEF',
       created_at: previousDecl?.created_at || timestamp,
       updated_at: timestamp,
