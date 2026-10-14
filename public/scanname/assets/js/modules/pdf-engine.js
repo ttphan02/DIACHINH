@@ -751,7 +751,8 @@ async function saveAllGroupsToR2() {
         }
         payloadFiles.push({
           filename: `${base}.pdf`,
-          fileBase64: b64
+          fileBase64: b64,
+          pdfBytes: pdfBytes
         });
       });
     }
@@ -783,6 +784,28 @@ async function saveAllGroupsToR2() {
       }
     }
 
+    // Tự động tải về toàn bộ các file PDF scan về máy của người dùng
+    showSpinner(`Đang tự động tải về ${payloadFiles.length} file PDF scan về máy tính...`);
+    for (let m = 0; m < payloadFiles.length; m++) {
+      const fileToDl = payloadFiles[m];
+      try {
+        const blob = new Blob([fileToDl.pdfBytes], { type: 'application/pdf' });
+        const dlUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = dlUrl;
+        a.download = fileToDl.filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(dlUrl), 1500);
+        if (m < payloadFiles.length - 1) {
+          await new Promise(r => setTimeout(r, 200));
+        }
+      } catch (dlErr) {
+        console.warn(`Lỗi khi tải file ${fileToDl.filename}:`, dlErr);
+      }
+    }
+
     showSpinner('Đang kích hoạt đồng bộ Google Sheet sang NHẬP GGS...');
     try {
       await fetch('/api/sync-sheets');
@@ -790,8 +813,8 @@ async function saveAllGroupsToR2() {
       console.warn('Lỗi trigger sync sheet:', e);
     }
 
-    showToast(`✅ Đã lưu thành công ${successCount}/${payloadFiles.length} file vào R2 filescan/ & Đã đồng bộ Google Sheet!`, true);
-    alert(`🎉 HOÀN TẤT THÀNH CÔNG!\n\nĐã lưu ${successCount}/${payloadFiles.length} file scan vào folder "filescan/" trên Cloudflare R2!\n\nGoogle Sheets đã được cập nhật: Các thửa tương ứng đã chuyển từ "THỬA SẴN SÀNG ĐÓNG TẬP (CÓ CCCD)" sang "NHẬP GGS"!`);
+    showToast(`✅ Đã lưu thành công ${successCount}/${payloadFiles.length} file vào R2 filescan/ & Đã tải về máy tính!`, true);
+    alert(`🎉 HOÀN TẤT THÀNH CÔNG!\n\n1. Đã lưu ${successCount}/${payloadFiles.length} file scan vào folder "filescan/" trên Cloudflare R2!\n2. Đã tự động tải về ${payloadFiles.length} file PDF scan về máy của bạn!\n3. Các thửa tương ứng đã được đồng bộ chuyển sang "NHẬP GGS"!`);
   } catch (err) {
     console.error('Lỗi lưu R2:', err);
     showToast('Lỗi lưu file lên R2: ' + (err.message || 'Lỗi mạng'), false);

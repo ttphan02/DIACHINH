@@ -27,6 +27,99 @@ function base64ToUint8Array(base64: string): Uint8Array {
   return bytes;
 }
 
+// GET /api/upload-filescan - Lấy danh sách toàn bộ file PDF scan trong folder filescan/
+export async function GET(request: Request) {
+  try {
+    const bucket = await getR2Binding();
+    if (!bucket) {
+      return NextResponse.json({ success: false, error: 'Không thể kết nối Cloudflare R2 Bucket' }, { status: 500 });
+    }
+
+    // Đọc danh sách file trong filescan/ và scanhoso/
+    const listRes: any = await bucket.list({ prefix: 'filescan/', limit: 1000 });
+    const objects = listRes.objects || [];
+
+    let objectsScanHoso: any[] = [];
+    try {
+      const listHoso: any = await bucket.list({ prefix: 'scanhoso/', limit: 1000 });
+      objectsScanHoso = listHoso.objects || [];
+    } catch {}
+
+    const allObjects = [...objects, ...objectsScanHoso];
+
+    // Đọc declarations để tìm liên kết chủ sở hữu & thửa đất
+    let declarationsMap: Record<string, any> = {};
+    try {
+      const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
+      if (declObj) {
+        const payload = JSON.parse(await declObj.text());
+        declarationsMap = payload.declarationsMap || {};
+      }
+    } catch (e) {
+      console.warn('Lỗi đọc declarationsMap cho filescan:', e);
+    }
+
+    const files = allObjects
+      .map((obj: any) => {
+        const fullKey = obj.key;
+        const filename = fullKey.replace(/^(filescan|scanhoso)\//, '');
+        if (!filename) return null;
+
+        // Trích xuất tờ / thửa từ tên file: e.g. "CHUACOGIAY_24478_4_154_DDK.pdf" hoặc "4-154-DDK.pdf"
+        let matchedTo = '';
+        let matchedThua = '';
+        let matchedOwner = '';
+        let matchedParcel = '';
+
+        const m = filename.match(/(?:CHUACOGIAY_\d+_)?(\d+)[-_](\d+)(?:[-_]DDK)?/i);
+        if (m) {
+          matchedTo = m[1];
+          matchedThua = m[2];
+        }
+
+        // Tìm đối chiếu trong declarationsMap
+        for (const [code, decl] of Object.entries(declarationsMap)) {
+          if (
+            (matchedTo && matchedThua && String(decl.to_ban_do) === matchedTo && String(decl.so_thua) === matchedThua) ||
+            filename.includes(code)
+          ) {
+            matchedParcel = code;
+            matchedOwner = decl.chu_dat_ten || decl.chu_ho || '';
+            break;
+          }
+        }
+
+        return {
+          key: fullKey,
+          filename,
+          size: obj.size,
+          uploadedAt: obj.uploaded ? new Date(obj.uploaded).toISOString() : null,
+          url: `${R2_PUBLIC_BASE}/${fullKey}`,
+          toBanDo: matchedTo,
+          soThua: matchedThua,
+          ownerName: matchedOwner,
+          matchedParcelCode: matchedParcel,
+        };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => {
+        const tA = a.uploadedAt ? new Date(a.uploadedAt).getTime() : 0;
+        const tB = b.uploadedAt ? new Date(b.uploadedAt).getTime() : 0;
+        return tB - tA; // Mới nhất lên đầu
+      });
+
+    return NextResponse.json({
+      success: true,
+      total: files.length,
+      files,
+    });
+  } catch (error: any) {
+    console.error('Lỗi GET /api/upload-filescan:', error);
+    return NextResponse.json({ success: false, error: error.message || 'Lỗi server' }, { status: 500 });
+  }
+}
+
+// POST /api/upload-filescan - Lưu file scan từ ScanName lên R2
 export async function POST(request: Request) {
   try {
     const contentType = request.headers.get('content-type') || '';
@@ -134,6 +227,47 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     console.error('Lỗi POST /api/upload-filescan:', error);
+    return NextResponse.json({ success: false, error: error.message || 'Lỗi server' }, { status: 500 });
+  }
+}
+
+// DELETE /api/upload-filescan - Xóa file scan khỏi R2
+export async function DELETE(request: Request) {
+  try {
+    const bucket = await getR2Binding();
+    if (!bucket) {
+      return NextResponse.json({ success: false, error: 'Không thể kết nối Cloudflare R2' }, { status: 500 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    let filename = searchParams.get('file') || searchParams.get('filename');
+
+    if (!filename) {
+      try {
+        const body: any = await request.json();
+        filename = body.filename || body.file;
+      } catch {}
+    }
+
+    if (!filename) {
+      return NextResponse.json({ success: false, error: 'Vui lòng cung cấp tên file cần xóa' }, { status: 400 });
+    }
+
+    const cleanFn = filename.replace(/^(filescan|scanhoso)\//, '');
+    const r2Key = `filescan/${cleanFn}`;
+
+    console.log(`>>> Đang xóa file scan: ${r2Key}`);
+    await bucket.delete(r2Key);
+    try {
+      await bucket.delete(`scanhoso/${cleanFn}`);
+    } catch {}
+
+    return NextResponse.json({
+      success: true,
+      message: `Đã xóa file ${cleanFn} khỏi R2!`,
+    });
+  } catch (error: any) {
+    console.error('Lỗi DELETE /api/upload-filescan:', error);
     return NextResponse.json({ success: false, error: error.message || 'Lỗi server' }, { status: 500 });
   }
 }

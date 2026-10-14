@@ -14,9 +14,11 @@ import VectorViewerModal from '@/components/VectorViewerModal';
 import CccdSupplementModal from '@/components/CccdSupplementModal';
 import CccdManagerTab from '@/components/CccdManagerTab';
 import CccdHoverPreviewCard from '@/components/CccdHoverPreviewCard';
+import ScanFileManagerTab from '@/components/ScanFileManagerTab';
 import {
   Camera,
   HardDrive,
+  FolderOpen,
   Map as MapIcon,
   BarChart3,
   PieChart,
@@ -80,8 +82,8 @@ export default function DashboardPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
 
-  // Active view tab in Dashboard: Giữ lại 3 tab: Báo Cáo Tiến Độ (4 Danh Sách & 16 Thôn), Tiến Độ 16 Thôn / Buôn, và Kho CCCD
-  const [activeTab, setActiveTab] = useState<'progressReport' | 'villages' | 'cccd'>('progressReport');
+  // Active view tab in Dashboard: Báo Cáo Tiến Độ, Tiến Độ 16 Thôn, Kho CCCD, Kho File Scan
+  const [activeTab, setActiveTab] = useState<'progressReport' | 'villages' | 'cccd' | 'filescan'>('progressReport');
 
   // Theme state: Dark mode hoặc Light mode (lưu vào localStorage)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
@@ -1429,6 +1431,20 @@ export default function DashboardPage() {
             <HardDrive className="w-4 h-4 text-purple-500" />
             <span>Kho CCCD (Quản Lý R2)</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab('filescan')}
+            className={`py-2.5 px-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 shrink-0 cursor-pointer ${
+              activeTab === 'filescan'
+                ? 'border-indigo-500 text-indigo-500 font-black'
+                : isLight
+                ? 'border-transparent text-slate-500 hover:text-slate-800'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <FolderOpen className="w-4 h-4 text-indigo-500" />
+            <span>Kho File Scan (Quản Lý R2)</span>
+          </button>
         </div>
 
         {/* TAB 3: DANH SÁCH CHI TIẾT TẤT CẢ THÔN / BUÔN */}
@@ -1533,6 +1549,20 @@ export default function DashboardPage() {
               setCccdModalMode(mode || 'folder');
               setIsCccdSupplementOpen(true);
             }}
+            onSelectParcel={(code) => {
+              const p = computedParcels.find((cp) => cp.ma_thua === code);
+              if (p) {
+                setActiveParcelDetail(p);
+                setIsDetailModalOpen(true);
+              }
+            }}
+          />
+        )}
+
+        {/* TAB 5b: QUẢN LÝ KHO FILE SCAN (CLOUDFLARE R2) */}
+        {activeTab === 'filescan' && (
+          <ScanFileManagerTab
+            theme={theme}
             onSelectParcel={(code) => {
               const p = computedParcels.find((cp) => cp.ma_thua === code);
               if (p) {

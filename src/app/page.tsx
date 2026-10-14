@@ -8,6 +8,7 @@ import { Parcel, ParcelStatus, NeighborParcel, DeclarationFormData, AdditionalPa
 import HeaderStats from '@/components/HeaderStats';
 import ParcelDetailPanel from '@/components/ParcelDetailPanel';
 import VectorViewerModal from '@/components/VectorViewerModal';
+import CccdSupplementModal from '@/components/CccdSupplementModal';
 import MapSheetMultiSelect from '@/components/MapSheetMultiSelect';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration } from '@/utils/declaration';
@@ -23,6 +24,7 @@ import {
   Sparkles,
   BarChart3,
   FileText,
+  Camera,
 } from 'lucide-react';
 
 // Dynamic import Leaflet Map (SSR disabled)
@@ -52,6 +54,9 @@ export default function Home() {
   const closeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [neighborParcels, setNeighborParcels] = useState<NeighborParcel[]>([]);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  // Modal Tải Lên CCCD hàng loạt & thư mục
+  const [isCccdModalOpen, setIsCccdModalOpen] = useState(false);
 
   // Vector SVG / Image Viewer Modal State
   const [isSvgOpen, setIsSvgOpen] = useState(false);
@@ -1141,6 +1146,17 @@ export default function Home() {
                   <FileText className="w-3.5 h-3.5 text-indigo-400" />
                   <span className="hidden xs:inline">Tách PDF</span>
                 </a>
+
+                {/* Nút Tải Lên CCCD (AI Quét & Chuyển PDF Lưu R2) */}
+                <button
+                  type="button"
+                  onClick={() => setIsCccdModalOpen(true)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-purple-950 hover:bg-purple-900 text-purple-300 font-bold rounded-xl transition shrink-0 border border-purple-500/40 shadow-xs cursor-pointer"
+                  title="Tải lên ảnh CCCD từ máy (quét AI Gemini và lưu PDF vào R2)"
+                >
+                  <Camera className="w-3.5 h-3.5 text-purple-400" />
+                  <span className="hidden xs:inline">Tải Lên CCCD</span>
+                </button>
               </div>
             </div>
 
@@ -1210,6 +1226,16 @@ export default function Home() {
                       <BarChart3 className="w-3.5 h-3.5 text-cyan-600" />
                       Dashboard
                     </Link>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsCccdModalOpen(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition text-purple-700 hover:text-purple-900 hover:bg-purple-50 cursor-pointer"
+                      title="Tải lên ảnh CCCD từ máy (quét AI Gemini và lưu PDF vào R2)"
+                    >
+                      <Camera className="w-3.5 h-3.5 text-purple-600" />
+                      Tải CCCD
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1408,6 +1434,17 @@ export default function Home() {
         title={svgData.title}
         ownerName={svgData.owner}
         cccdNumber={svgData.cccd}
+      />
+
+      {/* Modal Tải Lên CCCD Hàng Loạt & Thư Mục (AI Quét & Lưu R2) */}
+      <CccdSupplementModal
+        isOpen={isCccdModalOpen}
+        onClose={() => setIsCccdModalOpen(false)}
+        defaultMode="folder"
+        onSuccess={() => {
+          fetchCloudDeclarations();
+          fetchGgsCodes(true);
+        }}
       />
     </main>
   );
