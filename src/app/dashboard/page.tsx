@@ -4,20 +4,21 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
-import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES } from '@/utils/syncGoogleSheets';
+import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES } from '@/utils/textHelpers';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
-import DeclarationPrintModal, { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
+import dynamic from 'next/dynamic';
+import type { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
+const DeclarationPrintModal = dynamic(() => import('@/components/DeclarationPrintModal'), { ssr: false });
 import DashboardParcelModal from '@/components/DashboardParcelModal';
 import DeclarationEditModal from '@/components/DeclarationEditModal';
-import VectorViewerModal from '@/components/VectorViewerModal';
+const VectorViewerModal = dynamic(() => import('@/components/VectorViewerModal'), { ssr: false });
 import CccdSupplementModal from '@/components/CccdSupplementModal';
 import CccdManagerTab from '@/components/CccdManagerTab';
 import CccdHoverPreviewCard from '@/components/CccdHoverPreviewCard';
-import ExportMissingCccdModal from '@/components/ExportMissingCccdModal';
+const ExportMissingCccdModal = dynamic(() => import('@/components/ExportMissingCccdModal'), { ssr: false });
 import CadreNameModal from '@/components/CadreNameModal';
 import ScanFileManagerTab from '@/components/ScanFileManagerTab';
-import { generateReadyToPackPdf, downloadPdfBlob, ReadyToPackItem } from '@/utils/pdfPacker';
-import { generateStatisticsPdf } from '@/utils/exportStatisticsPdf';
+import type { ReadyToPackItem } from '@/utils/pdfPacker';
 import {
   FileBarChart2,
   Loader2,
@@ -1676,6 +1677,10 @@ export default function DashboardPage() {
     try {
       setIsExportingStatsPdf(true);
       setExportStatsProgress('Đang chuẩn bị dữ liệu...');
+      const [{ generateStatisticsPdf }, { downloadPdfBlob }] = await Promise.all([
+        import('@/utils/exportStatisticsPdf'),
+        import('@/utils/pdfPacker'),
+      ]);
       const { pdfBytes, fileName } = await generateStatisticsPdf(
         syncSheetsData,
         computedParcels,
@@ -1762,6 +1767,7 @@ export default function DashboardPage() {
         };
       });
 
+      const { generateReadyToPackPdf, downloadPdfBlob } = await import('@/utils/pdfPacker');
       const { pdfBytes, fileName } = await generateReadyToPackPdf(items, (cur, tot, msg) => {
         setPackagingProgress(msg);
       });
