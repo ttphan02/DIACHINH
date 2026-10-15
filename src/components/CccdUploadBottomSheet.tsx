@@ -174,26 +174,42 @@ export default function CccdUploadBottomSheet({
     }, 4000);
   };
 
-  // Căn khung chuẩn CCCD tự động (85.6mm x 53.98mm = tỷ lệ 1.586)
+  // Căn khung chuẩn CCCD tự động bắt trọn 100% chiều ngang của ảnh (tỷ lệ 1.586)
   const handleFitCccdFrame = useCallback(() => {
     if (!cropContainerRef.current) return;
-    const containerW = cropContainerRef.current.clientWidth;
-    const containerH = cropContainerRef.current.clientHeight;
+    const container = cropContainerRef.current;
+    const containerRect = container.getBoundingClientRect();
+    const imgEl = cropImageRef.current;
 
-    let targetW = Math.min(containerW * 0.85, 380);
+    let imgLeft = 0;
+    let imgTop = 0;
+    let imgW = container.clientWidth;
+    let imgH = container.clientHeight;
+
+    if (imgEl && imgEl.clientWidth > 0 && imgEl.clientHeight > 0) {
+      const imgRect = imgEl.getBoundingClientRect();
+      imgLeft = imgRect.left - containerRect.left;
+      imgTop = imgRect.top - containerRect.top;
+      imgW = imgRect.width;
+      imgH = imgRect.height;
+    }
+
+    // Bắt hết toàn bộ 100% chiều ngang của ảnh
+    let targetW = Math.round(imgW);
     let targetH = Math.round(targetW / 1.586);
 
-    if (targetH > containerH * 0.82) {
-      targetH = Math.round(containerH * 0.82);
+    // Nếu chiều cao vượt quá chiều cao ảnh thì khớp theo chiều cao ảnh
+    if (targetH > imgH) {
+      targetH = Math.round(imgH);
       targetW = Math.round(targetH * 1.586);
     }
 
-    const targetX = Math.max(10, Math.round((containerW - targetW) / 2));
-    const targetY = Math.max(10, Math.round((containerH - targetH) / 2));
+    const targetX = Math.round(imgLeft + (imgW - targetW) / 2);
+    const targetY = Math.round(imgTop + (imgH - targetH) / 2);
 
     setCropBox({
-      x: targetX,
-      y: targetY,
+      x: Math.max(0, targetX),
+      y: Math.max(0, targetY),
       w: targetW,
       h: targetH,
     });
@@ -991,6 +1007,7 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
                   ref={cropImageRef}
                   src={editingImage.previewUrl}
                   alt="Đang cắt"
+                  onLoad={() => handleFitCccdFrame()}
                   className="max-w-full max-h-full object-contain pointer-events-none select-none"
                   draggable={false}
                 />

@@ -33,6 +33,9 @@ import {
   normalizeAddress,
   CANONICAL_VILLAGES,
   getCanonicalVillage,
+  isValidFullName,
+  isValidBirthYear,
+  normalizeNguonGoc,
 } from './textHelpers';
 
 function parseNameAndType(rawName: string) {
@@ -460,29 +463,38 @@ export async function executeSyncToGoogleSheet(
         }
       }
 
-      if (foundCccd) {
+      // Kiểm tra thửa có đủ và hợp lệ toàn bộ thông tin hay không
+      const isInfoCompleteAndValid =
+        Boolean(item.chu_ho) &&
+        isValidFullName(item.chu_ho) &&
+        isValidBirthYear(item.dob) &&
+        Boolean(item.gender) &&
+        Boolean(item.thon_xa) &&
+        parseFloat(item.dien_tich || '0') > 0 &&
+        Boolean(item.loai_dat);
+
+      if (foundCccd && isInfoCompleteAndValid) {
         item.cccd_file = foundCccd;
         stage2DaDongTap.push(item);
         continue;
       }
 
-      // GIAI ĐOẠN 1: ĐANG KÊ KHAI (THIẾU CCCD TRÊN R2)
-      // Chỉ phân loại "CẦN TÌM CCCD" nếu số CCCD ĐÃ CÓ TRÊN GGS CHÍNH (Trangtinh1)!
-      // Nếu số CCCD chưa có trên GGS chính thì BẮT BUỘC là "KHÔNG CÓ CCCD"!
-      const inGgs = Boolean(cccd && allGgsCccds.has(cccd));
-
-      if (inGgs) {
-        stage1CanTimCccd.push({
-          ...item,
-          phan_loai: 'CẦN TÌM CCCD',
-          ghi_chu: `Đã có thông tin CCCD trên GGS chính (${cccdSource || 'hồ sơ cũ'}) - Cần tìm file scan/ảnh CCCD tải lên R2`,
-        });
-      } else {
-        stage1KhongCoCccd.push({
-          ...item,
-          phan_loai: 'KHÔNG CÓ CCCD',
-          ghi_chu: 'Chưa có CCCD trên GGS chính lẫn R2 - Cần liên hệ chủ hộ thu thập CCCD mới',
-        });
+      // GIAI ĐOẠN 1: ĐANG KÊ KHAI (THIẾU CCCD TRÊN R2 NHƯNG ĐỦ VÀ HỢP LỆ THÔNG TIN CÒN LẠI)
+      if (isInfoCompleteAndValid) {
+        const inGgs = Boolean(cccd && allGgsCccds.has(cccd));
+        if (inGgs) {
+          stage1CanTimCccd.push({
+            ...item,
+            phan_loai: 'CẦN TÌM CCCD',
+            ghi_chu: `Đã có thông tin CCCD trên GGS chính (${cccdSource || 'hồ sơ cũ'}) - Cần tìm file scan/ảnh CCCD tải lên R2`,
+          });
+        } else {
+          stage1KhongCoCccd.push({
+            ...item,
+            phan_loai: 'KHÔNG CÓ CCCD',
+            ghi_chu: 'Chưa có CCCD trên GGS chính lẫn R2 - Cần liên hệ chủ hộ thu thập CCCD mới',
+          });
+        }
       }
     }
 
@@ -491,9 +503,9 @@ export async function executeSyncToGoogleSheet(
 
     // SHEET 4: THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)
     const headersPack = [
-      'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
+      'STT', 'Mã thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
       'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
-      'Xem file PDF CCCD (Bấm vào xem)', 'Trạng thái đóng tập'
+      'Xem file PDF CCCD (Bấm vào xem)'
     ];
     const rowsPack: string[][] = [headersPack];
     stage2DaDongTap.forEach((it, idx) => {
@@ -501,47 +513,43 @@ export async function executeSyncToGoogleSheet(
       const cccdFormula = `=HYPERLINK("${cccdLink}"; "${it.cccd_file}")`;
       const cccdText = it.cccd ? `="${it.cccd}"` : '';
       rowsPack.push([
-        String(idx + 1), it.ma_thua, it.to_ban_do, it.so_thua, it.thon_xa,
-        it.chu_ho, it.dob || '', it.gender || 'Nam', cccdText,
-        String(it.dien_tich || ''), it.loai_dat || 'DGT', it.nguon_goc || 'Khai hoang',
-        cccdFormula, 'ĐỦ HỒ SƠ - SẴN SÀNG ĐÓNG TẬP'
+        String(idx + 1), it.ma_thua, it.thon_xa,
+        cleanName(it.chu_ho), it.dob || '', it.gender || 'Nam', cccdText,
+        String(it.dien_tich || ''), it.loai_dat || 'DGT', normalizeNguonGoc(it.nguon_goc || 'Khai Hoang'),
+        cccdFormula
       ]);
     });
     sheetsData['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] = rowsPack;
 
     // SHEET 5: THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)
     const headersUnpack = [
-      'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
-      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
-      'Phân loại trạng thái', 'Ghi chú & Hướng dẫn xử lý'
+      'STT', 'Mã thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
+      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng'
     ];
     const rowsUnpack: string[][] = [headersUnpack];
     const orderedStage1 = [...stage1CanTimCccd, ...stage1KhongCoCccd];
     orderedStage1.forEach((it, idx) => {
       const cccdText = it.cccd ? `="${it.cccd}"` : 'Chưa có';
       rowsUnpack.push([
-        String(idx + 1), it.ma_thua, it.to_ban_do, it.so_thua, it.thon_xa,
-        it.chu_ho, it.dob || '', it.gender || 'Nam', cccdText,
-        String(it.dien_tich || ''), it.loai_dat || 'DGT', it.nguon_goc || 'Khai hoang',
-        it.phan_loai, it.ghi_chu
+        String(idx + 1), it.ma_thua, it.thon_xa,
+        cleanName(it.chu_ho), it.dob || '', it.gender || 'Nam', cccdText,
+        String(it.dien_tich || ''), it.loai_dat || 'DGT', normalizeNguonGoc(it.nguon_goc || 'Khai Hoang')
       ]);
     });
     sheetsData['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] = rowsUnpack;
 
     // SHEET 2: ĐÃ GIẢI QUYẾT
     const headersDone = [
-      'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
-      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
-      'Trạng thái xử lý', 'Ghi chú'
+      'STT', 'Mã thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
+      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng'
     ];
     const rowsDone: string[][] = [headersDone];
     stage4DaGiaiQuyet.forEach((it, idx) => {
       const cccdText = it.cccd ? `="${it.cccd}"` : '';
       rowsDone.push([
-        String(idx + 1), it.ma_thua, it.to_ban_do, it.so_thua, it.thon_xa,
-        it.chu_ho, it.dob || '', it.gender || 'Nam', cccdText,
-        String(it.dien_tich || ''), it.loai_dat || 'DGT', it.nguon_goc || 'Khai hoang',
-        'ĐÃ GIẢI QUYẾT (ĐÃ LÊN GGS CHÍNH)', 'Đã hoàn tất toàn bộ quy trình'
+        String(idx + 1), it.ma_thua, it.thon_xa,
+        cleanName(it.chu_ho), it.dob || '', it.gender || 'Nam', cccdText,
+        String(it.dien_tich || ''), it.loai_dat || 'DGT', normalizeNguonGoc(it.nguon_goc || 'Khai Hoang')
       ]);
     });
     sheetsData['ĐÃ GIẢI QUYẾT'] = rowsDone;
