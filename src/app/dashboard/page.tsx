@@ -3428,8 +3428,7 @@ export default function DashboardPage() {
                             >
                               <option value={20}>20 thửa / phần (hiện {Math.ceil(filtered.length / 20) || 1} phần)</option>
                               <option value={50}>50 thửa / phần (hiện {Math.ceil(filtered.length / 50) || 1} phần)</option>
-                              <option value={100}>100 thửa / phần</option>
-                              <option value="ALL">Toàn bộ danh sách ({filtered.length} thửa)</option>
+                              <option value="ALL">Tất cả ({filtered.length} thửa)</option>
                             </select>
                           </div>
 
