@@ -46,97 +46,105 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
   "ho_va_ten": "Họ và tên đầy đủ viết hoa có dấu (Ví dụ: ĐẶNG THỊ HỒNG)"
 }`;
 
+    const candidateModels = [
+      'gemini-flash-latest',
+      'gemini-flash-lite-latest',
+      'gemini-2.5-flash',
+    ];
+
     const shuffledKeys = [...keys].sort(() => Math.random() - 0.5);
     let lastError = '';
 
-    for (const apiKey of shuffledKeys.slice(0, 6)) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-        const payload = {
-          contents: [
-            {
-              parts: [
-                { text: promptText },
-                {
-                  inlineData: {
-                    mimeType,
-                    data: cleanB64,
-                  },
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            responseMimeType: 'application/json',
-          },
-        };
-
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) {
-          lastError = `Gemini HTTP ${res.status}`;
-          continue;
-        }
-
-        const data: any = await res.json();
-        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-
-        let parsed: any = null;
+    for (const apiKey of shuffledKeys.slice(0, 5)) {
+      for (const model of candidateModels) {
         try {
-          parsed = JSON.parse(rawText);
-        } catch {
-          const match = rawText.match(/\{[\s\S]*\}/);
-          if (match) parsed = JSON.parse(match[0]);
-        }
-
-        let rawCccd = '';
-        let rawName = '';
-
-        if (parsed) {
-          rawCccd = String(
-            parsed.so_cccd ||
-            parsed.cccd ||
-            parsed.so_dinh_danh ||
-            parsed.so_dinh_danh_ca_nhan ||
-            parsed.id_number ||
-            parsed.id ||
-            ''
-          ).replace(/\D/g, '');
-
-          rawName = String(
-            parsed.ho_va_ten ||
-            parsed.ho_ten ||
-            parsed.hoten ||
-            parsed.name ||
-            parsed.full_name ||
-            ''
-          ).replace(/["']/g, '').trim().toUpperCase();
-        }
-
-        // Dự phòng tìm số 12 số hoặc 9 số trực tiếp từ text
-        if (!rawCccd || rawCccd.length < 9) {
-          const digitMatch = rawText.match(/\b\d{12}\b/) || rawText.match(/\b\d{9}\b/);
-          if (digitMatch) {
-            rawCccd = digitMatch[0];
-          }
-        }
-
-        if (rawCccd || rawName) {
-          return NextResponse.json({
-            success: true,
-            data: {
-              so_cccd: rawCccd,
-              ho_va_ten: rawName,
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+          const payload = {
+            contents: [
+              {
+                parts: [
+                  { text: promptText },
+                  {
+                    inlineData: {
+                      mimeType,
+                      data: cleanB64,
+                    },
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.1,
+              responseMimeType: 'application/json',
             },
+          };
+
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
           });
+
+          if (!res.ok) {
+            lastError = `${model} HTTP ${res.status}`;
+            continue;
+          }
+
+          const data: any = await res.json();
+          const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+
+          let parsed: any = null;
+          try {
+            parsed = JSON.parse(rawText);
+          } catch {
+            const match = rawText.match(/\{[\s\S]*\}/);
+            if (match) parsed = JSON.parse(match[0]);
+          }
+
+          let rawCccd = '';
+          let rawName = '';
+
+          if (parsed) {
+            rawCccd = String(
+              parsed.so_cccd ||
+              parsed.cccd ||
+              parsed.so_dinh_danh ||
+              parsed.so_dinh_danh_ca_nhan ||
+              parsed.id_number ||
+              parsed.id ||
+              ''
+            ).replace(/\D/g, '');
+
+            rawName = String(
+              parsed.ho_va_ten ||
+              parsed.ho_ten ||
+              parsed.hoten ||
+              parsed.name ||
+              parsed.full_name ||
+              ''
+            ).replace(/["']/g, '').trim().toUpperCase();
+          }
+
+          // Dự phòng tìm số 12 số hoặc 9 số trực tiếp từ text
+          if (!rawCccd || rawCccd.length < 9) {
+            const digitMatch = rawText.match(/\b\d{12}\b/) || rawText.match(/\b\d{9}\b/);
+            if (digitMatch) {
+              rawCccd = digitMatch[0];
+            }
+          }
+
+          if (rawCccd || rawName) {
+            return NextResponse.json({
+              success: true,
+              data: {
+                so_cccd: rawCccd,
+                ho_va_ten: rawName,
+              },
+            });
+          }
+        } catch (err: any) {
+          lastError = err.message || 'Lỗi gọi AI';
         }
-      } catch (err: any) {
-        lastError = err.message || 'Lỗi gọi AI';
       }
     }
 
