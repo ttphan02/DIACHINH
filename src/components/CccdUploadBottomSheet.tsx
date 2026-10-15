@@ -201,6 +201,9 @@ export default function CccdUploadBottomSheet({
     setCropRatioMode('cccd');
   }, []);
 
+// Biến con trỏ Round-Robin toàn cục giống ScanName để chia đều tải 100% cho các API Key
+let currentClientKeyIdx = 0;
+
   // Hàm gọi trực tiếp Gemini từ trình duyệt của người dùng (tránh lỗi IP Cloudflare Data Center)
   const doDirectGeminiOcr = async (rawB64: string): Promise<{ so_cccd: string; ho_va_ten: string } | null> => {
     try {
@@ -220,7 +223,10 @@ export default function CccdUploadBottomSheet({
 
       if (keys.length === 0) return null;
 
-      const shuffledKeys = [...keys].sort(() => Math.random() - 0.5);
+      // Thuật toán Round-Robin chuẩn ScanName: chia đều tuần tự các ảnh cho từng key
+      const startIdx = currentClientKeyIdx;
+      currentClientKeyIdx = (currentClientKeyIdx + 1) % keys.length;
+
       const models = ['gemini-flash-lite-latest', 'gemini-3.1-flash-lite', 'gemini-3.5-flash-lite'];
 
       const promptText = `Bạn là chuyên gia trích xuất thông tin Căn cước công dân / Thẻ căn cước Việt Nam.
@@ -230,7 +236,9 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
   "ho_va_ten": "Họ và tên đầy đủ viết hoa có dấu (Ví dụ: ĐẶNG THỊ HỒNG)"
 }`;
 
-      for (const apiKey of shuffledKeys.slice(0, 4)) {
+      // Thử key xuất phát của ảnh, nếu lỗi quay vòng thử tiếp các key còn lại
+      for (let attempt = 0; attempt < keys.length; attempt++) {
+        const apiKey = keys[(startIdx + attempt) % keys.length];
         for (const model of models) {
           try {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;

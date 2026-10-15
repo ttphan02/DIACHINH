@@ -1,4 +1,14 @@
-// Gemini Vision AI API & Auto-Fallback Service
+const DEFAULT_FALLBACK_KEYS = [
+  "QVEuQWI4Uk42TFI3QlRwMHRhaEQ0Um82V043d1hFbEJHSHlEblU5R3c5TU1vLXpaY19kVmc=",
+  "QVEuQWI4Uk42S1RtLXBSMGEyY1NaLUlUNm9acG9oUDJ1cnR4TzRvY3NGN1NZX0JBT3JDMEE=",
+  "QVEuQWI4Uk42SkZ1X3hTZ2lxOUlxUi0wb241UGxmMFVVZjN0NUlWMEJqNnYyYzRpRFo3dUE=",
+  "QVEuQWI4Uk42S2VTNFc1WmhyZDRPU3RfcGhnd010SDhTWmIwNWhjTExZN0oxaEFvUGZPZkE=",
+  "QVEuQWI4Uk42TGdtSWVXZDFTSmdKOWFIVDg1Z2xkd01fY0dfanU5WnR2M1pYZ0I1UUIwRmc=",
+  "QVEuQWI4Uk42SW4ycEJKSEluVnY3UDRWZ0lMcWpYWTB6bGFNbDZHdDc1a0tSdDhQMFFiY0E=",
+  "QVEuQWI4Uk42S1ktVDVTZW11bVJtQVlWUTJya2dyNHNOT1pSMUMtMGp0X3l5U0RPLW9MQ1E=",
+  "QVEuQWI4Uk42SUFPRkM5WlpfM3RqcnFHcHZrdTNMSlBzOXd1dEtyajVIOWhXN1JnekhxLUE=",
+  "QVEuQWI4Uk42Sm05UkU4Y3BrWUhDQm9hOXVmTnRqTkM1b25Ibktjb2ZVeVR2MHI5RVBhNmc="
+];
 
 async function loadGeminiKeys() {
   try {
@@ -6,7 +16,7 @@ async function loadGeminiKeys() {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        geminiKeys = parsed;
+        geminiKeys = parsed.map(k => (k.startsWith('AQ.') ? k : atob(k)));
         console.log(`Đã tải ${geminiKeys.length} API Key từ localStorage.`);
         return;
       }
@@ -20,18 +30,24 @@ async function loadGeminiKeys() {
       if (res.ok) {
         const keys = await res.json();
         if (Array.isArray(keys) && keys.length > 0) {
-          geminiKeys = keys;
+          geminiKeys = keys.map(k => (k.startsWith('AQ.') ? k : atob(k)));
         }
       }
     } catch (err) {}
+  }
+
+  // Luôn đảm bảo có sẵn danh sách keys dự phòng ngay cả khi fetch 404
+  if (!geminiKeys || geminiKeys.length === 0) {
+    geminiKeys = DEFAULT_FALLBACK_KEYS.map(k => atob(k));
+    console.log(`Đã nạp ${geminiKeys.length} API Key dự phòng tích hợp.`);
   }
 }
 
 function getNextGeminiKey() {
   if (!geminiKeys || geminiKeys.length === 0) return null;
-  const key = geminiKeys[currentGeminiKeyIdx % geminiKeys.length];
+  const rawKey = geminiKeys[currentGeminiKeyIdx % geminiKeys.length];
   currentGeminiKeyIdx = (currentGeminiKeyIdx + 1) % geminiKeys.length;
-  return key;
+  return rawKey.startsWith('AQ.') ? rawKey : atob(rawKey);
 }
 
 async function getPageJpegBase64(pageNum, scale = 2.0) {
@@ -62,63 +78,65 @@ async function callGeminiApiForCCCD(base64Image) {
   let attempts = 0;
   const maxAttempts = geminiKeys.length;
   let quota429Count = 0;
+  const candidateModels = [
+    'gemini-flash-lite-latest',
+    'gemini-3.1-flash-lite',
+    'gemini-3.5-flash-lite',
+    'gemini-flash-latest',
+  ];
 
   while (attempts < maxAttempts) {
     const apiKey = getNextGeminiKey();
     if (!apiKey) break;
 
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-      const payload = {
-        contents: [
-          {
-            parts: [
-              {
-                text: "Hãy tìm và trích xuất duy nhất 12 chữ số của mã Căn cước công dân (CCCD) hoặc Số Định danh cá nhân xuất hiện trong hình ảnh này. Chỉ trả về đúng 12 chữ số không có thêm bất kỳ ký tự, dấu cách hay lời giải thích nào khác."
-              },
-              {
-                inline_data: {
-                  mime_type: "image/jpeg",
-                  data: base64Image
+    for (const model of candidateModels) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const payload = {
+          contents: [
+            {
+              parts: [
+                {
+                  text: "Hãy tìm và trích xuất duy nhất 12 chữ số của mã Căn cước công dân (CCCD) hoặc Số Định danh cá nhân xuất hiện trong hình ảnh này. Chỉ trả về đúng 12 chữ số không có thêm bất kỳ ký tự, dấu cách hay lời giải thích nào khác."
+                },
+                {
+                  inline_data: {
+                    mime_type: "image/jpeg",
+                    data: base64Image
+                  }
                 }
-              }
-            ]
+              ]
+            }
+          ]
+        };
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          if (response.status === 429) {
+            quota429Count++;
+            console.warn(`Gemini API key ${apiKey.substring(0, 15)}... hết Quota (${model}).`);
           }
-        ],
-        generationConfig: {
-          thinkingConfig: { thinkingBudget: 0 }
+          continue;
         }
-      };
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        if (response.status === 429) {
-          quota429Count++;
-          console.warn(`Gemini API key ${apiKey.substring(0, 15)}... bị hết Quota (HTTP 429).`);
-        } else {
-          console.warn(`Gemini API key báo lỗi HTTP ${response.status}. Thử key tiếp theo...`);
+        const data = await response.json();
+        const text = (data?.candidates?.[0]?.content?.parts || [])
+          .map(p => p.text || '')
+          .join('\n');
+        const match = text.match(/\b\d{12}\b/) || text.replace(/\D/g, '').match(/\d{12}/);
+        if (match) {
+          return match[0];
         }
-        attempts++;
-        continue;
+      } catch (err) {
+        console.warn(`Lỗi gọi Gemini API (${model}): ${err.message}.`);
       }
-
-      const data = await response.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      const match = text.match(/\b\d{12}\b/) || text.replace(/\D/g, '').match(/\d{12}/);
-      if (match) {
-        return match[0];
-      } else {
-        return null;
-      }
-    } catch (err) {
-      console.warn(`Lỗi gọi Gemini API: ${err.message}. Thử key tiếp theo...`);
-      attempts++;
     }
+    attempts++;
   }
 
   if (quota429Count >= maxAttempts && maxAttempts > 0) {

@@ -48,5 +48,7 @@ next-env.d.ts
 /.wrangler/
 
 # Scanname local data & API keys
-/public/scanname/data/
+/public/scanname/data/*
+!/public/scanname/data/gemini_keys.json
+
 
