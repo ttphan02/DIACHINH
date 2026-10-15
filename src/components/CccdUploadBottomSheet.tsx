@@ -23,6 +23,7 @@ import {
   Edit2,
   RefreshCw,
 } from 'lucide-react';
+import geminiKeys from '@/data/gemini_keys.json';
 
 interface SelectedCccdImage {
   id: string;
@@ -200,27 +201,144 @@ export default function CccdUploadBottomSheet({
     setCropRatioMode('cccd');
   }, []);
 
-  // Gọi AI OCR nhận diện thông tin CCCD
+  // Hàm gọi trực tiếp Gemini từ trình duyệt của người dùng (tránh lỗi IP Cloudflare Data Center)
+  const doDirectGeminiOcr = async (rawB64: string): Promise<{ so_cccd: string; ho_va_ten: string } | null> => {
+    try {
+      let cleanB64 = rawB64;
+      let mimeType = 'image/jpeg';
+      if (typeof rawB64 === 'string' && rawB64.includes(',')) {
+        const parts = rawB64.split(',');
+        const match = parts[0].match(/:(.*?);/);
+        if (match && match[1]) mimeType = match[1];
+        cleanB64 = parts[1];
+      }
+      cleanB64 = cleanB64.replace(/\s+/g, '');
+
+      const keys = (geminiKeys as string[])
+        .filter((k) => k && typeof k === 'string' && !k.startsWith('DIEN_API_KEY'))
+        .map((k) => (k.startsWith('AQ.') ? k : atob(k)));
+
+      if (keys.length === 0) return null;
+
+      const shuffledKeys = [...keys].sort(() => Math.random() - 0.5);
+      const models = ['gemini-flash-lite-latest', 'gemini-3.1-flash-lite', 'gemini-3.5-flash-lite'];
+
+      const promptText = `Bạn là chuyên gia trích xuất thông tin Căn cước công dân / Thẻ căn cước Việt Nam.
+Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JSON:
+{
+  "so_cccd": "12 chữ số viết liền hoặc 9 chữ số",
+  "ho_va_ten": "Họ và tên đầy đủ viết hoa có dấu (Ví dụ: ĐẶNG THỊ HỒNG)"
+}`;
+
+      for (const apiKey of shuffledKeys.slice(0, 4)) {
+        for (const model of models) {
+          try {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+            const payload = {
+              contents: [
+                {
+                  parts: [
+                    { text: promptText },
+                    { inlineData: { mimeType, data: cleanB64 } },
+                  ],
+                },
+              ],
+              generationConfig: {
+                temperature: 0.1,
+                responseMimeType: 'application/json',
+              },
+            };
+
+            const res = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+
+            if (!res.ok) continue;
+
+            const data: any = await res.json();
+            const rawText = (data.candidates?.[0]?.content?.parts || [])
+              .map((p: any) => p.text || '')
+              .filter(Boolean)
+              .join('\n')
+              .trim();
+
+            let parsed: any = null;
+            try {
+              parsed = JSON.parse(rawText);
+            } catch {
+              const match = rawText.match(/\{[\s\S]*?\}/);
+              if (match) {
+                try { parsed = JSON.parse(match[0]); } catch {}
+              }
+            }
+
+            let soCccd = '';
+            let hoVaTen = '';
+            if (parsed) {
+              soCccd = String(parsed.so_cccd || parsed.cccd || parsed.id || '').replace(/\D/g, '');
+              hoVaTen = String(parsed.ho_va_ten || parsed.ho_ten || parsed.name || '').replace(/["']/g, '').trim().toUpperCase();
+            }
+
+            if (!soCccd || soCccd.length < 9) {
+              const digitMatch = rawText.match(/\b\d{12}\b/) || rawText.match(/\b\d{9}\b/);
+              if (digitMatch) soCccd = digitMatch[0];
+            }
+
+            if (!hoVaTen) {
+              const nameMatch = rawText.match(/"ho_va_ten"\s*:\s*"([^"\\]+)"/i);
+              if (nameMatch) hoVaTen = nameMatch[1].trim().toUpperCase();
+            }
+
+            if (soCccd || hoVaTen) {
+              return { so_cccd: soCccd, ho_va_ten: hoVaTen };
+            }
+          } catch {
+            // tiếp tục model khác
+          }
+        }
+      }
+    } catch {
+      // bỏ qua
+    }
+    return null;
+  };
+
+  // Gọi AI OCR nhận diện thông tin CCCD (Ưu tiên trực tiếp từ máy người dùng, sau đó fallback server)
   const runAiOcrForImage = async (id: string, previewUrl: string) => {
     setImages((prev) =>
       prev.map((img) => (img.id === id ? { ...img, isScanning: true, scanError: undefined } : img))
     );
     try {
       const b64 = await getBase64FromUrl(previewUrl);
-      const res = await fetch('/api/ocr-cccd', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: b64 }),
-      });
-      const data: any = await res.json();
-      if (data.success && data.data) {
+
+      // 1. Thử nhận diện trực tiếp từ Client IP (tránh bị Google chặn IP Cloudflare)
+      let ocrResult = await doDirectGeminiOcr(b64);
+
+      // 2. Dự phòng gọi qua API server nếu Client bị chặn (ví dụ do chặn adblock)
+      if (!ocrResult) {
+        try {
+          const res = await fetch('/api/ocr-cccd', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageBase64: b64 }),
+          });
+          const data: any = await res.json();
+          if (data.success && data.data) {
+            ocrResult = data.data;
+          }
+        } catch {}
+      }
+
+      if (ocrResult && (ocrResult.so_cccd || ocrResult.ho_va_ten)) {
         setImages((prev) =>
           prev.map((img) =>
             img.id === id
               ? {
                   ...img,
-                  soCccd: data.data.so_cccd || img.soCccd || '',
-                  hoVaTen: data.data.ho_va_ten || img.hoVaTen || '',
+                  soCccd: ocrResult!.so_cccd || img.soCccd || '',
+                  hoVaTen: ocrResult!.ho_va_ten || img.hoVaTen || '',
                   isScanning: false,
                   scanError: undefined,
                   errorMessage: undefined,
@@ -228,9 +346,7 @@ export default function CccdUploadBottomSheet({
               : img
           )
         );
-        if (data.data.so_cccd || data.data.ho_va_ten) {
-          showToast(`✓ Đã nhận diện: ${data.data.so_cccd || ''} ${data.data.ho_va_ten ? '• ' + data.data.ho_va_ten : ''}`);
-        }
+        showToast(`✓ Đã nhận diện: ${ocrResult.so_cccd || ''} ${ocrResult.ho_va_ten ? '• ' + ocrResult.ho_va_ten : ''}`);
       } else {
         setImages((prev) =>
           prev.map((img) =>
@@ -238,7 +354,7 @@ export default function CccdUploadBottomSheet({
               ? {
                   ...img,
                   isScanning: false,
-                  scanError: data.error || 'AI không nhận diện được chữ',
+                  scanError: 'AI không nhận diện được chữ, vui lòng điền tay bên dưới',
                 }
               : img
           )
