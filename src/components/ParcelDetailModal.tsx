@@ -133,15 +133,10 @@ export default function ParcelDetailModal({
           </span>
         );
       case 'CO_TEN_CHUA_SO_HOA_VANG':
-        return (
-          <span className="px-2.5 py-1 text-xs font-semibold bg-amber-100 text-amber-800 rounded-full border border-amber-200 flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-amber-500"></span> Có tên chủ đất
-          </span>
-        );
       default:
         return (
-          <span className="px-2.5 py-1 text-xs font-semibold bg-gray-100 text-gray-700 rounded-full border border-gray-200 flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-gray-400"></span> Chưa có tên
+          <span className="px-2.5 py-1 text-xs font-semibold bg-amber-100 text-amber-800 rounded-full border border-amber-200 flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-amber-500"></span> 🟡 Chưa kê khai
           </span>
         );
     }

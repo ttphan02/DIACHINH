@@ -360,9 +360,7 @@ export default function CadastralMap({
                   ? '🟢 Đã số hóa (GGS)'
                   : p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
                   ? '🔵 Đã kê khai (Chưa lên GGS)'
-                  : p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG'
-                  ? '🟡 Có tên'
-                  : '⚪ Chưa cập nhật / Không có DL';
+                  : '🟡 Chưa kê khai';
 
               tip.innerHTML = `
                 <div style="font-weight: 800; font-size: 13px; color: #fff; margin-bottom: 2px;">
@@ -798,10 +796,7 @@ export default function CadastralMap({
           <span className="w-2 h-2 rounded-full bg-blue-500" /> Đã kê khai
         </span>
         <span className="flex items-center gap-1 text-amber-300">
-          <span className="w-2 h-2 rounded-full bg-amber-500" /> Có tên
-        </span>
-        <span className="flex items-center gap-1 text-slate-300">
-          <span className="w-2 h-2 rounded-full bg-white border border-gray-400" /> Chưa có tên
+          <span className="w-2 h-2 rounded-full bg-amber-500" /> Chưa kê khai
         </span>
       </div>
 

@@ -84,7 +84,7 @@ export default function Home() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
-  const [statusFilter, setStatusFilter] = useState<ParcelStatus | 'ALL'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<ParcelStatus | 'ALL' | 'CHUA_KE_KHAI'>('ALL');
 
   // Selected Parcel & Slide Animation State
   const [selectedParcel, setSelectedParcel] = useState<Parcel | null>(null);
@@ -520,7 +520,13 @@ export default function Home() {
     const qClean = removeVietnameseTones(searchQuery.trim());
 
     return computedParcels.filter((p) => {
-      if (statusFilter !== 'ALL' && p.trang_thai !== statusFilter) return false;
+      if (statusFilter !== 'ALL') {
+        if (statusFilter === 'CHUA_KE_KHAI') {
+          if (p.trang_thai === 'DA_SO_HOA_XANH' || p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') return false;
+        } else if (p.trang_thai !== statusFilter) {
+          return false;
+        }
+      }
 
       if (selectedSheets.length > 0 && !selectedSheets.includes(p.to_ban_do)) {
         return false;
@@ -1048,36 +1054,20 @@ export default function Home() {
                   Đã kê khai ({stats.blue.toLocaleString('vi-VN')})
                 </button>
 
-                {/* Có tên chủ đất (Vàng) */}
+                {/* Chưa kê khai (Gộp có tên và chưa có tên) */}
                 <button
                   onClick={() => {
-                    setStatusFilter('CO_TEN_CHUA_SO_HOA_VANG');
+                    setStatusFilter(statusFilter === 'CHUA_KE_KHAI' ? 'ALL' : 'CHUA_KE_KHAI');
                   }}
                   className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs shrink-0 ${
-                    statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG'
+                    statusFilter === 'CHUA_KE_KHAI'
                       ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-400'
                       : 'bg-slate-800/80 text-amber-300 hover:bg-slate-700/80 border border-amber-500/30'
                   }`}
-                  title="Thửa có tên chủ đất, chưa kê khai"
+                  title="Thửa chưa kê khai (chưa lập hồ sơ)"
                 >
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-500 border border-amber-300"></span>
-                  Có tên ({stats.yellow.toLocaleString('vi-VN')})
-                </button>
-
-                {/* Không có dữ liệu cập nhật / Chưa số hóa (Trắng) */}
-                <button
-                  onClick={() => {
-                    setStatusFilter('CHUA_CO_TEN_XAM');
-                  }}
-                  className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs shrink-0 ${
-                    statusFilter === 'CHUA_CO_TEN_XAM'
-                      ? 'bg-slate-700 text-white shadow-sm ring-2 ring-slate-400'
-                      : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700/80 border border-slate-600/30'
-                  }`}
-                  title="Thửa không có trong DSCOTEN: chưa có dữ liệu cập nhật, không có trong SMK, chưa rõ tên..."
-                >
-                  <span className="w-2.5 h-2.5 rounded-full bg-white border border-slate-400"></span>
-                  Chưa cập nhật / Không có DL ({stats.gray.toLocaleString('vi-VN')})
+                  Chưa kê khai ({(stats.yellow + stats.gray).toLocaleString('vi-VN')})
                 </button>
 
                 {/* Nút bấm & Chỉ báo Realtime Google Sheets */}

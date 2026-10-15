@@ -154,13 +154,9 @@ export default function DashboardParcelModal({
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
                     🔵 Đã kê khai thực địa
                   </span>
-                ) : isYellow ? (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                    🟡 Chưa kê khai - Có tên
-                  </span>
                 ) : (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-700/40 text-slate-400 border border-slate-600/30">
-                    ⚪ Chưa kê khai - Không có tên
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    🟡 Chưa kê khai
                   </span>
                 )}
               </div>

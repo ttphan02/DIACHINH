@@ -1987,9 +1987,7 @@ export default function DashboardPage() {
           ? 'Đã số hóa (GGS)'
           : p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
           ? 'Đã kê khai (Chưa lên GGS)'
-          : p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG'
-          ? 'Chưa kê khai - Có tên'
-          : 'Chưa kê khai - Không có tên';
+          : 'Chưa kê khai';
 
       return [
         idx + 1,
@@ -2302,11 +2300,7 @@ export default function DashboardPage() {
             }`}>
               <span className="flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-                Có tên: <strong className="text-amber-600 dark:text-amber-400 font-bold">{globalStats.yellow.toLocaleString('vi-VN')}</strong>
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-                Không tên: <strong className={`font-bold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{globalStats.gray.toLocaleString('vi-VN')}</strong>
+                Chưa kê khai: <strong className="text-amber-600 dark:text-amber-400 font-bold">{chuaThucHienParcels.length.toLocaleString('vi-VN')}</strong>
               </span>
             </div>
           </div>
@@ -2471,8 +2465,8 @@ export default function DashboardPage() {
                       <strong className="text-emerald-600 dark:text-emerald-400 font-bold">{v.green}</strong>
                     </div>
                     <div>
-                      <span className="block text-[10px] text-amber-600 dark:text-amber-500">Có tên:</span>
-                      <strong className="text-amber-600 dark:text-amber-400 font-bold">{v.yellow}</strong>
+                      <span className="block text-[10px] text-amber-600 dark:text-amber-500">Chưa kê khai:</span>
+                      <strong className="text-amber-600 dark:text-amber-400 font-bold">{v.yellow + v.gray}</strong>
                     </div>
                   </div>
 
@@ -2562,14 +2556,14 @@ export default function DashboardPage() {
                         p.to_ban_do || '',
                         p.so_thua || '',
                         p.thon_xa || 'Chưa rõ thôn',
-                        p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG' ? (p.chu_ho || 'Chưa có tên') : 'Chưa có tên',
+                        p.chu_ho || 'Chưa có tên',
                         (p as any).ngay_sinh || '',
                         (p as any).gioi_tinh || 'Nam',
                         cccdText,
                         p.dien_tich || '0',
                         p.loai_dat || 'DGT',
                         'Khai hoang',
-                        p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG' ? 'Có tên (Chưa kê khai)' : 'Chưa cập nhật / Không có DL'
+                        'Chưa kê khai'
                       ];
                     });
                     rawSheet = [headersChuaThucHien, ...rowsChuaThucHien];
@@ -2719,14 +2713,14 @@ export default function DashboardPage() {
                         p.to_ban_do || '',
                         p.so_thua || '',
                         p.thon_xa || 'Chưa rõ thôn',
-                        p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG' ? (p.chu_ho || 'Chưa có tên') : 'Chưa có tên',
+                        p.chu_ho || 'Chưa có tên',
                         (p as any).ngay_sinh || '',
                         (p as any).gioi_tinh || 'Nam',
                         cccdText,
                         p.dien_tich || '0',
                         p.loai_dat || 'DGT',
                         'Khai hoang',
-                        p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG' ? 'Có tên (Chưa kê khai)' : 'Chưa cập nhật / Không có DL'
+                        'Chưa kê khai'
                       ];
                     });
                     rawSheet = [headersChuaThucHien, ...rowsChuaThucHien];
@@ -2857,17 +2851,7 @@ export default function DashboardPage() {
                       if (st !== reportStatusFilter) return false;
                     }
 
-                    // 4. Lọc thửa Có tên / Không có tên (cho sheet Chưa thực hiện)
-                    if (isChuaThucHienSheet && nameColIdx >= 0 && chuaThucHienNameFilter !== 'ALL') {
-                      const nameVal = String(cellEdits[maThua]?.[nameColIdx] ?? row[nameColIdx] ?? '').trim();
-                      const isNamed =
-                        nameVal &&
-                        nameVal !== 'Chưa có tên' &&
-                        !nameVal.toLowerCase().includes('không có') &&
-                        !nameVal.toLowerCase().includes('chưa có');
-                      if (chuaThucHienNameFilter === 'CO_TEN' && !isNamed) return false;
-                      if (chuaThucHienNameFilter === 'CHUA_CO_TEN' && isNamed) return false;
-                    }
+
 
                     // 5. Lọc theo danh sách Mã thửa đã chọn từ dropdown Excel (cho sheet Chưa thực hiện)
                     if (isChuaThucHienSheet && appliedMaThuas.size > 0) {
@@ -3275,34 +3259,7 @@ export default function DashboardPage() {
                         isLight ? 'bg-slate-50/80 border-slate-200' : 'bg-slate-950/60 border-slate-800'
                       }`}>
                         <div className="flex flex-wrap items-center gap-2">
-                          {/* 1. LỌC THỬA CÓ TÊN / KHÔNG CÓ TÊN (ở mục Chưa thực hiện) */}
-                          {isChuaThucHienSheet && (
-                            <div className="flex items-center gap-1.5">
-                              <span className={`text-[11px] font-bold ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>
-                                Chủ đất:
-                              </span>
-                              <select
-                                value={chuaThucHienNameFilter}
-                                onChange={(e) => {
-                                  setChuaThucHienNameFilter(e.target.value as any);
-                                  setReportPage(1);
-                                }}
-                                className={`text-xs px-2.5 py-1.5 rounded-xl border font-bold transition focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                                  chuaThucHienNameFilter !== 'ALL'
-                                    ? isLight
-                                      ? 'bg-emerald-100 border-emerald-400 text-emerald-900'
-                                      : 'bg-emerald-950/70 border-emerald-500/50 text-emerald-200'
-                                    : isLight
-                                    ? 'bg-white border-slate-300 text-slate-800'
-                                    : 'bg-slate-900 border-slate-700 text-slate-200'
-                                }`}
-                              >
-                                <option value="ALL">Tất cả ({allRows.length})</option>
-                                <option value="CO_TEN">Có tên ({countCoTen})</option>
-                                <option value="CHUA_CO_TEN">Không có tên ({countChuaCoTen})</option>
-                              </select>
-                            </div>
-                          )}
+
 
                           {/* NÚT KÊ KHAI NGAY TRÊN CHỖ BỘ LỌC (cho mục Chưa thực hiện) */}
                           {isChuaThucHienSheet && (
