@@ -19,6 +19,7 @@ const KEY_ALL_DECLARATIONS = 'declarations/all.json';
 interface StoragePayload {
   declaredCodes: string[];
   declarationsMap: Record<string, any>;
+  cellEdits?: Record<string, Record<number, string>>;
   updatedAt?: string;
 }
 
@@ -58,6 +59,7 @@ async function getDeclarationsFromR2(): Promise<StoragePayload> {
         return {
           declaredCodes: Array.isArray(data.declaredCodes) ? data.declaredCodes : [],
           declarationsMap: data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {},
+          cellEdits: data.cellEdits && typeof data.cellEdits === 'object' ? data.cellEdits : {},
           updatedAt: data.updatedAt || new Date().toISOString(),
         };
       }
@@ -77,6 +79,7 @@ async function getDeclarationsFromR2(): Promise<StoragePayload> {
       return {
         declaredCodes: Array.isArray(data.declaredCodes) ? data.declaredCodes : [],
         declarationsMap: data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {},
+        cellEdits: data.cellEdits && typeof data.cellEdits === 'object' ? data.cellEdits : {},
         updatedAt: data.updatedAt || new Date().toISOString(),
       };
     }
@@ -84,7 +87,7 @@ async function getDeclarationsFromR2(): Promise<StoragePayload> {
     console.warn('Lỗi khi fetch declarations từ public R2:', err);
   }
 
-  return { declaredCodes: [], declarationsMap: {}, updatedAt: new Date().toISOString() };
+  return { declaredCodes: [], declarationsMap: {}, cellEdits: {}, updatedAt: new Date().toISOString() };
 }
 
 // Lưu danh sách phiếu kê khai vào Cloudflare R2
@@ -134,6 +137,7 @@ export async function GET() {
         success: true,
         declaredCodes: data.declaredCodes,
         declarationsMap: data.declarationsMap,
+        cellEdits: data.cellEdits || {},
         updatedAt: data.updatedAt,
       },
       {
@@ -151,10 +155,25 @@ export async function GET() {
   }
 }
 
-// POST: Client (Điện thoại hoặc Máy tính) gửi phiếu kê khai mới lên Cloudflare R2
+// POST: Client (Điện thoại hoặc Máy tính) gửi phiếu kê khai mới hoặc nháp cellEdits lên Cloudflare R2
 export async function POST(request: Request) {
   try {
-    const formData = (await request.json()) as DeclarationFormData;
+    const body: any = await request.json();
+
+    // Đồng bộ nhanh các ô nhập nháp (cellEdits) qua các máy tính khác nhau
+    if (body && body.type === 'cell_edits') {
+      const currentData = await getDeclarationsFromR2();
+      const updatedPayload: StoragePayload = {
+        declaredCodes: currentData.declaredCodes,
+        declarationsMap: currentData.declarationsMap,
+        cellEdits: body.cellEdits || {},
+        updatedAt: new Date().toISOString(),
+      };
+      await saveDeclarationsToR2(updatedPayload);
+      return NextResponse.json({ success: true, cellEdits: updatedPayload.cellEdits });
+    }
+
+    const formData = body as DeclarationFormData;
     if (!formData || !formData.ma_thua) {
       return NextResponse.json({ success: false, error: 'Thiếu mã thửa đất' }, { status: 400 });
     }
@@ -162,6 +181,7 @@ export async function POST(request: Request) {
     const currentData = await getDeclarationsFromR2();
     const declaredCodesSet = new Set<string>(currentData.declaredCodes);
     const declarationsMap = { ...currentData.declarationsMap };
+    const currentCellEdits = { ...(currentData.cellEdits || {}) };
 
     const rootMaThua = formData.ma_thua;
     const previousDecl = declarationsMap[rootMaThua];
@@ -199,12 +219,14 @@ export async function POST(request: Request) {
     targetCodes.forEach((code) => {
       declaredCodesSet.add(code);
       declarationsMap[code] = fullDeclData;
+      delete currentCellEdits[code]; // Đã kê khai chính thức thì xóa khỏi bảng nháp
     });
 
     const updatedCodes = Array.from(declaredCodesSet);
     const updatedPayload: StoragePayload = {
       declaredCodes: updatedCodes,
       declarationsMap,
+      cellEdits: currentCellEdits,
       updatedAt: timestamp,
     };
 
@@ -219,6 +241,7 @@ export async function POST(request: Request) {
       success: true,
       declaredCodes: updatedCodes,
       declarationsMap,
+      cellEdits: currentCellEdits,
       savedParcel: rootMaThua,
     });
   } catch (error: any) {

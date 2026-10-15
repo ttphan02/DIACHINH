@@ -427,7 +427,8 @@ export default function DashboardPage() {
         if (data && data.success && Array.isArray(data.declaredCodes)) {
           if (data.updatedAt && data.updatedAt === lastCloudUpdatedAtRef.current) return;
           const cloudMap = data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {};
-          const sig = JSON.stringify({ codes: data.declaredCodes, map: cloudMap });
+          const cloudEdits = data.cellEdits && typeof data.cellEdits === 'object' ? data.cellEdits : {};
+          const sig = JSON.stringify({ codes: data.declaredCodes, map: cloudMap, edits: cloudEdits });
           if (sig === lastCloudSigRef.current) {
             if (data.updatedAt) lastCloudUpdatedAtRef.current = data.updatedAt;
             return;
@@ -439,6 +440,20 @@ export default function DashboardPage() {
           const cloudCodesSet = new Set<string>(data.declaredCodes);
           setDeclaredParcelCodes(cloudCodesSet);
           setDeclarationsMap(cloudMap);
+
+          // Đồng bộ các ô đang nhập nháp (cellEdits) từ Cloud R2
+          setCellEdits((prev) => {
+            const merged: Record<string, Record<number, string>> = { ...cloudEdits };
+            for (const code of Object.keys(prev)) {
+              if (!cloudCodesSet.has(code) && prev[code]) {
+                merged[code] = { ...(merged[code] || {}), ...prev[code] };
+              }
+            }
+            try {
+              localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(merged));
+            } catch (e) {}
+            return merged;
+          });
 
           if (typeof window !== 'undefined') {
             try {
@@ -513,6 +528,25 @@ export default function DashboardPage() {
     }
   };
 
+  const cellEditsSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const syncCellEditsToCloud = useCallback((edits: Record<string, Record<number, string>>) => {
+    if (cellEditsSyncTimeoutRef.current) {
+      clearTimeout(cellEditsSyncTimeoutRef.current);
+    }
+    cellEditsSyncTimeoutRef.current = setTimeout(async () => {
+      try {
+        await fetch('/api/declarations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'cell_edits', cellEdits: edits }),
+        });
+      } catch (err) {
+        console.warn('Lỗi đồng bộ cellEdits lên R2:', err);
+      }
+    }, 600);
+  }, []);
+
   // Cập nhật giá trị ô trực tiếp khi người dùng gõ phím
   const handleInlineCellChange = (maThua: string, colIdx: number, val: string) => {
     setCellEdits((prev) => {
@@ -526,6 +560,7 @@ export default function DashboardPage() {
       try {
         localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
       } catch {}
+      syncCellEditsToCloud(next);
       return next;
     });
   };
@@ -558,6 +593,7 @@ export default function DashboardPage() {
     // thì thửa đất tự động biến mất và nhảy sang "THỬA ĐANG KÊ KHAI" hoặc "THỬA SẲN SÀNG ĐÓNG TẬP".
     // Chỉ khi người dùng chủ động bấm nút "Kê khai" trên dòng thì mới chính thức chuyển dữ liệu!
     if (selectedReportSheet === 'CHƯA THỰC HIỆN') {
+      syncCellEditsToCloud(cellEdits);
       return;
     }
 
@@ -697,6 +733,7 @@ export default function DashboardPage() {
       try {
         localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
       } catch {}
+      syncCellEditsToCloud(next);
       return next;
     });
 
