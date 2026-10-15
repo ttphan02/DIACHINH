@@ -66,6 +66,7 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
 
     const shuffledKeys = [...keys].sort(() => Math.random() - 0.5);
     let lastError = '';
+    const debugLogs: string[] = [];
 
     for (const apiKey of shuffledKeys.slice(0, 6)) {
       for (const model of candidateModels) {
@@ -110,18 +111,28 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
           if (!res.ok) {
             const errText = await res.text().catch(() => '');
             lastError = `${model} HTTP ${res.status}: ${errText.slice(0, 80)}`;
+            debugLogs.push(lastError);
             continue;
           }
 
           const data: any = await res.json();
-          const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+          // Ghép toàn bộ text từ tất cả parts (vì các model thinking có thể để text ở part 2)
+          const rawText = (data.candidates?.[0]?.content?.parts || [])
+            .map((p: any) => p.text || '')
+            .filter(Boolean)
+            .join('\n')
+            .trim();
+
+          debugLogs.push(`${model} 200: textLen=${rawText.length}`);
 
           let parsed: any = null;
           try {
             parsed = JSON.parse(rawText);
           } catch {
-            const match = rawText.match(/\{[\s\S]*\}/);
-            if (match) parsed = JSON.parse(match[0]);
+            const match = rawText.match(/\{[\s\S]*?\}/);
+            if (match) {
+              try { parsed = JSON.parse(match[0]); } catch {}
+            }
           }
 
           let rawCccd = '';
@@ -148,11 +159,21 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
             ).replace(/["']/g, '').trim().toUpperCase();
           }
 
-          // Dự phòng tìm số 12 số hoặc 9 số trực tiếp từ text
+          // Dự phòng trích xuất trực tiếp bằng regex từ toàn bộ chuỗi
           if (!rawCccd || rawCccd.length < 9) {
-            const digitMatch = rawText.match(/\b\d{12}\b/) || rawText.match(/\b\d{9}\b/);
-            if (digitMatch) {
-              rawCccd = digitMatch[0];
+            const jsonCccdMatch = rawText.match(/"so_cccd"\s*:\s*"(\d+)"/i);
+            if (jsonCccdMatch) {
+              rawCccd = jsonCccdMatch[1];
+            } else {
+              const digitMatch = rawText.match(/\b\d{12}\b/) || rawText.match(/\b\d{9}\b/);
+              if (digitMatch) rawCccd = digitMatch[0];
+            }
+          }
+
+          if (!rawName) {
+            const jsonNameMatch = rawText.match(/"ho_va_ten"\s*:\s*"([^"\\]+)"/i);
+            if (jsonNameMatch) {
+              rawName = jsonNameMatch[1].trim().toUpperCase();
             }
           }
 
@@ -167,12 +188,17 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
           }
         } catch (err: any) {
           lastError = err.message || 'Lỗi gọi AI';
+          debugLogs.push(lastError);
         }
       }
     }
 
     return NextResponse.json(
-      { success: false, error: `Không thể đọc CCCD tự động (${lastError || 'Ảnh mờ hoặc không nhận diện được chữ'})` },
+      {
+        success: false,
+        error: `Không thể đọc CCCD tự động (${lastError || 'Ảnh mờ hoặc không nhận diện được chữ'})`,
+        debugLogs,
+      },
       { status: 200 }
     );
   } catch (error: any) {
