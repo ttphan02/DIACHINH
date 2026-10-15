@@ -19,14 +19,89 @@ export function cleanCccd(val: any): string {
   return digits;
 }
 
-// Chuẩn hóa tên (bỏ dấu cách thừa, viết hoa chữ cái đầu)
+// Lọc và loại bỏ toàn bộ danh xưng như: Ông, Bà, Hộ ông, Hộ bà, Hộ, Vợ chồng ông...
+export function stripHonorifics(name: any): string {
+  if (!name) return '';
+  let s = String(name).trim();
+
+  // Pattern khớp các tiền tố danh xưng ở đầu chuỗi (kể cả có dấu hai chấm, gạch nối, dấu phẩy)
+  // Ví dụ: "Hộ gia đình ông", "Hộ ông", "Hộ bà", "Vợ chồng ông", "Hộ:", "Ông", "Bà",...
+  const honorificRegex = /^(hộ\s+gia\s+đình\s+(ông|bà)?|hộ\s+gđ\s+(ông|bà)?|hộ\s+gđ|vợ\s+chồng\s+(ông|bà)?|vợ\s+chồng|hộ\s+(ông|bà)|hộ|ông|bà|ong|ba|ho\s+ong|ho\s+ba|ho|anh|chị|cô|chú|bác)[\s:,\.\-_/]+/i;
+
+  let prev = '';
+  // Lặp để xử lý trường hợp lồng nhau, vd: "Hộ: Ông Nguyễn Văn A" -> "Ông Nguyễn Văn A" -> "Nguyễn Văn A"
+  while (s !== prev && honorificRegex.test(s)) {
+    prev = s;
+    s = s.replace(honorificRegex, '').trim();
+  }
+
+  // Trường hợp từ đầu tiên là Ông / Bà đứng riêng: "Ông Nguyễn Văn A"
+  s = s.replace(/^(ông|bà|ong|ba|hộ|ho)\s+/i, '').trim();
+
+  return s;
+}
+
+// Chuẩn hóa tên (lọc bỏ toàn bộ danh xưng, bỏ dấu cách thừa, viết hoa chữ cái đầu từng từ)
 export function cleanName(name: any): string {
   if (!name) return '';
-  return String(name)
+  const stripped = stripHonorifics(name);
+  return stripped
     .trim()
     .split(/\s+/)
+    .filter(Boolean)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
     .join(' ');
+}
+
+// Làm sạch danh xưng trong mô tả tứ cận (giáp ranh)
+export function cleanBoundaryText(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/\b(hộ\s+ông|hộ\s+bà|vợ\s+chồng\s+ông|vợ\s+chồng\s+bà|ông|bà)\s+/gi, '')
+    .trim();
+}
+
+// 4 tùy chọn nguồn gốc sử dụng đất chuẩn hóa
+export const NGUON_GOC_OPTIONS = [
+  'Khai Hoang',
+  'Thừa Kế',
+  'Tặng Cho',
+  'Chuyển Nhượng',
+] as const;
+
+export type NguonGocChuan = typeof NGUON_GOC_OPTIONS[number];
+
+// Chuẩn hóa nguồn gốc sử dụng đất về 1 trong 4 nhóm
+export function normalizeNguonGoc(val?: string): NguonGocChuan {
+  if (!val) return 'Khai Hoang';
+  const s = stripAccents(val).toLowerCase();
+  if (s.includes('thua ke')) return 'Thừa Kế';
+  if (s.includes('tang cho')) return 'Tặng Cho';
+  if (s.includes('chuyen nhuong')) return 'Chuyển Nhượng';
+  return 'Khai Hoang';
+}
+
+// Kiểm tra tính hợp lệ của CCCD: đúng 12 chữ số (hoặc 9 số CMND)
+export function isValidCccd(cccd: string): boolean {
+  if (!cccd) return false;
+  const digits = cccd.replace(/\D/g, '');
+  return digits.length === 12 || digits.length === 9;
+}
+
+// Kiểm tra tính hợp lệ của năm sinh (4 chữ số, từ 1920 đến năm hiện tại)
+export function isValidBirthYear(year: string): boolean {
+  if (!year) return false;
+  const y = parseInt(year.trim(), 10);
+  const currentYear = new Date().getFullYear();
+  return !isNaN(y) && /^\d{4}$/.test(year.trim()) && y >= 1920 && y <= currentYear;
+}
+
+// Kiểm tra họ và tên hợp lệ (tối thiểu 2 từ, không rỗng)
+export function isValidFullName(name: string): boolean {
+  if (!name) return false;
+  const cleaned = cleanName(name);
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  return words.length >= 2;
 }
 
 // Chuẩn hóa địa chỉ thôn/buôn

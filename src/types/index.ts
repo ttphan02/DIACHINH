@@ -53,7 +53,16 @@ export interface AutoBoundariesResult {
 
 export type DeclarationMode = 'SELF' | 'SURVEYOR';
 
-export type NguonGocSuDung = 'Khai hoang' | 'Nhận Thừa Kế' | 'Nhận Tặng Cho';
+export type NguonGocSuDung =
+  | 'Khai Hoang'
+  | 'Thừa Kế'
+  | 'Tặng Cho'
+  | 'Chuyển Nhượng'
+  | 'Khai hoang'
+  | 'Nhận Thừa Kế'
+  | 'Nhận Tặng Cho'
+  | 'Nhận chuyển nhượng'
+  | string;
 
 export interface AdditionalParcel {
   ma_thua: string;

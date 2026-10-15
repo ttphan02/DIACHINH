@@ -37,6 +37,16 @@ import CccdImageEditorModal from '@/components/CccdImageEditorModal';
 import { AdditionalParcel } from '@/types';
 import { cleanCccd } from '@/utils/syncGoogleSheets';
 import { getOrCreateDeviceId } from '@/utils/declaration';
+import {
+  cleanName,
+  stripHonorifics,
+  cleanBoundaryText,
+  NGUON_GOC_OPTIONS,
+  normalizeNguonGoc,
+  isValidCccd,
+  isValidBirthYear,
+  isValidFullName,
+} from '@/utils/textHelpers';
 
 interface ParcelDetailPanelProps {
   parcel: Parcel | null;
@@ -155,6 +165,7 @@ export default function ParcelDetailPanel({
   const [chuDatGioiTinh, setChuDatGioiTinh] = useState<'Nam' | 'Nữ'>('Nam');
   const [chuDatCccd, setChuDatCccd] = useState('');
   const [chuDatDiaChi, setChuDatDiaChi] = useState('');
+  const [formSubmitted, setFormSubmitted] = useState(false);
 
   // Tự động kiểm tra xem số CCCD đã có file ảnh trên DB hay chưa
   const [cccdCheckResult, setCccdCheckResult] = useState<{ exists: boolean; filename?: string; url?: string } | null>(null);
@@ -297,7 +308,8 @@ export default function ParcelDetailPanel({
         
         const declNameValid = currentDeclaration.chu_dat_ten && !isInvalidOwnerName(currentDeclaration.chu_dat_ten);
         const parcelNameValid = parcel.chu_ho && !isInvalidOwnerName(parcel.chu_ho);
-        setChuDatTen(declNameValid ? currentDeclaration.chu_dat_ten : (parcelNameValid ? parcel.chu_ho : ''));
+        const rawName = declNameValid ? currentDeclaration.chu_dat_ten : (parcelNameValid ? parcel.chu_ho : '');
+        setChuDatTen(cleanName(rawName));
         
         setChuDatNamSinh(
           currentDeclaration.chu_dat_nam_sinh ||
@@ -310,32 +322,33 @@ export default function ParcelDetailPanel({
             ? 'Nữ'
             : 'Nam'
         );
-        setChuDatCccd(currentDeclaration.chu_dat_cccd || parcel.cccd || '');
+        setChuDatCccd(cleanCccd(currentDeclaration.chu_dat_cccd || parcel.cccd || ''));
         setChuDatDiaChi(formatThonAddress(currentDeclaration.chu_dat_dia_chi, parcel.thon_xa));
-        setNguonGocSuDung(currentDeclaration.nguon_goc_su_dung || 'Khai hoang');
-        setGiapDong(currentDeclaration.giap_dong || parcel.giap_dong || '');
-        setGiapTay(currentDeclaration.giap_tay || parcel.giap_tay || '');
-        setGiapNam(currentDeclaration.giap_nam || parcel.giap_nam || '');
-        setGiapBac(currentDeclaration.giap_bac || parcel.giap_bac || '');
+        setNguonGocSuDung(normalizeNguonGoc(currentDeclaration.nguon_goc_su_dung));
+        setGiapDong(cleanBoundaryText(currentDeclaration.giap_dong || parcel.giap_dong || ''));
+        setGiapTay(cleanBoundaryText(currentDeclaration.giap_tay || parcel.giap_tay || ''));
+        setGiapNam(cleanBoundaryText(currentDeclaration.giap_nam || parcel.giap_nam || ''));
+        setGiapBac(cleanBoundaryText(currentDeclaration.giap_bac || parcel.giap_bac || ''));
         setGhiChu(currentDeclaration.ghi_chu || '');
       } else {
         setMode('SELF');
         setNguoiKeKhaiTen('');
         setNguoiKeKhaiSdt('');
-        setGiapDong(parcel.giap_dong || '');
-        setGiapTay(parcel.giap_tay || '');
-        setGiapNam(parcel.giap_nam || '');
-        setGiapBac(parcel.giap_bac || '');
+        setGiapDong(cleanBoundaryText(parcel.giap_dong || ''));
+        setGiapTay(cleanBoundaryText(parcel.giap_tay || ''));
+        setGiapNam(cleanBoundaryText(parcel.giap_nam || ''));
+        setGiapBac(cleanBoundaryText(parcel.giap_bac || ''));
         setGhiChu('');
         
         const parcelNameValid = parcel.chu_ho && !isInvalidOwnerName(parcel.chu_ho);
-        setChuDatTen(parcelNameValid ? parcel.chu_ho : '');
+        setChuDatTen(cleanName(parcelNameValid ? parcel.chu_ho : ''));
         setChuDatNamSinh('');
         setChuDatGioiTinh(parcel.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
-        setChuDatCccd(parcel.cccd || '');
+        setChuDatCccd(cleanCccd(parcel.cccd || ''));
         setChuDatDiaChi(formatThonAddress(undefined, parcel.thon_xa));
-        setNguonGocSuDung('Khai hoang');
+        setNguonGocSuDung('Khai Hoang');
       }
+      setFormSubmitted(false);
       setLyDoBaoSai('');
       setSavedSuccess(false);
       setCorrectionSuccess(false);
@@ -489,18 +502,41 @@ export default function ParcelDetailPanel({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormSubmitted(true);
+    const cleanedTen = cleanName(chuDatTen);
+    const cleanedNamSinh = chuDatNamSinh.trim();
+    const cleanedCccd = chuDatCccd.replace(/\D/g, '').slice(0, 12);
+    const cleanedDiaChi = chuDatDiaChi.trim();
+
+    if (!isValidFullName(cleanedTen)) {
+      alert('Vui lòng nhập đầy đủ Họ và tên cá nhân (tối thiểu 2 từ, không gồm danh xưng).');
+      return;
+    }
+    if (cleanedNamSinh && !isValidBirthYear(cleanedNamSinh)) {
+      alert('Năm sinh không hợp lệ. Vui lòng nhập đúng 4 chữ số (ví dụ: 1985).');
+      return;
+    }
+    if (cleanedCccd && !isValidCccd(cleanedCccd)) {
+      alert(`Số CCCD chưa đủ 12 chữ số (đang có ${cleanedCccd.length}/12 số). Vui lòng nhập đủ 12 chữ số.`);
+      return;
+    }
+    if (!cleanedDiaChi) {
+      alert('Vui lòng nhập địa chỉ thường trú.');
+      return;
+    }
+
     onSaveDeclaration({
       ma_thua: parcel.ma_thua,
-      chu_dat_ten: chuDatTen.trim(),
-      chu_dat_nam_sinh: chuDatNamSinh.trim(),
+      chu_dat_ten: cleanedTen,
+      chu_dat_nam_sinh: cleanedNamSinh,
       chu_dat_gioi_tinh: chuDatGioiTinh,
-      chu_dat_cccd: chuDatCccd.trim(),
-      chu_dat_dia_chi: chuDatDiaChi.trim(),
-      nguon_goc_su_dung: nguonGocSuDung,
-      giap_dong: giapDong,
-      giap_tay: giapTay,
-      giap_nam: giapNam,
-      giap_bac: giapBac,
+      chu_dat_cccd: cleanedCccd,
+      chu_dat_dia_chi: cleanedDiaChi,
+      nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung),
+      giap_dong: cleanBoundaryText(giapDong),
+      giap_tay: cleanBoundaryText(giapTay),
+      giap_nam: cleanBoundaryText(giapNam),
+      giap_bac: cleanBoundaryText(giapBac),
       anh_cccd_truoc: cccdUploadedFiles[0]?.url,
       anh_cccd_sau: cccdUploadedFiles[1]?.url,
       anh_gcn: gcnUploadedFiles[0]?.url,
@@ -515,18 +551,41 @@ export default function ParcelDetailPanel({
 
   const handleCorrectionSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormSubmitted(true);
+    const cleanedTen = cleanName(chuDatTen);
+    const cleanedNamSinh = chuDatNamSinh.trim();
+    const cleanedCccd = chuDatCccd.replace(/\D/g, '').slice(0, 12);
+    const cleanedDiaChi = chuDatDiaChi.trim();
+
+    if (!isValidFullName(cleanedTen)) {
+      alert('Vui lòng nhập đầy đủ Họ và tên cá nhân (tối thiểu 2 từ, không gồm danh xưng).');
+      return;
+    }
+    if (cleanedNamSinh && !isValidBirthYear(cleanedNamSinh)) {
+      alert('Năm sinh không hợp lệ. Vui lòng nhập đúng 4 chữ số (ví dụ: 1985).');
+      return;
+    }
+    if (cleanedCccd && !isValidCccd(cleanedCccd)) {
+      alert(`Số CCCD chưa đủ 12 chữ số (đang có ${cleanedCccd.length}/12 số). Vui lòng nhập đủ 12 chữ số.`);
+      return;
+    }
+    if (!cleanedDiaChi) {
+      alert('Vui lòng nhập địa chỉ thường trú.');
+      return;
+    }
+
     onSaveDeclaration({
       ma_thua: parcel.ma_thua,
-      chu_dat_ten: chuDatTen.trim(),
-      chu_dat_nam_sinh: chuDatNamSinh.trim(),
+      chu_dat_ten: cleanedTen,
+      chu_dat_nam_sinh: cleanedNamSinh,
       chu_dat_gioi_tinh: chuDatGioiTinh,
-      chu_dat_cccd: chuDatCccd.trim(),
-      chu_dat_dia_chi: chuDatDiaChi.trim(),
-      nguon_goc_su_dung: nguonGocSuDung,
-      giap_dong: giapDong,
-      giap_tay: giapTay,
-      giap_nam: giapNam,
-      giap_bac: giapBac,
+      chu_dat_cccd: cleanedCccd,
+      chu_dat_dia_chi: cleanedDiaChi,
+      nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung),
+      giap_dong: cleanBoundaryText(giapDong),
+      giap_tay: cleanBoundaryText(giapTay),
+      giap_nam: cleanBoundaryText(giapNam),
+      giap_bac: cleanBoundaryText(giapBac),
       anh_cccd_truoc: cccdUploadedFiles[0]?.url,
       anh_cccd_sau: cccdUploadedFiles[1]?.url,
       anh_gcn: gcnUploadedFiles[0]?.url,
@@ -1190,9 +1249,19 @@ export default function ParcelDetailPanel({
                     required
                     value={chuDatTen}
                     onChange={(e) => setChuDatTen(e.target.value)}
+                    onBlur={() => setChuDatTen(cleanName(chuDatTen))}
                     placeholder="Họ và tên chủ đất chuẩn *"
-                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    className={`w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none focus:ring-2 font-bold uppercase transition ${
+                      formSubmitted && !isValidFullName(chuDatTen)
+                        ? 'border-red-500 bg-red-50/20 text-red-900 focus:ring-red-400'
+                        : 'border-gray-300 focus:ring-amber-500'
+                    }`}
                   />
+                  {formSubmitted && !isValidFullName(chuDatTen) && (
+                    <p className="mt-1 text-[10px] text-red-500 font-medium">
+                      {!chuDatTen.trim() ? 'Vui lòng nhập họ và tên' : 'Họ và tên tối thiểu 2 từ (đã loại bỏ danh xưng)'}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-0.5">
@@ -1205,28 +1274,28 @@ export default function ParcelDetailPanel({
                         </span>
                       )}
                     </label>
-                    {cccdCheckResult?.exists && cccdCheckResult.url && (
-                      <a
-                        href={cccdCheckResult.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[10px] text-emerald-800 underline font-bold"
-                      >
-                        Xem file
-                      </a>
-                    )}
+                    <span className={`text-[10px] font-mono ${chuDatCccd.replace(/\D/g, '').length === 12 ? 'text-emerald-600 font-bold' : 'text-slate-400'}`}>
+                      {chuDatCccd.replace(/\D/g, '').length}/12
+                    </span>
                   </div>
                   <input
                     type="text"
                     value={chuDatCccd}
-                    onChange={(e) => setChuDatCccd(e.target.value)}
-                    placeholder="Số CCCD chuẩn"
-                    className={`w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none transition ${
-                      cccdCheckResult?.exists
+                    onChange={(e) => setChuDatCccd(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                    placeholder="Số CCCD chuẩn (12 số)"
+                    className={`w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none transition font-mono font-bold tracking-wider ${
+                      chuDatCccd.length > 0 && !isValidCccd(chuDatCccd)
+                        ? 'border-red-500 bg-red-50/20 text-red-900 ring-1 ring-red-400'
+                        : cccdCheckResult?.exists
                         ? 'border-emerald-500 bg-emerald-50/30 text-emerald-950 ring-2 ring-emerald-500/20'
                         : 'border-gray-300 focus:ring-2 focus:ring-amber-500'
                     }`}
                   />
+                  {chuDatCccd.length > 0 && !isValidCccd(chuDatCccd) && (
+                    <p className="mt-1 text-[10px] text-red-500 font-medium">
+                      CCCD cần đúng 12 chữ số (hiện có {chuDatCccd.replace(/\D/g, '').length}/12 số)
+                    </p>
+                  )}
                   {isCheckingCccd && (
                     <div className="mt-1 text-[10px] text-slate-400 flex items-center gap-1">
                       <Loader2 className="w-2.5 h-2.5 animate-spin" />
@@ -1478,16 +1547,27 @@ export default function ParcelDetailPanel({
                 {/* Họ tên */}
                 <div>
                   <label className="text-[11px] font-bold text-gray-700 block mb-1">
-                    Họ và tên <span className="text-red-500">*</span>
+                    Họ và tên cá nhân <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     required
                     value={chuDatTen}
                     onChange={(e) => setChuDatTen(e.target.value)}
+                    onBlur={() => setChuDatTen(cleanName(chuDatTen))}
                     placeholder="Nhập họ và tên cá nhân..."
-                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold uppercase"
+                    className={`w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none font-bold uppercase transition ${
+                      (formSubmitted || (chuDatTen.length > 0 && chuDatTen.trim().split(/\s+/).length < 2)) && !isValidFullName(chuDatTen)
+                        ? 'border-red-500 bg-red-50/20 text-red-900 focus:ring-2 focus:ring-red-400 ring-1 ring-red-400'
+                        : 'border-gray-300 focus:ring-2 focus:ring-blue-500'
+                    }`}
                   />
+                  {(formSubmitted || (chuDatTen.length > 0 && chuDatTen.trim().split(/\s+/).length < 2)) && !isValidFullName(chuDatTen) && (
+                    <p className="mt-1 text-[11px] text-red-600 font-medium flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      {!chuDatTen.trim() ? 'Vui lòng nhập họ và tên cá nhân' : 'Họ và tên tối thiểu 2 từ (đã tự động lọc bỏ danh xưng)'}
+                    </p>
+                  )}
                 </div>
 
                 {/* Năm sinh & Giới tính */}
@@ -1500,10 +1580,20 @@ export default function ParcelDetailPanel({
                       type="text"
                       required
                       value={chuDatNamSinh}
-                      onChange={(e) => setChuDatNamSinh(e.target.value)}
+                      onChange={(e) => setChuDatNamSinh(e.target.value.replace(/\D/g, '').slice(0, 4))}
                       placeholder="Vd: 1985..."
-                      className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                      className={`w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none font-medium transition ${
+                        (formSubmitted && !chuDatNamSinh.trim()) || (chuDatNamSinh.length > 0 && !isValidBirthYear(chuDatNamSinh))
+                          ? 'border-red-500 bg-red-50/20 text-red-900 focus:ring-2 focus:ring-red-400 ring-1 ring-red-400'
+                          : 'border-gray-300 focus:ring-2 focus:ring-blue-500'
+                      }`}
                     />
+                    {((formSubmitted && !chuDatNamSinh.trim()) || (chuDatNamSinh.length > 0 && !isValidBirthYear(chuDatNamSinh))) && (
+                      <p className="mt-1 text-[10px] text-red-600 font-medium flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        {!chuDatNamSinh.trim() ? 'Nhập năm sinh (4 số)' : 'Năm sinh 4 số (1920 - nay)'}
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -1550,26 +1640,33 @@ export default function ParcelDetailPanel({
                         </span>
                       )}
                     </label>
-                    {cccdCheckResult?.exists && cccdCheckResult.url && (
-                      <a
-                        href={cccdCheckResult.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[10px] text-emerald-700 hover:text-emerald-900 underline font-bold"
-                      >
-                        Xem file CCCD
-                      </a>
-                    )}
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[11px] font-mono font-bold ${chuDatCccd.replace(/\D/g, '').length === 12 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                        {chuDatCccd.replace(/\D/g, '').length}/12
+                      </span>
+                      {cccdCheckResult?.exists && cccdCheckResult.url && (
+                        <a
+                          href={cccdCheckResult.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] text-emerald-700 hover:text-emerald-900 underline font-bold"
+                        >
+                          Xem file
+                        </a>
+                      )}
+                    </div>
                   </div>
                   <div className="relative">
                     <input
                       type="text"
                       required
                       value={chuDatCccd}
-                      onChange={(e) => setChuDatCccd(e.target.value)}
+                      onChange={(e) => setChuDatCccd(e.target.value.replace(/\D/g, '').slice(0, 12))}
                       placeholder="Nhập 12 chữ số CCCD..."
                       className={`w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none font-mono font-bold tracking-wider transition ${
-                        cccdCheckResult?.exists
+                        (formSubmitted && !chuDatCccd.trim()) || (chuDatCccd.length > 0 && !isValidCccd(chuDatCccd))
+                          ? 'border-red-500 bg-red-50/20 text-red-900 focus:ring-2 focus:ring-red-400 ring-1 ring-red-400'
+                          : cccdCheckResult?.exists
                           ? 'border-emerald-500 bg-emerald-50/20 text-emerald-950 ring-2 ring-emerald-500/20'
                           : 'border-gray-300 focus:ring-2 focus:ring-blue-500'
                       }`}
@@ -1580,6 +1677,12 @@ export default function ParcelDetailPanel({
                       </div>
                     )}
                   </div>
+                  {((formSubmitted && !chuDatCccd.trim()) || (chuDatCccd.length > 0 && !isValidCccd(chuDatCccd))) && (
+                    <p className="mt-1 text-[11px] text-red-600 font-medium flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      {!chuDatCccd.trim() ? 'Vui lòng nhập số CCCD (12 chữ số)' : `Số CCCD phải gồm đúng 12 chữ số (đang có ${chuDatCccd.replace(/\D/g, '').length}/12 số)`}
+                    </p>
+                  )}
                 </div>
 
                 {/* Địa chỉ thường trú */}
@@ -1593,8 +1696,18 @@ export default function ParcelDetailPanel({
                     value={chuDatDiaChi}
                     onChange={(e) => setChuDatDiaChi(e.target.value)}
                     placeholder="Thôn / Buôn, Xã Cư Pui, Huyện Krông Bông..."
-                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className={`w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none transition ${
+                      formSubmitted && !chuDatDiaChi.trim()
+                        ? 'border-red-500 bg-red-50/20 text-red-900 focus:ring-2 focus:ring-red-400 ring-1 ring-red-400'
+                        : 'border-gray-300 focus:ring-2 focus:ring-blue-500'
+                    }`}
                   />
+                  {formSubmitted && !chuDatDiaChi.trim() && (
+                    <p className="mt-1 text-[11px] text-red-600 font-medium flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      Vui lòng nhập địa chỉ thường trú
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1603,16 +1716,16 @@ export default function ParcelDetailPanel({
             <div className="p-3 bg-white border border-gray-200 rounded-xl shadow-2xs space-y-2 text-xs">
               <label className="text-[11px] font-bold text-gray-700 flex items-center justify-between">
                 <span>Nguồn gốc sử dụng đất <span className="text-red-500">*</span></span>
-                <span className="text-[10px] text-blue-600 font-semibold">{nguonGocSuDung}</span>
+                <span className="text-[10px] text-blue-600 font-bold">{normalizeNguonGoc(nguonGocSuDung)}</span>
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                {(['Khai hoang', 'Nhận Thừa Kế', 'Nhận Tặng Cho', 'Nhận chuyển nhượng'] as const).map((opt) => (
+                {NGUON_GOC_OPTIONS.map((opt) => (
                   <button
                     key={opt}
                     type="button"
                     onClick={() => setNguonGocSuDung(opt)}
                     className={`py-2 px-1 rounded-lg border text-xs font-bold transition text-center cursor-pointer ${
-                      nguonGocSuDung === opt
+                      normalizeNguonGoc(nguonGocSuDung) === opt
                         ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
                         : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
                     }`}

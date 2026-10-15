@@ -15,9 +15,19 @@ import {
   Eye,
   CheckCircle2,
   Navigation,
-  Loader2
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { cleanCccd } from '@/utils/syncGoogleSheets';
+import {
+  cleanName,
+  cleanBoundaryText,
+  NGUON_GOC_OPTIONS,
+  normalizeNguonGoc,
+  isValidCccd,
+  isValidBirthYear,
+  isValidFullName,
+} from '@/utils/textHelpers';
 
 interface ParcelDetailModalProps {
   parcel: Parcel | null;
@@ -77,12 +87,13 @@ export default function ParcelDetailModal({
   };
 
   const parcelNameValid = parcel?.chu_ho && !isInvalidOwnerName(parcel.chu_ho);
-  const [chuDatTen, setChuDatTen] = useState(parcelNameValid ? parcel!.chu_ho : '');
+  const [chuDatTen, setChuDatTen] = useState(cleanName(parcelNameValid ? parcel!.chu_ho : ''));
   const [chuDatNamSinh, setChuDatNamSinh] = useState('');
   const [chuDatGioiTinh, setChuDatGioiTinh] = useState<'Nam' | 'Nữ'>(
     parcel?.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam'
   );
   const [chuDatCccd, setChuDatCccd] = useState(parcel?.cccd || '');
+  const [formSubmitted, setFormSubmitted] = useState(false);
   const [cccdCheckResult, setCccdCheckResult] = useState<{ exists: boolean; filename?: string; url?: string; message?: string } | null>(null);
   const [isCheckingCccd, setIsCheckingCccd] = useState(false);
 
@@ -112,7 +123,7 @@ export default function ParcelDetailModal({
   }, [chuDatCccd]);
 
   const [chuDatDiaChi, setChuDatDiaChi] = useState(formatThonAddress(parcel?.thon_xa));
-  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai hoang');
+  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai Hoang');
   const [ghiChu, setGhiChu] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -143,7 +154,7 @@ export default function ParcelDetailModal({
   };
 
   const handleApplyNeighborToBoundary = (direction: 'dong' | 'tay' | 'nam' | 'bac', neighbor: NeighborParcel) => {
-    const text = `Thửa ${neighbor.so_thua} (Tờ ${neighbor.to_ban_do}) - ${neighbor.chu_ho || 'Chưa rõ'}`;
+    const text = `Thửa ${neighbor.so_thua} (Tờ ${neighbor.to_ban_do}) - ${cleanName(neighbor.chu_ho) || 'Chưa rõ'}`;
     if (direction === 'dong') setGiapDong(text);
     if (direction === 'tay') setGiapTay(text);
     if (direction === 'nam') setGiapNam(text);
@@ -152,19 +163,42 @@ export default function ParcelDetailModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormSubmitted(true);
+    const cleanedTen = cleanName(chuDatTen);
+    const cleanedNamSinh = chuDatNamSinh.trim();
+    const cleanedCccd = chuDatCccd.replace(/\D/g, '').slice(0, 12);
+    const cleanedDiaChi = chuDatDiaChi.trim();
+
+    if (!isValidFullName(cleanedTen)) {
+      alert('Vui lòng nhập đầy đủ Họ và tên cá nhân (tối thiểu 2 từ, không gồm danh xưng).');
+      return;
+    }
+    if (cleanedNamSinh && !isValidBirthYear(cleanedNamSinh)) {
+      alert('Năm sinh không hợp lệ. Vui lòng nhập đúng 4 chữ số (ví dụ: 1985).');
+      return;
+    }
+    if (cleanedCccd && !isValidCccd(cleanedCccd)) {
+      alert(`Số CCCD chưa đủ 12 chữ số (đang có ${cleanedCccd.length}/12 số). Vui lòng nhập đủ 12 chữ số.`);
+      return;
+    }
+    if (!cleanedDiaChi) {
+      alert('Vui lòng nhập địa chỉ thường trú.');
+      return;
+    }
+
     onSaveDeclaration({
       ma_thua: parcel.ma_thua,
       mode: 'SELF',
-      chu_dat_ten: chuDatTen,
-      chu_dat_nam_sinh: chuDatNamSinh,
+      chu_dat_ten: cleanedTen,
+      chu_dat_nam_sinh: cleanedNamSinh,
       chu_dat_gioi_tinh: chuDatGioiTinh,
-      chu_dat_cccd: chuDatCccd,
-      chu_dat_dia_chi: chuDatDiaChi,
-      nguon_goc_su_dung: nguonGocSuDung,
-      giap_dong: giapDong,
-      giap_tay: giapTay,
-      giap_nam: giapNam,
-      giap_bac: giapBac,
+      chu_dat_cccd: cleanedCccd,
+      chu_dat_dia_chi: cleanedDiaChi,
+      nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung),
+      giap_dong: cleanBoundaryText(giapDong),
+      giap_tay: cleanBoundaryText(giapTay),
+      giap_nam: cleanBoundaryText(giapNam),
+      giap_bac: cleanBoundaryText(giapBac),
       ghi_chu: ghiChu,
     });
     setSavedSuccess(true);
@@ -440,9 +474,20 @@ export default function ParcelDetailModal({
                       required
                       value={chuDatTen}
                       onChange={(e) => setChuDatTen(e.target.value)}
-                      placeholder="Vd: Nguyễn Văn A..."
-                      className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      onBlur={() => setChuDatTen(cleanName(chuDatTen))}
+                      placeholder="NGUYỄN VĂN A"
+                      className={`w-full text-xs px-3 py-2 border rounded-lg focus:outline-none font-bold uppercase transition ${
+                        (formSubmitted || (chuDatTen.length > 0 && chuDatTen.trim().split(/\s+/).length < 2)) && !isValidFullName(chuDatTen)
+                          ? 'border-red-500 bg-red-50/20 text-red-900 focus:ring-2 focus:ring-red-400 ring-1 ring-red-400'
+                          : 'border-gray-300 focus:ring-2 focus:ring-blue-500'
+                      }`}
                     />
+                    {(formSubmitted || (chuDatTen.length > 0 && chuDatTen.trim().split(/\s+/).length < 2)) && !isValidFullName(chuDatTen) && (
+                      <p className="mt-1 text-[11px] text-red-600 font-medium flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        {!chuDatTen.trim() ? 'Vui lòng nhập họ và tên' : 'Họ và tên tối thiểu 2 từ (đã loại bỏ danh xưng)'}
+                      </p>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -453,10 +498,20 @@ export default function ParcelDetailModal({
                         type="text"
                         required
                         value={chuDatNamSinh}
-                        onChange={(e) => setChuDatNamSinh(e.target.value)}
+                        onChange={(e) => setChuDatNamSinh(e.target.value.replace(/\D/g, '').slice(0, 4))}
                         placeholder="1980"
-                        className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className={`w-full text-xs px-3 py-2 border rounded-lg focus:outline-none font-medium transition ${
+                          (formSubmitted && !chuDatNamSinh.trim()) || (chuDatNamSinh.length > 0 && !isValidBirthYear(chuDatNamSinh))
+                            ? 'border-red-500 bg-red-50/20 text-red-900 focus:ring-2 focus:ring-red-400 ring-1 ring-red-400'
+                            : 'border-gray-300 focus:ring-2 focus:ring-blue-500'
+                        }`}
                       />
+                      {((formSubmitted && !chuDatNamSinh.trim()) || (chuDatNamSinh.length > 0 && !isValidBirthYear(chuDatNamSinh))) && (
+                        <p className="mt-1 text-[10px] text-red-600 font-medium flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          {!chuDatNamSinh.trim() ? 'Nhập 4 số năm sinh' : 'Năm sinh 4 số (1920 - nay)'}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-gray-700 mb-1">
@@ -484,26 +539,33 @@ export default function ParcelDetailModal({
                           </span>
                         )}
                       </label>
-                      {cccdCheckResult?.exists && cccdCheckResult.url && (
-                        <a
-                          href={cccdCheckResult.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[10px] text-emerald-700 hover:text-emerald-900 underline font-bold"
-                        >
-                          Xem file CCCD
-                        </a>
-                      )}
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[11px] font-mono font-bold ${chuDatCccd.replace(/\D/g, '').length === 12 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                          {chuDatCccd.replace(/\D/g, '').length}/12
+                        </span>
+                        {cccdCheckResult?.exists && cccdCheckResult.url && (
+                          <a
+                            href={cccdCheckResult.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] text-emerald-700 hover:text-emerald-900 underline font-bold"
+                          >
+                            Xem file
+                          </a>
+                        )}
+                      </div>
                     </div>
                     <div className="relative">
                       <input
                         type="text"
                         required
                         value={chuDatCccd}
-                        onChange={(e) => setChuDatCccd(e.target.value)}
+                        onChange={(e) => setChuDatCccd(e.target.value.replace(/\D/g, '').slice(0, 12))}
                         placeholder="12 chữ số CCCD..."
                         className={`w-full text-xs px-3 py-2 border rounded-lg focus:outline-none font-mono font-bold tracking-wider transition ${
-                          cccdCheckResult?.exists
+                          (formSubmitted && !chuDatCccd.trim()) || (chuDatCccd.length > 0 && !isValidCccd(chuDatCccd))
+                            ? 'border-red-500 bg-red-50/20 text-red-900 focus:ring-2 focus:ring-red-400 ring-1 ring-red-400'
+                            : cccdCheckResult?.exists
                             ? 'border-emerald-500 bg-emerald-50/20 text-emerald-950 ring-2 ring-emerald-500/20'
                             : 'border-gray-300 focus:ring-2 focus:ring-blue-500'
                         }`}
@@ -514,6 +576,12 @@ export default function ParcelDetailModal({
                         </div>
                       )}
                     </div>
+                    {((formSubmitted && !chuDatCccd.trim()) || (chuDatCccd.length > 0 && !isValidCccd(chuDatCccd))) && (
+                      <p className="mt-1 text-[11px] text-red-600 font-medium flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        {!chuDatCccd.trim() ? 'Vui lòng nhập số CCCD (12 chữ số)' : `Số CCCD phải gồm đúng 12 chữ số (đang có ${chuDatCccd.replace(/\D/g, '').length}/12 số)`}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 mb-1">
@@ -525,26 +593,39 @@ export default function ParcelDetailModal({
                       value={chuDatDiaChi}
                       onChange={(e) => setChuDatDiaChi(e.target.value)}
                       placeholder="Thôn Cẩm Phong, xã Cư Pui..."
-                      className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className={`w-full text-xs px-3 py-2 border rounded-lg focus:outline-none transition ${
+                        formSubmitted && !chuDatDiaChi.trim()
+                          ? 'border-red-500 bg-red-50/20 text-red-900 focus:ring-2 focus:ring-red-400 ring-1 ring-red-400'
+                          : 'border-gray-300 focus:ring-2 focus:ring-blue-500'
+                      }`}
                     />
+                    {formSubmitted && !chuDatDiaChi.trim() && (
+                      <p className="mt-1 text-[11px] text-red-600 font-medium flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        Vui lòng nhập địa chỉ thường trú
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
 
               {/* Nguồn gốc sử dụng đất */}
               <div className="p-4 bg-white border border-gray-100 rounded-xl shadow-sm space-y-2">
-                <label className="block text-xs font-bold text-gray-800">
-                  Nguồn gốc sử dụng đất <span className="text-red-500">*</span>
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-gray-800">
+                    Nguồn gốc sử dụng đất <span className="text-red-500">*</span>
+                  </label>
+                  <span className="text-xs font-bold text-blue-600">{normalizeNguonGoc(nguonGocSuDung)}</span>
+                </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {(['Khai hoang', 'Nhận Thừa Kế', 'Nhận Tặng Cho', 'Nhận chuyển nhượng'] as const).map((ng) => (
+                  {NGUON_GOC_OPTIONS.map((ng) => (
                     <button
                       type="button"
                       key={ng}
                       onClick={() => setNguonGocSuDung(ng)}
-                      className={`py-2 px-2 text-xs font-bold rounded-lg border transition text-center ${
-                        nguonGocSuDung === ng
-                          ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-sm ring-1 ring-blue-500'
+                      className={`py-2 px-2 text-xs font-bold rounded-lg border transition text-center cursor-pointer ${
+                        normalizeNguonGoc(nguonGocSuDung) === ng
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
                           : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                       }`}
                     >

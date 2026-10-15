@@ -26,9 +26,20 @@ import {
   RefreshCw,
   CheckCircle2,
   Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { cleanCccd } from '@/utils/syncGoogleSheets';
 import { getOrCreateDeviceId } from '@/utils/declaration';
+import {
+  cleanName,
+  stripHonorifics,
+  cleanBoundaryText,
+  NGUON_GOC_OPTIONS,
+  normalizeNguonGoc,
+  isValidCccd,
+  isValidBirthYear,
+  isValidFullName,
+} from '@/utils/textHelpers';
 
 interface DeclarationEditModalProps {
   isOpen: boolean;
@@ -55,6 +66,7 @@ export default function DeclarationEditModal({
   const [chuDatGioiTinh, setChuDatGioiTinh] = useState<'Nam' | 'Nữ'>('Nam');
   const [chuDatCccd, setChuDatCccd] = useState('');
   const [chuDatDiaChi, setChuDatDiaChi] = useState('');
+  const [formSubmitted, setFormSubmitted] = useState(false);
 
   // Tự động kiểm tra xem số CCCD đã có file ảnh trên DB hay chưa
   const [cccdCheckResult, setCccdCheckResult] = useState<{ exists: boolean; filename?: string; url?: string } | null>(null);
@@ -155,7 +167,7 @@ export default function DeclarationEditModal({
       
       const declNameValid = declaration.chu_dat_ten && !isInvalidOwnerName(declaration.chu_dat_ten);
       const parcelNameValid = parcel.chu_ho && !isInvalidOwnerName(parcel.chu_ho);
-      setChuDatTen(declNameValid ? declaration.chu_dat_ten : (parcelNameValid ? parcel.chu_ho : ''));
+      setChuDatTen(cleanName(declNameValid ? declaration.chu_dat_ten : (parcelNameValid ? parcel.chu_ho : '')));
       
       setChuDatNamSinh(
         declaration.chu_dat_nam_sinh ||
@@ -168,11 +180,11 @@ export default function DeclarationEditModal({
       );
       setChuDatCccd(declaration.chu_dat_cccd || parcel.cccd || '');
       setChuDatDiaChi(formatThonAddress(declaration.chu_dat_dia_chi, parcel.thon_xa));
-      setNguonGocSuDung(declaration.nguon_goc_su_dung || 'Khai hoang');
-      setGiapDong(declaration.giap_dong || parcel.giap_dong || '');
-      setGiapTay(declaration.giap_tay || parcel.giap_tay || '');
-      setGiapNam(declaration.giap_nam || parcel.giap_nam || '');
-      setGiapBac(declaration.giap_bac || parcel.giap_bac || '');
+      setNguonGocSuDung(normalizeNguonGoc(declaration.nguon_goc_su_dung));
+      setGiapDong(cleanBoundaryText(declaration.giap_dong || parcel.giap_dong || ''));
+      setGiapTay(cleanBoundaryText(declaration.giap_tay || parcel.giap_tay || ''));
+      setGiapNam(cleanBoundaryText(declaration.giap_nam || parcel.giap_nam || ''));
+      setGiapBac(cleanBoundaryText(declaration.giap_bac || parcel.giap_bac || ''));
       setGhiChu(declaration.ghi_chu || '');
       setThuaKemTheo(declaration.thua_kem_theo || []);
 
@@ -194,16 +206,16 @@ export default function DeclarationEditModal({
       setNguoiKeKhaiSdt('');
       
       const parcelNameValid = parcel.chu_ho && !isInvalidOwnerName(parcel.chu_ho);
-      setChuDatTen(parcelNameValid ? parcel.chu_ho : '');
+      setChuDatTen(cleanName(parcelNameValid ? parcel.chu_ho : ''));
       setChuDatNamSinh('');
       setChuDatGioiTinh(parcel.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
       setChuDatCccd(parcel.cccd || '');
       setChuDatDiaChi(formatThonAddress(undefined, parcel.thon_xa));
-      setNguonGocSuDung('Khai hoang');
-      setGiapDong(parcel.giap_dong || '');
-      setGiapTay(parcel.giap_tay || '');
-      setGiapNam(parcel.giap_nam || '');
-      setGiapBac(parcel.giap_bac || '');
+      setNguonGocSuDung('Khai Hoang');
+      setGiapDong(cleanBoundaryText(parcel.giap_dong || ''));
+      setGiapTay(cleanBoundaryText(parcel.giap_tay || ''));
+      setGiapNam(cleanBoundaryText(parcel.giap_nam || ''));
+      setGiapBac(cleanBoundaryText(parcel.giap_bac || ''));
       setGhiChu('');
       setThuaKemTheo([]);
 
@@ -293,18 +305,41 @@ export default function DeclarationEditModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!parcel) return;
+    setFormSubmitted(true);
+    const cleanedTen = cleanName(chuDatTen);
+    const cleanedNamSinh = chuDatNamSinh.trim();
+    const cleanedCccd = chuDatCccd.replace(/\D/g, '').slice(0, 12);
+    const cleanedDiaChi = chuDatDiaChi.trim();
+
+    if (!isValidFullName(cleanedTen)) {
+      alert('Vui lòng nhập đầy đủ Họ và tên cá nhân (tối thiểu 2 từ, không gồm danh xưng).');
+      return;
+    }
+    if (cleanedNamSinh && !isValidBirthYear(cleanedNamSinh)) {
+      alert('Năm sinh không hợp lệ. Vui lòng nhập đúng 4 chữ số (ví dụ: 1985).');
+      return;
+    }
+    if (cleanedCccd && !isValidCccd(cleanedCccd)) {
+      alert(`Số CCCD chưa đủ 12 chữ số (đang có ${cleanedCccd.length}/12 số). Vui lòng nhập đủ 12 chữ số.`);
+      return;
+    }
+    if (!cleanedDiaChi) {
+      alert('Vui lòng nhập địa chỉ thường trú.');
+      return;
+    }
+
     const data: DeclarationFormData = {
       ma_thua: parcel.ma_thua,
-      chu_dat_ten: chuDatTen.trim(),
-      chu_dat_nam_sinh: chuDatNamSinh.trim(),
+      chu_dat_ten: cleanedTen,
+      chu_dat_nam_sinh: cleanedNamSinh,
       chu_dat_gioi_tinh: chuDatGioiTinh,
-      chu_dat_cccd: chuDatCccd.trim(),
-      chu_dat_dia_chi: chuDatDiaChi.trim(),
-      nguon_goc_su_dung: nguonGocSuDung,
-      giap_dong: giapDong,
-      giap_tay: giapTay,
-      giap_nam: giapNam,
-      giap_bac: giapBac,
+      chu_dat_cccd: cleanedCccd,
+      chu_dat_dia_chi: cleanedDiaChi,
+      nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung),
+      giap_dong: cleanBoundaryText(giapDong),
+      giap_tay: cleanBoundaryText(giapTay),
+      giap_nam: cleanBoundaryText(giapNam),
+      giap_bac: cleanBoundaryText(giapBac),
       anh_cccd_truoc: anhCccdTruoc || undefined,
       anh_cccd_sau: anhCccdSau || undefined,
       anh_gcn: anhGcnList[0] || undefined,
@@ -379,9 +414,20 @@ export default function DeclarationEditModal({
                   required
                   value={chuDatTen}
                   onChange={(e) => setChuDatTen(e.target.value)}
+                  onBlur={() => setChuDatTen(cleanName(chuDatTen))}
                   placeholder="NGUYỄN VĂN A"
-                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold uppercase"
+                  className={`w-full px-3 py-2 border rounded-xl bg-slate-900 text-white focus:outline-none font-bold uppercase transition ${
+                    (formSubmitted || (chuDatTen.length > 0 && chuDatTen.trim().split(/\s+/).length < 2)) && !isValidFullName(chuDatTen)
+                      ? 'border-red-500 bg-red-950/20 text-red-200 focus:ring-2 focus:ring-red-500 ring-1 ring-red-500'
+                      : 'border-slate-700 focus:ring-2 focus:ring-blue-500'
+                  }`}
                 />
+                {(formSubmitted || (chuDatTen.length > 0 && chuDatTen.trim().split(/\s+/).length < 2)) && !isValidFullName(chuDatTen) && (
+                  <p className="mt-1 text-[11px] text-red-400 font-medium flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    {!chuDatTen.trim() ? 'Vui lòng nhập họ và tên cá nhân' : 'Họ và tên tối thiểu 2 từ (đã tự động lọc bỏ danh xưng)'}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -392,10 +438,20 @@ export default function DeclarationEditModal({
                   type="text"
                   required
                   value={chuDatNamSinh}
-                  onChange={(e) => setChuDatNamSinh(e.target.value)}
+                  onChange={(e) => setChuDatNamSinh(e.target.value.replace(/\D/g, '').slice(0, 4))}
                   placeholder="Vd: 1985..."
-                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                  className={`w-full px-3 py-2 border rounded-xl bg-slate-900 text-white focus:outline-none font-medium transition ${
+                    (formSubmitted && !chuDatNamSinh.trim()) || (chuDatNamSinh.length > 0 && !isValidBirthYear(chuDatNamSinh))
+                      ? 'border-red-500 bg-red-950/20 text-red-200 focus:ring-2 focus:ring-red-500 ring-1 ring-red-500'
+                      : 'border-slate-700 focus:ring-2 focus:ring-blue-500'
+                  }`}
                 />
+                {((formSubmitted && !chuDatNamSinh.trim()) || (chuDatNamSinh.length > 0 && !isValidBirthYear(chuDatNamSinh))) && (
+                  <p className="mt-1 text-[10px] text-red-400 font-medium flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    {!chuDatNamSinh.trim() ? 'Nhập năm sinh (4 số)' : 'Năm sinh 4 số (1920 - nay)'}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -429,17 +485,32 @@ export default function DeclarationEditModal({
               </div>
 
               <div className="sm:col-span-2">
-                <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  Số CCCD / CMND <span className="text-red-400">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-bold text-slate-300 block">
+                    Số CCCD / CMND <span className="text-red-400">*</span>
+                  </label>
+                  <span className={`text-[11px] font-mono font-bold ${chuDatCccd.replace(/\D/g, '').length === 12 ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    {chuDatCccd.replace(/\D/g, '').length}/12
+                  </span>
+                </div>
                 <input
                   type="text"
                   required
                   value={chuDatCccd}
-                  onChange={(e) => setChuDatCccd(e.target.value)}
+                  onChange={(e) => setChuDatCccd(e.target.value.replace(/\D/g, '').slice(0, 12))}
                   placeholder="12 chữ số CCCD..."
-                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold tracking-wider"
+                  className={`w-full px-3 py-2 border rounded-xl bg-slate-900 text-white focus:outline-none font-mono font-bold tracking-wider transition ${
+                    (formSubmitted && !chuDatCccd.trim()) || (chuDatCccd.length > 0 && !isValidCccd(chuDatCccd))
+                      ? 'border-red-500 bg-red-950/20 text-red-200 focus:ring-2 focus:ring-red-500 ring-1 ring-red-500'
+                      : 'border-slate-700 focus:ring-2 focus:ring-blue-500'
+                  }`}
                 />
+                {((formSubmitted && !chuDatCccd.trim()) || (chuDatCccd.length > 0 && !isValidCccd(chuDatCccd))) && (
+                  <p className="mt-1 text-[11px] text-red-400 font-medium flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    {!chuDatCccd.trim() ? 'Vui lòng nhập số CCCD (12 chữ số)' : `Số CCCD phải gồm đúng 12 chữ số (đang có ${chuDatCccd.replace(/\D/g, '').length}/12 số)`}
+                  </p>
+                )}
                 {cccdCheckResult?.exists && (
                   <div className="mt-1.5 flex items-center justify-between px-2.5 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-xs font-semibold animate-in fade-in">
                     <div className="flex items-center gap-1.5">
@@ -476,8 +547,18 @@ export default function DeclarationEditModal({
                   value={chuDatDiaChi}
                   onChange={(e) => setChuDatDiaChi(e.target.value)}
                   placeholder="Thôn / Buôn, Xã Cư Pui, Huyện Krông Bông..."
-                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`w-full px-3 py-2 border rounded-xl bg-slate-900 text-white focus:outline-none transition ${
+                    formSubmitted && !chuDatDiaChi.trim()
+                      ? 'border-red-500 bg-red-950/20 text-red-200 focus:ring-2 focus:ring-red-500 ring-1 ring-red-500'
+                      : 'border-slate-700 focus:ring-2 focus:ring-blue-500'
+                  }`}
                 />
+                {formSubmitted && !chuDatDiaChi.trim() && (
+                  <p className="mt-1 text-[11px] text-red-400 font-medium flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    Vui lòng nhập địa chỉ thường trú
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -488,16 +569,16 @@ export default function DeclarationEditModal({
               <span className="font-bold text-slate-300 text-xs flex items-center gap-1.5">
                 Nguồn gốc sử dụng đất <span className="text-red-400">*</span>
               </span>
-              <span className="text-[10px] text-blue-400 font-bold">{nguonGocSuDung}</span>
+              <span className="text-[10px] text-blue-400 font-bold">{normalizeNguonGoc(nguonGocSuDung)}</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {(['Khai hoang', 'Nhận Thừa Kế', 'Nhận Tặng Cho', 'Nhận chuyển nhượng'] as const).map((opt) => (
+              {NGUON_GOC_OPTIONS.map((opt) => (
                 <button
                   key={opt}
                   type="button"
                   onClick={() => setNguonGocSuDung(opt)}
                   className={`py-2 px-2 rounded-xl border text-xs font-bold transition text-center cursor-pointer ${
-                    nguonGocSuDung === opt
+                    normalizeNguonGoc(nguonGocSuDung) === opt
                       ? 'bg-blue-600 text-white border-blue-500 shadow-md'
                       : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
                   }`}

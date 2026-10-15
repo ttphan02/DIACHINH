@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
-import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES } from '@/utils/textHelpers';
+import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, normalizeNguonGoc, NGUON_GOC_OPTIONS } from '@/utils/textHelpers';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
 import dynamic from 'next/dynamic';
 import type { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
@@ -4296,7 +4296,7 @@ export default function DashboardPage() {
                                             className={`py-1 px-1.5 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
                                           >
                                             <select
-                                              value={displayVal || 'Khai hoang'}
+                                              value={normalizeNguonGoc(displayVal || '')}
                                               onChange={(e) => {
                                                 const v = e.target.value;
                                                 handleInlineCellChange(maThua, cIdx, v);
@@ -4308,10 +4308,11 @@ export default function DashboardPage() {
                                                   : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
                                               }`}
                                             >
-                                              <option value="Khai hoang">Khai hoang</option>
-                                              <option value="Nhận Thừa Kế">Nhận Thừa Kế</option>
-                                              <option value="Nhận Tặng Cho">Nhận Tặng Cho</option>
-                                              <option value="Nhận chuyển nhượng">Nhận chuyển nhượng</option>
+                                              {NGUON_GOC_OPTIONS.map((opt) => (
+                                                <option key={opt} value={opt}>
+                                                  {opt}
+                                                </option>
+                                              ))}
                                             </select>
                                           </td>
                                         );

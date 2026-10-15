@@ -1,4 +1,5 @@
 import { Parcel, NeighborParcel } from '@/types';
+import { cleanName } from './textHelpers';
 
 // Bán kính Trái Đất (mét)
 const EARTH_RADIUS_METERS = 6371000;
@@ -103,7 +104,8 @@ export function getCompassInfo(bearing: number): {
  */
 export function formatBoundaryText(p?: Parcel | NeighborParcel | null): string {
   if (!p) return '';
-  const owner = p.chu_ho && p.chu_ho !== 'Chưa có tên' ? ` - ${p.chu_ho}` : '';
+  const isInvalid = !p.chu_ho || p.chu_ho === 'Chưa có tên' || p.chu_ho.toLowerCase().includes('không có');
+  const owner = !isInvalid ? ` - ${cleanName(p.chu_ho)}` : '';
   return `Thửa ${p.so_thua} (Tờ ${p.to_ban_do})${owner}`;
 }
 
