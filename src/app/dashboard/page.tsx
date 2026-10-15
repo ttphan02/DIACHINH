@@ -4221,10 +4221,16 @@ export default function DashboardPage() {
                                       }
 
                                       // Hiển thị nút bấm Xem CCCD / Xem PDF kèm Card Hover nổi
-                                      const linkMatch = cellStr.match(/HYPERLINK\("([^"]+)";\s*"([^"]+)"\)/i);
-                                      if (linkMatch) {
-                                        const href = getResolvedImageUrl(linkMatch[1]);
-                                        const text = linkMatch[2];
+                                      const linkMatch = cellStr.match(/HYPERLINK\(\s*["']?([^"';,]+)["']?\s*[;,]\s*["']?([^"')]+)["']?\s*\)/i);
+                                      const isPdfCell = !linkMatch && (/\.pdf$/i.test(cellStr.trim().replace(/^="|"$/g, '')) || cellStr.includes('.r2.dev/'));
+
+                                      if (linkMatch || isPdfCell) {
+                                        const rawUrl = linkMatch ? linkMatch[1].trim() : cellStr.trim().replace(/^="|"$/g, '');
+                                        const cleanUrl = rawUrl.startsWith('http') || rawUrl.startsWith('/api/')
+                                          ? rawUrl
+                                          : (rawUrl.includes('/') ? rawUrl : `cccd/${rawUrl}`);
+                                        const href = getResolvedImageUrl(cleanUrl);
+                                        const text = linkMatch ? linkMatch[2].trim() : (cleanUrl.split('/').pop() || 'Xem PDF');
                                         const ownerName = String(cellEdits[maThua]?.[nameColIdx] ?? row[nameColIdx] ?? '').trim();
                                         const cccdVal = String(row[8] || '').replace(/^="|"$/g, '').trim();
 

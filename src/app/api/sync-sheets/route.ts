@@ -49,7 +49,7 @@ async function getDeclarationsMap(): Promise<Record<string, any>> {
 
 let cachedSyncResult: any = null;
 let lastSyncTime = 0;
-const SYNC_CACHE_TTL = 3 * 60 * 1000; // 3 phút
+const SYNC_CACHE_TTL = 15 * 1000; // 15 giây (để cập nhật realtime ngay khi sửa link hoặc file R2)
 
 export async function GET(req: Request) {
   const url = new URL(req.url);

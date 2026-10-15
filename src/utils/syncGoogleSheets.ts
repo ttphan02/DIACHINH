@@ -195,7 +195,7 @@ function build57ColRow(
   row[41] = '0';
   row[42] = 'Không';
   row[51] = fileName;
-  const fileUrl = `${R2_PUBLIC_BASE}/filescan/${fileName}`;
+  const fileUrl = `/api/image/filescan/${encodeURIComponent(fileName)}`;
   row[52] = `=HYPERLINK("${fileUrl}"; "${fileName}")`;
   return row;
 }
@@ -595,7 +595,7 @@ export async function executeSyncToGoogleSheet(
     ];
     const rowsPack: string[][] = [headersPack];
     stage2DaDongTap.forEach((it, idx) => {
-      const cccdLink = `${R2_PUBLIC_BASE}/cccd/${it.cccd_file}`;
+      const cccdLink = `/api/image/cccd/${encodeURIComponent(it.cccd_file)}`;
       const cccdFormula = `=HYPERLINK("${cccdLink}"; "${it.cccd_file}")`;
       const cccdText = it.cccd ? `="${it.cccd}"` : '';
       rowsPack.push([
