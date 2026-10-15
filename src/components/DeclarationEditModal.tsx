@@ -47,8 +47,6 @@ export default function DeclarationEditModal({
   onSave,
   onDelete,
 }: DeclarationEditModalProps) {
-  if (!isOpen || !parcel) return null;
-
   const [mode, setMode] = useState<DeclarationMode>('SELF');
   const [nguoiKeKhaiTen, setNguoiKeKhaiTen] = useState('');
   const [nguoiKeKhaiSdt, setNguoiKeKhaiSdt] = useState('');
@@ -114,6 +112,8 @@ export default function DeclarationEditModal({
   const fileInputGcnRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    if (!parcel) return;
+
     const isInvalidOwnerName = (name?: string) => {
       if (!name) return true;
       const s = name.trim().toLowerCase();
@@ -292,6 +292,7 @@ export default function DeclarationEditModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!parcel) return;
     const data: DeclarationFormData = {
       ma_thua: parcel.ma_thua,
       chu_dat_ten: chuDatTen.trim(),
@@ -317,10 +318,13 @@ export default function DeclarationEditModal({
   };
 
   const handleConfirmDelete = () => {
+    if (!parcel) return;
     onDelete(parcel.ma_thua);
     setIsConfirmDeleteOpen(false);
     onClose();
   };
+
+  if (!isOpen || !parcel) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">

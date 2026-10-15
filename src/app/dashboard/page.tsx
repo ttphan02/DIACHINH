@@ -2927,13 +2927,12 @@ export default function DashboardPage() {
                   };
 
                   // Danh sách các thửa có đầy đủ thông tin để kê khai trong mục CHƯA THỰC HIỆN
-                  const readyChuaThucHienRows = useMemo(() => {
-                    if (!isChuaThucHienSheet) return [];
-                    return allRows.filter((r) => {
-                      const code = String(r[1] || '').trim();
-                      return checkIsRowReadyToDeclare(code, r);
-                    });
-                  }, [isChuaThucHienSheet, allRows, cellEdits]);
+                  const readyChuaThucHienRows = isChuaThucHienSheet
+                    ? allRows.filter((r) => {
+                        const code = String(r[1] || '').trim();
+                        return checkIsRowReadyToDeclare(code, r);
+                      })
+                    : [];
 
                   const readyCount = readyChuaThucHienRows.length;
 
@@ -2960,16 +2959,15 @@ export default function DashboardPage() {
                   };
 
                   // Danh sách các thửa trong mục ĐANG KÊ KHAI (CHƯA CÓ CCCD) đã phát hiện có file trên R2
-                  const readyToMoveToPackRows = useMemo(() => {
-                    if (!isChuaCoCccdSheet) return [];
-                    return allRows.filter((r) => {
-                      const maThua = String(r[1] || '').trim();
-                      const edits = cellEdits[maThua] || {};
-                      const rawCccd = String(edits[8] ?? declarationsMap[maThua]?.chu_dat_cccd ?? r[8] ?? '').replace(/^="|"$/g, '').trim();
-                      const cleanVal = cleanCccd(rawCccd);
-                      return Boolean(cleanVal && (r2CccdSet.has(cleanVal) || declarationsMap[maThua]?.cccd_url));
-                    });
-                  }, [isChuaCoCccdSheet, allRows, cellEdits, declarationsMap, r2CccdSet]);
+                  const readyToMoveToPackRows = isChuaCoCccdSheet
+                    ? allRows.filter((r) => {
+                        const maThua = String(r[1] || '').trim();
+                        const edits = cellEdits[maThua] || {};
+                        const rawCccd = String(edits[8] ?? declarationsMap[maThua]?.chu_dat_cccd ?? r[8] ?? '').replace(/^="|"$/g, '').trim();
+                        const cleanVal = cleanCccd(rawCccd);
+                        return Boolean(cleanVal && (r2CccdSet.has(cleanVal) || declarationsMap[maThua]?.cccd_url));
+                      })
+                    : [];
 
                   // Chuyển toàn bộ các thửa đã có file CCCD trên R2 sang SẴN SÀNG ĐÓNG TẬP
                   const handleMoveParcelsToReadyToPack = async () => {
@@ -4671,18 +4669,20 @@ export default function DashboardPage() {
       />
 
       {/* Modal Chỉnh Sửa Phiếu Kê Khai */}
-      <DeclarationEditModal
-        isOpen={isEditModalOpen}
-        onClose={() => {
-          setIsEditModalOpen(false);
-          setEditingParcel(null);
-          setEditingDeclaration(null);
-        }}
-        parcel={editingParcel}
-        declaration={editingDeclaration}
-        onSave={handleSaveEditedDeclaration}
-        onDelete={handleDeleteDeclaration}
-      />
+      {isEditModalOpen && editingParcel && (
+        <DeclarationEditModal
+          isOpen={isEditModalOpen}
+          onClose={() => {
+            setIsEditModalOpen(false);
+            setEditingParcel(null);
+            setEditingDeclaration(null);
+          }}
+          parcel={editingParcel}
+          declaration={editingDeclaration}
+          onSave={handleSaveEditedDeclaration}
+          onDelete={handleDeleteDeclaration}
+        />
+      )}
 
       {/* Modal Xác Nhận Xóa Phiếu Kê Khai */}
       {deletingParcel && (
