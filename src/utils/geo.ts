@@ -323,12 +323,23 @@ export function getResolvedImageUrl(path?: string | null): string {
     // Nếu là link .r2.dev bị chặn DNS ở một số nhà mạng, chuyển qua /api/image/ để đọc trực tiếp từ R2 Binding
     if (path.includes('.r2.dev/')) {
       const key = path.split('.r2.dev/')[1];
-      if (key) return `/api/image/${key.replace(/^\/+/, '')}`;
+      if (key) {
+        const cleanKey = key.replace(/^\/+/, '');
+        try {
+          return `/api/image/${encodeURI(decodeURI(cleanKey))}`;
+        } catch {
+          return `/api/image/${cleanKey}`;
+        }
+      }
     }
     return path;
   }
   const cleanPath = path.replace(/^\/+/, '');
-  return `/api/image/${cleanPath}`;
+  try {
+    return `/api/image/${encodeURI(decodeURI(cleanPath))}`;
+  } catch {
+    return `/api/image/${cleanPath}`;
+  }
 }
 
 export function getResolvedSvgUrl(path?: string | null): string {

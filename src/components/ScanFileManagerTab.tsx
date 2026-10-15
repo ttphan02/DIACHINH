@@ -513,11 +513,17 @@ export default function ScanFileManagerTab({
                           ownerName={file.ownerName}
                           theme={theme}
                         >
-                          <a
-                            href={file.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={`p-1.5 rounded-lg border transition ${
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              if (onPreviewUrl) {
+                                onPreviewUrl(file.url, file.filename);
+                              } else {
+                                window.open(file.url, '_blank');
+                              }
+                            }}
+                            className={`p-1.5 rounded-lg border transition cursor-pointer ${
                               isLight
                                 ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
                                 : 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
@@ -525,7 +531,7 @@ export default function ScanFileManagerTab({
                             title="Xem trước file scan"
                           >
                             <Eye className="w-3.5 h-3.5" />
-                          </a>
+                          </button>
                         </CccdHoverPreviewCard>
 
                         {/* Tải về */}

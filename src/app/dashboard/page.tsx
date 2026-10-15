@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
-import { removeVietnameseTones } from '@/utils/geo';
+import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
 import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES } from '@/utils/syncGoogleSheets';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
 import DeclarationPrintModal, { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
@@ -1684,7 +1684,7 @@ export default function DashboardPage() {
 
         const linkMatch = cccdFormula.match(/HYPERLINK\("([^"]+)";\s*"([^"]+)"\)/i);
         if (linkMatch) {
-          cccdUrl = linkMatch[1];
+          cccdUrl = getResolvedImageUrl(linkMatch[1]);
           cccdFileName = linkMatch[2];
         } else {
           const fileMatch = cccdFormula.match(/["']?([^"']+\.(pdf|jpg|jpeg|png))["']?/i);
@@ -1773,7 +1773,7 @@ export default function DashboardPage() {
       let cccdUrl = '';
       const linkMatch = cccdFormula.match(/HYPERLINK\("([^"]+)";\s*"([^"]+)"\)/i);
       if (linkMatch) {
-        cccdUrl = linkMatch[1];
+        cccdUrl = getResolvedImageUrl(linkMatch[1]);
         cccdFileName = linkMatch[2];
       } else {
         const fileMatch = cccdFormula.match(/["']?([^"']+\.(pdf|jpg|jpeg|png))["']?/i);
@@ -2454,6 +2454,14 @@ export default function DashboardPage() {
               setCccdModalMode(mode || 'folder');
               setIsCccdSupplementOpen(true);
             }}
+            onPreviewUrl={(url, title) => {
+              setPreviewPdfModal({
+                isOpen: true,
+                url,
+                title,
+                filename: title,
+              });
+            }}
             onSelectParcel={(code) => {
               const p = computedParcels.find((cp) => cp.ma_thua === code);
               if (p) {
@@ -2468,6 +2476,14 @@ export default function DashboardPage() {
         {activeTab === 'filescan' && (
           <ScanFileManagerTab
             theme={theme}
+            onPreviewUrl={(url, title) => {
+              setPreviewPdfModal({
+                isOpen: true,
+                url,
+                title,
+                filename: title,
+              });
+            }}
             onSelectParcel={(code) => {
               const p = computedParcels.find((cp) => cp.ma_thua === code);
               if (p) {
@@ -4207,7 +4223,7 @@ export default function DashboardPage() {
                                       // Hiển thị nút bấm Xem CCCD / Xem PDF kèm Card Hover nổi
                                       const linkMatch = cellStr.match(/HYPERLINK\("([^"]+)";\s*"([^"]+)"\)/i);
                                       if (linkMatch) {
-                                        const href = linkMatch[1];
+                                        const href = getResolvedImageUrl(linkMatch[1]);
                                         const text = linkMatch[2];
                                         const ownerName = String(cellEdits[maThua]?.[nameColIdx] ?? row[nameColIdx] ?? '').trim();
                                         const cccdVal = String(row[8] || '').replace(/^="|"$/g, '').trim();
@@ -4767,6 +4783,18 @@ export default function DashboardPage() {
               <div className="flex items-center gap-2">
                 <a
                   href={previewPdfModal.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+                    isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                  }`}
+                  title="Mở file trong tab mới"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Mở tab mới</span>
+                </a>
+                <a
+                  href={previewPdfModal.url}
                   download={previewPdfModal.filename || 'cccd.pdf'}
                   className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
                     isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
@@ -4787,11 +4815,17 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="flex-1 w-full bg-slate-950 relative">
-              <iframe
-                src={previewPdfModal.url}
+              <object
+                data={previewPdfModal.url}
+                type="application/pdf"
                 className="w-full h-full border-0 bg-white"
-                title={previewPdfModal.title}
-              />
+              >
+                <iframe
+                  src={previewPdfModal.url}
+                  className="w-full h-full border-0 bg-white"
+                  title={previewPdfModal.title}
+                />
+              </object>
             </div>
           </div>
         </div>

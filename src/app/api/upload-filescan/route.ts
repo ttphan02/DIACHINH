@@ -217,7 +217,7 @@ export async function GET() {
           filename,
           size: obj.size,
           uploadedAt: obj.uploaded ? new Date(obj.uploaded).toISOString() : null,
-          url: `${R2_PUBLIC_BASE}/${fullKey}`,
+          url: `/api/image/${encodeURI(fullKey)}`,
           toBanDo: matchedTo,
           soThua: matchedThua,
           ownerName: matchedOwner,

@@ -201,7 +201,7 @@ export default function DashboardParcelModal({
                   </strong>
                   {(declaration?.anh_cccd_pdf || declaration?.cccd_chu_ho || parcel.cccd) && (
                     <a
-                      href={declaration?.anh_cccd_pdf || `https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/cccd/${declaration?.cccd_chu_ho || parcel.cccd}.pdf`}
+                      href={getResolvedImageUrl(declaration?.anh_cccd_pdf || `cccd/${declaration?.cccd_chu_ho || parcel.cccd}.pdf`)}
                       target="_blank"
                       rel="noreferrer"
                       className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/30 flex items-center gap-1 transition"

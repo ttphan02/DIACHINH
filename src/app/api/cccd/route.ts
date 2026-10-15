@@ -296,7 +296,7 @@ export async function GET(request: Request) {
           filename,
           size: obj.size,
           uploadedAt: obj.uploaded ? new Date(obj.uploaded).toISOString() : null,
-          url: `${R2_PUBLIC_BASE}/${fullKey}`,
+          url: `/api/image/${encodeURI(fullKey)}`,
           cccdNumber: cccdCandidate || '',
           ownerName: matchedOwner || '',
           matchedParcelCode: matchedParcel || '',

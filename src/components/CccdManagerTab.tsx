@@ -582,6 +582,18 @@ export default function CccdManagerTab({
               <div className="flex items-center gap-2">
                 <a
                   href={previewPdf.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+                    isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                  }`}
+                  title="Mở file trong tab mới"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Mở tab mới</span>
+                </a>
+                <a
+                  href={previewPdf.url}
                   download={previewPdf.filename}
                   className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
                     isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
@@ -601,11 +613,17 @@ export default function CccdManagerTab({
               </div>
             </div>
             <div className="flex-1 w-full bg-slate-950 relative">
-              <iframe
-                src={previewPdf.url}
+              <object
+                data={previewPdf.url}
+                type="application/pdf"
                 className="w-full h-full border-0 bg-white"
-                title={previewPdf.filename}
-              />
+              >
+                <iframe
+                  src={previewPdf.url}
+                  className="w-full h-full border-0 bg-white"
+                  title={previewPdf.filename}
+                />
+              </object>
             </div>
           </div>
         </div>
