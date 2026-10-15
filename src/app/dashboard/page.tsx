@@ -4417,28 +4417,46 @@ export default function DashboardPage() {
 
                                       // 2. Các ô nhập chữ trực tiếp như Excel (Họ tên, Năm sinh, Giới tính, Số CCCD, Diện tích, Loại đất)
                                       if (isNameCol || isDobCol || isGenderCol || isCccdCol || isVillageCol || isAreaCol || isLandTypeCol) {
+                                        // Chỉ kiểm tra validate ở THỬA ĐANG KÊ KHAI (CHƯA CÓ CCCD) và SẲN SÀNG ĐÓNG TẬP
+                                        // Bảng Chưa thực hiện thì không cần check valid
+                                        const shouldValidate = isReadyToPackSheet || isChuaCoCccdSheet;
                                         let isInvalid = false;
                                         let invalidMsg = '';
-                                        if (isNameCol && displayVal) {
-                                          if (!isValidFullName(displayVal)) {
-                                            isInvalid = true;
-                                            invalidMsg = 'Họ tên phải có ít nhất 2 từ và không chứa danh xưng (Ông, Bà, Hộ...)';
-                                          }
-                                        } else if (isDobCol && displayVal) {
-                                          if (!isValidBirthYear(displayVal)) {
-                                            isInvalid = true;
-                                            invalidMsg = 'Năm sinh phải là 4 chữ số hợp lệ (ví dụ: 1985)';
-                                          }
-                                        } else if (isCccdCol && displayVal) {
-                                          if (!isValidCccd(displayVal)) {
-                                            isInvalid = true;
-                                            invalidMsg = 'Số CCCD phải gồm đúng 12 chữ số';
-                                          }
-                                        } else if (isAreaCol && displayVal) {
-                                          const a = parseFloat(displayVal);
-                                          if (isNaN(a) || a <= 0) {
-                                            isInvalid = true;
-                                            invalidMsg = 'Diện tích phải là số lớn hơn 0';
+
+                                        if (shouldValidate) {
+                                          if (isNameCol) {
+                                            if (!displayVal || !isValidFullName(displayVal) || /chưa có|không có/i.test(displayVal)) {
+                                              isInvalid = true;
+                                              invalidMsg = 'Họ tên phải có ít nhất 2 từ và không chứa danh xưng (Ông, Bà, Hộ...)';
+                                            }
+                                          } else if (isDobCol) {
+                                            if (!displayVal || !isValidBirthYear(displayVal)) {
+                                              isInvalid = true;
+                                              invalidMsg = 'Năm sinh phải là 4 chữ số hợp lệ (ví dụ: 1985)';
+                                            }
+                                          } else if (isCccdCol) {
+                                            if (isReadyToPackSheet) {
+                                              if (!displayVal || !isValidCccd(displayVal)) {
+                                                isInvalid = true;
+                                                invalidMsg = 'Số CCCD phải gồm đúng 12 chữ số';
+                                              }
+                                            } else if (isChuaCoCccdSheet && displayVal) {
+                                              if (!isValidCccd(displayVal)) {
+                                                isInvalid = true;
+                                                invalidMsg = 'Số CCCD phải gồm đúng 12 chữ số';
+                                              }
+                                            }
+                                          } else if (isAreaCol) {
+                                            const a = parseFloat(displayVal);
+                                            if (!displayVal || isNaN(a) || a <= 0) {
+                                              isInvalid = true;
+                                              invalidMsg = 'Diện tích phải là số lớn hơn 0';
+                                            }
+                                          } else if (isGenderCol && displayVal) {
+                                            if (!['nam', 'nữ', 'nu'].includes(displayVal.trim().toLowerCase())) {
+                                              isInvalid = true;
+                                              invalidMsg = 'Giới tính phải là Nam hoặc Nữ';
+                                            }
                                           }
                                         }
 
@@ -4479,7 +4497,9 @@ export default function DashboardPage() {
                                               }
                                               className={`w-full min-w-0 px-2 py-1 text-xs rounded border transition truncate font-medium ${
                                                 isInvalid
-                                                  ? 'border-rose-500 bg-rose-50/70 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 ring-1 ring-rose-500'
+                                                  ? isLight
+                                                    ? 'border-rose-500 ring-1 ring-rose-500 bg-white text-slate-800 focus:border-rose-600 focus:ring-rose-600'
+                                                    : 'border-rose-500 ring-1 ring-rose-500 bg-slate-900 text-slate-100 focus:border-rose-400 focus:ring-rose-400'
                                                   : isLight
                                                   ? 'border-transparent hover:border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-white text-slate-800 hover:bg-slate-100/50'
                                                   : 'border-transparent hover:border-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-slate-800 text-slate-100 hover:bg-slate-800/40'
