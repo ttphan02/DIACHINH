@@ -15,7 +15,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Làm sạch và trích xuất đúng mimeType và base64
     let cleanB64 = imageBase64;
     let mimeType = 'image/jpeg';
     if (typeof imageBase64 === 'string' && imageBase64.includes(',')) {
@@ -26,6 +25,8 @@ export async function POST(request: Request) {
       }
       cleanB64 = parts[1];
     }
+    cleanB64 = cleanB64.replace(/\s+/g, '');
+
     function decodeBase64Key(k: string): string {
       if (k.startsWith('AQ.')) return k;
       try {
@@ -55,11 +56,12 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
   "ho_va_ten": "Họ và tên đầy đủ viết hoa có dấu (Ví dụ: ĐẶNG THỊ HỒNG)"
 }`;
 
-    // Ưu tiên flash-lite vì quota cao và tốc độ cực nhanh, sau đó fallback flash và 2.5
+    // Sử dụng các model Flash có quota lớn và tốc độ cao nhất
     const candidateModels = [
       'gemini-flash-lite-latest',
+      'gemini-3.1-flash-lite',
+      'gemini-3.5-flash-lite',
       'gemini-flash-latest',
-      'gemini-2.5-flash',
     ];
 
     const shuffledKeys = [...keys].sort(() => Math.random() - 0.5);
