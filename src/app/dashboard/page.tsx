@@ -4314,6 +4314,7 @@ export default function DashboardPage() {
                                               <option value="Khai hoang">Khai hoang</option>
                                               <option value="Nhận Thừa Kế">Nhận Thừa Kế</option>
                                               <option value="Nhận Tặng Cho">Nhận Tặng Cho</option>
+                                              <option value="Nhận chuyển nhượng">Nhận chuyển nhượng</option>
                                             </select>
                                           </td>
                                         );

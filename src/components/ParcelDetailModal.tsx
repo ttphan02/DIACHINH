@@ -541,8 +541,8 @@ export default function ParcelDetailModal({
                 <label className="block text-xs font-bold text-gray-800">
                   Nguồn gốc sử dụng đất <span className="text-red-500">*</span>
                 </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['Khai hoang', 'Nhận Thừa Kế', 'Nhận Tặng Cho'] as const).map((ng) => (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(['Khai hoang', 'Nhận Thừa Kế', 'Nhận Tặng Cho', 'Nhận chuyển nhượng'] as const).map((ng) => (
                     <button
                       type="button"
                       key={ng}

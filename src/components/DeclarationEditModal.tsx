@@ -486,8 +486,8 @@ export default function DeclarationEditModal({
               </span>
               <span className="text-[10px] text-blue-400 font-bold">{nguonGocSuDung}</span>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              {(['Khai hoang', 'Nhận Thừa Kế', 'Nhận Tặng Cho'] as const).map((opt) => (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {(['Khai hoang', 'Nhận Thừa Kế', 'Nhận Tặng Cho', 'Nhận chuyển nhượng'] as const).map((opt) => (
                 <button
                   key={opt}
                   type="button"
