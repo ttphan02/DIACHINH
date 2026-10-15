@@ -1054,23 +1054,19 @@ export default function Home() {
                   Đã kê khai ({stats.blue.toLocaleString('vi-VN')})
                 </button>
 
-                {/* Chưa kê khai (Phân chia màu sắc theo từng Thôn / Buôn) */}
+                {/* Chưa kê khai (Màu trắng sáng) */}
                 <button
                   onClick={() => {
                     setStatusFilter(statusFilter === 'CHUA_KE_KHAI' ? 'ALL' : 'CHUA_KE_KHAI');
                   }}
                   className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs shrink-0 ${
                     statusFilter === 'CHUA_KE_KHAI'
-                      ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-400'
-                      : 'bg-slate-800/80 text-amber-300 hover:bg-slate-700/80 border border-amber-500/30'
+                      ? 'bg-slate-200 text-slate-900 shadow-sm ring-2 ring-white'
+                      : 'bg-slate-800/80 text-white hover:bg-slate-700/80 border border-slate-600/50'
                   }`}
-                  title="Thửa chưa kê khai (được tô màu nhận diện riêng biệt theo từng Thôn / Buôn)"
+                  title="Thửa chưa kê khai (hiển thị màu trắng sáng trên bản đồ)"
                 >
-                  <div className="flex -space-x-1 items-center">
-                    <span className="w-2 h-2 rounded-full bg-[#f59e0b] ring-1 ring-slate-900" />
-                    <span className="w-2 h-2 rounded-full bg-[#ec4899] ring-1 ring-slate-900" />
-                    <span className="w-2 h-2 rounded-full bg-[#06b6d4] ring-1 ring-slate-900" />
-                  </div>
+                  <span className="w-2.5 h-2.5 rounded-full bg-white ring-1 ring-slate-400 shadow-sm"></span>
                   Chưa kê khai ({(stats.yellow + stats.gray).toLocaleString('vi-VN')})
                 </button>
 
