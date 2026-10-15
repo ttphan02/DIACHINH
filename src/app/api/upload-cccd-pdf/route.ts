@@ -58,19 +58,24 @@ export async function POST(request: Request) {
 
     const cccdClean = cleanCccd(so_cccd);
     const nameClean = cleanName(ho_va_ten);
+    const customFileName = typeof body.fileName === 'string' ? body.fileName.trim() : '';
 
-    if (!cccdClean && !nameClean && !ma_thua) {
-      return NextResponse.json({ success: false, error: 'Thiếu số CCCD hoặc họ tên để đặt tên file' }, { status: 400 });
+    if (!cccdClean && !nameClean && !ma_thua && !customFileName) {
+      return NextResponse.json({ success: false, error: 'Thiếu số CCCD, họ tên hoặc mã thửa để đặt tên file' }, { status: 400 });
     }
 
     // Đặt tên file chuẩn: ví dụ 020064002073_Phan Thanh Truc.pdf hoặc 13245_Phan Thanh Truc.pdf
     let fileName = '';
-    if (cccdClean && nameClean) {
+    if (customFileName) {
+      fileName = customFileName.endsWith('.pdf') ? customFileName : `${customFileName}.pdf`;
+    } else if (cccdClean && nameClean) {
       fileName = `${cccdClean}_${nameClean}.pdf`;
     } else if (cccdClean) {
       fileName = `${cccdClean}.pdf`;
     } else if (ma_thua && nameClean) {
       fileName = `${ma_thua}_${nameClean}.pdf`;
+    } else if (nameClean) {
+      fileName = `${nameClean}.pdf`;
     } else {
       fileName = `${ma_thua || 'CCCD'}_${Date.now()}.pdf`;
     }

@@ -20,6 +20,7 @@ import {
   Maximize2,
   Scan,
   Move,
+  Edit2,
 } from 'lucide-react';
 
 interface SelectedCccdImage {
@@ -30,6 +31,12 @@ interface SelectedCccdImage {
   previewUrl: string;
   isCropped: boolean;
   size: number;
+  soCccd?: string;
+  hoVaTen?: string;
+  maThua?: string;
+  isScanning?: boolean;
+  scanError?: string;
+  errorMessage?: string;
 }
 
 interface CccdUploadBottomSheetProps {
@@ -92,6 +99,19 @@ async function optimizeImageForMobile(
   });
 }
 
+// Chuyển DataURL hoặc Blob URL sang chuỗi base64 sạch
+const getBase64FromUrl = async (url: string): Promise<string> => {
+  if (url.startsWith('data:')) return url;
+  const res = await fetch(url);
+  const blob = await res.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+};
+
 export default function CccdUploadBottomSheet({
   isOpen,
   onClose,
@@ -149,7 +169,7 @@ export default function CccdUploadBottomSheet({
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage((prev) => (prev === msg ? null : prev));
-    }, 3500);
+    }, 4000);
   };
 
   // Căn khung chuẩn CCCD tự động (85.6mm x 53.98mm = tỷ lệ 1.586)
@@ -158,7 +178,6 @@ export default function CccdUploadBottomSheet({
     const containerW = cropContainerRef.current.clientWidth;
     const containerH = cropContainerRef.current.clientHeight;
 
-    // Chiếm khoảng 82% chiều ngang hoặc vừa chiều dọc
     let targetW = Math.min(containerW * 0.85, 380);
     let targetH = Math.round(targetW / 1.586);
 
@@ -180,6 +199,53 @@ export default function CccdUploadBottomSheet({
     setCropRatioMode('cccd');
   }, []);
 
+  // Gọi AI OCR nhận diện thông tin CCCD
+  const runAiOcrForImage = async (id: string, previewUrl: string) => {
+    try {
+      const b64 = await getBase64FromUrl(previewUrl);
+      const res = await fetch('/api/ocr-cccd', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: b64 }),
+      });
+      const data: any = await res.json();
+      if (data.success && data.data) {
+        setImages((prev) =>
+          prev.map((img) =>
+            img.id === id
+              ? {
+                  ...img,
+                  soCccd: data.data.so_cccd || img.soCccd || '',
+                  hoVaTen: data.data.ho_va_ten || img.hoVaTen || '',
+                  isScanning: false,
+                  scanError: undefined,
+                  errorMessage: undefined,
+                }
+              : img
+          )
+        );
+      } else {
+        setImages((prev) =>
+          prev.map((img) =>
+            img.id === id
+              ? {
+                  ...img,
+                  isScanning: false,
+                  scanError: data.error || 'AI không nhận diện được chữ',
+                }
+              : img
+          )
+        );
+      }
+    } catch {
+      setImages((prev) =>
+        prev.map((img) =>
+          img.id === id ? { ...img, isScanning: false, scanError: 'Lỗi kết nối AI' } : img
+        )
+      );
+    }
+  };
+
   // Khi người dùng chọn tệp từ máy / điện thoại
   const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -187,22 +253,40 @@ export default function CccdUploadBottomSheet({
 
     setIsOptimizing(true);
     const newItems: SelectedCccdImage[] = [];
-
     const fileList = Array.from(files).filter((f) => f.type.startsWith('image/'));
 
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
       try {
         const { previewUrl, size } = await optimizeImageForMobile(file, 1600);
+
+        // Trích xuất gợi ý số CCCD / Tên từ tên file ảnh gốc nếu có sẵn
+        let guessCccd = '';
+        let guessName = '';
+        const cleanBase = file.name.replace(/\.[^/.]+$/, '');
+        const digitsMatch = cleanBase.match(/\b\d{9,12}\b/);
+        if (digitsMatch) {
+          guessCccd = digitsMatch[0];
+          const rest = cleanBase.replace(guessCccd, '').replace(/^[-_]+|[-_]+$/g, '').trim();
+          if (rest && rest.length > 2) guessName = rest.replace(/_/g, ' ');
+        }
+
+        const newId = `${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`;
         newItems.push({
-          id: `${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`,
+          id: newId,
           file,
           name: file.name,
           originalUrl: previewUrl,
           previewUrl,
           isCropped: false,
           size,
+          soCccd: guessCccd,
+          hoVaTen: guessName,
+          isScanning: true,
         });
+
+        // Tự động kích hoạt AI OCR nhận diện ngay lập tức
+        runAiOcrForImage(newId, previewUrl);
       } catch (err) {
         console.warn('Lỗi tối ưu ảnh:', err);
       }
@@ -212,7 +296,7 @@ export default function CccdUploadBottomSheet({
 
     if (newItems.length > 0) {
       setImages((prev) => [...prev, ...newItems]);
-      showToast(`Đã nạp ${newItems.length} ảnh CCCD. Chạm vào ảnh để căn chỉnh cắt / zoom.`);
+      showToast(`Đã nạp ${newItems.length} ảnh. AI đang quét số CCCD và Họ tên tự động.`);
     }
 
     if (fileInputRef.current) {
@@ -312,22 +396,28 @@ export default function CccdUploadBottomSheet({
       ctx.rotate((90 * Math.PI) / 180);
       ctx.drawImage(img, -img.width / 2, -img.height / 2);
 
-      const rotatedUrl = canvas.toDataURL('image/jpeg', 0.92);
+      const rotatedDataUrl = canvas.toDataURL('image/jpeg', 0.92);
+
       setImages((prev) =>
-        prev.map((item) => (item.id === editingImage.id ? { ...item, previewUrl: rotatedUrl } : item))
+        prev.map((item) =>
+          item.id === editingImage.id
+            ? { ...item, previewUrl: rotatedDataUrl, isCropped: true, isScanning: true }
+            : item
+        )
       );
-      handleFitCccdFrame();
+
+      // Quét lại AI sau khi xoay đúng hướng
+      runAiOcrForImage(editingImage.id, rotatedDataUrl);
+      showToast('Đã xoay ảnh 90°. AI đang quét lại...');
     };
   };
 
-  // Bắt đầu kéo thả hoặc thay đổi kích thước khung cắt
-  const handlePointerDownAction = (
-    mode: DragMode,
-    e: React.PointerEvent<HTMLDivElement>
-  ) => {
+  // Pointer event handlers cho kéo thả & co giãn khung cắt
+  const handlePointerDownAction = (mode: DragMode, e: React.PointerEvent<HTMLDivElement>) => {
     e.stopPropagation();
-    e.preventDefault();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
 
     setDragMode(mode);
     setDragStart({
@@ -340,123 +430,99 @@ export default function CccdUploadBottomSheet({
     });
   };
 
-  // Di chuyển chuột hoặc ngón tay cảm ứng trên khung cắt
   const handlePointerMoveAction = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (touchStartDistRef.current !== null) return;
     if (!dragMode || !cropContainerRef.current) return;
+
     const deltaX = e.clientX - dragStart.x;
     const deltaY = e.clientY - dragStart.y;
-
-    const maxW = cropContainerRef.current.clientWidth;
-    const maxH = cropContainerRef.current.clientHeight;
-
-    const minSize = 35; // kích thước nhỏ nhất cho phép kéo nhỏ lại trong chế độ tự do
+    const containerW = cropContainerRef.current.clientWidth;
+    const containerH = cropContainerRef.current.clientHeight;
 
     if (dragMode === 'move') {
-      const newX = Math.max(0, Math.min(dragStart.boxX + deltaX, maxW - cropBox.w));
-      const newY = Math.max(0, Math.min(dragStart.boxY + deltaY, maxH - cropBox.h));
+      const newX = Math.max(0, Math.min(containerW - cropBox.w, dragStart.boxX + deltaX));
+      const newY = Math.max(0, Math.min(containerH - cropBox.h, dragStart.boxY + deltaY));
       setCropBox((prev) => ({ ...prev, x: newX, y: newY }));
       return;
     }
 
-    // Chế độ Tự Do: Kéo tự do mọi hướng và mọi kích thước nhỏ/to
-    if (cropRatioMode === 'free') {
-      let { boxX: newX, boxY: newY, boxW: newW, boxH: newH } = dragStart;
-
+    if (cropRatioMode === 'cccd') {
+      const ratio = 1.586;
       if (dragMode === 'se') {
-        newW = Math.max(minSize, Math.min(dragStart.boxW + deltaX, maxW - dragStart.boxX));
-        newH = Math.max(minSize, Math.min(dragStart.boxH + deltaY, maxH - dragStart.boxY));
-      } else if (dragMode === 'sw') {
-        const potentialW = dragStart.boxW - deltaX;
-        if (potentialW >= minSize && dragStart.boxX + deltaX >= 0) {
-          newW = potentialW;
-          newX = dragStart.boxX + deltaX;
+        const potentialW = Math.max(80, Math.min(containerW - dragStart.boxX, dragStart.boxW + deltaX));
+        const potentialH = Math.round(potentialW / ratio);
+        if (dragStart.boxY + potentialH <= containerH) {
+          setCropBox({
+            x: dragStart.boxX,
+            y: dragStart.boxY,
+            w: potentialW,
+            h: potentialH,
+          });
         }
-        newH = Math.max(minSize, Math.min(dragStart.boxH + deltaY, maxH - dragStart.boxY));
+      } else if (dragMode === 'sw') {
+        const potentialW = Math.max(80, Math.min(dragStart.boxX + dragStart.boxW, dragStart.boxW - deltaX));
+        const potentialH = Math.round(potentialW / ratio);
+        const newX = dragStart.boxX + (dragStart.boxW - potentialW);
+        if (newX >= 0 && dragStart.boxY + potentialH <= containerH) {
+          setCropBox({
+            x: newX,
+            y: dragStart.boxY,
+            w: potentialW,
+            h: potentialH,
+          });
+        }
       } else if (dragMode === 'ne') {
-        newW = Math.max(minSize, Math.min(dragStart.boxW + deltaX, maxW - dragStart.boxX));
-        const potentialH = dragStart.boxH - deltaY;
-        if (potentialH >= minSize && dragStart.boxY + deltaY >= 0) {
-          newH = potentialH;
-          newY = dragStart.boxY + deltaY;
+        const potentialW = Math.max(80, Math.min(containerW - dragStart.boxX, dragStart.boxW + deltaX));
+        const potentialH = Math.round(potentialW / ratio);
+        const newY = dragStart.boxY + (dragStart.boxH - potentialH);
+        if (newY >= 0) {
+          setCropBox({
+            x: dragStart.boxX,
+            y: newY,
+            w: potentialW,
+            h: potentialH,
+          });
         }
       } else if (dragMode === 'nw') {
-        const potentialW = dragStart.boxW - deltaX;
-        if (potentialW >= minSize && dragStart.boxX + deltaX >= 0) {
-          newW = potentialW;
-          newX = dragStart.boxX + deltaX;
+        const potentialW = Math.max(80, Math.min(dragStart.boxX + dragStart.boxW, dragStart.boxW - deltaX));
+        const potentialH = Math.round(potentialW / ratio);
+        const newX = dragStart.boxX + (dragStart.boxW - potentialW);
+        const newY = dragStart.boxY + (dragStart.boxH - potentialH);
+        if (newX >= 0 && newY >= 0) {
+          setCropBox({
+            x: newX,
+            y: newY,
+            w: potentialW,
+            h: potentialH,
+          });
         }
-        const potentialH = dragStart.boxH - deltaY;
-        if (potentialH >= minSize && dragStart.boxY + deltaY >= 0) {
-          newH = potentialH;
-          newY = dragStart.boxY + deltaY;
-        }
-      } else if (dragMode === 'e') {
-        newW = Math.max(minSize, Math.min(dragStart.boxW + deltaX, maxW - dragStart.boxX));
-      } else if (dragMode === 's') {
-        newH = Math.max(minSize, Math.min(dragStart.boxH + deltaY, maxH - dragStart.boxY));
-      } else if (dragMode === 'w') {
-        const potentialW = dragStart.boxW - deltaX;
-        if (potentialW >= minSize && dragStart.boxX + deltaX >= 0) {
-          newW = potentialW;
-          newX = dragStart.boxX + deltaX;
-        }
-      } else if (dragMode === 'n') {
-        const potentialH = dragStart.boxH - deltaY;
-        if (potentialH >= minSize && dragStart.boxY + deltaY >= 0) {
-          newH = potentialH;
-          newY = dragStart.boxY + deltaY;
-        }
+      }
+    } else {
+      let potentialW = dragStart.boxW;
+      let potentialH = dragStart.boxH;
+      let potentialX = dragStart.boxX;
+      let potentialY = dragStart.boxY;
+
+      if (dragMode.includes('e')) {
+        potentialW = Math.max(60, Math.min(containerW - dragStart.boxX, dragStart.boxW + deltaX));
+      }
+      if (dragMode.includes('s')) {
+        potentialH = Math.max(40, Math.min(containerH - dragStart.boxY, dragStart.boxH + deltaY));
+      }
+      if (dragMode.includes('w')) {
+        potentialW = Math.max(60, Math.min(dragStart.boxX + dragStart.boxW, dragStart.boxW - deltaX));
+        potentialX = dragStart.boxX + (dragStart.boxW - potentialW);
+      }
+      if (dragMode.includes('n')) {
+        potentialH = Math.max(40, Math.min(dragStart.boxY + dragStart.boxH, dragStart.boxH - deltaY));
+        potentialY = dragStart.boxY + (dragStart.boxH - potentialH);
       }
 
-      setCropBox({ x: newX, y: newY, w: newW, h: newH });
-      return;
-    }
-
-    // Chế độ Chuẩn CCCD: Giữ tỷ lệ vàng 1.586
-    const ratio = 1.5858;
-    if (dragMode === 'se' || dragMode === 'e' || dragMode === 's') {
-      const newW = Math.max(60, Math.min(dragStart.boxW + deltaX, maxW - dragStart.boxX));
-      const newH = Math.round(newW / ratio);
-      if (dragStart.boxY + newH <= maxH) {
-        setCropBox((prev) => ({ ...prev, w: newW, h: newH }));
-      }
-    } else if (dragMode === 'sw' || dragMode === 'w') {
-      const potentialW = dragStart.boxW - deltaX;
-      const newH = Math.round(potentialW / ratio);
-      if (potentialW >= 60 && dragStart.boxX + deltaX >= 0 && dragStart.boxY + newH <= maxH) {
-        setCropBox({
-          x: dragStart.boxX + deltaX,
-          y: dragStart.boxY,
-          w: potentialW,
-          h: newH,
-        });
-      }
-    } else if (dragMode === 'ne' || dragMode === 'n') {
-      const newW = Math.max(60, Math.min(dragStart.boxW + deltaX, maxW - dragStart.boxX));
-      const newH = Math.round(newW / ratio);
-      const newY = dragStart.boxY + (dragStart.boxH - newH);
-      if (newY >= 0) {
-        setCropBox({
-          x: dragStart.boxX,
-          y: newY,
-          w: newW,
-          h: newH,
-        });
-      }
-    } else if (dragMode === 'nw') {
-      const potentialW = dragStart.boxW - deltaX;
-      const newH = Math.round(potentialW / ratio);
-      const newX = dragStart.boxX + deltaX;
-      const newY = dragStart.boxY + (dragStart.boxH - newH);
-      if (potentialW >= 60 && newX >= 0 && newY >= 0) {
-        setCropBox({
-          x: newX,
-          y: newY,
-          w: potentialW,
-          h: newH,
-        });
-      }
+      setCropBox({
+        x: potentialX,
+        y: potentialY,
+        w: potentialW,
+        h: potentialH,
+      });
     }
   };
 
@@ -479,11 +545,9 @@ export default function CccdUploadBottomSheet({
     const imgRect = imgEl.getBoundingClientRect();
     const containerRect = containerEl.getBoundingClientRect();
 
-    // Tọa độ của khung cắt so với ảnh hiển thị thực tế (đã tính zoom)
     const cropRelativeX = cropBox.x - (imgRect.left - containerRect.left);
     const cropRelativeY = cropBox.y - (imgRect.top - containerRect.top);
 
-    // Tỷ lệ giữa kích thước thật của ảnh và kích thước hiển thị
     const scaleX = imgEl.naturalWidth / imgRect.width;
     const scaleY = imgEl.naturalHeight / imgRect.height;
 
@@ -520,101 +584,102 @@ export default function CccdUploadBottomSheet({
       );
       setEditingImageId(null);
       showToast('✓ Đã lưu ảnh CCCD đã cắt!');
+
+      // Nếu chưa có số CCCD, thử quét lại trên ảnh đã cắt gọn
+      if (!editingImage.soCccd) {
+        runAiOcrForImage(editingImage.id, croppedDataUrl);
+      }
     };
   };
 
-  // Chuyển DataURL sang chuỗi base64 sạch
-  const getBase64FromUrl = async (url: string): Promise<string> => {
-    if (url.startsWith('data:')) return url;
-    const res = await fetch(url);
-    const blob = await res.blob();
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  };
-
-  // Quét AI và Tải Lên Tất Cả Ảnh CCCD
+  // Tải Lên Tất Cả Ảnh CCCD Đã Chuẩn Bị
   const handleUploadAll = async () => {
     if (images.length === 0) return;
 
+    // Kiểm tra xem có ảnh nào chưa có số CCCD lẫn Họ tên không
+    const invalidItems = images.filter(
+      (img) => !img.soCccd?.trim() && !img.hoVaTen?.trim() && !img.maThua?.trim()
+    );
+
+    if (invalidItems.length > 0) {
+      showToast(
+        `⚠️ Có ${invalidItems.length} ảnh chưa có Số CCCD hoặc Họ tên. Vui lòng nhập thông tin trước khi tải lên!`
+      );
+      return;
+    }
+
     setIsUploading(true);
     let successCount = 0;
+    const successfulIds = new Set<string>();
 
     for (let i = 0; i < images.length; i++) {
       const item = images[i];
       setUploadProgress({
         current: i + 1,
         total: images.length,
-        message: `Đang nhận diện AI và tạo PDF (${i + 1}/${images.length})...`,
+        message: `Đang lưu PDF CCCD vào hệ thống (${i + 1}/${images.length})...`,
       });
 
       try {
         const b64 = await getBase64FromUrl(item.previewUrl);
-
-        // Bước 1: Gọi AI trích xuất thông tin Họ tên & CCCD
-        let soCccd = '';
-        let hoVaTen = '';
-
-        try {
-          const ocrRes = await fetch('/api/ocr-cccd', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageBase64: b64 }),
-          });
-          const ocrData: any = await ocrRes.json();
-          if (ocrData.success && ocrData.data) {
-            soCccd = ocrData.data.so_cccd || '';
-            hoVaTen = ocrData.data.ho_va_ten || '';
-          }
-        } catch (err) {
-          console.warn('Lỗi OCR CCCD:', err);
-        }
-
-        // Bước 2: Tạo PDF khổ A4 và lưu vào R2 cccd/
-        setUploadProgress({
-          current: i + 1,
-          total: images.length,
-          message: `Đang lưu file PDF vào kho CCCD (${i + 1}/${images.length})...`,
-        });
 
         const uploadRes = await fetch('/api/upload-cccd-pdf', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             frontBase64: b64,
-            so_cccd: soCccd,
-            ho_va_ten: hoVaTen,
+            so_cccd: item.soCccd?.trim() || '',
+            ho_va_ten: item.hoVaTen?.trim() || '',
+            ma_thua: item.maThua?.trim() || '',
             skipSync: true,
           }),
         });
 
-        if (uploadRes.ok) {
+        const uploadData: any = await uploadRes.json();
+        if (uploadRes.ok && uploadData.success) {
           successCount++;
+          successfulIds.add(item.id);
+        } else {
+          setImages((prev) =>
+            prev.map((img) =>
+              img.id === item.id
+                ? { ...img, errorMessage: uploadData?.error || 'Lỗi khi lưu lên R2' }
+                : img
+            )
+          );
         }
-      } catch (err) {
-        console.error('Lỗi khi tải lên file CCCD:', err);
+      } catch (err: any) {
+        setImages((prev) =>
+          prev.map((img) =>
+            img.id === item.id ? { ...img, errorMessage: err.message || 'Lỗi kết nối' } : img
+          )
+        );
       }
     }
 
-    // Kích hoạt đồng bộ Google Sheets 1 lần
-    try {
-      await fetch('/api/sync-sheets');
-    } catch {
-      // ignore
+    // Kích hoạt đồng bộ Google Sheets 1 lần duy nhất nếu có file thành công
+    if (successCount > 0) {
+      try {
+        await fetch('/api/sync-sheets');
+      } catch {
+        // ignore
+      }
     }
 
     setIsUploading(false);
-    showToast(`✓ Đã tải lên và lưu thành công ${successCount}/${images.length} file CCCD vào hệ thống!`);
 
-    // Reset về trạng thái form ban đầu có nút "Tải ảnh CCCD lên"
-    setImages([]);
-    setEditingImageId(null);
-
-    if (onSuccess) {
-      onSuccess();
+    if (successCount === images.length) {
+      showToast(`✓ Đã lưu thành công ${successCount} file CCCD PDF vào kho lưu trữ!`);
+      setImages([]);
+      setEditingImageId(null);
+      if (onSuccess) onSuccess();
+    } else {
+      showToast(
+        `✓ Đã tải lên thành công ${successCount}/${images.length} file. Vui lòng kiểm tra lại file bị lỗi.`
+      );
+      // Giữ lại các ảnh bị lỗi để người dùng sửa đổi mà không mất dữ liệu
+      setImages((prev) => prev.filter((img) => !successfulIds.has(img.id)));
+      if (onSuccess) onSuccess();
     }
   };
 
@@ -632,8 +697,8 @@ export default function CccdUploadBottomSheet({
       <div
         className={`fixed z-50 bg-white transition-all duration-300 ease-in-out shadow-2xl flex flex-col ${
           isOpen
-            ? 'w-full lg:w-[500px] h-[86vh] max-h-[90vh] lg:h-[88vh] lg:bottom-4 lg:left-4 bottom-0 left-0 rounded-t-3xl lg:rounded-3xl border-t lg:border border-slate-200 opacity-100 translate-y-0 pointer-events-auto'
-            : 'w-full lg:w-[500px] h-[86vh] max-h-[90vh] lg:h-[88vh] lg:bottom-4 lg:left-4 bottom-0 left-0 rounded-t-3xl lg:rounded-3xl border-0 opacity-0 translate-y-full pointer-events-none'
+            ? 'w-full lg:w-[540px] h-[88vh] max-h-[92vh] lg:h-[90vh] lg:bottom-4 lg:left-4 bottom-0 left-0 rounded-t-3xl lg:rounded-3xl border-t lg:border border-slate-200 opacity-100 translate-y-0 pointer-events-auto'
+            : 'w-full lg:w-[540px] h-[88vh] max-h-[92vh] lg:h-[90vh] lg:bottom-4 lg:left-4 bottom-0 left-0 rounded-t-3xl lg:rounded-3xl border-0 opacity-0 translate-y-full pointer-events-none'
         }`}
       >
         {/* Nút kéo / pill trên mobile */}
@@ -652,7 +717,7 @@ export default function CccdUploadBottomSheet({
               <p className="text-[11px] text-slate-500 font-medium">
                 {images.length === 0
                   ? 'Chụp ảnh hoặc chọn nhiều ảnh từ máy'
-                  : `Đã chọn ${images.length} ảnh (${images.filter((i) => i.isCropped).length} đã cắt)`}
+                  : `Đã chọn ${images.length} ảnh (${images.filter((i) => i.soCccd || i.hoVaTen).length} đã nhận diện)`}
               </p>
             </div>
           </div>
@@ -702,7 +767,7 @@ export default function CccdUploadBottomSheet({
 
         {/* Toast thông báo nhanh */}
         {toastMessage && (
-          <div className="mx-4 mt-2 px-3.5 py-2 bg-slate-900 text-white text-xs font-semibold rounded-xl shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+          <div className="mx-4 mt-2 px-3.5 py-2 bg-slate-900 text-white text-xs font-semibold rounded-xl shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-1 z-30">
             <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span>{toastMessage}</span>
           </div>
@@ -715,7 +780,9 @@ export default function CccdUploadBottomSheet({
             <div className="flex items-center justify-between pb-2.5 border-b border-slate-800 gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <Crop className="w-4 h-4 text-purple-400 shrink-0" />
-                <span className="text-xs font-bold truncate max-w-[130px] sm:max-w-[160px]">{editingImage.name}</span>
+                <span className="text-xs font-bold truncate max-w-[130px] sm:max-w-[160px]">
+                  {editingImage.name}
+                </span>
               </div>
 
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -728,7 +795,9 @@ export default function CccdUploadBottomSheet({
                       handleFitCccdFrame();
                     }}
                     className={`px-2 py-1 rounded-md transition cursor-pointer ${
-                      cropRatioMode === 'cccd' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                      cropRatioMode === 'cccd'
+                        ? 'bg-purple-600 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-white'
                     }`}
                     title="Khóa khung theo tỷ lệ thẻ căn cước chuẩn (1.586)"
                   >
@@ -738,7 +807,9 @@ export default function CccdUploadBottomSheet({
                     type="button"
                     onClick={() => setCropRatioMode('free')}
                     className={`px-2 py-1 rounded-md transition cursor-pointer ${
-                      cropRatioMode === 'free' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                      cropRatioMode === 'free'
+                        ? 'bg-purple-600 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-white'
                     }`}
                     title="Kéo thả tự do mọi kích thước nhỏ/to tùy ý"
                   >
@@ -810,7 +881,9 @@ export default function CccdUploadBottomSheet({
                 {/* Header hiển thị chế độ */}
                 <div className="flex items-center justify-between text-[10px] text-emerald-300 font-black px-1 pointer-events-none select-none">
                   <span className="bg-black/60 px-1 py-0.2 rounded">
-                    {cropRatioMode === 'cccd' ? 'CCCD (1.59)' : `${Math.round(cropBox.w)}×${Math.round(cropBox.h)}`}
+                    {cropRatioMode === 'cccd'
+                      ? 'CCCD (1.59)'
+                      : `${Math.round(cropBox.w)}×${Math.round(cropBox.h)}`}
                   </span>
                   <span className="bg-black/60 px-1 py-0.2 rounded text-[9px]">Kéo góc để thu nhỏ</span>
                 </div>
@@ -828,8 +901,7 @@ export default function CccdUploadBottomSheet({
                   <div />
                 </div>
 
-                {/* 4 NÚT TAY CẦM GÓC CẢM ỨNG LỚN (Touch handles cho Mobile & Chuột) */}
-                {/* Góc Trên - Trái (NW) */}
+                {/* 4 NÚT TAY CẦM GÓC CẢM ỨNG LỚN */}
                 <div
                   onPointerDown={(e) => handlePointerDownAction('nw', e)}
                   className="absolute -top-3 -left-3 w-7 h-7 flex items-center justify-center cursor-nwse-resize z-20 touch-none"
@@ -838,7 +910,6 @@ export default function CccdUploadBottomSheet({
                   <div className="w-3.5 h-3.5 bg-emerald-400 border-2 border-white rounded-full shadow-md" />
                 </div>
 
-                {/* Góc Trên - Phải (NE) */}
                 <div
                   onPointerDown={(e) => handlePointerDownAction('ne', e)}
                   className="absolute -top-3 -right-3 w-7 h-7 flex items-center justify-center cursor-nesw-resize z-20 touch-none"
@@ -847,7 +918,6 @@ export default function CccdUploadBottomSheet({
                   <div className="w-3.5 h-3.5 bg-emerald-400 border-2 border-white rounded-full shadow-md" />
                 </div>
 
-                {/* Góc Dưới - Trái (SW) */}
                 <div
                   onPointerDown={(e) => handlePointerDownAction('sw', e)}
                   className="absolute -bottom-3 -left-3 w-7 h-7 flex items-center justify-center cursor-nesw-resize z-20 touch-none"
@@ -856,7 +926,6 @@ export default function CccdUploadBottomSheet({
                   <div className="w-3.5 h-3.5 bg-emerald-400 border-2 border-white rounded-full shadow-md" />
                 </div>
 
-                {/* Góc Dưới - Phải (SE) */}
                 <div
                   onPointerDown={(e) => handlePointerDownAction('se', e)}
                   className="absolute -bottom-3 -right-3 w-7 h-7 flex items-center justify-center cursor-nwse-resize z-20 touch-none"
@@ -864,40 +933,62 @@ export default function CccdUploadBottomSheet({
                 >
                   <div className="w-3.5 h-3.5 bg-emerald-400 border-2 border-white rounded-full shadow-md" />
                 </div>
+              </div>
+            </div>
 
-                {/* 4 ĐIỂM CẠNH (Dành cho chế độ Tự do) */}
-                {cropRatioMode === 'free' && (
-                  <>
-                    {/* Cạnh Trên */}
-                    <div
-                      onPointerDown={(e) => handlePointerDownAction('n', e)}
-                      className="absolute -top-2 left-1/2 -translate-x-1/2 w-8 h-4 flex items-center justify-center cursor-ns-resize z-10 touch-none"
-                    >
-                      <div className="w-4 h-1.5 bg-emerald-400 border border-white rounded-full" />
-                    </div>
-                    {/* Cạnh Dưới */}
-                    <div
-                      onPointerDown={(e) => handlePointerDownAction('s', e)}
-                      className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-8 h-4 flex items-center justify-center cursor-ns-resize z-10 touch-none"
-                    >
-                      <div className="w-4 h-1.5 bg-emerald-400 border border-white rounded-full" />
-                    </div>
-                    {/* Cạnh Trái */}
-                    <div
-                      onPointerDown={(e) => handlePointerDownAction('w', e)}
-                      className="absolute top-1/2 -left-2 -translate-y-1/2 w-4 h-8 flex items-center justify-center cursor-ew-resize z-10 touch-none"
-                    >
-                      <div className="w-1.5 h-4 bg-emerald-400 border border-white rounded-full" />
-                    </div>
-                    {/* Cạnh Phải */}
-                    <div
-                      onPointerDown={(e) => handlePointerDownAction('e', e)}
-                      className="absolute top-1/2 -right-2 -translate-y-1/2 w-4 h-8 flex items-center justify-center cursor-ew-resize z-10 touch-none"
-                    >
-                      <div className="w-1.5 h-4 bg-emerald-400 border border-white rounded-full" />
-                    </div>
-                  </>
-                )}
+            {/* Thông tin số CCCD & Họ tên chỉnh sửa được */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 mb-2 text-xs">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1">
+                  <FileText className="w-3.5 h-3.5 text-purple-400" />
+                  Thông tin CCCD:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => runAiOcrForImage(editingImage.id, editingImage.previewUrl)}
+                  disabled={editingImage.isScanning}
+                  className="text-[10px] text-purple-300 hover:text-purple-200 font-bold flex items-center gap-1 cursor-pointer bg-purple-950/80 px-2 py-0.5 rounded-md border border-purple-800"
+                >
+                  {editingImage.isScanning ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3 h-3 text-amber-400" />
+                  )}
+                  <span>Quét lại AI</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] text-slate-400 font-semibold block mb-0.5">Số CCCD</label>
+                  <input
+                    type="text"
+                    value={editingImage.soCccd || ''}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 12);
+                      setImages((prev) =>
+                        prev.map((img) => (img.id === editingImage.id ? { ...img, soCccd: val } : img))
+                      );
+                    }}
+                    placeholder="VD: 066069000926"
+                    className="w-full px-2.5 py-1.5 bg-slate-800 text-white rounded-lg border border-slate-700 font-mono text-xs focus:ring-1 focus:ring-purple-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 font-semibold block mb-0.5">Họ và tên</label>
+                  <input
+                    type="text"
+                    value={editingImage.hoVaTen || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setImages((prev) =>
+                        prev.map((img) => (img.id === editingImage.id ? { ...img, hoVaTen: val } : img))
+                      );
+                    }}
+                    placeholder="VD: PHAN THANH TRÚC"
+                    className="w-full px-2.5 py-1.5 bg-slate-800 text-white rounded-lg border border-slate-700 text-xs focus:ring-1 focus:ring-purple-500 outline-none uppercase font-semibold"
+                  />
+                </div>
               </div>
             </div>
 
@@ -906,7 +997,6 @@ export default function CccdUploadBottomSheet({
               <div className="flex items-center gap-1.5 text-slate-400">
                 <Scan className="w-3.5 h-3.5 text-purple-400 shrink-0" />
                 <span className="text-[11px] font-semibold">Thu phóng:</span>
-                <span className="text-[10px] text-slate-400 hidden sm:inline">(Hỗ trợ 2 ngón tay pinch-zoom)</span>
               </div>
 
               <div className="flex items-center gap-2">
@@ -953,7 +1043,7 @@ export default function CccdUploadBottomSheet({
                 onClick={() => setEditingImageId(null)}
                 className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition cursor-pointer"
               >
-                Hủy bỏ
+                Đóng cắt
               </button>
               <button
                 type="button"
@@ -998,7 +1088,7 @@ export default function CccdUploadBottomSheet({
                 </button>
 
                 <p className="text-[11px] text-slate-400 mt-4">
-                  Hỗ trợ định dạng JPG, PNG • Tự động xoay, căn zoom và nhận diện AI mượt mà
+                  Hỗ trợ định dạng JPG, PNG • Tự động nhận diện AI số CCCD và Họ tên
                 </p>
               </div>
             ) : (
@@ -1010,7 +1100,7 @@ export default function CccdUploadBottomSheet({
                     <div className="flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-purple-600 shrink-0" />
                       <span className="font-medium text-[11px] sm:text-xs">
-                        Nhấn vào 1 ảnh bất kỳ để <strong>cắt, zoom & xoay</strong> trước khi tải lên.
+                        Kiểm tra số CCCD & Họ tên bên dưới trước khi bấm <strong>Tải Lên</strong>.
                       </span>
                     </div>
 
@@ -1024,78 +1114,143 @@ export default function CccdUploadBottomSheet({
                     </button>
                   </div>
 
-                  {/* Lưới hình ảnh (2 cột trên điện thoại) */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {images.map((item, idx) => (
-                      <div
-                        key={item.id}
-                        onClick={() => handleStartCrop(item)}
-                        className={`group relative rounded-2xl overflow-hidden border-2 transition-all cursor-pointer bg-slate-900 shadow-sm flex flex-col ${
-                          item.isCropped
-                            ? 'border-emerald-500 ring-2 ring-emerald-500/30'
-                            : 'border-slate-200 hover:border-purple-400'
-                        }`}
-                      >
-                        {/* Hình ảnh */}
-                        <div className="relative aspect-[1.58/1] w-full bg-slate-950 flex items-center justify-center overflow-hidden">
-                          <img
-                            src={item.previewUrl}
-                            alt={item.name}
-                            className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                            loading="lazy"
-                          />
+                  {/* Danh sách thẻ ảnh (1 cột dạng danh sách trực quan trên điện thoại) */}
+                  <div className="space-y-3">
+                    {images.map((item, idx) => {
+                      const isComplete = Boolean(item.soCccd || item.hoVaTen);
+                      return (
+                        <div
+                          key={item.id}
+                          className={`p-3 rounded-2xl border-2 transition-all bg-white shadow-xs ${
+                            item.errorMessage
+                              ? 'border-rose-400 bg-rose-50/20'
+                              : isComplete
+                              ? 'border-emerald-300'
+                              : 'border-amber-300'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            {/* Khối Ảnh thu nhỏ */}
+                            <div
+                              onClick={() => handleStartCrop(item)}
+                              className="relative w-28 aspect-[1.58/1] rounded-xl overflow-hidden bg-slate-950 shrink-0 cursor-pointer group shadow-inner"
+                              title="Nhấn để cắt hoặc xoay ảnh"
+                            >
+                              <img
+                                src={item.previewUrl}
+                                alt={item.name}
+                                className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                              />
 
-                          {/* Badge trạng thái */}
-                          <div className="absolute bottom-1.5 left-1.5">
-                            {item.isCropped ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-600 text-white shadow-md">
-                                <CheckCircle2 className="w-3 h-3" />
-                                Đã cắt
+                              {/* STT ảnh */}
+                              <span className="absolute top-1 left-1 w-4 h-4 bg-black/70 text-white rounded-full text-[9px] font-black flex items-center justify-center">
+                                {idx + 1}
                               </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-black/70 backdrop-blur-xs text-amber-300 shadow-md">
-                                <Crop className="w-3 h-3" />
-                                Chạm để cắt
-                              </span>
-                            )}
+
+                              {/* Badge Đã cắt */}
+                              {item.isCropped && (
+                                <span className="absolute bottom-1 right-1 px-1 py-0.2 rounded text-[8px] font-black bg-emerald-600 text-white shadow-xs">
+                                  Đã cắt
+                                </span>
+                              )}
+
+                              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+                                <Crop className="w-4 h-4 text-white drop-shadow" />
+                              </div>
+                            </div>
+
+                            {/* Cột Thông Tin CCCD & Thao Tác */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-1 mb-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  {item.isScanning ? (
+                                    <span className="text-[11px] font-bold text-purple-600 flex items-center gap-1 animate-pulse">
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                      AI đang nhận diện...
+                                    </span>
+                                  ) : isComplete ? (
+                                    <span className="text-[11px] font-black text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                      Đã nhận diện
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                                      <AlertCircle className="w-3 h-3 text-amber-600" />
+                                      Điền số CCCD / Tên
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartCrop(item)}
+                                    className="p-1 text-slate-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition cursor-pointer"
+                                    title="Cắt hoặc xoay ảnh này"
+                                  >
+                                    <Crop className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleRemoveImage(item.id, e)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                                    title="Xóa ảnh"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Form Điền / Sửa Số CCCD & Họ Tên Ngay Tại Thẻ */}
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs">
+                                <div>
+                                  <input
+                                    type="text"
+                                    value={item.soCccd || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value.replace(/\D/g, '').slice(0, 12);
+                                      setImages((prev) =>
+                                        prev.map((img) => (img.id === item.id ? { ...img, soCccd: val, errorMessage: undefined } : img))
+                                      );
+                                    }}
+                                    placeholder="Số CCCD (12 số)..."
+                                    className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-mono text-[11px] font-semibold text-slate-800 focus:bg-white focus:ring-1 focus:ring-purple-500 outline-none"
+                                  />
+                                </div>
+
+                                <div>
+                                  <input
+                                    type="text"
+                                    value={item.hoVaTen || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setImages((prev) =>
+                                        prev.map((img) => (img.id === item.id ? { ...img, hoVaTen: val, errorMessage: undefined } : img))
+                                      );
+                                    }}
+                                    placeholder="Họ và tên..."
+                                    className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800 uppercase focus:bg-white focus:ring-1 focus:ring-purple-500 outline-none"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Lỗi hiển thị nếu có */}
+                              {item.errorMessage && (
+                                <div className="mt-1 text-[10px] text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded flex items-center gap-1">
+                                  <AlertCircle className="w-3 h-3 shrink-0" />
+                                  <span>{item.errorMessage}</span>
+                                </div>
+                              )}
+                            </div>
                           </div>
-
-                          {/* STT ảnh */}
-                          <span className="absolute top-1.5 left-1.5 w-5 h-5 bg-black/60 backdrop-blur-xs text-white rounded-full text-[10px] font-black flex items-center justify-center">
-                            {idx + 1}
-                          </span>
-
-                          {/* Nút xóa ảnh */}
-                          <button
-                            type="button"
-                            onClick={(e) => handleRemoveImage(item.id, e)}
-                            className="absolute top-1.5 right-1.5 w-6 h-6 bg-rose-600/90 hover:bg-rose-700 text-white rounded-full flex items-center justify-center shadow-md transition cursor-pointer"
-                            title="Xóa ảnh này"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
                         </div>
-
-                        {/* Tên ảnh */}
-                        <div className="p-2 bg-white flex items-center justify-between text-[11px] text-slate-700">
-                          <span className="truncate font-medium">{item.name}</span>
-                        </div>
-                      </div>
-                    ))}
-
-                    {/* Nút thêm ảnh vào lưới */}
-                    <div
-                      onClick={() => fileInputRef.current?.click()}
-                      className="aspect-[1.58/1] rounded-2xl border-2 border-dashed border-slate-300 hover:border-purple-400 bg-slate-50 hover:bg-purple-50/50 flex flex-col items-center justify-center text-slate-500 hover:text-purple-600 transition cursor-pointer p-2 text-center"
-                    >
-                      <Plus className="w-6 h-6 mb-1 text-slate-400" />
-                      <span className="text-xs font-bold">Thêm ảnh</span>
-                    </div>
+                      );
+                    })}
                   </div>
                 </div>
 
                 {/* THANH ĐIỀU KHIỂN & NÚT TẢI LÊN DƯỚI CÙNG */}
-                <div className="pt-4 mt-4 border-t border-slate-100">
+                <div className="pt-4 mt-4 border-t border-slate-100 sticky bottom-0 bg-white">
                   {isUploading ? (
                     <div className="p-4 bg-purple-50 rounded-2xl border border-purple-200 flex flex-col items-center justify-center gap-2 text-center">
                       <div className="flex items-center gap-2 text-purple-700 font-black text-sm">
@@ -1118,7 +1273,7 @@ export default function CccdUploadBottomSheet({
                       className="w-full py-3.5 px-6 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-black text-sm rounded-2xl shadow-xl shadow-purple-600/30 flex items-center justify-center gap-2 transition transform active:scale-95 cursor-pointer"
                     >
                       <Upload className="w-5 h-5" />
-                      <span>Tải Lên ({images.length} ảnh)</span>
+                      <span>Lưu Lên Hệ Thống ({images.length} file)</span>
                     </button>
                   )}
                 </div>
