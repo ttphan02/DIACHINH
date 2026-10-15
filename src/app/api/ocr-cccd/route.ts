@@ -26,11 +26,20 @@ export async function POST(request: Request) {
       }
       cleanB64 = parts[1];
     }
-    cleanB64 = cleanB64.replace(/\s+/g, '');
+    function decodeBase64Key(k: string): string {
+      if (k.startsWith('AQ.')) return k;
+      try {
+        if (typeof atob === 'function') return atob(k);
+      } catch {}
+      try {
+        if (typeof Buffer !== 'undefined') return Buffer.from(k, 'base64').toString('utf8');
+      } catch {}
+      return k;
+    }
 
     const keys = (geminiKeys as string[])
       .filter((k) => k && typeof k === 'string' && !k.startsWith('DIEN_API_KEY'))
-      .map((k) => (k.startsWith('AQ.') ? k : atob(k)));
+      .map(decodeBase64Key);
 
     if (keys.length === 0) {
       return NextResponse.json(
@@ -40,22 +49,23 @@ export async function POST(request: Request) {
     }
 
     const promptText = `Bạn là chuyên gia trích xuất thông tin Căn cước công dân / Thẻ căn cước Việt Nam.
-Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JSON (không thêm markdown hay chữ gì khác):
+Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JSON:
 {
   "so_cccd": "12 chữ số viết liền hoặc 9 chữ số",
   "ho_va_ten": "Họ và tên đầy đủ viết hoa có dấu (Ví dụ: ĐẶNG THỊ HỒNG)"
 }`;
 
+    // Ưu tiên flash-lite vì quota cao và tốc độ cực nhanh, sau đó fallback flash và 2.5
     const candidateModels = [
-      'gemini-flash-latest',
       'gemini-flash-lite-latest',
+      'gemini-flash-latest',
       'gemini-2.5-flash',
     ];
 
     const shuffledKeys = [...keys].sort(() => Math.random() - 0.5);
     let lastError = '';
 
-    for (const apiKey of shuffledKeys.slice(0, 5)) {
+    for (const apiKey of shuffledKeys.slice(0, 6)) {
       for (const model of candidateModels) {
         try {
           const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -79,14 +89,25 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
             },
           };
 
-          const res = await fetch(url, {
+          let res = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           });
 
+          // Nếu model không thích hợp với responseMimeType, thử lại không có generationConfig
+          if (!res.ok && res.status === 400) {
+            delete (payload as any).generationConfig;
+            res = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+          }
+
           if (!res.ok) {
-            lastError = `${model} HTTP ${res.status}`;
+            const errText = await res.text().catch(() => '');
+            lastError = `${model} HTTP ${res.status}: ${errText.slice(0, 80)}`;
             continue;
           }
 

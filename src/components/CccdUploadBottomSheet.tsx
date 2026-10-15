@@ -21,6 +21,7 @@ import {
   Scan,
   Move,
   Edit2,
+  RefreshCw,
 } from 'lucide-react';
 
 interface SelectedCccdImage {
@@ -201,6 +202,9 @@ export default function CccdUploadBottomSheet({
 
   // Gọi AI OCR nhận diện thông tin CCCD
   const runAiOcrForImage = async (id: string, previewUrl: string) => {
+    setImages((prev) =>
+      prev.map((img) => (img.id === id ? { ...img, isScanning: true, scanError: undefined } : img))
+    );
     try {
       const b64 = await getBase64FromUrl(previewUrl);
       const res = await fetch('/api/ocr-cccd', {
@@ -224,6 +228,9 @@ export default function CccdUploadBottomSheet({
               : img
           )
         );
+        if (data.data.so_cccd || data.data.ho_va_ten) {
+          showToast(`✓ Đã nhận diện: ${data.data.so_cccd || ''} ${data.data.ho_va_ten ? '• ' + data.data.ho_va_ten : ''}`);
+        }
       } else {
         setImages((prev) =>
           prev.map((img) =>
@@ -1182,6 +1189,15 @@ export default function CccdUploadBottomSheet({
                                 </div>
 
                                 <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => runAiOcrForImage(item.id, item.previewUrl)}
+                                    disabled={item.isScanning}
+                                    className="p-1 text-slate-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition cursor-pointer disabled:opacity-40"
+                                    title="Quét lại AI (nhận diện số CCCD và Tên)"
+                                  >
+                                    <RefreshCw className={`w-3.5 h-3.5 ${item.isScanning ? 'animate-spin text-purple-600' : ''}`} />
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() => handleStartCrop(item)}
