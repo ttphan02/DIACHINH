@@ -2027,7 +2027,7 @@ export default function DashboardPage() {
       <header className={`sticky top-0 z-40 backdrop-blur-md border-b shadow-md transition-colors duration-200 no-print ${
         isLight ? 'bg-white/95 border-slate-200' : 'bg-slate-900/90 border-slate-800'
       }`}>
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="w-full px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 sm:gap-3">
             <Link
               href="/"
@@ -2207,7 +2207,7 @@ export default function DashboardPage() {
       )}
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-5">
+      <main className="flex-1 w-full px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5">
         {/* Executive KPI Cards */}
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {/* Card 1: Tổng Thửa Quản Lý */}
@@ -2413,7 +2413,7 @@ export default function DashboardPage() {
               </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3.5">
               {villageStats.map((v) => (
                 <div
                   key={v.name}
