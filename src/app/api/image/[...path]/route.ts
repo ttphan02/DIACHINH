@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,7 +66,6 @@ export async function GET(
         const hasRange = request.headers.has('range');
         const obj = await bucket.get(key, {
           range: hasRange ? request.headers : undefined,
-          onlyIf: request.headers,
         });
 
         if (obj) {
@@ -82,9 +81,21 @@ export async function GET(
           headers.set('Content-Type', contentType);
           headers.set('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
 
-          const status = obj.range ? 206 : 200;
+          if (obj.range) {
+            const start = (obj.range as any).offset ?? 0;
+            const length = (obj.range as any).length ?? (obj.size - start);
+            const end = start + length - 1;
+            headers.set('Content-Range', `bytes ${start}-${end}/${obj.size}`);
+            headers.set('Content-Length', String(length));
+            return new Response(obj.body, {
+              status: 206,
+              headers,
+            });
+          }
+
+          headers.set('Content-Length', String(obj.size));
           return new Response(obj.body, {
-            status,
+            status: 200,
             headers,
           });
         }
@@ -146,11 +157,12 @@ export async function GET(
         .map((s) => encodeURIComponent(s))
         .join('/');
       const r2Url = `${R2_PUBLIC_BASE}/${encodedKey}`;
+      const range = request.headers.get('range');
       const r2Response = await fetch(r2Url, {
         headers: {
           'User-Agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-          ...(request.headers.get('range') ? { range: request.headers.get('range')! } : {}),
+          ...(range ? { range } : {}),
         },
       });
 
@@ -169,6 +181,8 @@ export async function GET(
         if (len) headers.set('Content-Length', len);
         const cr = r2Response.headers.get('content-range');
         if (cr) headers.set('Content-Range', cr);
+        const etag = r2Response.headers.get('etag');
+        if (etag) headers.set('etag', etag);
 
         return new Response(r2Response.body, {
           status: r2Response.status,
@@ -189,13 +203,52 @@ export async function GET(
 
 export async function HEAD(
   request: Request,
-  context: { params: Promise<{ path: string[] }> }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
-  const getRes = await GET(request, context);
-  return new Response(null, {
-    status: getRes.status,
-    headers: getRes.headers,
-  });
+  try {
+    const { path } = await params;
+    if (!path || path.length === 0) {
+      return new Response(null, { status: 400 });
+    }
+    const key = path.map((segment) => decodeURIComponent(segment)).join('/');
+    const filename = key.split('/').pop() || 'file';
+
+    const bucket = await getR2Binding();
+    if (bucket) {
+      const obj = await bucket.head(key);
+      if (obj) {
+        const headers = new Headers();
+        obj.writeHttpMetadata(headers);
+        if (obj.httpEtag) headers.set('etag', obj.httpEtag);
+        headers.set('Accept-Ranges', 'bytes');
+        headers.set('Access-Control-Allow-Origin', '*');
+        headers.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+        headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+        headers.set('Content-Type', detectContentType(key, headers.get('content-type')));
+        headers.set('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+        headers.set('Content-Length', String(obj.size));
+        return new Response(null, { status: 200, headers });
+      }
+    }
+
+    const s3 = getS3Client();
+    if (s3) {
+      try {
+        const head = await s3.send(new HeadObjectCommand({ Bucket: R2_BUCKET, Key: key }));
+        const headers = new Headers();
+        headers.set('Accept-Ranges', 'bytes');
+        headers.set('Access-Control-Allow-Origin', '*');
+        headers.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+        headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+        headers.set('Content-Type', detectContentType(key, head.ContentType));
+        headers.set('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+        if (head.ContentLength) headers.set('Content-Length', String(head.ContentLength));
+        if (head.ETag) headers.set('etag', head.ETag);
+        return new Response(null, { status: 200, headers });
+      } catch {}
+    }
+  } catch {}
+  return new Response(null, { status: 404 });
 }
 
 export async function OPTIONS() {

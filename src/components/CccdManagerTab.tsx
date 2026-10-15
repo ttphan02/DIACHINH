@@ -446,8 +446,11 @@ export default function CccdManagerTab({
                         type="button"
                         onClick={(e) => {
                           e.preventDefault();
-                          setPreviewPdf({ url: file.url, filename: file.filename });
-                          if (onPreviewUrl) onPreviewUrl(file.url, file.filename);
+                          if (onPreviewUrl) {
+                            onPreviewUrl(file.url, file.filename);
+                          } else {
+                            setPreviewPdf({ url: file.url, filename: file.filename });
+                          }
                         }}
                         className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
                           isLight
@@ -613,17 +616,11 @@ export default function CccdManagerTab({
               </div>
             </div>
             <div className="flex-1 w-full bg-slate-950 relative">
-              <object
-                data={previewPdf.url}
-                type="application/pdf"
+              <iframe
+                src={previewPdf.url}
                 className="w-full h-full border-0 bg-white"
-              >
-                <iframe
-                  src={previewPdf.url}
-                  className="w-full h-full border-0 bg-white"
-                  title={previewPdf.filename}
-                />
-              </object>
+                title={previewPdf.filename}
+              />
             </div>
           </div>
         </div>

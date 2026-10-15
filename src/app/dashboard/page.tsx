@@ -4822,17 +4822,11 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="flex-1 w-full bg-slate-950 relative">
-              <object
-                data={previewPdfModal.url}
-                type="application/pdf"
+              <iframe
+                src={previewPdfModal.url}
                 className="w-full h-full border-0 bg-white"
-              >
-                <iframe
-                  src={previewPdfModal.url}
-                  className="w-full h-full border-0 bg-white"
-                  title={previewPdfModal.title}
-                />
-              </object>
+                title={previewPdfModal.title}
+              />
             </div>
           </div>
         </div>
