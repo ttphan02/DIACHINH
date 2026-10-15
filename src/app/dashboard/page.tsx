@@ -151,9 +151,36 @@ export default function DashboardPage() {
   } | null>(null);
   const [isLoadingSyncSheets, setIsLoadingSyncSheets] = useState(false);
   const [selectedReportSheet, setSelectedReportSheet] = useState<string>('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
-  const [reportSearchQuery, setReportSearchQuery] = useState<string>('');
-  const [reportVillageFilter, setReportVillageFilter] = useState<string>('ALL');
-  const [reportStatusFilter, setReportStatusFilter] = useState<string>('ALL');
+  const [perSheetFilters, setPerSheetFilters] = useState<Record<string, {
+    village?: string;
+    status?: string;
+    search?: string;
+  }>>({});
+
+  const reportVillageFilter = perSheetFilters[selectedReportSheet]?.village || 'ALL';
+  const setReportVillageFilter = (v: string) => {
+    setPerSheetFilters((prev) => ({
+      ...prev,
+      [selectedReportSheet]: { ...(prev[selectedReportSheet] || {}), village: v },
+    }));
+  };
+
+  const reportStatusFilter = perSheetFilters[selectedReportSheet]?.status || 'ALL';
+  const setReportStatusFilter = (st: string) => {
+    setPerSheetFilters((prev) => ({
+      ...prev,
+      [selectedReportSheet]: { ...(prev[selectedReportSheet] || {}), status: st },
+    }));
+  };
+
+  const reportSearchQuery = perSheetFilters[selectedReportSheet]?.search || '';
+  const setReportSearchQuery = (q: string) => {
+    setPerSheetFilters((prev) => ({
+      ...prev,
+      [selectedReportSheet]: { ...(prev[selectedReportSheet] || {}), search: q },
+    }));
+  };
+
   const [reportPageSize, setReportPageSize] = useState<number | 'ALL'>(20);
   const [reportPage, setReportPage] = useState<number>(1);
 
@@ -517,6 +544,7 @@ export default function DashboardPage() {
     else if (hLower.includes('năm sinh') || hLower.includes('ngày sinh')) fieldKey = 'chu_dat_nam_sinh';
     else if (hLower.includes('giới tính')) fieldKey = 'chu_dat_gioi_tinh';
     else if (hLower.includes('cccd') && !hLower.includes('xem') && !hLower.includes('file')) fieldKey = 'chu_dat_cccd';
+    else if (hLower.includes('thôn') || hLower.includes('buôn')) fieldKey = 'dia_chi_thua_dat';
     else if (hLower.includes('diện tích')) fieldKey = 'dien_tich';
     else if (hLower.includes('loại đất')) fieldKey = 'loai_dat';
     else if (hLower.includes('nguồn gốc')) fieldKey = 'nguon_goc';
@@ -558,6 +586,10 @@ export default function DashboardPage() {
       ...existingDecl,
       [fieldKey]: formattedValue,
     };
+    if (fieldKey === 'dia_chi_thua_dat') {
+      updatedDecl.dia_chi_thua_dat = formattedValue;
+      updatedDecl.chu_dat_dia_chi = formattedValue.includes('xã Cư Pui') ? formattedValue : `${formattedValue}, xã Cư Pui`;
+    }
 
     // Đánh dấu đang lưu
     setSavingRowCodes((prev) => new Set(prev).add(maThua));
@@ -2663,7 +2695,8 @@ export default function DashboardPage() {
                   const villageCounts: Record<string, number> = {};
                   allRows.forEach((r) => {
                     if (villageColIdx >= 0) {
-                      const v = String(r[villageColIdx] || '').trim();
+                      const maThua = String(r[1] || '').trim();
+                      const v = String(cellEdits[maThua]?.[villageColIdx] ?? r[villageColIdx] ?? '').trim();
                       if (v) villageCounts[v] = (villageCounts[v] || 0) + 1;
                     }
                   });
@@ -4233,6 +4266,7 @@ export default function DashboardPage() {
                                       const isDobCol = hLower.includes('năm sinh') || hLower.includes('ngày sinh');
                                       const isGenderCol = hLower.includes('giới tính');
                                       const isCccdCol = hLower.includes('cccd') && !hLower.includes('xem') && !hLower.includes('file');
+                                      const isVillageCol = hLower.includes('thôn') || hLower.includes('buôn');
                                       const isAreaCol = hLower.includes('diện tích');
                                       const isLandTypeCol = hLower.includes('loại đất');
                                       const isOriginCol = hLower.includes('nguồn gốc');
@@ -4312,7 +4346,7 @@ export default function DashboardPage() {
                                       }
 
                                       // 2. Các ô nhập chữ trực tiếp như Excel (Họ tên, Năm sinh, Giới tính, Số CCCD, Diện tích, Loại đất, Ghi chú)
-                                      if (isNameCol || isDobCol || isGenderCol || isCccdCol || isAreaCol || isLandTypeCol || isNoteCol) {
+                                      if (isNameCol || isDobCol || isGenderCol || isCccdCol || isVillageCol || isAreaCol || isLandTypeCol || isNoteCol) {
                                         return (
                                           <td
                                             key={cIdx}
@@ -4333,7 +4367,9 @@ export default function DashboardPage() {
                                                 isGenderCol
                                                   ? 'Nam / Nữ...'
                                                   : isCccdCol
-                                                  ? '12 số CCCD...'
+                                                   ? '12 số CCCD...'
+                                                   : isVillageCol
+                                                   ? 'Thôn / Buôn...'
                                                   : isNameCol
                                                   ? 'Nhập họ tên...'
                                                   : isDobCol

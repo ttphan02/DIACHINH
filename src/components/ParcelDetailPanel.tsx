@@ -163,15 +163,30 @@ export default function ParcelDetailPanel({
   useEffect(() => {
     const clean = cleanCccd(chuDatCccd);
     if (clean.length === 12) {
+      // Kiểm tra nhanh trong allParcels nếu có sẵn
+      const foundInProps = allParcels?.find((p) => cleanCccd(p.cccd) === clean);
+      if (foundInProps) {
+        setCccdCheckResult({
+          exists: true,
+          url: foundInProps.cccd_url || undefined,
+        });
+      }
+
       let active = true;
       setIsCheckingCccd(true);
       fetch(`/api/cccd?check=${clean}`)
-        .then((r) => r.json() as Promise<{ exists: boolean; filename?: string; url?: string }>)
+        .then((r) => r.json() as Promise<{ exists: boolean; filename?: string; url?: string; message?: string }>)
         .then((res) => {
-          if (active) setCccdCheckResult(res);
+          if (active) {
+            if (res.exists) {
+              setCccdCheckResult(res);
+            } else if (!foundInProps) {
+              setCccdCheckResult({ exists: false });
+            }
+          }
         })
         .catch(() => {
-          if (active) setCccdCheckResult(null);
+          if (active && !foundInProps) setCccdCheckResult(null);
         })
         .finally(() => {
           if (active) setIsCheckingCccd(false);
@@ -183,7 +198,7 @@ export default function ParcelDetailPanel({
       setCccdCheckResult(null);
       setIsCheckingCccd(false);
     }
-  }, [chuDatCccd]);
+  }, [chuDatCccd, allParcels]);
   const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai hoang');
   const [nguoiKeKhaiTen, setNguoiKeKhaiTen] = useState('');
   const [nguoiKeKhaiSdt, setNguoiKeKhaiSdt] = useState('');
@@ -1185,32 +1200,38 @@ export default function ParcelDetailPanel({
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-gray-500 block mb-0.5">Số CCCD chuẩn:</label>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <label className="text-[10px] text-gray-500 flex items-center gap-1">
+                      <span>Số CCCD chuẩn:</span>
+                      {cccdCheckResult?.exists && (
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-300 px-1.5 py-0.2 rounded-md flex items-center gap-1 animate-in fade-in">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                          Đã có cccd trên hệ thống!
+                        </span>
+                      )}
+                    </label>
+                    {cccdCheckResult?.exists && cccdCheckResult.url && (
+                      <a
+                        href={cccdCheckResult.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-emerald-800 underline font-bold"
+                      >
+                        Xem file
+                      </a>
+                    )}
+                  </div>
                   <input
                     type="text"
                     value={chuDatCccd}
                     onChange={(e) => setChuDatCccd(e.target.value)}
                     placeholder="Số CCCD chuẩn"
-                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    className={`w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none transition ${
+                      cccdCheckResult?.exists
+                        ? 'border-emerald-500 bg-emerald-50/30 text-emerald-950 ring-2 ring-emerald-500/20'
+                        : 'border-gray-300 focus:ring-2 focus:ring-amber-500'
+                    }`}
                   />
-                  {cccdCheckResult?.exists && (
-                    <div className="mt-1 flex items-center justify-between px-2 py-1 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-[11px] font-semibold animate-in fade-in">
-                      <div className="flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span>Đã có hình ảnh cccd</span>
-                      </div>
-                      {cccdCheckResult.url && (
-                        <a
-                          href={cccdCheckResult.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[10px] text-emerald-800 underline font-bold"
-                        >
-                          Xem file
-                        </a>
-                      )}
-                    </div>
-                  )}
                   {isCheckingCccd && (
                     <div className="mt-1 text-[10px] text-slate-400 flex items-center gap-1">
                       <Loader2 className="w-2.5 h-2.5 animate-spin" />
@@ -1523,41 +1544,47 @@ export default function ParcelDetailPanel({
 
                 {/* Số CCCD */}
                 <div>
-                  <label className="text-[11px] font-bold text-gray-700 block mb-1">
-                    Số CCCD <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={chuDatCccd}
-                    onChange={(e) => setChuDatCccd(e.target.value)}
-                    placeholder="Nhập 12 chữ số CCCD..."
-                    className="w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold tracking-wider"
-                  />
-                  {cccdCheckResult?.exists && (
-                    <div className="mt-1.5 flex items-center justify-between px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-xs font-semibold animate-in fade-in">
-                      <div className="flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>Đã có hình ảnh cccd</span>
-                      </div>
-                      {cccdCheckResult.url && (
-                        <a
-                          href={cccdCheckResult.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[11px] text-emerald-800 underline font-bold"
-                        >
-                          Xem file
-                        </a>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold text-gray-700 flex items-center gap-1.5 flex-wrap">
+                      <span>Số CCCD</span>
+                      <span className="text-red-500">*</span>
+                      {cccdCheckResult?.exists && (
+                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-300 px-1.5 py-0.5 rounded-md flex items-center gap-1 animate-in fade-in shadow-2xs">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          Đã có cccd trên hệ thống!
+                        </span>
                       )}
-                    </div>
-                  )}
-                  {isCheckingCccd && (
-                    <div className="mt-1 text-[11px] text-slate-400 flex items-center gap-1">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      <span>Đang kiểm tra file CCCD...</span>
-                    </div>
-                  )}
+                    </label>
+                    {cccdCheckResult?.exists && cccdCheckResult.url && (
+                      <a
+                        href={cccdCheckResult.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-emerald-700 hover:text-emerald-900 underline font-bold"
+                      >
+                        Xem file CCCD
+                      </a>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      value={chuDatCccd}
+                      onChange={(e) => setChuDatCccd(e.target.value)}
+                      placeholder="Nhập 12 chữ số CCCD..."
+                      className={`w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none font-mono font-bold tracking-wider transition ${
+                        cccdCheckResult?.exists
+                          ? 'border-emerald-500 bg-emerald-50/20 text-emerald-950 ring-2 ring-emerald-500/20'
+                          : 'border-gray-300 focus:ring-2 focus:ring-blue-500'
+                      }`}
+                    />
+                    {isCheckingCccd && (
+                      <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 flex items-center gap-1">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Địa chỉ thường trú */}

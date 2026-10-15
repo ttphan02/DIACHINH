@@ -68,7 +68,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const checkParam = searchParams.get('check') || searchParams.get('cccd');
 
-    // 1. Kiểm tra nhanh 1 số CCCD cụ thể có file PDF trên R2 hay chưa
+    // 1. Kiểm tra nhanh 1 số CCCD cụ thể có file PDF trên R2 hoặc có trên hệ thống hay chưa
     if (checkParam) {
       const clean = cleanCccd(checkParam);
       if (!clean) {
@@ -79,12 +79,23 @@ export async function GET(request: Request) {
       const s3 = getS3Client();
       const targetKey = `cccd/${clean}.pdf`;
       let found = false;
+      let matchedKey = targetKey;
 
       if (bucket) {
         try {
           const obj = await bucket.head(targetKey);
           if (obj) found = true;
         } catch {}
+
+        if (!found) {
+          try {
+            const listRes: any = await bucket.list({ prefix: `cccd/${clean}`, limit: 5 });
+            if (listRes?.objects && listRes.objects.length > 0) {
+              found = true;
+              matchedKey = listRes.objects[0].key;
+            }
+          } catch {}
+        }
       }
 
       if (!found && s3) {
@@ -97,15 +108,48 @@ export async function GET(request: Request) {
           );
           found = true;
         } catch {}
+
+        if (!found) {
+          try {
+            const listRes = await s3.send(
+              new ListObjectsV2Command({
+                Bucket: R2_BUCKET,
+                Prefix: `cccd/${clean}`,
+                MaxKeys: 5,
+              })
+            );
+            if (listRes.Contents && listRes.Contents.length > 0) {
+              found = true;
+              matchedKey = listRes.Contents[0].Key || targetKey;
+            }
+          } catch {}
+        }
       }
 
       if (found) {
+        const filename = matchedKey.replace(/^cccd\//, '');
         return NextResponse.json({
           exists: true,
-          filename: `${clean}.pdf`,
-          url: `/api/image/cccd/${encodeURIComponent(clean + '.pdf')}`,
+          inR2: true,
+          filename,
+          url: `/api/image/cccd/${encodeURIComponent(filename)}`,
+          message: 'Đã có cccd trên hệ thống!',
         });
       }
+
+      // Kiểm tra xem số CCCD đã có trên Google Sheets chính hay chưa
+      try {
+        const { fetchOrGetCachedGgsData } = await import('@/utils/ggsData');
+        const ggs = await fetchOrGetCachedGgsData();
+        if (ggs && Array.isArray(ggs.allCccds) && ggs.allCccds.includes(clean)) {
+          return NextResponse.json({
+            exists: true,
+            inR2: false,
+            inGgs: true,
+            message: 'Đã có cccd trên hệ thống!',
+          });
+        }
+      } catch {}
 
       return NextResponse.json({ exists: false });
     }
