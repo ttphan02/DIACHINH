@@ -47,26 +47,65 @@ async function getDeclarationsMap(): Promise<Record<string, any>> {
   return {};
 }
 
+const KEY_SYNC_CACHE = 'cache/sync_sheets.json';
 let cachedSyncResult: any = null;
 let lastSyncTime = 0;
-const SYNC_CACHE_TTL = 15 * 1000; // 15 giây (để cập nhật realtime ngay khi sửa link hoặc file R2)
+const SYNC_CACHE_TTL = 3 * 60 * 1000; // 3 phút (tránh quá tải CPU Worker gây lỗi 1102 khi F5)
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const force = url.searchParams.get('force') === 'true';
   const now = Date.now();
 
+  // 1. Kiểm tra cache trong bộ nhớ (In-memory cache)
   if (!force && cachedSyncResult && now - lastSyncTime < SYNC_CACHE_TTL) {
-    return NextResponse.json({
-      ...cachedSyncResult,
-      cached: true,
-      durationMs: 0,
-    });
+    return NextResponse.json(
+      {
+        ...cachedSyncResult,
+        cached: true,
+        durationMs: 0,
+      },
+      {
+        headers: {
+          'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=120',
+        },
+      }
+    );
+  }
+
+  const bucket = await getR2Binding();
+
+  // 2. Kiểm tra cache trong Cloudflare R2 (giúp các worker isolate mới không phải tính toán lại khi F5)
+  if (!force && bucket) {
+    try {
+      const obj = await bucket.get(KEY_SYNC_CACHE);
+      if (obj) {
+        const text = await obj.text();
+        const data = JSON.parse(text);
+        if (data && now - (data.cachedAt || 0) < SYNC_CACHE_TTL) {
+          cachedSyncResult = data;
+          lastSyncTime = data.cachedAt;
+          return NextResponse.json(
+            {
+              ...data,
+              cached: true,
+              durationMs: 0,
+            },
+            {
+              headers: {
+                'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=120',
+              },
+            }
+          );
+        }
+      }
+    } catch (cacheErr) {
+      console.warn('Lỗi đọc cache sync-sheets từ R2:', cacheErr);
+    }
   }
 
   const t0 = Date.now();
   try {
-    const bucket = await getR2Binding();
     const declarationsMap = await getDeclarationsMap();
     const result = await executeSyncToGoogleSheet(declarationsMap, bucket);
 
@@ -77,12 +116,28 @@ export async function GET(req: Request) {
       totalDeclarations: Object.keys(declarationsMap).length,
       summary: (result as any).summary,
       sheetsData: (result as any).sheetsData,
+      cachedAt: now,
     };
 
     cachedSyncResult = payload;
-    lastSyncTime = Date.now();
+    lastSyncTime = now;
 
-    return NextResponse.json(payload);
+    // Lưu vào R2 cache cho các worker isolate khác dùng chung
+    if (bucket) {
+      try {
+        await bucket.put(KEY_SYNC_CACHE, JSON.stringify(payload), {
+          httpMetadata: { contentType: 'application/json' },
+        });
+      } catch (saveCacheErr) {
+        console.warn('Lỗi lưu cache sync-sheets vào R2:', saveCacheErr);
+      }
+    }
+
+    return NextResponse.json(payload, {
+      headers: {
+        'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=120',
+      },
+    });
   } catch (error: any) {
     console.error('Lỗi khi đồng bộ Google Sheet:', error);
     if (cachedSyncResult) {

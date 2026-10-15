@@ -1,3 +1,5 @@
+import { getCloudflareContext } from '@opennextjs/cloudflare';
+
 const DEFAULT_GGS_CSV_URL =
   'https://docs.google.com/spreadsheets/d/1c2xAknmc1fx-xKBJhLp-EcmZwAAnDIgCPf-pj6wmCHc/export?format=csv&gid=0';
 
@@ -18,7 +20,17 @@ let cachedData: {
   expiresAt: number;
 } | null = null;
 
-const CACHE_TTL_MS = 5 * 60 * 1000; // Cache 5 phút
+const KEY_GGS_CACHE = 'cache/ggs.json';
+const CACHE_TTL_MS = 10 * 60 * 1000; // Cache 10 phút (giúp worker siêu nhẹ, không tốn CPU parse CSV)
+
+async function getR2Binding(): Promise<any | null> {
+  try {
+    const { env } = await getCloudflareContext({ async: true });
+    return (env as any)?.DIACHINH_STORAGE || null;
+  } catch {
+    return null;
+  }
+}
 
 function extractFields(line: string): string[] {
   const fields: string[] = [];
@@ -49,6 +61,8 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
   cached: boolean;
 }> {
   const now = Date.now();
+
+  // 1. Kiểm tra cache trong bộ nhớ (0ms CPU)
   if (!force && cachedData && cachedData.expiresAt > now) {
     return {
       codes: cachedData.codes,
@@ -57,6 +71,32 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
       updatedAt: cachedData.updatedAt,
       cached: true,
     };
+  }
+
+  // 2. Kiểm tra cache trong Cloudflare R2 (giúp các isolate worker mới không tốn CPU parse 10.000 dòng CSV)
+  if (!force) {
+    try {
+      const bucket = await getR2Binding();
+      if (bucket) {
+        const obj = await bucket.get(KEY_GGS_CACHE);
+        if (obj) {
+          const text = await obj.text();
+          const r2Data = JSON.parse(text);
+          if (r2Data && r2Data.expiresAt > now && Array.isArray(r2Data.codes)) {
+            cachedData = r2Data;
+            return {
+              codes: r2Data.codes,
+              parcels: r2Data.parcels,
+              allCccds: r2Data.allCccds,
+              updatedAt: r2Data.updatedAt,
+              cached: true,
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Lỗi đọc ggs cache từ R2:', e);
+    }
   }
 
   const ggsUrl = process.env.GOOGLE_SHEET_CSV_URL || DEFAULT_GGS_CSV_URL;
@@ -249,6 +289,17 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
       updatedAt,
       expiresAt: now + CACHE_TTL_MS,
     };
+
+    try {
+      const bucket = await getR2Binding();
+      if (bucket) {
+        await bucket.put(KEY_GGS_CACHE, JSON.stringify(cachedData), {
+          httpMetadata: { contentType: 'application/json' },
+        });
+      }
+    } catch (saveErr) {
+      console.warn('Lỗi lưu ggs cache vào R2:', saveErr);
+    }
 
     return {
       codes: ggsCodes,

@@ -1005,10 +1005,10 @@ export default function DashboardPage() {
   };
 
   // 2. Nạp báo cáo thống kê 16 thôn & đóng tập từ API nội bộ
-  const fetchSyncSheetsReport = useCallback(async () => {
+  const fetchSyncSheetsReport = useCallback(async (force = false) => {
     setIsLoadingSyncSheets(true);
     try {
-      const res = await fetch('/api/sync-sheets', { cache: 'no-store' });
+      const res = await fetch(`/api/sync-sheets${force ? '?force=true' : ''}`);
       const data: any = await res.json();
       if (data && data.success) {
         setSyncSummary(data.summary);
@@ -1022,10 +1022,10 @@ export default function DashboardPage() {
   }, []);
 
   // 3. Đồng bộ Google Sheets Realtime
-  const fetchGgsCodes = useCallback(async () => {
+  const fetchGgsCodes = useCallback(async (force = false) => {
     setIsSyncingGgs(true);
     try {
-      const res = await fetch('/api/sync-ggs', { cache: 'no-store' });
+      const res = await fetch(`/api/sync-ggs${force ? '?force=true' : ''}`);
       const data: any = await res.json();
       if (data && data.success) {
         if (Array.isArray(data.ggsCodes)) {
@@ -2154,7 +2154,7 @@ export default function DashboardPage() {
 
             {/* Đồng bộ GGS */}
             <button
-              onClick={() => fetchGgsCodes()}
+              onClick={() => fetchGgsCodes(true)}
               disabled={isSyncingGgs}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition disabled:opacity-60 shadow-xs cursor-pointer border ${
                 isLight
