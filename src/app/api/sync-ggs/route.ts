@@ -16,6 +16,7 @@ export async function GET(request: Request) {
         totalGgsCodes: result.codes.length,
         ggsCodes: result.codes,
         ggsParcels: result.parcels,
+        ggsCccds: result.allCccds,
         updatedAt: result.updatedAt,
         cached: result.cached,
       },

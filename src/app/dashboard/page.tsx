@@ -153,9 +153,17 @@ export default function DashboardPage() {
   const [selectedReportSheet, setSelectedReportSheet] = useState<string>('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
   const [reportSearchQuery, setReportSearchQuery] = useState<string>('');
   const [reportVillageFilter, setReportVillageFilter] = useState<string>('ALL');
-  const [reportStatusFilter, setReportStatusFilter] = useState<'ALL' | 'CẦN TÌM CCCD' | 'KHÔNG CÓ CCCD'>('ALL');
+  const [reportStatusFilter, setReportStatusFilter] = useState<string>('ALL');
   const [reportPageSize, setReportPageSize] = useState<number | 'ALL'>(20);
   const [reportPage, setReportPage] = useState<number>(1);
+
+  // Danh sách CCCD đã có trên R2 và trên GGS phục vụ kiểm tra realtime
+  const [r2CccdSet, setR2CccdSet] = useState<Set<string>>(new Set());
+  const [ggsCccdSet, setGgsCccdSet] = useState<Set<string>>(new Set());
+  const [isLoadingR2Cccd, setIsLoadingR2Cccd] = useState(false);
+  const [isMovingParcelsToPack, setIsMovingParcelsToPack] = useState(false);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const [statusFilterPopupPos, setStatusFilterPopupPos] = useState<{ top: number; left: number } | null>(null);
 
   // Sắp xếp danh sách theo tên chủ đất A -> Z
   const [sortNameOrder, setSortNameOrder] = useState<'none' | 'asc' | 'desc'>('none');
@@ -559,6 +567,25 @@ export default function DashboardPage() {
     setDeclaredParcelCodes(new Set(updatedCodes));
     setDeclarationsMap(updatedMap);
 
+    // Tự động kiểm tra file CCCD trên R2 nếu vừa nhập/sửa CCCD
+    if (fieldKey === 'chu_dat_cccd' && formattedValue.length === 12) {
+      if (r2CccdSet.has(formattedValue)) {
+        setInlineSaveToast(`✓ Đã có hình ảnh / file PDF CCCD (${formattedValue}.pdf) trên R2!`);
+        setTimeout(() => setInlineSaveToast(null), 3500);
+      } else {
+        fetch(`/api/cccd?check=${formattedValue}`)
+          .then((res) => res.json())
+          .then((data: any) => {
+            if (data && data.exists) {
+              setR2CccdSet((prev) => new Set(prev).add(formattedValue));
+              setInlineSaveToast(`✓ Đã phát hiện file PDF CCCD (${formattedValue}.pdf) trên R2!`);
+              setTimeout(() => setInlineSaveToast(null), 3500);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+
     // Gửi realtime lên Cloudflare R2 (không hiện popup thông báo làm phiền)
     try {
       await fetch('/api/declarations', {
@@ -566,6 +593,10 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedDecl),
       });
+      // Tự động làm mới bảng báo cáo sau khi lưu
+      if (selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)') {
+        fetchSyncSheetsReport();
+      }
     } catch (e) {
       console.warn('Lỗi lưu realtime:', e);
     } finally {
@@ -927,8 +958,13 @@ export default function DashboardPage() {
     try {
       const res = await fetch('/api/sync-ggs', { cache: 'no-store' });
       const data: any = await res.json();
-      if (data && data.success && Array.isArray(data.ggsCodes)) {
-        setGgsCodes(new Set(data.ggsCodes));
+      if (data && data.success) {
+        if (Array.isArray(data.ggsCodes)) {
+          setGgsCodes(new Set(data.ggsCodes));
+        }
+        if (Array.isArray(data.ggsCccds)) {
+          setGgsCccdSet(new Set(data.ggsCccds));
+        }
         const now = new Date();
         setLastSyncTime(
           now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -941,15 +977,35 @@ export default function DashboardPage() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchGgsCodes();
-  }, [fetchGgsCodes]);
+  // 4. Lấy danh sách CCCD đã có file trên R2 phục vụ kiểm tra realtime
+  const fetchR2CccdList = useCallback(async () => {
+    setIsLoadingR2Cccd(true);
+    try {
+      const res = await fetch(`/api/cccd?list_only=1&t=${Date.now()}`);
+      const data: any = await res.json();
+      if (data && data.success && Array.isArray(data.cccdList)) {
+        setR2CccdSet(new Set(data.cccdList));
+      }
+    } catch (err) {
+      console.warn('Lỗi nạp danh sách CCCD R2:', err);
+    } finally {
+      setIsLoadingR2Cccd(false);
+    }
+  }, []);
 
   useEffect(() => {
-    if (activeTab === 'progressReport' && !syncSheetsData && !isLoadingSyncSheets) {
-      fetchSyncSheetsReport();
+    fetchGgsCodes();
+    fetchR2CccdList();
+  }, [fetchGgsCodes, fetchR2CccdList]);
+
+  useEffect(() => {
+    if (activeTab === 'progressReport') {
+      fetchR2CccdList();
+      if (!syncSheetsData && !isLoadingSyncSheets) {
+        fetchSyncSheetsReport();
+      }
     }
-  }, [activeTab, syncSheetsData, isLoadingSyncSheets, fetchSyncSheetsReport]);
+  }, [activeTab, syncSheetsData, isLoadingSyncSheets, fetchSyncSheetsReport, fetchR2CccdList]);
 
   // 3. Tính toán trạng thái thực tế của từng thửa
   const computedParcels = useMemo(() => {
@@ -2634,7 +2690,24 @@ export default function DashboardPage() {
                   const statusCounts: Record<string, number> = {};
                   if (statusColIdx >= 0) {
                     allRows.forEach((r) => {
-                      const st = String(r[statusColIdx] || '').trim();
+                      const maThua = String(r[1] || '').trim();
+                      let st = String(r[statusColIdx] || '').trim();
+                      if (isChuaCoCccdSheet) {
+                        const cccdVal = cleanCccd(
+                          cellEdits[maThua]?.[8] !== undefined
+                            ? cellEdits[maThua][8]
+                            : (declarationsMap[maThua]?.chu_dat_cccd || r[8] || '')
+                        );
+                        if (cccdVal && (r2CccdSet.has(cccdVal) || declarationsMap[maThua]?.cccd_url)) {
+                          st = 'ĐÃ CÓ CCCD (R2)';
+                        } else if (cccdVal && ggsCccdSet.has(cccdVal)) {
+                          st = 'CẦN TÌM CCCD';
+                        } else if (cccdVal) {
+                          st = 'CẦN TÌM CCCD';
+                        } else {
+                          st = 'KHÔNG CÓ CCCD';
+                        }
+                      }
                       if (st) statusCounts[st] = (statusCounts[st] || 0) + 1;
                     });
                   }
@@ -2676,7 +2749,23 @@ export default function DashboardPage() {
 
                     // 3. Lọc theo Phân loại trạng thái (cho sheet Đang kê khai - Chưa có CCCD)
                     if (reportStatusFilter !== 'ALL' && statusColIdx >= 0) {
-                      const st = String(row[statusColIdx] || '').trim();
+                      let st = String(row[statusColIdx] || '').trim();
+                      if (isChuaCoCccdSheet) {
+                        const cccdVal = cleanCccd(
+                          cellEdits[maThua]?.[8] !== undefined
+                            ? cellEdits[maThua][8]
+                            : (declarationsMap[maThua]?.chu_dat_cccd || row[8] || '')
+                        );
+                        if (cccdVal && (r2CccdSet.has(cccdVal) || declarationsMap[maThua]?.cccd_url)) {
+                          st = 'ĐÃ CÓ CCCD (R2)';
+                        } else if (cccdVal && ggsCccdSet.has(cccdVal)) {
+                          st = 'CẦN TÌM CCCD';
+                        } else if (cccdVal) {
+                          st = 'CẦN TÌM CCCD';
+                        } else {
+                          st = 'KHÔNG CÓ CCCD';
+                        }
+                      }
                       if (st !== reportStatusFilter) return false;
                     }
 
@@ -2822,6 +2911,67 @@ export default function DashboardPage() {
                       console.error('Lỗi kê khai các thửa đủ thông tin:', err);
                     } finally {
                       setIsCommittingAllReady(false);
+                    }
+                  };
+
+                  // Danh sách các thửa trong mục ĐANG KÊ KHAI (CHƯA CÓ CCCD) đã phát hiện có file trên R2
+                  const readyToMoveToPackRows = useMemo(() => {
+                    if (!isChuaCoCccdSheet) return [];
+                    return allRows.filter((r) => {
+                      const maThua = String(r[1] || '').trim();
+                      const edits = cellEdits[maThua] || {};
+                      const rawCccd = String(edits[8] ?? declarationsMap[maThua]?.chu_dat_cccd ?? r[8] ?? '').replace(/^="|"$/g, '').trim();
+                      const cleanVal = cleanCccd(rawCccd);
+                      return Boolean(cleanVal && (r2CccdSet.has(cleanVal) || declarationsMap[maThua]?.cccd_url));
+                    });
+                  }, [isChuaCoCccdSheet, allRows, cellEdits, declarationsMap, r2CccdSet]);
+
+                  // Chuyển toàn bộ các thửa đã có file CCCD trên R2 sang SẴN SÀNG ĐÓNG TẬP
+                  const handleMoveParcelsToReadyToPack = async () => {
+                    if (readyToMoveToPackRows.length === 0 || isMovingParcelsToPack) return;
+                    setIsMovingParcelsToPack(true);
+                    try {
+                      let countMoved = 0;
+                      for (const r of readyToMoveToPackRows) {
+                        const maThua = String(r[1] || '').trim();
+                        const edits = cellEdits[maThua] || {};
+                        const rawCccd = String(edits[8] ?? declarationsMap[maThua]?.chu_dat_cccd ?? r[8] ?? '').replace(/^="|"$/g, '').trim();
+                        const cleanVal = cleanCccd(rawCccd);
+                        if (maThua && cleanVal) {
+                          const existingDecl = declarationsMap[maThua] || {
+                            ma_thua: maThua,
+                            to_ban_do: String(r[2] || ''),
+                            so_thua: String(r[3] || ''),
+                            chu_dat_ten: String(r[5] || ''),
+                            chu_dat_nam_sinh: String(r[6] || ''),
+                            chu_dat_gioi_tinh: String(r[7] || 'Nam'),
+                            chu_dat_dia_chi: String(r[4] ? `${r[4]}, xã Cư Pui` : 'xã Cư Pui'),
+                            dien_tich: String(r[9] || ''),
+                            loai_dat: String(r[10] || 'DGT'),
+                            nguon_goc: String(r[11] || 'Khai hoang'),
+                          };
+                          const updatedDecl: DeclarationFormData = {
+                            ...existingDecl,
+                            chu_dat_cccd: cleanVal,
+                            cccd_chu_ho: cleanVal,
+                          };
+                          saveOrUpdateDeclaration(updatedDecl);
+                          await fetch('/api/declarations', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(updatedDecl),
+                          });
+                          countMoved++;
+                        }
+                      }
+                      setInlineSaveToast(`✓ Đã chuyển thành công ${countMoved} thửa có file CCCD trên R2 sang Sẵn Sàng Đóng Tập!`);
+                      setTimeout(() => setInlineSaveToast(null), 4000);
+                      await fetchSyncSheetsReport();
+                      setSelectedReportSheet('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
+                    } catch (err) {
+                      console.error('Lỗi chuyển thửa sang đóng tập:', err);
+                    } finally {
+                      setIsMovingParcelsToPack(false);
                     }
                   };
 
@@ -3127,6 +3277,9 @@ export default function DashboardPage() {
                                 }`}
                               >
                                 <option value="ALL">Tất cả phân loại ({allRows.length})</option>
+                                <option value="ĐÃ CÓ CCCD (R2)">
+                                  ĐÃ CÓ CCCD (R2) ({statusCounts['ĐÃ CÓ CCCD (R2)'] || 0})
+                                </option>
                                 <option value="CẦN TÌM CCCD">
                                   CẦN TÌM CCCD ({statusCounts['CẦN TÌM CCCD'] || 0})
                                 </option>
@@ -3134,6 +3287,44 @@ export default function DashboardPage() {
                                   KHÔNG CÓ CCCD ({statusCounts['KHÔNG CÓ CCCD'] || 0})
                                 </option>
                               </select>
+                            </div>
+                          )}
+
+                          {/* NÚT TỰ ĐỘNG ĐẾM & CHUYỂN CÁC THỬA CÓ FILE CCCD TRÊN R2 SANG KÊ KHAI CÓ CCCD (ĐÓNG TẬP) */}
+                          {isChuaCoCccdSheet && (
+                            <div className="flex items-center gap-1.5 ml-1">
+                              {readyToMoveToPackRows.length > 0 ? (
+                                <button
+                                  type="button"
+                                  disabled={isMovingParcelsToPack}
+                                  onClick={handleMoveParcelsToReadyToPack}
+                                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer bg-gradient-to-r from-emerald-600 via-teal-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white shadow-emerald-600/30 animate-pulse"
+                                  title="Bấm để tự động chuyển các thửa đã có file CCCD trên R2 sang SẴN SÀNG ĐÓNG TẬP (CÓ CCCD)"
+                                >
+                                  {isMovingParcelsToPack ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+                                  ) : (
+                                    <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
+                                  )}
+                                  <span>
+                                    {isMovingParcelsToPack
+                                      ? 'Đang chuyển...'
+                                      : `⚡ Chuyển sang Có CCCD (${readyToMoveToPackRows.length} thửa có R2)`}
+                                  </span>
+                                </button>
+                              ) : (
+                                <div
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border select-none ${
+                                    isLight
+                                      ? 'bg-slate-100 text-slate-400 border-slate-200'
+                                      : 'bg-slate-800/60 text-slate-500 border-slate-700/60'
+                                  }`}
+                                  title="Chưa có thửa nào trong danh sách này có file CCCD sẵn trên R2"
+                                >
+                                  <ShieldCheck className="w-3.5 h-3.5 opacity-50" />
+                                  <span>CCCD trên R2: 0</span>
+                                </div>
+                              )}
                             </div>
                           )}
 
@@ -3288,6 +3479,7 @@ export default function DashboardPage() {
                                 const isNameHeader = hIdx === nameColIdx;
                                 const isMaThuaHeader = hIdx === 1 && isChuaThucHienSheet;
                                 const isVillageHeader = hIdx === villageColIdx && availableVillages.length > 0;
+                                const isStatusHeader = isChuaCoCccdSheet && hIdx === statusColIdx;
                                 const colW = getColWidth(hIdx, h);
                                 return (
                                   <th
@@ -3669,6 +3861,150 @@ export default function DashboardPage() {
                                            {reportVillageFilter}
                                          </span>
                                        )}
+                                       {isStatusHeader && (
+                                         <div className="relative inline-block text-left" onClick={(e) => e.stopPropagation()}>
+                                           <button
+                                             type="button"
+                                             onClick={(e) => {
+                                               e.stopPropagation();
+                                               const rect = e.currentTarget.getBoundingClientRect();
+                                               setStatusFilterPopupPos({
+                                                 top: rect.bottom + 6,
+                                                 left: Math.max(10, Math.min(rect.left, window.innerWidth - 260)),
+                                               });
+                                               setStatusDropdownOpen((prev) => !prev);
+                                             }}
+                                             className={`p-1 rounded-md transition cursor-pointer flex items-center gap-0.5 ${
+                                               reportStatusFilter !== 'ALL'
+                                                 ? 'bg-amber-600 text-white shadow-xs'
+                                                 : isLight
+                                                 ? 'hover:bg-slate-200 text-slate-600'
+                                                 : 'hover:bg-slate-700 text-slate-300'
+                                             }`}
+                                             title="Bấm để lọc theo Phân loại trạng thái"
+                                           >
+                                             <Filter className="w-3 h-3" />
+                                             <ChevronDown className="w-3 h-3" />
+                                           </button>
+
+                                           {/* Popover Lọc Trạng Thái */}
+                                           {statusDropdownOpen && statusFilterPopupPos && (
+                                             <>
+                                               <div
+                                                 className="fixed inset-0 z-[99998]"
+                                                 onClick={(e) => {
+                                                   e.stopPropagation();
+                                                   setStatusDropdownOpen(false);
+                                                 }}
+                                               />
+                                               <div
+                                                 onClick={(e) => e.stopPropagation()}
+                                                 style={{
+                                                   position: 'fixed',
+                                                   top: `${statusFilterPopupPos.top}px`,
+                                                   left: `${statusFilterPopupPos.left}px`,
+                                                   zIndex: 99999,
+                                                 }}
+                                                 className={`w-64 max-w-[90vw] p-2.5 rounded-2xl shadow-2xl border text-left font-normal ${
+                                                   isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-100'
+                                                 }`}
+                                               >
+                                                 <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800 mb-2 select-none">
+                                                   <span className="text-xs font-bold flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                                                     <Filter className="w-3.5 h-3.5" />
+                                                     Lọc Phân Loại Trạng Thái
+                                                   </span>
+                                                   <button
+                                                     type="button"
+                                                     onClick={() => setStatusDropdownOpen(false)}
+                                                     className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                                                   >
+                                                     <X className="w-4 h-4" />
+                                                   </button>
+                                                 </div>
+
+                                                 <div className={`space-y-1 p-1 rounded-xl border text-xs ${
+                                                   isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'
+                                                 }`}>
+                                                   <button
+                                                     type="button"
+                                                     onClick={() => {
+                                                       setReportStatusFilter('ALL');
+                                                       setStatusDropdownOpen(false);
+                                                       setReportPage(1);
+                                                     }}
+                                                     className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition cursor-pointer font-semibold ${
+                                                       reportStatusFilter === 'ALL'
+                                                         ? 'bg-amber-600 text-white font-bold'
+                                                         : isLight
+                                                         ? 'hover:bg-slate-200/70 text-slate-700'
+                                                         : 'hover:bg-slate-800 text-slate-300'
+                                                     }`}
+                                                   >
+                                                     <span>Tất cả phân loại</span>
+                                                     <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${
+                                                       reportStatusFilter === 'ALL' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
+                                                     }`}>
+                                                       {allRows.length}
+                                                     </span>
+                                                   </button>
+
+                                                   {['ĐÃ CÓ CCCD (R2)', 'CẦN TÌM CCCD', 'KHÔNG CÓ CCCD'].map((stKey) => {
+                                                     const isSelected = reportStatusFilter === stKey;
+                                                     const count = statusCounts[stKey] || 0;
+                                                     return (
+                                                       <button
+                                                         key={stKey}
+                                                         type="button"
+                                                         onClick={() => {
+                                                           setReportStatusFilter(stKey);
+                                                           setStatusDropdownOpen(false);
+                                                           setReportPage(1);
+                                                         }}
+                                                         className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition cursor-pointer ${
+                                                           isSelected
+                                                             ? 'bg-amber-600 text-white font-bold'
+                                                             : isLight
+                                                             ? 'hover:bg-slate-200/70 text-slate-700'
+                                                             : 'hover:bg-slate-800 text-slate-300'
+                                                         }`}
+                                                       >
+                                                         <span className="truncate pr-2">{stKey}</span>
+                                                         <span className={`text-[10px] px-1.5 py-0.5 rounded-md shrink-0 ${
+                                                           isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
+                                                         }`}>
+                                                           {count}
+                                                         </span>
+                                                       </button>
+                                                     );
+                                                   })}
+                                                 </div>
+
+                                                 {reportStatusFilter !== 'ALL' && (
+                                                   <div className="pt-2 mt-2 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+                                                     <button
+                                                       type="button"
+                                                       onClick={() => {
+                                                         setReportStatusFilter('ALL');
+                                                         setStatusDropdownOpen(false);
+                                                         setReportPage(1);
+                                                       }}
+                                                       className="text-[11px] text-rose-500 hover:underline font-semibold cursor-pointer"
+                                                     >
+                                                       Xóa lọc (Hiển thị tất cả)
+                                                     </button>
+                                                   </div>
+                                                 )}
+                                               </div>
+                                             </>
+                                           )}
+                                         </div>
+                                       )}
+                                       {isStatusHeader && reportStatusFilter !== 'ALL' && (
+                                         <span className="text-[10px] px-1.5 py-0.2 bg-amber-600 text-white rounded font-bold truncate max-w-[90px]" title={`Đang lọc: ${reportStatusFilter}`}>
+                                           {reportStatusFilter}
+                                         </span>
+                                       )}
                                       {isNameHeader && (
                                         <ArrowUpDown className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                       )}
@@ -3785,9 +4121,30 @@ export default function DashboardPage() {
                                       const hLower = headerName.toLowerCase();
                                       const colW = getColWidth(cIdx, headerName);
 
-                                      // Cột Phân loại trạng thái (Làm nổi bật badge)
+                                      // Cột Phân loại trạng thái (Làm nổi bật badge & realtime check)
                                       if (cIdx === statusColIdx && isChuaCoCccdSheet) {
-                                        const isCanTim = cellStr.includes('CẦN TÌM');
+                                        const cccdVal = cleanCccd(
+                                          cellEdits[maThua]?.[8] !== undefined
+                                            ? cellEdits[maThua][8]
+                                            : (declarationsMap[maThua]?.chu_dat_cccd || row[8] || '')
+                                        );
+                                        const hasR2 = Boolean(cccdVal && (r2CccdSet.has(cccdVal) || declarationsMap[maThua]?.cccd_url));
+                                        const hasGgs = Boolean(cccdVal && ggsCccdSet.has(cccdVal));
+
+                                        let dynamicStatus = cellStr;
+                                        let statusType: 'r2' | 'cantim' | 'khongco' = 'khongco';
+
+                                        if (hasR2) {
+                                          dynamicStatus = 'ĐÃ CÓ CCCD (R2)';
+                                          statusType = 'r2';
+                                        } else if (hasGgs || cccdVal) {
+                                          dynamicStatus = 'CẦN TÌM CCCD';
+                                          statusType = 'cantim';
+                                        } else {
+                                          dynamicStatus = 'KHÔNG CÓ CCCD';
+                                          statusType = 'khongco';
+                                        }
+
                                         return (
                                           <td
                                             key={cIdx}
@@ -3796,7 +4153,11 @@ export default function DashboardPage() {
                                           >
                                             <div className="truncate">
                                               <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[11px] border ${
-                                                isCanTim
+                                                statusType === 'r2'
+                                                  ? isLight
+                                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                                    : 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40'
+                                                  : statusType === 'cantim'
                                                   ? isLight
                                                     ? 'bg-amber-50 text-amber-800 border-amber-300'
                                                     : 'bg-amber-950/50 text-amber-300 border-amber-500/40'
@@ -3804,8 +4165,10 @@ export default function DashboardPage() {
                                                   ? 'bg-rose-50 text-rose-800 border-rose-300'
                                                   : 'bg-rose-950/50 text-rose-300 border-rose-500/40'
                                               }`}>
-                                                <span className={`w-1.5 h-1.5 rounded-full ${isCanTim ? 'bg-amber-500' : 'bg-rose-500'}`} />
-                                                <span className="truncate">{cellStr}</span>
+                                                <span className={`w-1.5 h-1.5 rounded-full ${
+                                                  statusType === 'r2' ? 'bg-emerald-500' : statusType === 'cantim' ? 'bg-amber-500' : 'bg-rose-500'
+                                                }`} />
+                                                <span className="truncate">{dynamicStatus}</span>
                                               </span>
                                             </div>
                                           </td>
@@ -3900,6 +4263,50 @@ export default function DashboardPage() {
                                               <option value="Nhận Thừa Kế">Nhận Thừa Kế</option>
                                               <option value="Nhận Tặng Cho">Nhận Tặng Cho</option>
                                             </select>
+                                          </td>
+                                        );
+                                      }
+
+                                      // Cột Ghi chú & Hướng dẫn xử lý cho mục Đang kê khai (Chưa có CCCD) - Hiển thị realtime tô màu xanh lá nếu có file R2
+                                      if (isChuaCoCccdSheet && (isNoteCol || cIdx === headers.length - 1)) {
+                                        const cccdVal = cleanCccd(
+                                          cellEdits[maThua]?.[8] !== undefined
+                                            ? cellEdits[maThua][8]
+                                            : (declarationsMap[maThua]?.chu_dat_cccd || row[8] || '')
+                                        );
+                                        const hasR2 = Boolean(cccdVal && (r2CccdSet.has(cccdVal) || declarationsMap[maThua]?.cccd_url));
+                                        const hasGgs = Boolean(cccdVal && ggsCccdSet.has(cccdVal));
+
+                                        let dynamicNote = '';
+                                        let noteStyle = '';
+
+                                        if (hasR2) {
+                                          dynamicNote = '✓ Đã có hình ảnh / file PDF CCCD trên R2 - Sẵn sàng chuyển sang Đóng tập';
+                                          noteStyle = isLight ? 'text-emerald-700 bg-emerald-50/70 font-bold' : 'text-emerald-400 bg-emerald-950/30 font-bold';
+                                        } else if (hasGgs) {
+                                          dynamicNote = 'Đã có thông tin CCCD trên GGS chính - Cần tìm file scan/ảnh CCCD tải lên R2';
+                                          noteStyle = isLight ? 'text-amber-800 bg-amber-50/40 font-semibold' : 'text-amber-300 bg-amber-950/20 font-semibold';
+                                        } else if (cccdVal) {
+                                          dynamicNote = 'Đã nhập số CCCD - Cần chụp ảnh / nạp file PDF CCCD tải lên R2';
+                                          noteStyle = isLight ? 'text-amber-700 font-medium' : 'text-amber-300 font-medium';
+                                        } else {
+                                          dynamicNote = 'Chưa có CCCD trên GGS chính lẫn R2 - Cần liên hệ chủ hộ thu thập CCCD mới';
+                                          noteStyle = isLight ? 'text-rose-700' : 'text-rose-400';
+                                        }
+
+                                        return (
+                                          <td
+                                            key={cIdx}
+                                            style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                            className={`py-2 px-2.5 border-r overflow-hidden text-xs ${
+                                              isLight ? 'border-slate-200' : 'border-slate-800/60'
+                                            } ${noteStyle}`}
+                                            title={dynamicNote}
+                                          >
+                                            <div className="flex items-center gap-1.5 truncate">
+                                              {hasR2 && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+                                              <span className="truncate">{dynamicNote}</span>
+                                            </div>
                                           </td>
                                         );
                                       }

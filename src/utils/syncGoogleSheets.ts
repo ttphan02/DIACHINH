@@ -204,14 +204,22 @@ function build57ColRow(
 async function getCachedGgsData(): Promise<{
   ggsCodes: Set<string>;
   ggsParcels: Record<string, any>;
+  ggsAllCccds: Set<string>;
 }> {
   const ggsCodes = new Set<string>();
+  const ggsAllCccds = new Set<string>();
   let ggsParcels: Record<string, any> = {};
 
   try {
     const data = await fetchOrGetCachedGgsData();
     if (Array.isArray(data.codes)) {
       data.codes.forEach((c: string) => ggsCodes.add(c));
+    }
+    if (Array.isArray(data.allCccds)) {
+      data.allCccds.forEach((c: string) => {
+        const clean = cleanCccd(c);
+        if (clean) ggsAllCccds.add(clean);
+      });
     }
     if (data.parcels) {
       ggsParcels = data.parcels;
@@ -220,7 +228,7 @@ async function getCachedGgsData(): Promise<{
     console.warn('Lỗi lấy GGS cache:', e);
   }
 
-  return { ggsCodes, ggsParcels };
+  return { ggsCodes, ggsParcels, ggsAllCccds };
 }
 
 let cachedR2Files: { cccdFiles: Set<string>; scanFiles: Set<string>; timestamp: number } | null = null;
@@ -374,14 +382,14 @@ export async function executeSyncToGoogleSheet(
     console.log('>>> Cloudflare Sync: Bắt đầu tối ưu...');
 
     // 1. Lấy mã GGS và danh sách file CCCD & SCAN từ R2
-    const [{ ggsCodes, ggsParcels }, { cccdFiles, scanFiles }] = await Promise.all([
+    const [{ ggsCodes, ggsParcels, ggsAllCccds }, { cccdFiles, scanFiles }] = await Promise.all([
       getCachedGgsData(),
       getR2StorageFiles(r2Bucket),
     ]);
 
     // Lập bản đồ tra cứu tên chủ hộ -> CCCD, và tập hợp tất cả CCCD & Họ tên trên GGS chính (Trangtinh1)
     const nameToCccd = new Map<string, string>();
-    const allGgsCccds = new Set<string>();
+    const allGgsCccds = new Set<string>(ggsAllCccds || []);
     const allGgsNames = new Set<string>();
 
     for (const p of Object.values(ggsParcels)) {

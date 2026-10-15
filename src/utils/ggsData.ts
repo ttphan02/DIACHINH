@@ -13,6 +13,7 @@ export interface GgsParcelData {
 let cachedData: {
   codes: string[];
   parcels: Record<string, GgsParcelData>;
+  allCccds: string[];
   updatedAt: string;
   expiresAt: number;
 } | null = null;
@@ -43,6 +44,7 @@ function extractFields(line: string): string[] {
 export async function fetchOrGetCachedGgsData(force = false): Promise<{
   codes: string[];
   parcels: Record<string, GgsParcelData>;
+  allCccds: string[];
   updatedAt: string;
   cached: boolean;
 }> {
@@ -51,6 +53,7 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
     return {
       codes: cachedData.codes,
       parcels: cachedData.parcels,
+      allCccds: cachedData.allCccds,
       updatedAt: cachedData.updatedAt,
       cached: true,
     };
@@ -78,6 +81,7 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
 
     const ggsParcels: Record<string, GgsParcelData> = {};
     const codeSet = new Set<string>();
+    const allCccdsSet = new Set<string>();
 
     for (let i = 2; i < lines.length; i++) {
       const line = lines[i];
@@ -85,6 +89,14 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
 
       const row = extractFields(line);
       if (row.length < 3) continue;
+
+      // Thu thập toàn bộ CCCD xuất hiện trên trang tính chính để phục vụ đối soát nhanh
+      const rawCccd10 = (row[10] || '').replace(/\D/g, '');
+      if (rawCccd10.length >= 9 && rawCccd10.length <= 12) allCccdsSet.add(rawCccd10);
+      if (row.length > 15) {
+        const rawCccd15 = (row[15] || '').replace(/\D/g, '');
+        if (rawCccd15.length >= 9 && rawCccd15.length <= 12) allCccdsSet.add(rawCccd15);
+      }
 
       const colC = (row[2] || '').trim();
       let ma_thua = '';
@@ -227,11 +239,13 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
     }
 
     const ggsCodes = Array.from(codeSet);
+    const allCccds = Array.from(allCccdsSet);
     const updatedAt = new Date().toISOString();
 
     cachedData = {
       codes: ggsCodes,
       parcels: ggsParcels,
+      allCccds,
       updatedAt,
       expiresAt: now + CACHE_TTL_MS,
     };
@@ -239,6 +253,7 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
     return {
       codes: ggsCodes,
       parcels: ggsParcels,
+      allCccds,
       updatedAt,
       cached: false,
     };
@@ -248,6 +263,7 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
       return {
         codes: cachedData.codes,
         parcels: cachedData.parcels,
+        allCccds: cachedData.allCccds,
         updatedAt: cachedData.updatedAt,
         cached: true,
       };
