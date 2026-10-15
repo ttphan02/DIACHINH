@@ -1054,7 +1054,7 @@ export default function Home() {
                   Đã kê khai ({stats.blue.toLocaleString('vi-VN')})
                 </button>
 
-                {/* Chưa kê khai (Gộp có tên và chưa có tên) */}
+                {/* Chưa kê khai (Phân chia màu sắc theo từng Thôn / Buôn) */}
                 <button
                   onClick={() => {
                     setStatusFilter(statusFilter === 'CHUA_KE_KHAI' ? 'ALL' : 'CHUA_KE_KHAI');
@@ -1064,9 +1064,13 @@ export default function Home() {
                       ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-400'
                       : 'bg-slate-800/80 text-amber-300 hover:bg-slate-700/80 border border-amber-500/30'
                   }`}
-                  title="Thửa chưa kê khai (chưa lập hồ sơ)"
+                  title="Thửa chưa kê khai (được tô màu nhận diện riêng biệt theo từng Thôn / Buôn)"
                 >
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 border border-amber-300"></span>
+                  <div className="flex -space-x-1 items-center">
+                    <span className="w-2 h-2 rounded-full bg-[#f59e0b] ring-1 ring-slate-900" />
+                    <span className="w-2 h-2 rounded-full bg-[#ec4899] ring-1 ring-slate-900" />
+                    <span className="w-2 h-2 rounded-full bg-[#06b6d4] ring-1 ring-slate-900" />
+                  </div>
                   Chưa kê khai ({(stats.yellow + stats.gray).toLocaleString('vi-VN')})
                 </button>
 

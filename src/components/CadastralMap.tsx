@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Parcel, NeighborParcel, AdditionalParcel } from '@/types';
 import { extractShortOwnerName } from '@/utils/geo';
+import { getCanonicalVillage, getVillageColor, VILLAGE_COLORS } from '@/utils/textHelpers';
 import { Maximize2, LocateFixed, Loader2 } from 'lucide-react';
 import type { Map as LeafletMap, LayerGroup } from 'leaflet';
 
@@ -37,12 +38,32 @@ export default function CadastralMap({
 }: CadastralMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<LeafletMap | null>(null);
+  const [showVillageLegend, setShowVillageLegend] = useState(false);
   const leafletRef = useRef<any>(null);
   const canvasRendererRef = useRef<any>(null);
   const neighborsLayerRef = useRef<LayerGroup | null>(null);
   const selectionPulseLayerRef = useRef<LayerGroup | null>(null);
   const userLocationLayerRef = useRef<LayerGroup | null>(null);
   const userMarkerRef = useRef<any>(null);
+
+  // Thống kê số thửa chưa kê khai theo từng Thôn / Buôn để hiển thị bảng chú thích màu sắc
+  const villageLegendData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (let i = 0; i < parcels.length; i++) {
+      const p = parcels[i];
+      if (p.trang_thai !== 'DA_SO_HOA_XANH' && p.trang_thai !== 'DA_KE_KHAI_CHUA_SO_HOA_LAM') {
+        const v = getCanonicalVillage(p.thon_xa || '', p.to_ban_do);
+        counts[v] = (counts[v] || 0) + 1;
+      }
+    }
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({
+        name,
+        count,
+        color: getVillageColor(name),
+      }));
+  }, [parcels]);
   const lastCenteredParcelRef = useRef<string | null>(null);
   const [dotsCount, setDotsCount] = useState(0);
   // Chế độ tự động di chuyển màn hình bám theo bước chân người dùng (giống Google Maps)
@@ -205,11 +226,13 @@ export default function CadastralMap({
         const gridRows = useGridCull ? Math.ceil(height / cellSize) + 1 : 0;
         const grid = useGridCull ? new Uint8Array(gridCols * gridRows) : null;
 
-        // Gom nhóm tọa độ theo 4 màu trạng thái để vẽ hàng loạt (chỉ tốn 4 lệnh GPU fill/stroke)
+        // Gom nhóm tọa độ để vẽ hàng loạt:
+        // - Xanh lá: Đã số hóa (Google Sheets)
+        // - Xanh lam: Đã kê khai (Web)
+        // - Chưa kê khai: Phân nhóm theo từng Thôn / Buôn (không có chấm trắng)
         const greenPts: number[] = [];
         const bluePts: number[] = [];
-        const yellowPts: number[] = [];
-        const whitePts: number[] = [];
+        const villagePtsMap: Record<string, number[]> = {};
         const visibleScreenPts: RenderedPoint[] = [];
 
         for (let i = 0; i < list.length; i++) {
@@ -249,10 +272,13 @@ export default function CadastralMap({
             greenPts.push(cx, cy);
           } else if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') {
             bluePts.push(cx, cy);
-          } else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') {
-            yellowPts.push(cx, cy);
           } else {
-            whitePts.push(cx, cy);
+            // Thửa chưa kê khai -> phân nhóm theo Thôn / Buôn (tuyệt đối không để chấm trắng)
+            const vName = getCanonicalVillage(p.thon_xa || '', p.to_ban_do);
+            if (!villagePtsMap[vName]) {
+              villagePtsMap[vName] = [];
+            }
+            villagePtsMap[vName].push(cx, cy);
           }
         }
 
@@ -284,10 +310,20 @@ export default function CadastralMap({
           ctx.stroke();
         };
 
-        // Vẽ theo thứ tự lớp ưu tiên từ dưới lên trên: Trắng -> Vàng -> Xanh lá -> Xanh lam
-        drawBatch(whitePts, '#ffffff', '#374151', baseRadius * 0.95, 1.3);
-        drawBatch(yellowPts, '#f59e0b', '#78350f', baseRadius, 1.4);
+        // Vẽ theo thứ tự lớp ưu tiên từ dưới lên:
+        // 1. Các nhóm Thôn / Buôn chưa kê khai (theo màu nhận diện từng buôn/thôn, chấm sắc nét)
+        for (const vName in villagePtsMap) {
+          const pts = villagePtsMap[vName];
+          if (pts && pts.length > 0) {
+            const vColor = getVillageColor(vName);
+            drawBatch(pts, vColor.fill, vColor.stroke, baseRadius, 1.3);
+          }
+        }
+
+        // 2. Xanh lá: Đã số hóa (Google Sheets)
         drawBatch(greenPts, '#10b981', '#064e3b', baseRadius, 1.4);
+
+        // 3. Xanh lam: Đã kê khai (Web)
         drawBatch(bluePts, '#2563eb', '#1e3a8a', baseRadius * 1.08, 1.6);
 
         ctx.restore();
@@ -355,24 +391,30 @@ export default function CadastralMap({
             if (tip) {
               const p = hovered.parcel;
               const ownerDisplay = p.chu_ho || 'Không có trong dữ liệu';
-              const statusLabel =
+              const vName = getCanonicalVillage(p.thon_xa || '', p.to_ban_do);
+              const vColor = getVillageColor(vName, p.to_ban_do);
+
+              const statusBadgeHtml =
                 p.trang_thai === 'DA_SO_HOA_XANH'
-                  ? '🟢 Đã số hóa (GGS)'
+                  ? '<span style="color:#10b981;font-weight:700;">🟢 Đã số hóa (GGS)</span>'
                   : p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
-                  ? '🔵 Đã kê khai (Chưa lên GGS)'
-                  : '🟡 Chưa kê khai';
+                  ? '<span style="color:#60a5fa;font-weight:700;">🔵 Đã kê khai (Web)</span>'
+                  : `<span style="color:${vColor.fill};font-weight:700;display:inline-flex;align-items:center;gap:4px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${vColor.fill};border:1px solid ${vColor.stroke};"></span>Chưa kê khai (${vName})</span>`;
 
               tip.innerHTML = `
                 <div style="font-weight: 800; font-size: 13px; color: #fff; margin-bottom: 2px;">
                   Thửa ${p.so_thua} • Tờ ${p.to_ban_do}
                 </div>
-                <div style="color: #94a3b8; font-size: 11px;">
-                  ${statusLabel} • ${p.thon_xa}
+                <div style="font-size: 11px; margin-bottom: 2px;">
+                  ${statusBadgeHtml}
                 </div>
-                <div style="color: #e2e8f0; font-size: 11px; margin-top: 2px;">
+                <div style="color: #94a3b8; font-size: 11px;">
+                  ${p.thon_xa || vName}
+                </div>
+                <div style="color: #e2e8f0; font-size: 11px; margin-top: 3px;">
                   Chủ: <strong style="color: #38bdf8;">${ownerDisplay}</strong>
                 </div>
-                <div style="color: #4ade80; font-size: 11px;">
+                <div style="color: #4ade80; font-size: 11px; margin-top: 1px;">
                   ${p.loai_dat || '---'} • ${p.dien_tich ? p.dien_tich + ' m²' : '---'}
                 </div>
               `;
@@ -780,7 +822,7 @@ export default function CadastralMap({
       </div>
 
       {/* Bảng chú thích màu sắc trạng thái thửa đất trên bản đồ */}
-      <div className="absolute top-[96px] right-3.5 z-[1000] hidden lg:flex items-center gap-3 bg-slate-950/90 px-3.5 py-1.5 rounded-2xl shadow-xl border border-slate-700/60 text-[11px] text-slate-200 pointer-events-none select-none">
+      <div className="absolute top-[96px] right-3.5 z-[1000] hidden lg:flex items-center gap-2.5 bg-slate-950/90 px-3.5 py-1.5 rounded-2xl shadow-xl border border-slate-700/60 text-[11px] text-slate-200 select-none">
         <span className="flex items-center gap-1.5 font-bold text-red-400">
           <span className="w-2.5 h-2.5 rounded-full bg-red-600 ring-2 ring-white" /> Đang chọn kê khai
         </span>
@@ -795,9 +837,54 @@ export default function CadastralMap({
         <span className="flex items-center gap-1 text-blue-300">
           <span className="w-2 h-2 rounded-full bg-blue-500" /> Đã kê khai
         </span>
-        <span className="flex items-center gap-1 text-amber-300">
-          <span className="w-2 h-2 rounded-full bg-amber-500" /> Chưa kê khai
-        </span>
+
+        {/* Nút bật/tắt xem màu 15 Thôn / Buôn chưa kê khai */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowVillageLegend(!showVillageLegend)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-amber-300 border border-amber-500/30 transition cursor-pointer font-bold"
+            title="Bấm để xem danh sách màu sắc của các Thôn / Buôn"
+          >
+            <div className="flex -space-x-1 items-center">
+              <span className="w-2 h-2 rounded-full bg-[#f59e0b] ring-1 ring-slate-900" />
+              <span className="w-2 h-2 rounded-full bg-[#ec4899] ring-1 ring-slate-900" />
+              <span className="w-2 h-2 rounded-full bg-[#8b5cf6] ring-1 ring-slate-900" />
+              <span className="w-2 h-2 rounded-full bg-[#06b6d4] ring-1 ring-slate-900" />
+            </div>
+            <span>Màu theo Thôn/Buôn ({villageLegendData.length})</span>
+            <span className="text-[9px] text-slate-400 ml-0.5">{showVillageLegend ? '▲' : '▼'}</span>
+          </button>
+
+          {/* Popover chi tiết màu sắc của 15+ Thôn/Buôn */}
+          {showVillageLegend && (
+            <div className="absolute right-0 top-full mt-2 w-72 max-h-80 overflow-y-auto no-scrollbar bg-slate-950/95 backdrop-blur-md border border-slate-700/80 p-3 rounded-2xl shadow-2xl z-50">
+              <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
+                <span className="font-bold text-xs text-amber-400">Chưa kê khai theo Thôn / Buôn</span>
+                <span className="text-[10px] text-slate-400">
+                  {villageLegendData.reduce((acc, v) => acc + v.count, 0).toLocaleString('vi-VN')} thửa
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-1.5">
+                {villageLegendData.map((item) => (
+                  <div
+                    key={item.name}
+                    className="flex items-center justify-between py-1 px-2 rounded-lg bg-slate-900/60 hover:bg-slate-800/60 transition text-xs"
+                  >
+                    <span className="flex items-center gap-2">
+                      <span
+                        className="w-3 h-3 rounded-full shrink-0 ring-1 ring-white/30"
+                        style={{ backgroundColor: item.color.fill }}
+                      />
+                      <span className="text-slate-200 font-medium">{item.name}</span>
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-400">{item.count.toLocaleString('vi-VN')}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* NÚT TRÒN ĐỊNH VỊ VỊ TRÍ ĐANG ĐỨNG (GOOGLE MAPS STYLE - CÓ CHẾ ĐỘ BÁM BƯỚC CHÂN) */}
@@ -833,7 +920,7 @@ export default function CadastralMap({
       </div>
 
       {/* Mobile Dot Count & Selection Badge */}
-      <div className="absolute bottom-4 left-3 z-[1000] lg:hidden bg-slate-950/90 px-2.5 py-1 rounded-full text-[11px] font-bold text-white border border-slate-700/60 shadow-lg pointer-events-none flex items-center gap-2">
+      <div className="absolute bottom-4 left-3 z-[1000] lg:hidden bg-slate-950/90 px-2.5 py-1 rounded-full text-[11px] font-bold text-white border border-slate-700/60 shadow-lg flex items-center gap-2">
         {selectedParcel ? (
           <span className="flex items-center gap-1.5 text-red-400">
             <span className="w-2.5 h-2.5 rounded-full bg-red-600 ring-2 ring-white" />
@@ -843,12 +930,52 @@ export default function CadastralMap({
             )}
           </span>
         ) : (
-          <span className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setShowVillageLegend(!showVillageLegend)}
+            className="flex items-center gap-1.5 text-slate-200 cursor-pointer"
+          >
             <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
             <span>{dotsCount.toLocaleString('vi-VN')} thửa</span>
-          </span>
+            <span className="text-amber-400 text-[10px] ml-1 bg-amber-500/10 px-1.5 py-0.5 rounded-full border border-amber-500/30">
+              Màu thôn buôn {showVillageLegend ? '▲' : '▼'}
+            </span>
+          </button>
         )}
       </div>
+
+      {/* Mobile Village Legend Modal */}
+      {showVillageLegend && (
+        <div className="absolute inset-x-3 bottom-16 z-[1050] lg:hidden bg-slate-950/95 backdrop-blur-md border border-slate-700/80 p-3 rounded-2xl shadow-2xl max-h-72 overflow-y-auto no-scrollbar">
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
+            <span className="font-bold text-xs text-amber-400">Chưa kê khai theo Thôn / Buôn</span>
+            <button
+              type="button"
+              onClick={() => setShowVillageLegend(false)}
+              className="text-xs text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-800"
+            >
+              Đóng
+            </button>
+          </div>
+          <div className="grid grid-cols-1 gap-1.5">
+            {villageLegendData.map((item) => (
+              <div
+                key={item.name}
+                className="flex items-center justify-between py-1 px-2 rounded-lg bg-slate-900/60 text-xs"
+              >
+                <span className="flex items-center gap-2">
+                  <span
+                    className="w-3 h-3 rounded-full shrink-0 ring-1 ring-white/30"
+                    style={{ backgroundColor: item.color.fill }}
+                  />
+                  <span className="text-slate-200 font-medium">{item.name}</span>
+                </span>
+                <span className="text-[11px] font-bold text-slate-400">{item.count.toLocaleString('vi-VN')}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,7 +2,8 @@ export type ParcelStatus =
   | 'DA_SO_HOA_XANH' // Xanh lá: Đã số hóa (Có trên Google Sheets)
   | 'DA_KE_KHAI_CHUA_SO_HOA_LAM' // Xanh lam: Đã kê khai nhưng chưa số hóa (Chưa có trên Google Sheets)
   | 'CO_TEN_CHUA_SO_HOA_VANG' // Vàng: Có tên chủ đất nhưng chưa kê khai
-  | 'CHUA_CO_TEN_XAM'; // Trắng: Chưa có tên chủ đất
+  | 'CHUA_CO_TEN_XAM' // Chưa có tên chủ đất
+  | 'CHUA_KE_KHAI'; // Chưa kê khai (tô màu theo Thôn / Buôn)
 
 export interface Parcel {
   ma_thua: string;
