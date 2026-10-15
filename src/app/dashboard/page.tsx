@@ -2591,7 +2591,7 @@ export default function DashboardPage() {
                     const rowsUnpack = unpackParcels.map((p, idx) => {
                       const decl = declarationsMap[p.ma_thua] || {};
                       const cccdVal = decl.chu_dat_cccd || decl.cccd_chu_ho || p.cccd || '';
-                      const isCanTim = Boolean(cccdVal);
+                      const isCanTim = Boolean(cccdVal && ggsCccdSet.has(cleanCccd(cccdVal)));
                       return [
                         String(idx + 1),
                         p.ma_thua,
@@ -2735,8 +2735,6 @@ export default function DashboardPage() {
                           st = 'ĐÃ CÓ CCCD (R2)';
                         } else if (cccdVal && ggsCccdSet.has(cccdVal)) {
                           st = 'CẦN TÌM CCCD';
-                        } else if (cccdVal) {
-                          st = 'CẦN TÌM CCCD';
                         } else {
                           st = 'KHÔNG CÓ CCCD';
                         }
@@ -2792,8 +2790,6 @@ export default function DashboardPage() {
                         if (cccdVal && (r2CccdSet.has(cccdVal) || declarationsMap[maThua]?.cccd_url)) {
                           st = 'ĐÃ CÓ CCCD (R2)';
                         } else if (cccdVal && ggsCccdSet.has(cccdVal)) {
-                          st = 'CẦN TÌM CCCD';
-                        } else if (cccdVal) {
                           st = 'CẦN TÌM CCCD';
                         } else {
                           st = 'KHÔNG CÓ CCCD';
@@ -4170,7 +4166,7 @@ export default function DashboardPage() {
                                         if (hasR2) {
                                           dynamicStatus = 'ĐÃ CÓ CCCD (R2)';
                                           statusType = 'r2';
-                                        } else if (hasGgs || cccdVal) {
+                                        } else if (hasGgs) {
                                           dynamicStatus = 'CẦN TÌM CCCD';
                                           statusType = 'cantim';
                                         } else {
@@ -4320,9 +4316,6 @@ export default function DashboardPage() {
                                         } else if (hasGgs) {
                                           dynamicNote = 'Đã có thông tin CCCD trên GGS chính - Cần tìm file scan/ảnh CCCD tải lên R2';
                                           noteStyle = isLight ? 'text-amber-800 bg-amber-50/40 font-semibold' : 'text-amber-300 bg-amber-950/20 font-semibold';
-                                        } else if (cccdVal) {
-                                          dynamicNote = 'Đã nhập số CCCD - Cần chụp ảnh / nạp file PDF CCCD tải lên R2';
-                                          noteStyle = isLight ? 'text-amber-700 font-medium' : 'text-amber-300 font-medium';
                                         } else {
                                           dynamicNote = 'Chưa có CCCD trên GGS chính lẫn R2 - Cần liên hệ chủ hộ thu thập CCCD mới';
                                           noteStyle = isLight ? 'text-rose-700' : 'text-rose-400';
