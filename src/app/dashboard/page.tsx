@@ -18,7 +18,7 @@ import CccdHoverPreviewCard from '@/components/CccdHoverPreviewCard';
 const ExportMissingCccdModal = dynamic(() => import('@/components/ExportMissingCccdModal'), { ssr: false });
 import CadreNameModal from '@/components/CadreNameModal';
 import ScanFileManagerTab from '@/components/ScanFileManagerTab';
-import type { ReadyToPackItem } from '@/utils/pdfPacker';
+import { cleanDisplayAddress, type ReadyToPackItem } from '@/utils/pdfPacker';
 import {
   FileBarChart2,
   Loader2,
@@ -1826,13 +1826,47 @@ export default function DashboardPage() {
 
   // Đóng tập PDF các thửa Sẵn sàng đóng tập (có CCCD) chuẩn logic PDF_Web_App
   const handleGenerateReadyToPackPdf = async (specificCodes?: string[]) => {
-    const readyRows = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || [];
-    if (readyRows.length <= 1) {
+    let readyRows = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || [];
+    let headers: string[] = [];
+    let dataRows: string[][] = [];
+
+    if (readyRows.length > 1) {
+      headers = (readyRows[0] || []).map((h) => stripAccents(String(h || '')).toLowerCase().trim());
+      dataRows = readyRows.slice(1);
+    } else if (readyToPackParcels.length > 0) {
+      // Fallback từ readyToPackParcels nếu syncSheetsData chưa có
+      headers = [
+        'stt', 'ma thua', 'thon / buon', 'ho va ten chu dat',
+        'nam sinh', 'gioi tinh', 'so cccd', 'dien tich (m2)', 'loai dat', 'nguon goc su dung',
+        'xem file pdf cccd'
+      ];
+      dataRows = readyToPackParcels.map((p, idx) => {
+        const decl = declarationsMap[p.ma_thua] || {};
+        const cccdVal = cleanCccd(decl.chu_dat_cccd || decl.cccd_chu_ho || p.cccd || '');
+        const cccdFileName = `${cccdVal}.pdf`;
+        const cccdLink = `/api/image/cccd/${encodeURIComponent(cccdFileName)}`;
+        const cccdFormula = cccdVal ? `=HYPERLINK("${cccdLink}"; "${cccdFileName}")` : '';
+        return [
+          String(idx + 1),
+          p.ma_thua,
+          decl.dia_chi_thua_dat || p.thon_xa || 'Xã Cư Pui',
+          cleanName(decl.chu_dat_ten || p.chu_ho || 'Chưa có tên'),
+          decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '',
+          decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam',
+          cccdVal ? `="${cccdVal}"` : '',
+          decl.dien_tich || p.dien_tich || '',
+          decl.loai_dat || p.loai_dat || 'DGT',
+          normalizeNguonGoc(decl.nguon_goc || decl.nguon_goc_su_dung || 'Khai Hoang'),
+          cccdFormula
+        ];
+      });
+    }
+
+    if (dataRows.length === 0) {
       alert('Hiện tại chưa có thửa nào sẵn sàng đóng tập (có CCCD).');
       return;
     }
 
-    const dataRows = readyRows.slice(1);
     const filterSet = specificCodes && specificCodes.length > 0 ? new Set(specificCodes) : null;
     const targetRows = filterSet ? dataRows.filter((r) => filterSet.has(String(r[1] || '').trim())) : dataRows;
 
@@ -1845,10 +1879,39 @@ export default function DashboardPage() {
       setIsPackagingPdf(true);
       setPackagingProgress(`Đang chuẩn bị ${targetRows.length} thửa...`);
 
+      const findCol = (pattern: RegExp) => headers.findIndex((h) => pattern.test(h));
+      const maThuaIdx = findCol(/^ma thua$/i) >= 0 ? findCol(/^ma thua$/i) : 1;
+      const thonXaIdx = findCol(/thon|buon/i) >= 0 ? findCol(/thon|buon/i) : 2;
+      const chuHoIdx = findCol(/ho va ten|chu dat|chu ho/i) >= 0 ? findCol(/ho va ten|chu dat|chu ho/i) : 3;
+      const dobIdx = findCol(/nam sinh|ngay sinh/i) >= 0 ? findCol(/nam sinh|ngay sinh/i) : 4;
+      const genderIdx = findCol(/gioi tinh/i) >= 0 ? findCol(/gioi tinh/i) : 5;
+      const cccdIdx = findCol(/cccd/i) >= 0 ? findCol(/cccd/i) : 6;
+      const dienTichIdx = findCol(/dien tich/i) >= 0 ? findCol(/dien tich/i) : 7;
+      const loaiDatIdx = findCol(/loai dat/i) >= 0 ? findCol(/loai dat/i) : 8;
+      const nguonGocIdx = findCol(/nguon goc/i) >= 0 ? findCol(/nguon goc/i) : 9;
+      const cccdFormulaIdx = findCol(/xem|file/i) >= 0 ? findCol(/xem|file/i) : 10;
+
       const items: ReadyToPackItem[] = targetRows.map((row) => {
-        const maThua = String(row[1] || '').trim();
-        const cccdRaw = String(row[8] || row[6] || '').replace(/^="|"$/g, '');
-        const cccdFormula = String(row[12] || row[10] || '');
+        const maThua = String(row[maThuaIdx] || '').trim();
+        const p = computedParcels.find((cp) => cp.ma_thua === maThua);
+        const decl = declarationsMap[maThua];
+
+        // Tách mã thửa thành tờ bản đồ và số thửa chuẩn địa chính (ví dụ: 12_34 -> tờ 12, thửa 34)
+        const parts = maThua.split('_');
+        const toBanDo = parts[0] || p?.to_ban_do || '';
+        const soThua = parts[1] || p?.so_thua || '';
+
+        const rawThonXa = String(row[thonXaIdx] || decl?.dia_chi_thua_dat || p?.thon_xa || '').replace(/^="|"$/g, '').trim();
+        const rawChuHo = String(row[chuHoIdx] || decl?.chu_dat_ten || p?.chu_ho || '').replace(/^="|"$/g, '').trim();
+        const chuHo = cleanName(rawChuHo);
+        const dob = String(row[dobIdx] || decl?.chu_dat_nam_sinh || '').replace(/^="|"$/g, '').trim();
+        const gender = String(row[genderIdx] || decl?.chu_dat_gioi_tinh || 'Nam').replace(/^="|"$/g, '').trim();
+        const cccdRaw = cleanCccd(String(row[cccdIdx] || decl?.chu_dat_cccd || decl?.cccd_chu_ho || p?.cccd || '').replace(/^="|"$/g, '').trim());
+        const dienTich = String(row[dienTichIdx] || decl?.dien_tich || p?.dien_tich || '').replace(/^="|"$/g, '').trim();
+        const loaiDat = String(row[loaiDatIdx] || decl?.loai_dat || p?.loai_dat || 'DGT').replace(/^="|"$/g, '').trim();
+        const nguonGoc = normalizeNguonGoc(String(row[nguonGocIdx] || decl?.nguon_goc || decl?.nguon_goc_su_dung || 'Khai hoang').replace(/^="|"$/g, '').trim());
+
+        const cccdFormula = String(row[cccdFormulaIdx] || '');
         let cccdFileName = '';
         let cccdUrl = '';
 
@@ -1868,9 +1931,6 @@ export default function DashboardPage() {
           }
         }
 
-        const p = computedParcels.find((cp) => cp.ma_thua === maThua);
-        const decl = declarationsMap[maThua];
-
         const gcnList: string[] = [];
         if (decl?.anh_gcn_list && decl.anh_gcn_list.length > 0) gcnList.push(...decl.anh_gcn_list);
         else if (decl?.anh_gcn) gcnList.push(decl.anh_gcn);
@@ -1878,16 +1938,17 @@ export default function DashboardPage() {
 
         return {
           ma_thua: maThua,
-          to_ban_do: String(row[2] || p?.to_ban_do || ''),
-          so_thua: String(row[3] || p?.so_thua || ''),
-          thon_xa: String(row[4] || p?.thon_xa || ''),
-          chu_ho: String(row[5] || p?.chu_ho || ''),
-          dob: String(row[6] || decl?.chu_dat_nam_sinh || ''),
-          gender: String(row[7] || decl?.chu_dat_gioi_tinh || ''),
-          cccd: cccdRaw || p?.cccd || decl?.chu_dat_cccd,
-          dien_tich: String(row[9] || p?.dien_tich || ''),
-          loai_dat: String(row[10] || p?.loai_dat || 'DGT'),
-          nguon_goc: String(row[11] || decl?.nguon_goc_su_dung || 'Khai hoang'),
+          to_ban_do: toBanDo,
+          so_thua: soThua,
+          thon_xa: rawThonXa || 'Xã Cư Pui',
+          dia_chi: rawThonXa ? cleanDisplayAddress(rawThonXa) : 'Xã Cư Pui',
+          chu_ho: chuHo,
+          dob: dob,
+          gender: gender,
+          cccd: cccdRaw,
+          dien_tich: dienTich,
+          loai_dat: loaiDat,
+          nguon_goc: nguonGoc,
           cccd_file: cccdFileName,
           cccd_url: cccdUrl || decl?.anh_cccd_truoc || p?.cccd_url,
           has_gcn: gcnList.length > 0 || Boolean(p?.has_gcn),
@@ -1918,13 +1979,46 @@ export default function DashboardPage() {
 
   // Đóng tập PDF các thửa Sẵn sàng đóng tập (xem trước / in ấn qua modal)
   const handleBatchPrintReadyToPack = (specificCodes?: string[]) => {
-    const readyRows = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || [];
-    if (readyRows.length <= 1) {
+    let readyRows = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || [];
+    let headers: string[] = [];
+    let dataRows: string[][] = [];
+
+    if (readyRows.length > 1) {
+      headers = (readyRows[0] || []).map((h) => stripAccents(String(h || '')).toLowerCase().trim());
+      dataRows = readyRows.slice(1);
+    } else if (readyToPackParcels.length > 0) {
+      headers = [
+        'stt', 'ma thua', 'thon / buon', 'ho va ten chu dat',
+        'nam sinh', 'gioi tinh', 'so cccd', 'dien tich (m2)', 'loai dat', 'nguon goc su dung',
+        'xem file pdf cccd'
+      ];
+      dataRows = readyToPackParcels.map((p, idx) => {
+        const decl = declarationsMap[p.ma_thua] || {};
+        const cccdVal = cleanCccd(decl.chu_dat_cccd || decl.cccd_chu_ho || p.cccd || '');
+        const cccdFileName = `${cccdVal}.pdf`;
+        const cccdLink = `/api/image/cccd/${encodeURIComponent(cccdFileName)}`;
+        const cccdFormula = cccdVal ? `=HYPERLINK("${cccdLink}"; "${cccdFileName}")` : '';
+        return [
+          String(idx + 1),
+          p.ma_thua,
+          decl.dia_chi_thua_dat || p.thon_xa || 'Xã Cư Pui',
+          cleanName(decl.chu_dat_ten || p.chu_ho || 'Chưa có tên'),
+          decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '',
+          decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam',
+          cccdVal ? `="${cccdVal}"` : '',
+          decl.dien_tich || p.dien_tich || '',
+          decl.loai_dat || p.loai_dat || 'DGT',
+          normalizeNguonGoc(decl.nguon_goc || decl.nguon_goc_su_dung || 'Khai Hoang'),
+          cccdFormula
+        ];
+      });
+    }
+
+    if (dataRows.length === 0) {
       alert('Hiện tại chưa có thửa nào sẵn sàng đóng tập (có CCCD).');
       return;
     }
 
-    const dataRows = readyRows.slice(1);
     const filterSet = specificCodes && specificCodes.length > 0 ? new Set(specificCodes) : null;
     const targetRows = filterSet ? dataRows.filter((r) => filterSet.has(String(r[1] || '').trim())) : dataRows;
 
@@ -1933,13 +2027,38 @@ export default function DashboardPage() {
       return;
     }
 
+    const findCol = (pattern: RegExp) => headers.findIndex((h) => pattern.test(h));
+    const maThuaIdx = findCol(/^ma thua$/i) >= 0 ? findCol(/^ma thua$/i) : 1;
+    const thonXaIdx = findCol(/thon|buon/i) >= 0 ? findCol(/thon|buon/i) : 2;
+    const chuHoIdx = findCol(/ho va ten|chu dat|chu ho/i) >= 0 ? findCol(/ho va ten|chu dat|chu ho/i) : 3;
+    const dobIdx = findCol(/nam sinh|ngay sinh/i) >= 0 ? findCol(/nam sinh|ngay sinh/i) : 4;
+    const genderIdx = findCol(/gioi tinh/i) >= 0 ? findCol(/gioi tinh/i) : 5;
+    const cccdIdx = findCol(/cccd/i) >= 0 ? findCol(/cccd/i) : 6;
+    const dienTichIdx = findCol(/dien tich/i) >= 0 ? findCol(/dien tich/i) : 7;
+    const loaiDatIdx = findCol(/loai dat/i) >= 0 ? findCol(/loai dat/i) : 8;
+    const nguonGocIdx = findCol(/nguon goc/i) >= 0 ? findCol(/nguon goc/i) : 9;
+    const cccdFormulaIdx = findCol(/xem|file/i) >= 0 ? findCol(/xem|file/i) : 10;
+
     const itemsToPrint: PrintableDeclarationItem[] = [];
 
     targetRows.forEach((row) => {
-      const maThua = String(row[1] || '').trim();
+      const maThua = String(row[maThuaIdx] || '').trim();
       if (!maThua) return;
-      const cccdRaw = String(row[8] || row[6] || '').replace(/^="|"$/g, '');
-      const cccdFormula = String(row[12] || row[10] || '');
+
+      const parts = maThua.split('_');
+      const toBanDo = parts[0] || '';
+      const soThua = parts[1] || '';
+
+      const rawThonXa = String(row[thonXaIdx] || '').replace(/^="|"$/g, '').trim();
+      const rawChuHo = cleanName(String(row[chuHoIdx] || '').replace(/^="|"$/g, '').trim());
+      const dob = String(row[dobIdx] || '').replace(/^="|"$/g, '').trim();
+      const gender = String(row[genderIdx] || 'Nam').replace(/^="|"$/g, '').trim();
+      const cccdRaw = cleanCccd(String(row[cccdIdx] || '').replace(/^="|"$/g, '').trim());
+      const dienTich = String(row[dienTichIdx] || '').replace(/^="|"$/g, '').trim();
+      const loaiDat = String(row[loaiDatIdx] || 'DGT').replace(/^="|"$/g, '').trim();
+      const nguonGoc = normalizeNguonGoc(String(row[nguonGocIdx] || 'Khai hoang').replace(/^="|"$/g, '').trim());
+
+      const cccdFormula = String(row[cccdFormulaIdx] || '');
       let cccdFileName = '';
       let cccdUrl = '';
       const linkMatch = cccdFormula.match(/HYPERLINK\("([^"]+)";\s*"([^"]+)"\)/i);
@@ -1960,14 +2079,14 @@ export default function DashboardPage() {
 
       const p = computedParcels.find((cp) => cp.ma_thua === maThua) || {
         ma_thua: maThua,
-        to_ban_do: String(row[2] || ''),
-        so_thua: String(row[3] || ''),
-        thon_xa: String(row[4] || ''),
+        to_ban_do: toBanDo,
+        so_thua: soThua,
+        thon_xa: rawThonXa,
         ten_xa_goc: 'Xã Cư Pui',
-        chu_ho: String(row[5] || ''),
+        chu_ho: rawChuHo,
         cccd: cccdRaw,
-        loai_dat: String(row[10] || 'DGT'),
-        dien_tich: String(row[9] || ''),
+        loai_dat: loaiDat,
+        dien_tich: dienTich,
         trang_thai: 'DA_KE_KHAI_CHUA_SO_HOA_LAM',
         lat: null,
         lng: null,
@@ -1977,19 +2096,22 @@ export default function DashboardPage() {
 
       const decl = declarationsMap[maThua] || {
         ma_thua: maThua,
-        to_ban_do: row[2],
-        so_thua: row[3],
-        chu_dat_ten: row[5],
+        to_ban_do: toBanDo,
+        so_thua: soThua,
+        chu_dat_ten: rawChuHo,
+        chu_dat_nam_sinh: dob,
+        chu_dat_gioi_tinh: gender,
         chu_dat_cccd: cccdRaw,
-        dien_tich: row[9],
-        loai_dat: row[10],
-        dia_chi_thua_dat: row[4],
+        dien_tich: dienTich,
+        loai_dat: loaiDat,
+        nguon_goc: nguonGoc,
+        dia_chi_thua_dat: rawThonXa,
         anh_cccd_truoc: cccdUrl,
       };
 
       itemsToPrint.push({
-        parcel: { ...p, cccd_url: cccdUrl || p.cccd_url },
-        declaration: { ...decl, anh_cccd_truoc: cccdUrl || decl.anh_cccd_truoc },
+        parcel: { ...p, to_ban_do: toBanDo, so_thua: soThua, thon_xa: rawThonXa, chu_ho: rawChuHo, cccd: cccdRaw, cccd_url: cccdUrl || p.cccd_url },
+        declaration: { ...decl, to_ban_do: toBanDo, so_thua: soThua, chu_dat_ten: rawChuHo, chu_dat_nam_sinh: dob, chu_dat_gioi_tinh: gender, chu_dat_cccd: cccdRaw, anh_cccd_truoc: cccdUrl || decl.anh_cccd_truoc },
       });
     });
 

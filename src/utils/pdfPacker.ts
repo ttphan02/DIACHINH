@@ -27,15 +27,22 @@ function resolveThoiHan(mucDich?: string | null): string {
   return res.join('+');
 }
 
-function cleanNameKey(name?: string): string {
-  if (!name) return '';
-  return name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/^(hộ ông|hộ bà|ông|bà)\s*:?/i, '')
-    .replace(/[^a-z0-9]/g, '')
-    .trim();
+function cleanNameKey(name?: string, cccd?: string): string {
+  const c = cccd ? String(cccd).replace(/\D/g, '').trim() : '';
+  if (c && c.length >= 9) {
+    return `cccd_${c}`;
+  }
+  if (!name) return 'khong_ten';
+  return (
+    'name_' +
+    name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/^(hộ ông|hộ bà|ông|bà)\s*:?/i, '')
+      .replace(/[^a-z0-9]/g, '')
+      .trim()
+  );
 }
 
 function cleanOwnerNameDisplay(name?: string): string {
@@ -46,11 +53,9 @@ function cleanOwnerNameDisplay(name?: string): string {
 export function cleanDisplayAddress(rawAddr?: string): string {
   if (!rawAddr || !rawAddr.trim()) return 'Xã Cư Pui';
   let addr = rawAddr.trim().replace(/,\s*$/, '');
-  
-  // Nếu chỉ có "Xã Cư Pui" hoặc "Cư Pui"
+
   if (/^(x[ãa]\s*)?c[uư]\s*pui$/i.test(addr)) return 'Xã Cư Pui';
 
-  // Xóa sạch tất cả các đuôi lặp lại ", xã Cư Pui", "xã Cư Pui", ", Cư Pui"
   addr = addr.replace(/([,\s]+x[ãa]\s*c[uư]\s*pui)+$/i, '');
   addr = addr.replace(/([,\s]+c[uư]\s*pui)+$/i, '');
   addr = addr.trim().replace(/,\s*$/, '');
@@ -75,20 +80,20 @@ export async function generateReadyToPackPdf(
     throw new Error('Không có thửa đất nào để đóng tập.');
   }
 
-  onProgress?.(0, items.length, 'Đang chuẩn bị mẫu hồ sơ và font chữ Calibri...');
+  onProgress?.(0, items.length, 'Đang chuẩn bị mẫu hồ sơ và font chữ...');
 
-  // 1. Tải mẫu template.pdf và fonts Calibri (sử dụng font in đậm calibrib.ttf cho toàn bộ thông tin kê khai)
-  const [templateBytes, fontRegularBytes, fontBoldBytes] = await Promise.all([
+  // Tải mẫu template.pdf và fonts (Times New Roman Bold cho Mẫu 15, Calibri Bold cho Mẫu 15b y hệt PDF_Web_App)
+  const [templateBytes, fontCalibriBoldBytes, fontTimesBoldBytes] = await Promise.all([
     loadBuffer('/template.pdf'),
-    loadBuffer('/fonts/calibri.ttf'),
     loadBuffer('/fonts/calibrib.ttf'),
+    loadBuffer('/fonts/timesbd.ttf'),
   ]);
 
-  // 2. Gom nhóm các thửa theo Chủ hộ / Người sử dụng đất (y hệt logic PDF_Web_App)
+  // Gom nhóm các thửa theo Chủ hộ / CCCD
   const grouped: Record<string, { ownerDisplayName: string; rows: ReadyToPackItem[] }> = {};
   items.forEach((it) => {
     const rawName = String(it.chu_ho || '').trim();
-    const cleanKey = cleanNameKey(rawName) || 'khong_ten';
+    const cleanKey = cleanNameKey(rawName, it.cccd || undefined);
     if (!grouped[cleanKey]) {
       grouped[cleanKey] = {
         ownerDisplayName: cleanOwnerNameDisplay(rawName) || rawName || 'Chưa xác định',
@@ -101,11 +106,12 @@ export async function generateReadyToPackPdf(
   const groupKeys = Object.keys(grouped);
   const totalSets = groupKeys.length;
 
-  // 3. Khởi tạo file PDF đích gom tất cả
   const mergedDoc = await PDFDocument.create();
   mergedDoc.registerFontkit(fontkit);
 
-  let processedCount = 0;
+  // Chuẩn kích thước toàn bộ các trang: Khổ đứng A4/Letter 612 x 792 pt (khớp 100% template.pdf)
+  const PAGE_W = 612.0;
+  const PAGE_H = 792.0;
 
   for (let gIdx = 0; gIdx < totalSets; gIdx++) {
     const gKey = groupKeys[gIdx];
@@ -120,12 +126,12 @@ export async function generateReadyToPackPdf(
     );
 
     // ========================================================
-    // BƯỚC 1: TRANG ĐẦU TIÊN LUÔN LÀ CCCD (GHÉP TRANG PDF TỪ R2)
+    // BƯỚC 1: TRANG 1 - BÌA CCCD KHỔ ĐỨNG (612 x 792 pt)
+    // Tự động scale vừa trọn chiều ngang 612 pt, căn giữa trang, bù trắng trên/dưới
     // ========================================================
     let cccdInserted = false;
     const cccdFileName = firstRow.cccd_file || (firstRow.cccd ? `${firstRow.cccd}.pdf` : '');
 
-    // Tìm URL CCCD từ proxy hoặc URL trực tiếp
     const possibleUrls: string[] = [];
     if (firstRow.cccd_url) possibleUrls.push(firstRow.cccd_url);
     if (cccdFileName) {
@@ -137,7 +143,6 @@ export async function generateReadyToPackPdf(
       }
     }
 
-    // Dự phòng tìm theo số CCCD với các định dạng phổ biến (.pdf, .jpg, .jpeg, .png)
     if (firstRow.cccd) {
       const c = String(firstRow.cccd).trim();
       for (const ext of ['.pdf', '.jpg', '.jpeg', '.png']) {
@@ -146,7 +151,6 @@ export async function generateReadyToPackPdf(
       }
     }
 
-    // Dự phòng tìm theo mã thửa (to_thua.jpg: định dạng của 1.859 tệp ảnh CCCD thực tế trên R2)
     const targetCodes = [firstRow.ma_thua, ...rows.map((r) => r.ma_thua)].filter(Boolean);
     for (const code of Array.from(new Set(targetCodes))) {
       for (const ext of ['.jpg', '.jpeg', '.pdf', '.png']) {
@@ -160,7 +164,6 @@ export async function generateReadyToPackPdf(
         const cccdRes = await fetch(url);
         if (cccdRes.ok) {
           const cccdBuf = await cccdRes.arrayBuffer();
-          // Kiểm tra xem có đúng định dạng PDF không (%PDF)
           const header = new Uint8Array(cccdBuf.slice(0, 4));
           const isPdf = header[0] === 0x25 && header[1] === 0x50 && header[2] === 0x44 && header[3] === 0x46; // %PDF
 
@@ -168,13 +171,40 @@ export async function generateReadyToPackPdf(
             const cccdDoc = await PDFDocument.load(cccdBuf, { ignoreEncryption: true });
             const pageIndices = cccdDoc.getPageIndices();
             if (pageIndices.length > 0) {
-              const copiedPages = await mergedDoc.copyPages(cccdDoc, pageIndices);
-              copiedPages.forEach((cp) => mergedDoc.addPage(cp));
+              const srcPage = cccdDoc.getPages()[0];
+              const embedded = await mergedDoc.embedPage(srcPage);
+              const cccdPage = mergedDoc.addPage([PAGE_W, PAGE_H]);
+              const imgW = embedded.width;
+              const imgH = embedded.height;
+
+              // Tính toán: Chiều ngang tối đa (612 pt), chiều dài thiếu thì bù trắng trên/dưới
+              let scale = PAGE_W / imgW;
+              let scaledH = imgH * scale;
+              if (scaledH > PAGE_H) {
+                scale = PAGE_H / imgH;
+                const scaledW = imgW * scale;
+                const x0 = (PAGE_W - scaledW) / 2.0;
+                cccdPage.drawPage(embedded, {
+                  x: x0,
+                  y: 0,
+                  width: scaledW,
+                  height: PAGE_H,
+                });
+              } else {
+                const y0 = (PAGE_H - scaledH) / 2.0;
+                cccdPage.drawPage(embedded, {
+                  x: 0,
+                  y: y0,
+                  width: PAGE_W,
+                  height: scaledH,
+                });
+              }
+
               cccdInserted = true;
               break;
             }
           } else {
-            // TỰ ĐỘNG CHUYỂN ĐỔI ẢNH CCCD (JPG, JPEG, PNG) THÀNH TRANG PDF A4 CHUẨN
+            // Ảnh JPG / PNG
             let embeddedImg: any = null;
             try {
               embeddedImg = await mergedDoc.embedJpg(cccdBuf);
@@ -187,20 +217,32 @@ export async function generateReadyToPackPdf(
             }
 
             if (embeddedImg) {
-              const cccdPage = mergedDoc.addPage([595.28, 841.89]);
-              const pageWidth = 595.28;
-              const pageHeight = 841.89;
-              // Căn giữa trang A4 và scale vừa vặn khổ A4 (lề 36pt mỗi bên)
-              const maxW = pageWidth - 72; // 523.28 pt
-              const maxH = pageHeight - 72; // 769.89 pt
-              const scaled = embeddedImg.scaleToFit(maxW, maxH);
+              const cccdPage = mergedDoc.addPage([PAGE_W, PAGE_H]);
+              const imgW = embeddedImg.width;
+              const imgH = embeddedImg.height;
 
-              cccdPage.drawImage(embeddedImg, {
-                x: (pageWidth - scaled.width) / 2,
-                y: (pageHeight - scaled.height) / 2,
-                width: scaled.width,
-                height: scaled.height,
-              });
+              let scale = PAGE_W / imgW;
+              let scaledH = imgH * scale;
+              if (scaledH > PAGE_H) {
+                scale = PAGE_H / imgH;
+                const scaledW = imgW * scale;
+                const x0 = (PAGE_W - scaledW) / 2.0;
+                cccdPage.drawImage(embeddedImg, {
+                  x: x0,
+                  y: 0,
+                  width: scaledW,
+                  height: PAGE_H,
+                });
+              } else {
+                const y0 = (PAGE_H - scaledH) / 2.0;
+                cccdPage.drawImage(embeddedImg, {
+                  x: 0,
+                  y: y0,
+                  width: PAGE_W,
+                  height: scaledH,
+                });
+              }
+
               cccdInserted = true;
               break;
             }
@@ -212,34 +254,37 @@ export async function generateReadyToPackPdf(
     }
 
     if (!cccdInserted) {
-      // Nếu không tìm thấy file PDF CCCD trên R2: Thêm 1 trang thông báo bìa
-      const blankPage = mergedDoc.addPage([595.28, 841.89]);
-      const f = await mergedDoc.embedFont(fontRegularBytes);
-      blankPage.drawText(`BẢN SAO CĂN CƯỚC CÔNG DÂN: ${ownerDisplayName.toUpperCase()}`, {
-        x: 100,
-        y: 700,
-        size: 14,
-        font: f,
-        color: rgb(0.2, 0.2, 0.2),
+      // Nếu không tìm thấy tệp CCCD: Trang bìa trống có viền đứt nét chuẩn PDF_Web_App
+      const blankPage = mergedDoc.addPage([PAGE_W, PAGE_H]);
+      const timesFont = await mergedDoc.embedFont(fontTimesBoldBytes);
+      const title = `BẢN SAO CĂN CƯỚC CÔNG DÂN: ${ownerDisplayName.toUpperCase()}`;
+      const titleW = timesFont.widthOfTextAtSize(title, 13);
+      blankPage.drawText(title, {
+        x: Math.max(36, (PAGE_W - titleW) / 2),
+        y: 650,
+        size: 13,
+        font: timesFont,
+        color: rgb(0.1, 0.1, 0.1),
       });
-      blankPage.drawText(`(Chưa tìm thấy tệp PDF CCCD trên kho Cloudflare R2)`, {
-        x: 100,
-        y: 670,
+      const sub = `[ VỊ TRÍ ĐÍNH KÈM BẢN SAO CĂN CƯỚC CÔNG DÂN ]`;
+      const subW = timesFont.widthOfTextAtSize(sub, 11);
+      blankPage.drawText(sub, {
+        x: Math.max(36, (PAGE_W - subW) / 2),
+        y: 400,
         size: 11,
-        font: f,
+        font: timesFont,
         color: rgb(0.5, 0.5, 0.5),
       });
     }
 
-    // Trang trắng phía sau CCCD (chuẩn in ấn 2 mặt tách biệt bìa CCCD y hệt PDF_Web_App)
-    mergedDoc.addPage([595.28, 841.89]);
+    // Trang 2: Trang trắng phía sau CCCD (chuẩn in ấn 2 mặt tách biệt bìa CCCD y hệt PDF_Web_App)
+    mergedDoc.addPage([PAGE_W, PAGE_H]);
 
     // ========================================================
     // BƯỚC 2: KIỂM TRA CÓ GCN HAY KHÔNG
     // ========================================================
     const hasGcn = Boolean(firstRow.has_gcn) || (firstRow.gcn_urls && firstRow.gcn_urls.length > 0);
     if (hasGcn && firstRow.gcn_urls && firstRow.gcn_urls.length > 0) {
-      // Đã có ảnh/PDF GCN: Ghép trực tiếp GCN
       for (const gcnUrl of firstRow.gcn_urls) {
         try {
           const gcnRes = await fetch(gcnUrl);
@@ -249,180 +294,208 @@ export async function generateReadyToPackPdf(
             const isPdf = header[0] === 0x25 && header[1] === 0x50 && header[2] === 0x44 && header[3] === 0x46;
             if (isPdf) {
               const gcnDoc = await PDFDocument.load(gcnBuf, { ignoreEncryption: true });
-              const copiedGcn = await mergedDoc.copyPages(gcnDoc, gcnDoc.getPageIndices());
-              copiedGcn.forEach((p) => mergedDoc.addPage(p));
+              for (const p of gcnDoc.getPages()) {
+                const emb = await mergedDoc.embedPage(p);
+                const gPage = mergedDoc.addPage([PAGE_W, PAGE_H]);
+                gPage.drawPage(emb, { x: 0, y: 0, width: PAGE_W, height: PAGE_H });
+              }
             } else {
-              // Embed ảnh GCN
-              const gcnPage = mergedDoc.addPage([595.28, 841.89]);
               let embeddedImg;
               try {
                 embeddedImg = await mergedDoc.embedJpg(gcnBuf);
               } catch {
                 embeddedImg = await mergedDoc.embedPng(gcnBuf);
               }
-              const scaled = embeddedImg.scaleToFit(520, 740);
-              gcnPage.drawImage(embeddedImg, {
-                x: (595.28 - scaled.width) / 2,
-                y: (841.89 - scaled.height) / 2,
-                width: scaled.width,
-                height: scaled.height,
-              });
+              if (embeddedImg) {
+                const gcnPage = mergedDoc.addPage([PAGE_W, PAGE_H]);
+                const scaled = embeddedImg.scaleToFit(PAGE_W - 72, PAGE_H - 72);
+                gcnPage.drawImage(embeddedImg, {
+                  x: (PAGE_W - scaled.width) / 2,
+                  y: (PAGE_H - scaled.height) / 2,
+                  width: scaled.width,
+                  height: scaled.height,
+                });
+              }
             }
           }
         } catch (e) {
           console.warn('Lỗi ghép GCN:', e);
         }
       }
-      processedCount++;
       continue;
     }
 
     // ========================================================
     // BƯỚC 3: KHÔNG CÓ GCN -> ĐIỀN ĐƠN VÀO TEMPLATE.PDF (MẪU 15 & MẪU 15B)
+    // Khớp 100% tọa độ và logic của PDF_Web_App
     // ========================================================
     const tempDoc = await PDFDocument.load(templateBytes, { ignoreEncryption: true });
     tempDoc.registerFontkit(fontkit);
-    const calibriFont = await tempDoc.embedFont(fontBoldBytes); // In đậm tất cả chữ ghi trên phiếu kê khai bằng font Calibri
+    const timesFont = await tempDoc.embedFont(fontTimesBoldBytes);
 
     const p1 = tempDoc.getPages()[0];
     const pageH = p1.getHeight();
 
-    // Tọa độ chuẩn khớp 100% với PDF_Web_App fitz coordinates:
-    // fitz: (x, y_fitz) từ đỉnh trang -> pdf-lib: y = pageH - y_fitz
-    const yOff = -4.25; // -pt(0.15)
+    // Tọa độ chuẩn khớp 100% với PDF_Web_App:
+    // y_off = -pt(0.15) = -4.2519
+    const yOff = -4.25;
     const fitzToPdfY = (yFitz: number) => pageH - (yFitz + yOff);
+
+    const x_hoten = 209.76;
+    const x_cccd = 306.45;
+    const x_dc4 = 199.76;
+    const x_thuaso = 219.76;
+    const x_tbd = 416.42;
+    const x_dc5 = 199.76;
+    const x_dt = 187.09;
+    const x_md = 257.09;
+    const x_thoihan = 325.59;
+    const x_nguongoc = 265.59;
 
     const cccdVal = firstRow.cccd || '';
     const diaChiVal = cleanDisplayAddress(firstRow.dia_chi || firstRow.thon_xa || '');
 
-    // Họ tên, CCCD, địa chỉ chung
+    // Mục 1: Họ tên, CCCD, Địa chỉ chung
     p1.drawText(ownerDisplayName, {
-      x: 209.76,
+      x: x_hoten,
       y: fitzToPdfY(248),
-      size: 11,
-      font: calibriFont,
+      size: 12,
+      font: timesFont,
       color: rgb(0, 0, 0),
     });
     if (cccdVal) {
       p1.drawText(String(cccdVal), {
-        x: 306.45,
+        x: x_cccd,
         y: fitzToPdfY(272),
-        size: 11,
-        font: calibriFont,
+        size: 12,
+        font: timesFont,
         color: rgb(0, 0, 0),
       });
     }
     p1.drawText(diaChiVal, {
-      x: 199.76,
+      x: x_dc4,
       y: fitzToPdfY(320),
-      size: 11, // Cỡ chữ 11 đồng đều với các giá trị khác
-      font: calibriFont,
+      size: diaChiVal.length > 35 ? 10.5 : 12,
+      font: timesFont,
       color: rgb(0, 0, 0),
     });
     p1.drawText('Xã Cư Pui', {
-      x: 199.76,
+      x: x_dc5,
       y: fitzToPdfY(489),
-      size: 11,
-      font: calibriFont,
+      size: 12,
+      font: timesFont,
       color: rgb(0, 0, 0),
     });
 
     if (rows.length === 1) {
-      // === TRƯỜNG HỢP 1 THỬA ===
+      // === TRƯỜNG HỢP 1 THỬA (Chỉ cần 2 trang đầu Mẫu 15) ===
       const r = rows[0];
-      const dienTichFormatted = String(r.dien_tich || '').replace('.', ',');
+      let dienTichFormatted = String(r.dien_tich || '').trim().replace('.', ',');
+      if (dienTichFormatted.includes(',')) {
+        const parts = dienTichFormatted.split(',');
+        dienTichFormatted = `${parts[0]},${parts[1].slice(0, 1)}`;
+      }
       const thoiHan = resolveThoiHan(r.loai_dat);
-      const nguonGoc = r.nguon_goc || 'Khai hoang';
+      const nguonGoc = (r.nguon_goc || 'Khai hoang').trim();
 
       p1.drawText(String(r.so_thua || ''), {
-        x: 219.76,
+        x: x_thuaso,
         y: fitzToPdfY(465),
-        size: 11,
-        font: calibriFont,
+        size: 12,
+        font: timesFont,
         color: rgb(0, 0, 0),
       });
       p1.drawText(String(r.to_ban_do || ''), {
-        x: 416.41,
+        x: x_tbd,
         y: fitzToPdfY(465),
-        size: 11,
-        font: calibriFont,
+        size: 12,
+        font: timesFont,
         color: rgb(0, 0, 0),
       });
       p1.drawText(dienTichFormatted, {
-        x: 187.08,
+        x: x_dt,
         y: fitzToPdfY(513),
-        size: 11,
-        font: calibriFont,
+        size: 12,
+        font: timesFont,
         color: rgb(0, 0, 0),
       });
       p1.drawText(String(r.loai_dat || ''), {
-        x: 257.08,
+        x: x_md,
         y: fitzToPdfY(538),
-        size: 11,
-        font: calibriFont,
+        size: 12,
+        font: timesFont,
         color: rgb(0, 0, 0),
       });
       p1.drawText(thoiHan, {
-        x: 325.59,
+        x: x_thoihan,
         y: fitzToPdfY(562),
-        size: 11,
-        font: calibriFont,
+        size: 12,
+        font: timesFont,
         color: rgb(0, 0, 0),
       });
       p1.drawText(nguonGoc, {
-        x: 265.59,
+        x: x_nguongoc,
         y: fitzToPdfY(586),
-        size: 11,
-        font: calibriFont,
+        size: 12,
+        font: timesFont,
         color: rgb(0, 0, 0),
       });
 
-      // 1 thửa: Chỉ cần Trang 1 và Trang 2 từ template.pdf (Mẫu 15)
+      // 1 thửa: KHÔNG CẦN TỜ 2 (MẪU 15b) -> CHỈ CẦN 2 TRANG ĐẦU CỦA TEMPLATE.PDF (MẪU 15 TRANG 1 & TRANG 2)
       const [pCopy1, pCopy2] = await mergedDoc.copyPages(tempDoc, [0, 1]);
       mergedDoc.addPage(pCopy1);
       mergedDoc.addPage(pCopy2);
     } else {
       // === TRƯỜNG HỢP NHIỀU THỬA ===
-      const toBanDoList = Array.from(new Set(rows.map((r) => r.to_ban_do).filter(Boolean))).join(', ');
-      const mucDichList = Array.from(new Set(rows.map((r) => r.loai_dat).filter(Boolean))).join(', ');
-      const thoiHanList = Array.from(new Set(rows.map((r) => resolveThoiHan(r.loai_dat)).filter(Boolean))).join(', ');
+      const toBanDoList = Array.from(new Set(rows.map((r) => r.to_ban_do).filter(Boolean)));
+      const mucDichList = Array.from(new Set(rows.map((r) => r.loai_dat).filter(Boolean)));
+      const thoiHanList = Array.from(new Set(rows.map((r) => resolveThoiHan(r.loai_dat)).filter(Boolean)));
       const nguonGocList = Array.from(
-        new Set(rows.map((r) => r.nguon_goc || 'Khai hoang').filter(Boolean))
-      ).join(', ');
+        new Set(rows.map((r) => (r.nguon_goc || 'Khai hoang').trim()).filter(Boolean))
+      );
 
-      p1.drawText(`${rows.length} thửa`, {
-        x: 219.76,
+      const countText = `${String(rows.length).padStart(2, '0')} thửa`;
+      p1.drawText(countText, {
+        x: x_thuaso,
         y: fitzToPdfY(465),
-        size: 11,
-        font: calibriFont,
+        size: 12,
+        font: timesFont,
         color: rgb(0, 0, 0),
       });
-      p1.drawText(toBanDoList, {
-        x: 416.41,
+
+      const toBanDoText = toBanDoList.join(', ');
+      p1.drawText(toBanDoText, {
+        x: x_tbd,
         y: fitzToPdfY(465),
-        size: 10,
-        font: calibriFont,
+        size: toBanDoText.length > 25 ? 10 : 12,
+        font: timesFont,
         color: rgb(0, 0, 0),
       });
-      p1.drawText(mucDichList, {
-        x: 257.08,
+
+      const mucDichText = mucDichList.join(', ');
+      p1.drawText(mucDichText, {
+        x: x_md,
         y: fitzToPdfY(538),
-        size: 10,
-        font: calibriFont,
+        size: mucDichText.length > 25 ? 10 : 12,
+        font: timesFont,
         color: rgb(0, 0, 0),
       });
-      p1.drawText(thoiHanList, {
-        x: 325.59,
+
+      const thoiHanText = thoiHanList.join(', ');
+      p1.drawText(thoiHanText, {
+        x: x_thoihan,
         y: fitzToPdfY(562),
-        size: 10,
-        font: calibriFont,
+        size: thoiHanText.length > 25 ? 10 : 12,
+        font: timesFont,
         color: rgb(0, 0, 0),
       });
-      p1.drawText(nguonGocList, {
-        x: 265.59,
+
+      const nguonGocText = nguonGocList.join(', ');
+      p1.drawText(nguonGocText, {
+        x: x_nguongoc,
         y: fitzToPdfY(586),
-        size: 10,
-        font: calibriFont,
+        size: nguonGocText.length > 25 ? 10 : 12,
+        font: timesFont,
         color: rgb(0, 0, 0),
       });
 
@@ -441,44 +514,46 @@ export async function generateReadyToPackPdf(
         const chunk = chunks[cIdx];
         const tableDoc = await PDFDocument.load(templateBytes, { ignoreEncryption: true });
         tableDoc.registerFontkit(fontkit);
-        const tf = await tableDoc.embedFont(fontBoldBytes); // In đậm tất cả chữ ghi trên bảng phụ lục Mẫu 15b
+        const calibriBoldFont = await tableDoc.embedFont(fontCalibriBoldBytes);
         const pTable = tableDoc.getPages()[2]; // Mẫu 15b (Trang thứ 3)
 
-        const yStart = 235 + 16.44; // 235 + pt(0.58)
-        const rowSpace = 27.63; // pt(0.975)
+        const yStart = 235 + 16.44; // 235 + pt(0.58) = 251.44
+        const rowSpace = 27.637; // pt(0.975)
 
         const drawCenter = (text: string, xCenter: number, yFit: number) => {
           if (!text) return;
-          const textW = tf.widthOfTextAtSize(text, 9.5);
+          const textW = calibriBoldFont.widthOfTextAtSize(text, 10);
           pTable.drawText(text, {
             x: xCenter - textW / 2,
             y: pageH - yFit,
-            size: 9.5,
-            font: tf,
+            size: 10,
+            font: calibriBoldFont,
             color: rgb(0, 0, 0),
           });
         };
 
         chunk.forEach((row, rIdx) => {
           const curY = yStart + rIdx * rowSpace;
-          const dt = String(row.dien_tich || '').replace('.', ',');
+          let dt = String(row.dien_tich || '').trim().replace('.', ',');
+          if (dt.includes(',')) {
+            const parts = dt.split(',');
+            dt = `${parts[0]},${parts[1].slice(0, 1)}`;
+          }
           drawCenter(String(row.so_thua || ''), 131.16, curY);
           drawCenter(String(row.to_ban_do || ''), 180.86, curY);
           drawCenter(dt, 300.92, curY);
           drawCenter(String(row.loai_dat || ''), 369.78, curY);
           drawCenter(resolveThoiHan(row.loai_dat), 439.54, curY);
-          drawCenter(row.nguon_goc || 'Khai hoang', 538.54, curY);
+          drawCenter(String(row.nguon_goc || 'Khai hoang').trim(), 538.54, curY);
         });
 
         const [pTableCopy] = await mergedDoc.copyPages(tableDoc, [2]);
         mergedDoc.addPage(pTableCopy);
       }
 
-      // Trang trắng phía sau tập nhiều thửa
-      mergedDoc.addPage([595.28, 841.89]);
+      // Trang 5: TRANG TRỐNG HOÀN TOÀN KHÔNG CÓ CHỮ GÌ (khớp 100% PDF_Web_App)
+      mergedDoc.addPage([PAGE_W, PAGE_H]);
     }
-
-    processedCount++;
   }
 
   onProgress?.(totalSets, totalSets, 'Đang đóng gói và hoàn tất file PDF...');
@@ -498,6 +573,9 @@ export function downloadPdfBlob(bytes: Uint8Array, fileName: string): string {
   a.download = fileName;
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 1000);
   return url;
 }
