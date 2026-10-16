@@ -55,29 +55,52 @@ export default function ScanFileManagerTab({
   const loadScanFiles = useCallback(async () => {
     setIsLoading(true);
     setFeedbackMessage(null);
-    try {
-      const res = await fetch(`/api/upload-filescan?t=${Date.now()}`);
-      const text = await res.text();
-      let data: any;
+    let attempts = 0;
+    while (attempts < 2) {
+      attempts++;
       try {
-        data = JSON.parse(text);
-      } catch {
-        data = { success: false, error: `Phản hồi máy chủ không hợp lệ (${res.status})` };
-      }
-
-      if (data.success && Array.isArray(data.files)) {
-        setFiles(data.files);
-        if (data.warning) {
-          console.warn('Cảnh báo từ filescan API:', data.warning);
+        const res = await fetch(`/api/upload-filescan?t=${Date.now()}`, {
+          headers: { 'Cache-Control': 'no-cache' },
+        });
+        if (!res.ok && attempts < 2) {
+          await new Promise((r) => setTimeout(r, 600));
+          continue;
         }
-      } else {
-        setFeedbackMessage({ type: 'error', text: data.error || 'Lỗi tải danh sách file scan' });
+        const text = await res.text();
+        let data: any;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          if (attempts < 2) {
+            await new Promise((r) => setTimeout(r, 600));
+            continue;
+          }
+          data = { success: false, error: `Phản hồi máy chủ không hợp lệ (${res.status})` };
+        }
+
+        if (data.success && Array.isArray(data.files)) {
+          setFiles(data.files);
+          if (data.warning) {
+            console.warn('Cảnh báo từ filescan API:', data.warning);
+          }
+          break;
+        } else {
+          if (attempts < 2) {
+            await new Promise((r) => setTimeout(r, 600));
+            continue;
+          }
+          setFeedbackMessage({ type: 'error', text: data.error || 'Lỗi tải danh sách file scan' });
+          break;
+        }
+      } catch (err: any) {
+        if (attempts < 2) {
+          await new Promise((r) => setTimeout(r, 600));
+          continue;
+        }
+        setFeedbackMessage({ type: 'error', text: err.message || 'Lỗi kết nối máy chủ' });
       }
-    } catch (err: any) {
-      setFeedbackMessage({ type: 'error', text: err.message || 'Lỗi kết nối máy chủ' });
-    } finally {
-      setIsLoading(false);
     }
+    setIsLoading(false);
   }, []);
 
   useEffect(() => {

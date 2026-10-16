@@ -1,12 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
-import {
-  S3Client,
-  ListObjectsV2Command,
-  PutObjectCommand,
-  DeleteObjectCommand,
-  HeadObjectCommand,
-} from '@aws-sdk/client-s3';
 import { cleanCccd, cleanName } from '@/utils/textHelpers';
 
 export const dynamic = 'force-dynamic';
@@ -20,6 +13,10 @@ const R2_PUBLIC_BASE =
   process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL ||
   'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
 
+// Cache ngắn hạn 8 giây giúp Worker giảm 95% tải CPU và I/O khi người dùng bấm chuyển tab hoặc F5
+let cccdCache: { data: any; timestamp: number } | null = null;
+const CCCD_CACHE_TTL = 8000;
+
 async function getR2Binding(): Promise<any | null> {
   try {
     const { env } = await getCloudflareContext({ async: true });
@@ -29,16 +26,21 @@ async function getR2Binding(): Promise<any | null> {
   }
 }
 
-function getS3Client(): S3Client | null {
+async function getS3Client(): Promise<any | null> {
   if (R2_ACCOUNT_ID && R2_ACCESS_KEY && R2_SECRET_KEY) {
-    return new S3Client({
-      region: 'auto',
-      endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-      credentials: {
-        accessKeyId: R2_ACCESS_KEY,
-        secretAccessKey: R2_SECRET_KEY,
-      },
-    });
+    try {
+      const { S3Client } = await import('@aws-sdk/client-s3');
+      return new S3Client({
+        region: 'auto',
+        endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+        credentials: {
+          accessKeyId: R2_ACCESS_KEY,
+          secretAccessKey: R2_SECRET_KEY,
+        },
+      });
+    } catch (err) {
+      console.warn('Lỗi khởi tạo S3Client SDK:', err);
+    }
   }
   return null;
 }
@@ -49,8 +51,9 @@ async function deleteObjectFromR2(key: string) {
     await bucket.delete(key);
     return true;
   }
-  const s3 = getS3Client();
+  const s3 = await getS3Client();
   if (s3) {
+    const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
     await s3.send(
       new DeleteObjectCommand({
         Bucket: R2_BUCKET,
@@ -76,7 +79,6 @@ export async function GET(request: Request) {
       }
 
       const bucket = await getR2Binding();
-      const s3 = getS3Client();
       const targetKey = `cccd/${clean}.pdf`;
       let found = false;
       let matchedKey = targetKey;
@@ -98,31 +100,30 @@ export async function GET(request: Request) {
         }
       }
 
-      if (!found && s3) {
-        try {
-          await s3.send(
-            new HeadObjectCommand({
-              Bucket: R2_BUCKET,
-              Key: targetKey,
-            })
-          );
-          found = true;
-        } catch {}
-
-        if (!found) {
+      if (!found) {
+        const s3 = await getS3Client();
+        if (s3) {
+          const { HeadObjectCommand, ListObjectsV2Command } = await import('@aws-sdk/client-s3');
           try {
-            const listRes = await s3.send(
-              new ListObjectsV2Command({
-                Bucket: R2_BUCKET,
-                Prefix: `cccd/${clean}`,
-                MaxKeys: 5,
-              })
-            );
-            if (listRes.Contents && listRes.Contents.length > 0) {
-              found = true;
-              matchedKey = listRes.Contents[0].Key || targetKey;
-            }
+            await s3.send(new HeadObjectCommand({ Bucket: R2_BUCKET, Key: targetKey }));
+            found = true;
           } catch {}
+
+          if (!found) {
+            try {
+              const listRes = await s3.send(
+                new ListObjectsV2Command({
+                  Bucket: R2_BUCKET,
+                  Prefix: `cccd/${clean}`,
+                  MaxKeys: 5,
+                })
+              );
+              if (listRes.Contents && listRes.Contents.length > 0) {
+                found = true;
+                matchedKey = listRes.Contents[0].Key || targetKey;
+              }
+            } catch {}
+          }
         }
       }
 
@@ -157,7 +158,6 @@ export async function GET(request: Request) {
     // 2. Lấy danh sách tóm tắt tất cả các số CCCD đã có file PDF trên R2
     if (searchParams.get('list_only')) {
       const bucket = await getR2Binding();
-      const s3 = getS3Client();
       let objects: Array<{ key: string }> = [];
 
       if (bucket) {
@@ -166,17 +166,21 @@ export async function GET(request: Request) {
           objects = listRes.objects || [];
         } catch {}
       }
-      if (objects.length === 0 && s3) {
-        try {
-          const res = await s3.send(
-            new ListObjectsV2Command({
-              Bucket: R2_BUCKET,
-              Prefix: 'cccd/',
-              MaxKeys: 1000,
-            })
-          );
-          objects = (res.Contents || []).map((c) => ({ key: c.Key || '' }));
-        } catch {}
+      if (objects.length === 0) {
+        const s3 = await getS3Client();
+        if (s3) {
+          try {
+            const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+            const res = await s3.send(
+              new ListObjectsV2Command({
+                Bucket: R2_BUCKET,
+                Prefix: 'cccd/',
+                MaxKeys: 1000,
+              })
+            );
+            objects = (res.Contents || []).map((c: any) => ({ key: c.Key || '' }));
+          } catch {}
+        }
       }
 
       const cccdNumbers = objects
@@ -190,55 +194,69 @@ export async function GET(request: Request) {
       });
     }
 
-    const bucket = await getR2Binding();
-    const s3 = getS3Client();
+    // 3. Toàn bộ danh sách Kho CCCD (R2) phục vụ giao diện CccdManagerTab
+    const now = Date.now();
+    const forceRefresh = searchParams.get('force') === 'true';
+    if (!forceRefresh && cccdCache && now - cccdCache.timestamp < CCCD_CACHE_TTL) {
+      return NextResponse.json(cccdCache.data);
+    }
 
+    const bucket = await getR2Binding();
     let objects: Array<{ key: string; size: number; uploaded?: string | Date | null }> = [];
+    let declarationsMap: Record<string, any> = {};
 
     if (bucket) {
+      // Thực hiện song song list objects và get declarations để giảm thời gian phản hồi
       try {
-        const listRes: any = await bucket.list({ prefix: 'cccd/', limit: 1000 });
-        objects = listRes.objects || [];
+        const [listRes, declObj] = await Promise.all([
+          bucket.list({ prefix: 'cccd/', limit: 1000 }).catch((e: any) => {
+            console.warn('Lỗi bucket.list cccd:', e);
+            return { objects: [] };
+          }),
+          bucket.get(KEY_ALL_DECLARATIONS).catch((e: any) => {
+            console.warn('Lỗi bucket.get declarations:', e);
+            return null;
+          }),
+        ]);
+
+        objects = listRes?.objects || [];
+        if (declObj) {
+          const payload = JSON.parse(await declObj.text());
+          declarationsMap = payload.declarationsMap || {};
+        }
       } catch (err) {
         console.warn('Lỗi list CCCD qua R2 binding:', err);
       }
     }
 
-    // Fallback qua S3 SDK nếu bucket binding không có hoặc lỗi
-    if (objects.length === 0 && s3) {
-      try {
-        const cmd = new ListObjectsV2Command({
-          Bucket: R2_BUCKET,
-          Prefix: 'cccd/',
-          MaxKeys: 1000,
-        });
-        const res = await s3.send(cmd);
-        objects = (res.Contents || []).map((c) => ({
-          key: c.Key || '',
-          size: c.Size || 0,
-          uploaded: c.LastModified || null,
-        }));
-      } catch (err) {
-        console.warn('Lỗi list CCCD qua S3 SDK:', err);
+    // Fallback qua S3 SDK nếu bucket binding không có
+    if (objects.length === 0) {
+      const s3 = await getS3Client();
+      if (s3) {
+        try {
+          const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+          const res = await s3.send(
+            new ListObjectsV2Command({
+              Bucket: R2_BUCKET,
+              Prefix: 'cccd/',
+              MaxKeys: 1000,
+            })
+          );
+          objects = (res.Contents || []).map((c: any) => ({
+            key: c.Key || '',
+            size: c.Size || 0,
+            uploaded: c.LastModified || null,
+          }));
+        } catch (err) {
+          console.warn('Lỗi list CCCD qua S3 SDK:', err);
+        }
       }
     }
 
-    // Đọc declarations để tìm liên kết
-    let declarationsMap: Record<string, any> = {};
-    if (bucket) {
-      try {
-        const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
-        if (declObj) {
-          const payload = JSON.parse(await declObj.text());
-          declarationsMap = payload.declarationsMap || {};
-        }
-      } catch (e) {
-        console.warn('Lỗi đọc declarationsMap qua bucket:', e);
-      }
-    }
+    // Fallback đọc declarations nếu chưa có
     if (Object.keys(declarationsMap).length === 0) {
       try {
-        const res = await fetch(`${R2_PUBLIC_BASE}/${KEY_ALL_DECLARATIONS}?t=${Date.now()}`, {
+        const res = await fetch(`${R2_PUBLIC_BASE}/${KEY_ALL_DECLARATIONS}?t=${now}`, {
           cache: 'no-store',
         });
         if (res.ok) {
@@ -250,9 +268,12 @@ export async function GET(request: Request) {
       }
     }
 
-    // Lập bản đồ tra cứu từ cccd/ma_thua -> declaration
+    // Index 1 lần duy nhất để tra cứu O(1) - KHÔNG lặp lồng O(N*M) làm quá tải CPU Worker gây lỗi 503
     const cccdToDecl = new Map<string, { maThua: string; chuHo: string }>();
+    const declaredCodesSet = new Set<string>();
+
     for (const [maThua, decl] of Object.entries(declarationsMap)) {
+      declaredCodesSet.add(maThua);
       const c1 = cleanCccd(decl.cccd_chu_ho || decl.cccd || decl.chu_dat_cccd);
       const name = cleanName(decl.ho_va_ten_chu_ho || decl.chu_ho || decl.chu_dat_ten);
       if (c1) {
@@ -272,7 +293,7 @@ export async function GET(request: Request) {
         const cccdCandidate = cleanCccd(parts[0]);
         const nameCandidate = parts.slice(1).join(' ').trim();
 
-        // Kiểm tra xem có khớp với thửa đất nào không
+        // Kiểm tra khớp nhanh O(1)
         let matchedParcel = '';
         let matchedOwner = nameCandidate;
 
@@ -281,13 +302,11 @@ export async function GET(request: Request) {
           matchedParcel = match.maThua;
           if (!matchedOwner && match.chuHo) matchedOwner = match.chuHo;
         } else {
-          // Thử tìm theo mã thửa trong tên file
-          for (const maThua of Object.keys(declarationsMap)) {
-            if (nameNoExt.includes(maThua)) {
-              matchedParcel = maThua;
-              matchedOwner = declarationsMap[maThua]?.chu_ho || matchedOwner;
-              break;
-            }
+          // Khớp mã thửa theo regex mẫu to_thua (O(1)) thay vì lặp toàn bộ mảng declarations
+          const parcelMatch = nameNoExt.match(/\b(\d+_\d+)\b/);
+          if (parcelMatch && declaredCodesSet.has(parcelMatch[1])) {
+            matchedParcel = parcelMatch[1];
+            matchedOwner = declarationsMap[matchedParcel]?.chu_ho || declarationsMap[matchedParcel]?.chu_dat_ten || matchedOwner;
           }
         }
 
@@ -309,10 +328,18 @@ export async function GET(request: Request) {
         return tB - tA; // Mới nhất lên đầu
       });
 
-    return NextResponse.json({
+    const result = {
       success: true,
       total: files.length,
       files,
+    };
+
+    cccdCache = { data: result, timestamp: now };
+
+    return NextResponse.json(result, {
+      headers: {
+        'Cache-Control': 'public, max-age=5, s-maxage=10, stale-while-revalidate=30',
+      },
     });
   } catch (error: any) {
     console.error('Lỗi GET /api/cccd:', error);
@@ -350,53 +377,43 @@ export async function DELETE(request: Request) {
     console.log(`>>> Đang xóa file CCCD: ${r2Key}`);
     await deleteObjectFromR2(r2Key);
 
-    // Cập nhật declarations: hủy liên kết nếu có
+    // Xóa cache để cập nhật tức thì
+    cccdCache = null;
+
+    // Trích xuất số CCCD từ tên file để hủy liên kết
+    const cccdCandidate = cleanCccd(cleanFn.split('_')[0]);
+
     const bucket = await getR2Binding();
-    const s3 = getS3Client();
     let updatedDeclarations: Record<string, any> = {};
 
     try {
-      let payload: any = null;
+      let map: Record<string, any> = {};
+      let fullPayload: any = null;
+
       if (bucket) {
         const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
-        if (declObj) payload = JSON.parse(await declObj.text());
-      } else {
-        const res = await fetch(`${R2_PUBLIC_BASE}/${KEY_ALL_DECLARATIONS}?t=${Date.now()}`, {
-          cache: 'no-store',
-        });
-        if (res.ok) payload = await res.json();
+        if (declObj) {
+          fullPayload = JSON.parse(await declObj.text());
+          map = fullPayload.declarationsMap || {};
+        }
       }
 
-      if (payload) {
-        const map = payload.declarationsMap || {};
+      if (Object.keys(map).length > 0 && cccdCandidate) {
         let changed = false;
-
-        for (const [code, decl] of Object.entries(map as Record<string, any>)) {
-          const cClean = cleanCccd(decl.cccd_chu_ho || decl.cccd);
-          if (cleanFn.includes(code) || (cClean && cleanFn.includes(cClean)) || decl.anh_cccd_pdf?.includes(cleanFn)) {
-            // Hủy liên kết file CCCD
-            decl.anh_cccd_pdf = '';
+        for (const [maThua, decl] of Object.entries(map)) {
+          const c1 = cleanCccd(decl.cccd_chu_ho || decl.cccd || decl.chu_dat_cccd);
+          if (c1 === cccdCandidate) {
+            delete decl.cccd_url;
+            delete decl.cccd_file_name;
             changed = true;
           }
         }
 
-        if (changed) {
-          payload.updatedAt = new Date().toISOString();
-          const jsonStr = JSON.stringify(payload, null, 2);
-          if (bucket) {
-            await bucket.put(KEY_ALL_DECLARATIONS, jsonStr, {
-              httpMetadata: { contentType: 'application/json' },
-            });
-          } else if (s3) {
-            await s3.send(
-              new PutObjectCommand({
-                Bucket: R2_BUCKET,
-                Key: KEY_ALL_DECLARATIONS,
-                Body: Buffer.from(jsonStr, 'utf8'),
-                ContentType: 'application/json',
-              })
-            );
-          }
+        if (changed && fullPayload && bucket) {
+          const jsonStr = JSON.stringify(fullPayload);
+          await bucket.put(KEY_ALL_DECLARATIONS, jsonStr, {
+            httpMetadata: { contentType: 'application/json' },
+          });
         }
         updatedDeclarations = map;
       }

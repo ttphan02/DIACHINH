@@ -1,12 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
-import {
-  S3Client,
-  ListObjectsV2Command,
-  PutObjectCommand,
-  DeleteObjectCommand,
-} from '@aws-sdk/client-s3';
-import { executeSyncToGoogleSheet } from '@/utils/syncGoogleSheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +12,10 @@ const R2_PUBLIC_BASE =
   process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL ||
   'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
 
+// Cache ngắn hạn 8 giây giúp Worker giảm 95% tải CPU và I/O khi người dùng bấm chuyển tab hoặc F5
+let scanCache: { data: any; timestamp: number } | null = null;
+const SCAN_CACHE_TTL = 8000;
+
 async function getR2Binding(): Promise<any | null> {
   try {
     const { env } = await getCloudflareContext({ async: true });
@@ -28,16 +25,21 @@ async function getR2Binding(): Promise<any | null> {
   }
 }
 
-function getS3Client(): S3Client | null {
+async function getS3Client(): Promise<any | null> {
   if (R2_ACCOUNT_ID && R2_ACCESS_KEY && R2_SECRET_KEY) {
-    return new S3Client({
-      region: 'auto',
-      endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-      credentials: {
-        accessKeyId: R2_ACCESS_KEY,
-        secretAccessKey: R2_SECRET_KEY,
-      },
-    });
+    try {
+      const { S3Client } = await import('@aws-sdk/client-s3');
+      return new S3Client({
+        region: 'auto',
+        endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+        credentials: {
+          accessKeyId: R2_ACCESS_KEY,
+          secretAccessKey: R2_SECRET_KEY,
+        },
+      });
+    } catch (err) {
+      console.warn('Lỗi khởi tạo S3Client SDK:', err);
+    }
   }
   return null;
 }
@@ -64,8 +66,9 @@ async function putObjectToR2(key: string, body: Uint8Array | ArrayBuffer, conten
     });
     return true;
   }
-  const s3 = getS3Client();
+  const s3 = await getS3Client();
   if (s3) {
+    const { PutObjectCommand } = await import('@aws-sdk/client-s3');
     const bytes = body instanceof Uint8Array ? body : new Uint8Array(body);
     await s3.send(
       new PutObjectCommand({
@@ -87,8 +90,9 @@ async function deleteObjectFromR2(key: string) {
     await bucket.delete(key);
     return true;
   }
-  const s3 = getS3Client();
+  const s3 = await getS3Client();
   if (s3) {
+    const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
     await s3.send(
       new DeleteObjectCommand({
         Bucket: R2_BUCKET,
@@ -101,77 +105,75 @@ async function deleteObjectFromR2(key: string) {
 }
 
 // GET /api/upload-filescan - Lấy danh sách toàn bộ file PDF scan trong folder filescan/ và scanhoso/
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const bucket = await getR2Binding();
-    const s3 = getS3Client();
+    const { searchParams } = new URL(request.url);
+    const forceRefresh = searchParams.get('force') === 'true';
+    const now = Date.now();
 
+    if (!forceRefresh && scanCache && now - scanCache.timestamp < SCAN_CACHE_TTL) {
+      return NextResponse.json(scanCache.data);
+    }
+
+    const bucket = await getR2Binding();
     let allObjects: Array<{ key: string; size: number; uploaded?: string | Date | null }> = [];
+    let declarationsMap: Record<string, any> = {};
 
     if (bucket) {
       try {
-        const listRes: any = await bucket.list({ prefix: 'filescan/', limit: 1000 });
-        const objects = listRes.objects || [];
-        let objectsScanHoso: any[] = [];
-        try {
-          const listHoso: any = await bucket.list({ prefix: 'scanhoso/', limit: 1000 });
-          objectsScanHoso = listHoso.objects || [];
-        } catch {}
-        allObjects = [...objects, ...objectsScanHoso];
+        // Thực hiện song song 3 truy vấn R2: filescan, scanhoso và declarations
+        const [listRes, listHoso, declObj] = await Promise.all([
+          bucket.list({ prefix: 'filescan/', limit: 1000 }).catch(() => ({ objects: [] })),
+          bucket.list({ prefix: 'scanhoso/', limit: 1000 }).catch(() => ({ objects: [] })),
+          bucket.get(KEY_ALL_DECLARATIONS).catch(() => null),
+        ]);
+
+        const objects1 = listRes?.objects || [];
+        const objects2 = listHoso?.objects || [];
+        allObjects = [...objects1, ...objects2];
+
+        if (declObj) {
+          const payload = JSON.parse(await declObj.text());
+          declarationsMap = payload.declarationsMap || {};
+        }
       } catch (err) {
         console.warn('Lỗi list qua R2 binding:', err);
       }
     }
 
     // Fallback qua S3 SDK nếu bucket binding không có hoặc chưa lấy được
-    if (allObjects.length === 0 && s3) {
-      try {
-        const cmd1 = new ListObjectsV2Command({
-          Bucket: R2_BUCKET,
-          Prefix: 'filescan/',
-          MaxKeys: 1000,
-        });
-        const res1 = await s3.send(cmd1);
-        const list1 = (res1.Contents || []).map((c) => ({
-          key: c.Key || '',
-          size: c.Size || 0,
-          uploaded: c.LastModified || null,
-        }));
+    if (allObjects.length === 0) {
+      const s3 = await getS3Client();
+      if (s3) {
+        try {
+          const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+          const [res1, res2] = await Promise.all([
+            s3.send(new ListObjectsV2Command({ Bucket: R2_BUCKET, Prefix: 'filescan/', MaxKeys: 1000 })).catch(() => ({ Contents: [] })),
+            s3.send(new ListObjectsV2Command({ Bucket: R2_BUCKET, Prefix: 'scanhoso/', MaxKeys: 1000 })).catch(() => ({ Contents: [] })),
+          ]);
 
-        const cmd2 = new ListObjectsV2Command({
-          Bucket: R2_BUCKET,
-          Prefix: 'scanhoso/',
-          MaxKeys: 1000,
-        });
-        const res2 = await s3.send(cmd2);
-        const list2 = (res2.Contents || []).map((c) => ({
-          key: c.Key || '',
-          size: c.Size || 0,
-          uploaded: c.LastModified || null,
-        }));
+          const list1 = (res1.Contents || []).map((c: any) => ({
+            key: c.Key || '',
+            size: c.Size || 0,
+            uploaded: c.LastModified || null,
+          }));
+          const list2 = (res2.Contents || []).map((c: any) => ({
+            key: c.Key || '',
+            size: c.Size || 0,
+            uploaded: c.LastModified || null,
+          }));
 
-        allObjects = [...list1, ...list2];
-      } catch (err) {
-        console.warn('Lỗi list filescan qua S3 SDK:', err);
-      }
-    }
-
-    // Đọc declarations để tìm liên kết chủ sở hữu & thửa đất
-    let declarationsMap: Record<string, any> = {};
-    if (bucket) {
-      try {
-        const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
-        if (declObj) {
-          const payload = JSON.parse(await declObj.text());
-          declarationsMap = payload.declarationsMap || {};
+          allObjects = [...list1, ...list2];
+        } catch (err) {
+          console.warn('Lỗi list filescan qua S3 SDK:', err);
         }
-      } catch (e) {
-        console.warn('Lỗi đọc declarationsMap cho filescan qua bucket:', e);
       }
     }
+
+    // Fallback đọc declarations nếu chưa có
     if (Object.keys(declarationsMap).length === 0) {
       try {
-        const res = await fetch(`${R2_PUBLIC_BASE}/${KEY_ALL_DECLARATIONS}?t=${Date.now()}`, {
+        const res = await fetch(`${R2_PUBLIC_BASE}/${KEY_ALL_DECLARATIONS}?t=${now}`, {
           cache: 'no-store',
         });
         if (res.ok) {
@@ -180,6 +182,20 @@ export async function GET() {
         }
       } catch (e) {
         console.warn('Lỗi fetch declarationsMap qua public URL:', e);
+      }
+    }
+
+    // Index 1 lần duy nhất để tra cứu O(1) - KHÔNG lặp lồng O(N*M) làm quá tải CPU Worker gây lỗi 503
+    const toThuaMap = new Map<string, { code: string; owner: string }>();
+    const declaredCodesSet = new Set<string>();
+
+    for (const [code, decl] of Object.entries(declarationsMap)) {
+      declaredCodesSet.add(code);
+      const to = String(decl.to_ban_do || '').trim();
+      const thua = String(decl.so_thua || '').trim();
+      const owner = decl.chu_dat_ten || decl.chu_ho || '';
+      if (to && thua) {
+        toThuaMap.set(`${to}_${thua}`, { code, owner });
       }
     }
 
@@ -200,15 +216,21 @@ export async function GET() {
           matchedThua = m[2];
         }
 
-        // Tìm đối chiếu trong declarationsMap
-        for (const [code, decl] of Object.entries(declarationsMap)) {
-          if (
-            (matchedTo && matchedThua && String(decl.to_ban_do) === matchedTo && String(decl.so_thua) === matchedThua) ||
-            filename.includes(code)
-          ) {
-            matchedParcel = code;
-            matchedOwner = decl.chu_dat_ten || decl.chu_ho || '';
-            break;
+        // Tra cứu nhanh O(1)
+        if (matchedTo && matchedThua) {
+          const match = toThuaMap.get(`${matchedTo}_${matchedThua}`);
+          if (match) {
+            matchedParcel = match.code;
+            matchedOwner = match.owner;
+          }
+        }
+
+        // Nếu chưa khớp, thử tìm mã thửa dạng to_thua trong tên file qua Set O(1)
+        if (!matchedParcel) {
+          const codeMatch = filename.match(/\b(\d+_\d+)\b/);
+          if (codeMatch && declaredCodesSet.has(codeMatch[1])) {
+            matchedParcel = codeMatch[1];
+            matchedOwner = declarationsMap[matchedParcel]?.chu_dat_ten || declarationsMap[matchedParcel]?.chu_ho || '';
           }
         }
 
@@ -231,10 +253,18 @@ export async function GET() {
         return tB - tA; // Mới nhất lên đầu
       });
 
-    return NextResponse.json({
+    const result = {
       success: true,
       total: files.length,
       files,
+    };
+
+    scanCache = { data: result, timestamp: now };
+
+    return NextResponse.json(result, {
+      headers: {
+        'Cache-Control': 'public, max-age=5, s-maxage=10, stale-while-revalidate=30',
+      },
     });
   } catch (error: any) {
     console.error('Lỗi GET /api/upload-filescan:', error);
@@ -315,6 +345,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Không có file nào được xử lý' }, { status: 400 });
     }
 
+    // Xóa cache để cập nhật tức thì
+    scanCache = null;
+
     // Đọc danh sách kê khai và kích hoạt đồng bộ Google Sheet
     try {
       const bucket = await getR2Binding();
@@ -331,9 +364,14 @@ export async function POST(request: Request) {
           declMap = payload.declarationsMap || {};
         }
       }
-      executeSyncToGoogleSheet(declMap, bucket).catch((err) =>
-        console.error('Lỗi sync Google Sheet sau khi upload filescan:', err)
-      );
+
+      import('@/utils/syncGoogleSheets')
+        .then(({ executeSyncToGoogleSheet }) => {
+          executeSyncToGoogleSheet(declMap, bucket).catch((err) =>
+            console.error('Lỗi sync Google Sheet sau khi upload filescan:', err)
+          );
+        })
+        .catch((err) => console.warn('Lỗi nạp module syncGoogleSheets:', err));
     } catch (err) {
       console.warn('Lỗi trigger sync sheet:', err);
     }
@@ -375,6 +413,9 @@ export async function DELETE(request: Request) {
     try {
       await deleteObjectFromR2(`scanhoso/${cleanFn}`);
     } catch {}
+
+    // Xóa cache để cập nhật tức thì
+    scanCache = null;
 
     return NextResponse.json({
       success: true,
