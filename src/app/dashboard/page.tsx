@@ -2298,27 +2298,27 @@ export default function DashboardPage() {
       isLight ? 'bg-slate-100 text-slate-800' : 'bg-slate-950 text-slate-100'
     }`}>
       {/* 4 Thẻ Thống Kê KPI Tổng Thể - Đặt TRÊN Header theo yêu cầu */}
-      <div className="w-full px-3 sm:px-6 lg:px-8 pt-3 sm:pt-4 pb-2 no-print">
-        <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="w-full px-3 sm:px-6 lg:px-8 py-2 sm:py-2.5 no-print">
+        <section className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
           {/* Card 1: Tổng Thửa Quản Lý */}
-          <div className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group ${
+          <div className={`border rounded-xl p-3 sm:p-3.5 shadow-xs transition relative overflow-hidden group ${
             isLight
               ? 'bg-white border-slate-200 hover:border-slate-300'
               : 'bg-slate-900/90 border-slate-800 hover:border-slate-700'
           }`}>
-            <div className="absolute top-0 right-0 w-24 h-24 bg-blue-600/10 rounded-full blur-2xl group-hover:bg-blue-600/20 transition" />
-            <div className={`flex items-center justify-between text-xs mb-2 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-blue-600/10 rounded-full blur-2xl group-hover:bg-blue-600/20 transition" />
+            <div className={`flex items-center justify-between text-xs mb-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
               <span className="font-semibold uppercase tracking-wider text-[10px]">Tổng Thửa Quản Lý</span>
-              <Building2 className="w-4 h-4 text-blue-500" />
+              <Building2 className="w-3.5 h-3.5 text-blue-500" />
             </div>
-            <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
+            <div className={`text-xl sm:text-2xl font-black tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>
               {globalStats.total.toLocaleString('vi-VN')}
               <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
             </div>
-            <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
+            <div className={`mt-1.5 flex items-center justify-between text-[11px] pt-1.5 border-t ${
               isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
             }`}>
-              <span>Quy mô diện tích:</span>
+              <span>Quy mô:</span>
               <strong className="text-blue-500 font-bold">{globalStats.totalAreaHa.toLocaleString('vi-VN')} ha</strong>
             </div>
           </div>
@@ -2330,7 +2330,7 @@ export default function DashboardPage() {
               setActiveTab('progressReport');
               setReportPage(1);
             }}
-            className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
+            className={`border rounded-xl p-3 sm:p-3.5 shadow-xs transition relative overflow-hidden group cursor-pointer ${
               selectedReportSheet === 'ĐÃ GIẢI QUYẾT' && activeTab === 'progressReport'
                 ? 'ring-2 ring-emerald-500 border-emerald-500'
                 : isLight
@@ -2338,23 +2338,23 @@ export default function DashboardPage() {
                 : 'bg-slate-900/90 border-emerald-500/30 hover:border-emerald-500/50'
             }`}
           >
-            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl group-hover:bg-emerald-500/20 transition" />
-            <div className="flex items-center justify-between text-emerald-500 text-xs mb-2">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-500/10 rounded-full blur-2xl group-hover:bg-emerald-500/20 transition" />
+            <div className="flex items-center justify-between text-emerald-500 text-xs mb-1.5">
               <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                Đã Số Hóa & Đã Giải Quyết
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                Đã Số Hóa (GGS)
               </span>
-              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
             </div>
-            <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-emerald-700' : 'text-emerald-300'}`}>
+            <div className={`text-xl sm:text-2xl font-black tracking-tight ${isLight ? 'text-emerald-700' : 'text-emerald-300'}`}>
               {globalStats.green.toLocaleString('vi-VN')}
               <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
             </div>
-            <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
+            <div className={`mt-1.5 flex items-center justify-between text-[11px] pt-1.5 border-t ${
               isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
             }`}>
-              <span>Đã số hóa (GGS): <strong className="text-emerald-600 font-bold">{globalStats.green.toLocaleString('vi-VN')}</strong></span>
-              <span>Đã giải quyết: <strong className="text-emerald-500 font-bold">{syncSummary?.daGiaiQuyet || 0}</strong></span>
+              <span>Đã giải quyết:</span>
+              <strong className="text-emerald-500 font-bold">{syncSummary?.daGiaiQuyet || 0}</strong>
             </div>
           </div>
 
@@ -2365,7 +2365,7 @@ export default function DashboardPage() {
               setActiveTab('progressReport');
               setReportPage(1);
             }}
-            className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group cursor-pointer ${
+            className={`border rounded-xl p-3 sm:p-3.5 shadow-xs transition relative overflow-hidden group cursor-pointer ${
               selectedReportSheet === 'CHƯA THỰC HIỆN' && activeTab === 'progressReport'
                 ? 'ring-2 ring-rose-500 border-rose-500'
                 : isLight
@@ -2373,31 +2373,29 @@ export default function DashboardPage() {
                 : 'bg-slate-900/90 border-amber-500/30 hover:border-amber-500/50'
             }`}
           >
-            <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 rounded-full blur-2xl group-hover:bg-amber-500/20 transition" />
-            <div className="flex items-center justify-between text-amber-500 text-xs mb-2">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-amber-500/10 rounded-full blur-2xl group-hover:bg-amber-500/20 transition" />
+            <div className="flex items-center justify-between text-amber-500 text-xs mb-1.5">
               <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                Chưa Thực Hiện Kê Khai
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                Chưa Thực Hiện
               </span>
-              <Users className="w-4 h-4 text-amber-500" />
+              <Users className="w-3.5 h-3.5 text-amber-500" />
             </div>
-            <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isLight ? 'text-amber-700' : 'text-amber-300'}`}>
+            <div className={`text-xl sm:text-2xl font-black tracking-tight ${isLight ? 'text-amber-700' : 'text-amber-300'}`}>
               {chuaThucHienParcels.length.toLocaleString('vi-VN')}
               <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>thửa</span>
             </div>
-            <div className={`mt-2 flex items-center justify-between text-[11px] pt-2 border-t ${
+            <div className={`mt-1.5 flex items-center justify-between text-[11px] pt-1.5 border-t ${
               isLight ? 'border-slate-100 text-slate-500' : 'border-slate-800/80 text-slate-400'
             }`}>
-              <span className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-                Chưa kê khai: <strong className="text-amber-600 dark:text-amber-400 font-bold">{chuaThucHienParcels.length.toLocaleString('vi-VN')}</strong>
-              </span>
+              <span>Chưa kê khai:</span>
+              <strong className="text-amber-600 dark:text-amber-400 font-bold">{chuaThucHienParcels.length.toLocaleString('vi-VN')}</strong>
             </div>
           </div>
 
           {/* Card 4: Đang Kê Khai (Hồ Sơ) - Tích hợp 2 ô con Chưa CCCD và Có CCCD (Đóng tập) */}
           <div
-            className={`border rounded-2xl p-4 shadow-sm transition relative overflow-hidden group ${
+            className={`border rounded-xl p-3 sm:p-3.5 shadow-xs transition relative overflow-hidden group ${
               (selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)' || selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)') && activeTab === 'progressReport'
                 ? 'ring-2 ring-indigo-500 border-indigo-500'
                 : isLight
@@ -2405,21 +2403,17 @@ export default function DashboardPage() {
                 : 'bg-slate-900/90 border-indigo-500/30 hover:border-indigo-500/50'
             }`}
           >
-            <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl group-hover:bg-indigo-500/20 transition pointer-events-none" />
-            <div className="flex items-center justify-between text-indigo-500 text-xs mb-1.5">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-indigo-500/10 rounded-full blur-2xl group-hover:bg-indigo-500/20 transition pointer-events-none" />
+            <div className="flex items-center justify-between text-indigo-500 text-xs mb-1">
               <span className="font-semibold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
-                Đang Kê Khai (Hồ Sơ)
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                Đang Kê Khai ({displayCountTotalDangKeKhai.toLocaleString('vi-VN')})
               </span>
-              <FileSpreadsheet className="w-4 h-4 text-indigo-500" />
-            </div>
-            <div className={`text-2xl sm:text-3xl font-black tracking-tight mb-2 ${isLight ? 'text-indigo-700' : 'text-indigo-300'}`}>
-              {displayCountTotalDangKeKhai.toLocaleString('vi-VN')}
-              <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>hồ sơ</span>
+              <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-500" />
             </div>
 
-            {/* 2 Ô con lồng bên trong theo yêu cầu */}
-            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+            {/* 2 Ô con lồng bên trong */}
+            <div className="grid grid-cols-2 gap-1.5 mt-1">
               <button
                 type="button"
                 onClick={(e) => {
@@ -2429,22 +2423,22 @@ export default function DashboardPage() {
                   setReportPage(1);
                   setReportSearchQuery('');
                 }}
-                className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+                className={`p-1.5 px-2 rounded-lg border text-left transition cursor-pointer ${
                   selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)' && activeTab === 'progressReport'
-                    ? 'bg-rose-500/20 border-rose-500 ring-2 ring-rose-500/50'
+                    ? 'bg-rose-500/20 border-rose-500 ring-1 ring-rose-500'
                     : isLight
                     ? 'bg-rose-50/70 hover:bg-rose-100/80 border-rose-200'
                     : 'bg-rose-950/30 hover:bg-rose-950/50 border-rose-800/60'
                 }`}
-                title={`Bấm để xem danh sách ${displayCountChuaCccd} thửa đang kê khai chưa có CCCD`}
+                title={`Xem ${displayCountChuaCccd} thửa đang kê khai chưa có CCCD`}
               >
-                <div className="text-[10px] font-bold uppercase text-rose-500 flex items-center gap-1">
+                <div className="text-[9px] font-bold uppercase text-rose-500 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
                   Chưa CCCD
                 </div>
-                <div className="text-base sm:text-lg font-black text-rose-600 dark:text-rose-400 mt-0.5">
+                <div className="text-sm sm:text-base font-black text-rose-600 dark:text-rose-400 leading-tight">
                   {displayCountChuaCccd.toLocaleString('vi-VN')}
-                  <span className="text-[10px] font-normal ml-1 text-slate-500">thửa</span>
+                  <span className="text-[10px] font-normal ml-0.5 text-slate-500">thửa</span>
                 </div>
               </button>
 
@@ -2457,22 +2451,22 @@ export default function DashboardPage() {
                   setReportPage(1);
                   setReportSearchQuery('');
                 }}
-                className={`p-2 rounded-xl border text-left transition cursor-pointer ${
+                className={`p-1.5 px-2 rounded-lg border text-left transition cursor-pointer ${
                   selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)' && activeTab === 'progressReport'
-                    ? 'bg-indigo-500/20 border-indigo-500 ring-2 ring-indigo-500/50'
+                    ? 'bg-indigo-500/20 border-indigo-500 ring-1 ring-indigo-500'
                     : isLight
                     ? 'bg-indigo-50/70 hover:bg-indigo-100/80 border-indigo-200'
                     : 'bg-indigo-950/30 hover:bg-indigo-950/50 border-indigo-800/60'
                 }`}
-                title={`Bấm để xem danh sách ${displayCountReadyToPack} thửa sẵn sàng đóng tập kèm CCCD`}
+                title={`Xem ${displayCountReadyToPack} thửa sẵn sàng đóng tập kèm CCCD`}
               >
-                <div className="text-[10px] font-bold uppercase text-indigo-500 flex items-center gap-1">
+                <div className="text-[9px] font-bold uppercase text-indigo-500 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
                   Có CCCD
                 </div>
-                <div className="text-base sm:text-lg font-black text-indigo-600 dark:text-indigo-400 mt-0.5">
+                <div className="text-sm sm:text-base font-black text-indigo-600 dark:text-indigo-400 leading-tight">
                   {displayCountReadyToPack.toLocaleString('vi-VN')}
-                  <span className="text-[10px] font-normal ml-1 text-slate-500">thửa</span>
+                  <span className="text-[10px] font-normal ml-0.5 text-slate-500">thửa</span>
                 </div>
               </button>
             </div>
@@ -2481,175 +2475,171 @@ export default function DashboardPage() {
       </div>
 
       {/* Top Navigation Bar */}
-      <header className={`sticky top-0 z-40 backdrop-blur-md border-b shadow-md transition-colors duration-200 no-print ${
+      <header className={`sticky top-0 z-40 backdrop-blur-md border-b shadow-xs transition-colors duration-200 no-print ${
         isLight ? 'bg-white/95 border-slate-200' : 'bg-slate-900/90 border-slate-800'
       }`}>
-        <div className="w-full px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 sm:gap-3">
+        <div className="w-full px-3 sm:px-6 lg:px-8 py-2 sm:py-2.5 flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5">
             <Link
               href="/"
-              className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/20 transition transform active:scale-95 shrink-0"
+              className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/20 transition transform active:scale-95 shrink-0"
               title="Về Bản đồ Vệ tinh"
             >
-              <MapIcon className="w-5 h-5" />
+              <MapIcon className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
             </Link>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className={`text-base sm:text-lg font-black tracking-tight flex items-center gap-1.5 ${
+              <div className="flex items-center gap-1.5">
+                <h1 className={`text-sm sm:text-base font-black tracking-tight flex items-center gap-1.5 ${
                   isLight ? 'text-slate-900' : 'text-white'
                 }`}>
                   Dashboard Địa Chính
-                  <span className="text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-500 border border-blue-500/30">
-                    Xã Cư Pui
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 border border-blue-500/20">
+                    Cư Pui
                   </span>
                 </h1>
               </div>
-              <p className={`text-[11px] sm:text-xs hidden sm:block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                Hệ thống giám sát tiến độ số hóa & quản trị cơ sở dữ liệu 5.943 thửa đất
+              <p className={`text-[10px] sm:text-[11px] hidden lg:block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                Hệ thống giám sát số hóa & quản trị cơ sở dữ liệu 5.943 thửa đất
               </p>
             </div>
           </div>
 
           {/* Action buttons */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* 1. Nút Tiến Độ 16 Thôn / Buôn trên Header */}
-            <button
-              type="button"
-              onClick={() => setActiveTab(activeTab === 'villages' ? 'progressReport' : 'villages')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer shadow-md border ${
-                activeTab === 'villages'
-                  ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-600/30 ring-2 ring-emerald-400'
-                  : isLight
-                  ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
-                  : 'bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border-emerald-700/50'
-              }`}
-              title="Xem bảng thống kê chi tiết tiến độ 16 thôn buôn xã Cư Pui"
-            >
-              <Building2 className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Tiến Độ 16 Thôn / Buôn</span>
-            </button>
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {/* Nhóm Tab điều hướng */}
+            <div className={`p-0.5 rounded-xl border flex items-center gap-0.5 ${
+              isLight ? 'bg-slate-100/80 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+            }`}>
+              {/* 1. Nút Tiến Độ 16 Thôn / Buôn */}
+              <button
+                type="button"
+                onClick={() => setActiveTab(activeTab === 'villages' ? 'progressReport' : 'villages')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  activeTab === 'villages'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : isLight
+                    ? 'text-slate-700 hover:bg-white'
+                    : 'text-slate-300 hover:bg-slate-800'
+                }`}
+                title="Xem bảng thống kê chi tiết tiến độ 16 thôn buôn xã Cư Pui"
+              >
+                <Building2 className="w-3.5 h-3.5 text-emerald-500" />
+                <span className="hidden sm:inline">16 Thôn/Buôn</span>
+              </button>
 
-            {/* 2. Nút Kho CCCD (Quản Lý R2) trên Header */}
-            <button
-              type="button"
-              onClick={() => setActiveTab(activeTab === 'cccd' ? 'progressReport' : 'cccd')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer shadow-md border ${
-                activeTab === 'cccd'
-                  ? 'bg-purple-600 text-white border-purple-500 shadow-purple-600/30 ring-2 ring-purple-400'
-                  : isLight
-                  ? 'bg-purple-50 hover:bg-purple-100 text-purple-800 border-purple-300'
-                  : 'bg-purple-950/60 hover:bg-purple-900/70 text-purple-300 border-purple-700/50'
-              }`}
-              title="Mở kho lưu trữ và quản lý ảnh/PDF CCCD trên Cloudflare R2"
-            >
-              <FolderOpen className="w-3.5 h-3.5 text-purple-400" />
-              <span>Kho CCCD (R2)</span>
-            </button>
+              {/* 2. Nút Kho CCCD (Quản Lý R2) */}
+              <button
+                type="button"
+                onClick={() => setActiveTab(activeTab === 'cccd' ? 'progressReport' : 'cccd')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  activeTab === 'cccd'
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : isLight
+                    ? 'text-slate-700 hover:bg-white'
+                    : 'text-slate-300 hover:bg-slate-800'
+                }`}
+                title="Mở kho lưu trữ và quản lý ảnh/PDF CCCD trên Cloudflare R2"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-purple-500" />
+                <span>Kho CCCD</span>
+              </button>
 
-            {/* 3. Nút Kho File Scan (Quản Lý R2) trên Header */}
-            <button
-              type="button"
-              onClick={() => setActiveTab(activeTab === 'filescan' ? 'progressReport' : 'filescan')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer shadow-md border ${
-                activeTab === 'filescan'
-                  ? 'bg-sky-600 text-white border-sky-500 shadow-sky-600/30 ring-2 ring-sky-400'
-                  : isLight
-                  ? 'bg-sky-50 hover:bg-sky-100 text-sky-800 border-sky-300'
-                  : 'bg-sky-950/60 hover:bg-sky-900/70 text-sky-300 border-sky-700/50'
-              }`}
-              title="Mở kho lưu trữ và quản lý file scan hồ sơ đã ký trên Cloudflare R2"
-            >
-              <HardDrive className="w-3.5 h-3.5 text-sky-400" />
-              <span>Kho File Scan (R2)</span>
-            </button>
+              {/* 3. Nút Kho File Scan (Quản Lý R2) */}
+              <button
+                type="button"
+                onClick={() => setActiveTab(activeTab === 'filescan' ? 'progressReport' : 'filescan')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  activeTab === 'filescan'
+                    ? 'bg-sky-600 text-white shadow-xs'
+                    : isLight
+                    ? 'text-slate-700 hover:bg-white'
+                    : 'text-slate-300 hover:bg-slate-800'
+                }`}
+                title="Mở kho lưu trữ và quản lý file scan hồ sơ đã ký trên Cloudflare R2"
+              >
+                <HardDrive className="w-3.5 h-3.5 text-sky-500" />
+                <span>File Scan</span>
+              </button>
+            </div>
 
             {/* Nút mở công cụ ScanName (Tách PDF & Đổi tên hồ sơ scan sau ký) */}
             <a
               href="/scanname"
               target="_blank"
               rel="noopener noreferrer"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer shadow-md border ${
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
                 isLight
-                  ? 'bg-gradient-to-r from-indigo-50 to-blue-50 hover:from-indigo-100 hover:to-blue-100 text-indigo-700 border-indigo-200'
-                  : 'bg-gradient-to-r from-indigo-950/80 to-purple-950/80 hover:from-indigo-900 hover:to-purple-900 text-indigo-300 border-indigo-500/40 shadow-indigo-950/40'
+                  ? 'bg-white hover:bg-slate-50 text-indigo-700 border-indigo-200 shadow-xs'
+                  : 'bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-300 border-indigo-500/30'
               }`}
               title="Mở công cụ Tách PDF & Quét CCCD / Đổi tên hồ sơ scan (ScanName)"
             >
               <FileText className="w-3.5 h-3.5 text-indigo-500" />
-              <span>ScanName (Tách PDF)</span>
+              <span className="hidden md:inline">ScanName</span>
             </a>
 
-            {/* Nút Xuất PDF Báo Cáo Thống Kê Tiến Độ Toàn Xã (Trang 1: 4 nhóm & 16 thôn, Trang 2+: Lưới 3 cột) */}
+            {/* Nút Xuất PDF Báo Cáo Thống Kê */}
             <button
               type="button"
               disabled={isExportingStatsPdf}
               onClick={handleExportStatisticsPdf}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer disabled:opacity-75 border ${
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-75 border ${
                 isLight
-                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-blue-600 shadow-blue-500/25'
-                  : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-blue-500/40 shadow-blue-900/40'
+                  ? 'bg-blue-600 hover:bg-blue-500 text-white border-blue-600'
+                  : 'bg-blue-600 hover:bg-blue-500 text-white border-blue-500'
               }`}
-              title="Xuất PDF Báo cáo thống kê tiến độ 16 thôn buôn & danh sách có tên chưa thực hiện (khổ 3 cột chuẩn như ảnh)"
+              title="Xuất PDF Báo cáo thống kê tiến độ 16 thôn buôn & danh sách có tên chưa thực hiện"
             >
               {isExportingStatsPdf ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
               ) : (
                 <FileBarChart2 className="w-3.5 h-3.5 text-amber-300" />
               )}
-              <span>{isExportingStatsPdf ? exportStatsProgress || 'Đang tạo PDF...' : 'Xuất PDF Thống Kê'}</span>
+              <span>{isExportingStatsPdf ? 'Đang tạo...' : 'Xuất PDF'}</span>
             </button>
 
             {/* Nút Chuyển Giao Diện Light / Dark Mode */}
             <button
               onClick={toggleTheme}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shadow-xs border ${
+              className={`flex items-center justify-center p-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
                 isLight
-                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200'
+                  ? 'bg-white hover:bg-slate-100 text-amber-700 border-slate-200'
                   : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-slate-700'
               }`}
-              title={isLight ? 'Chuyển sang Giao diện Tối (Dark mode)' : 'Chuyển sang Giao diện Sáng (Light mode)'}
+              title={isLight ? 'Chuyển sang Giao diện Tối' : 'Chuyển sang Giao diện Sáng'}
             >
-              {isLight ? <Moon className="w-3.5 h-3.5 text-indigo-600" /> : <Sun className="w-3.5 h-3.5 text-amber-400" />}
-              <span>{isLight ? 'Theme Tối' : 'Theme Sáng'}</span>
+              {isLight ? <Moon className="w-4 h-4 text-indigo-600" /> : <Sun className="w-4 h-4 text-amber-400" />}
             </button>
 
             {/* Đồng bộ GGS */}
             <button
               onClick={() => fetchGgsCodes(true)}
               disabled={isSyncingGgs}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition disabled:opacity-60 shadow-xs cursor-pointer border ${
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition disabled:opacity-60 shadow-xs cursor-pointer border ${
                 isLight
-                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                  : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border-cyan-500/30'
+                  ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                  : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border-slate-700'
               }`}
               title={lastSyncTime ? `Đồng bộ lúc ${lastSyncTime}` : 'Đồng bộ Google Sheets'}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncingGgs ? 'animate-spin text-cyan-400' : ''}`} />
-              <span className="hidden md:inline">GGS Live</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="hidden sm:inline">GGS</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             </button>
-
-            <Link
-              href="/"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/25 transition"
-            >
-              <MapIcon className="w-3.5 h-3.5" />
-              <span>Xem Bản Đồ</span>
-            </Link>
 
             {/* Nút Hiển Thị / Đổi Tên Cán Bộ Kê Khai */}
             <button
               type="button"
               onClick={() => setIsCadreModalOpen(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer shadow-xs border ${
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
                 isLight
                   ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
-                  : 'bg-indigo-950/70 hover:bg-indigo-900/80 text-cyan-300 border-indigo-500/40 shadow-indigo-950/40'
+                  : 'bg-indigo-950/70 hover:bg-indigo-900/80 text-cyan-300 border-indigo-500/40'
               }`}
               title="Bấm để đổi tên cán bộ kê khai"
             >
               <UserCheck className="w-3.5 h-3.5 text-cyan-400" />
-              <span>{cadreName || 'Cán bộ'}</span>
+              <span className="max-w-[80px] sm:max-w-none truncate">{cadreName || 'Cán bộ'}</span>
             </button>
           </div>
         </div>
@@ -3434,20 +3424,19 @@ export default function DashboardPage() {
                       )}
 
                       {/* THẺ TIÊU ĐỀ DANH SÁCH & BỘ LỌC (CỐ ĐỊNH STICKY DƯỚI HEADER KHI CUỘN) */}
-                      <div className={`sticky top-[56px] sm:top-[64px] z-30 p-3.5 sm:p-4 rounded-2xl border shadow-md backdrop-blur-md transition-all duration-200 space-y-3 ${
+                      <div className={`sticky top-[48px] sm:top-[52px] z-30 p-2.5 sm:p-3 rounded-xl border shadow-md backdrop-blur-md transition-all duration-200 space-y-2 ${
                         isLight
                           ? 'bg-white/95 border-slate-200/90 shadow-slate-200/50'
                           : 'bg-slate-900/95 border-slate-800 shadow-black/50'
                       }`}>
-                        {/* Toolbar trên cùng của bảng */}
-                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h3 className={`text-sm sm:text-base font-bold flex items-center gap-2 ${
+                        {/* Toolbar trên cùng: Tên sheet, Số lượng & Nút tác vụ chính */}
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <h3 className={`text-sm sm:text-base font-black flex items-center gap-1.5 ${
                               isLight ? 'text-slate-900' : 'text-white'
                             }`}>
-                              <FileSpreadsheet className="w-4 h-4 text-indigo-500" />
-                              {selectedReportSheet}
+                              <FileSpreadsheet className="w-4 h-4 text-indigo-500 shrink-0" />
+                              <span>{selectedReportSheet}</span>
                             </h3>
                             <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${
                               isLight
@@ -3457,16 +3446,6 @@ export default function DashboardPage() {
                               {filtered.length} / {allRows.length} thửa
                             </span>
                           </div>
-                          <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                            {isChuaThucHienSheet
-                              ? 'Danh sách các thửa đất chưa kê khai • Nhập hoặc sửa trực tiếp trên bảng như Excel • Tự động lưu & đồng bộ realtime'
-                              : isReadyToPackSheet
-                              ? 'Hồ sơ đã đầy đủ CCCD và sẵn sàng đóng tập PDF • Nhập sửa trực tiếp như Excel • Hover vào ô Xem CCCD để xem chi tiết'
-                              : isChuaCoCccdSheet
-                              ? 'Danh sách cần bổ sung CCCD • Nhập sửa trực tiếp như Excel • Lọc theo Thôn buôn hoặc Phân loại để thu thập thuận tiện'
-                              : 'Danh sách chi tiết được tạo tự động • Nhập sửa trực tiếp như Excel • Hỗ trợ tìm kiếm nhanh & xuất file'}
-                          </p>
-                        </div>
 
                         <div className="flex items-center gap-2 flex-wrap">
                           {/* Nút Xuất DS Cần Thu CCCD cho mục Đang kê khai (Chưa có CCCD) */}
@@ -3630,8 +3609,8 @@ export default function DashboardPage() {
                     </div>
 
                     {/* Hàng bộ lọc: Thôn / Buôn, Trạng thái, Có tên/Không có tên, Sắp xếp A-Z, Hiển thị, Tìm kiếm */}
-                      <div className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2.5 transition-colors ${
-                        isLight ? 'bg-slate-50/80 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                      <div className={`pt-2 border-t flex flex-wrap items-center justify-between gap-2 transition-colors ${
+                        isLight ? 'border-slate-100' : 'border-slate-800/80'
                       }`}>
                         <div className="flex flex-wrap items-center gap-2">
 
@@ -3841,8 +3820,8 @@ export default function DashboardPage() {
                         </div>
 
                         {/* Ô tìm kiếm theo từ khóa */}
-                        <div className="relative w-full sm:w-64">
-                          <Search className={`w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 ${
+                        <div className="relative w-full sm:w-60">
+                          <Search className={`w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 ${
                             isLight ? 'text-slate-400' : 'text-slate-500'
                           }`} />
                           <input
@@ -3853,10 +3832,10 @@ export default function DashboardPage() {
                               setReportSearchQuery(e.target.value);
                               setReportPage(1);
                             }}
-                            className={`w-full pl-9 pr-3 py-1.5 rounded-xl text-xs focus:outline-none focus:border-indigo-500 ${
+                            className={`w-full pl-8 pr-7 py-1 rounded-lg text-xs focus:outline-none focus:border-indigo-500 transition ${
                               isLight
-                                ? 'bg-white border border-slate-300 text-slate-800 placeholder:text-slate-400'
-                                : 'bg-slate-900 border border-slate-800 text-slate-200 placeholder:text-slate-500'
+                                ? 'bg-slate-50 border border-slate-200 text-slate-800 placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-indigo-400'
+                                : 'bg-slate-950 border border-slate-800 text-slate-200 placeholder:text-slate-500 focus:bg-slate-900 focus:ring-1 focus:ring-indigo-500'
                             }`}
                           />
                           {reportSearchQuery && (
@@ -3866,7 +3845,7 @@ export default function DashboardPage() {
                                 setReportSearchQuery('');
                                 setReportPage(1);
                               }}
-                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-200"
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-200"
                             >
                               ✕
                             </button>
