@@ -2943,27 +2943,35 @@ export default function DashboardPage() {
                     });
                   }
 
+                  // Hàm nhận diện trạng thái CCCD cho sheet "THỬA ĐANG KÊ KHAI (CHƯA CÓ CCCD)"
+                  const getChuaCoCccdRowStatus = (maThua: string, r: any[]) => {
+                    const cccdIdx = headers.findIndex((h) => /cccd/i.test(h) && !/xem|file/i.test(h));
+                    const rawCccd = cellEdits[maThua]?.[cccdIdx] !== undefined
+                      ? cellEdits[maThua][cccdIdx]
+                      : (declarationsMap[maThua]?.chu_dat_cccd || declarationsMap[maThua]?.cccd_chu_ho || (cccdIdx >= 0 ? r[cccdIdx] : ''));
+                    const cleanVal = cleanCccd(String(rawCccd || '').replace(/^="|"$/g, '').trim());
+                    const cccdUrl = declarationsMap[maThua]?.cccd_url;
+
+                    if (cleanVal && (r2CccdSet.has(cleanVal) || cccdUrl)) {
+                      return 'ĐÃ CÓ CCCD (R2)';
+                    }
+                    if (cleanVal && (cleanVal.length >= 9 || ggsCccdSet.has(cleanVal))) {
+                      return 'CẦN TÌM CCCD';
+                    }
+                    return 'KHÔNG CÓ CCCD';
+                  };
+
                   // Danh sách Phân loại trạng thái (cho sheet Chưa có CCCD)
-                  const statusCounts: Record<string, number> = {};
-                  if (statusColIdx >= 0) {
+                  const statusCounts: Record<string, number> = {
+                    'CẦN TÌM CCCD': 0,
+                    'KHÔNG CÓ CCCD': 0,
+                    'ĐÃ CÓ CCCD (R2)': 0,
+                  };
+                  if (isChuaCoCccdSheet) {
                     allRows.forEach((r) => {
                       const maThua = String(r[1] || '').trim();
-                      let st = String(r[statusColIdx] || '').trim();
-                      if (isChuaCoCccdSheet) {
-                        const cccdVal = cleanCccd(
-                          cellEdits[maThua]?.[8] !== undefined
-                            ? cellEdits[maThua][8]
-                            : (declarationsMap[maThua]?.chu_dat_cccd || r[8] || '')
-                        );
-                        if (cccdVal && (r2CccdSet.has(cccdVal) || declarationsMap[maThua]?.cccd_url)) {
-                          st = 'ĐÃ CÓ CCCD (R2)';
-                        } else if (cccdVal && ggsCccdSet.has(cccdVal)) {
-                          st = 'CẦN TÌM CCCD';
-                        } else {
-                          st = 'KHÔNG CÓ CCCD';
-                        }
-                      }
-                      if (st) statusCounts[st] = (statusCounts[st] || 0) + 1;
+                      const st = getChuaCoCccdRowStatus(maThua, r);
+                      statusCounts[st] = (statusCounts[st] || 0) + 1;
                     });
                   }
 
@@ -3003,22 +3011,8 @@ export default function DashboardPage() {
                     }
 
                     // 3. Lọc theo Phân loại trạng thái (cho sheet Đang kê khai - Chưa có CCCD)
-                    if (reportStatusFilter !== 'ALL' && statusColIdx >= 0) {
-                      let st = String(row[statusColIdx] || '').trim();
-                      if (isChuaCoCccdSheet) {
-                        const cccdVal = cleanCccd(
-                          cellEdits[maThua]?.[8] !== undefined
-                            ? cellEdits[maThua][8]
-                            : (declarationsMap[maThua]?.chu_dat_cccd || row[8] || '')
-                        );
-                        if (cccdVal && (r2CccdSet.has(cccdVal) || declarationsMap[maThua]?.cccd_url)) {
-                          st = 'ĐÃ CÓ CCCD (R2)';
-                        } else if (cccdVal && ggsCccdSet.has(cccdVal)) {
-                          st = 'CẦN TÌM CCCD';
-                        } else {
-                          st = 'KHÔNG CÓ CCCD';
-                        }
-                      }
+                    if (isChuaCoCccdSheet && reportStatusFilter !== 'ALL') {
+                      const st = getChuaCoCccdRowStatus(maThua, row);
                       if (st !== reportStatusFilter) return false;
                     }
 
@@ -3478,11 +3472,11 @@ export default function DashboardPage() {
                             </div>
                           )}
 
-                          {/* 2. LỌC THEO PHÂN LOẠI TRẠNG THÁI (Đang Kê Khai - Chưa Có CCCD) */}
-                          {isChuaCoCccdSheet && statusColIdx >= 0 && (
+                          {/* 2. BỘ LỌC CẦN TÌM CCCD VÀ KHÔNG CÓ CCCD (THỬA ĐANG KÊ KHAI - CHƯA CÓ CCCD) */}
+                          {isChuaCoCccdSheet && (
                             <div className="flex items-center gap-1.5">
-                              <span className={`text-[11px] font-bold ${isLight ? 'text-amber-700' : 'text-amber-400'}`}>
-                                Trạng thái:
+                              <span className={`text-[11px] font-bold ${isLight ? 'text-amber-800' : 'text-amber-400'}`}>
+                                Lọc CCCD:
                               </span>
                               <select
                                 value={reportStatusFilter}
@@ -3490,26 +3484,32 @@ export default function DashboardPage() {
                                   setReportStatusFilter(e.target.value as any);
                                   setReportPage(1);
                                 }}
-                                className={`text-xs px-2.5 py-1.5 rounded-xl border font-bold transition focus:outline-none focus:ring-2 focus:ring-amber-500 ${
-                                  reportStatusFilter !== 'ALL'
+                                className={`text-xs px-2.5 py-1.5 rounded-xl border font-bold transition focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer ${
+                                  reportStatusFilter === 'CẦN TÌM CCCD'
                                     ? isLight
-                                      ? 'bg-amber-100/70 border-amber-400 text-amber-900'
-                                      : 'bg-amber-950/70 border-amber-500/50 text-amber-200'
+                                      ? 'bg-amber-100 border-amber-500 text-amber-900 ring-1 ring-amber-400 font-black'
+                                      : 'bg-amber-950/80 border-amber-500 text-amber-200 ring-1 ring-amber-500 font-black'
+                                    : reportStatusFilter === 'KHÔNG CÓ CCCD'
+                                    ? isLight
+                                      ? 'bg-rose-100 border-rose-400 text-rose-900 ring-1 ring-rose-400 font-black'
+                                      : 'bg-rose-950/80 border-rose-500 text-rose-200 ring-1 ring-rose-500 font-black'
                                     : isLight
                                     ? 'bg-white border-slate-300 text-slate-800'
                                     : 'bg-slate-900 border-slate-700 text-slate-200'
                                 }`}
                               >
-                                <option value="ALL">Tất cả phân loại ({allRows.length})</option>
-                                <option value="ĐÃ CÓ CCCD (R2)">
-                                  ĐÃ CÓ CCCD (R2) ({statusCounts['ĐÃ CÓ CCCD (R2)'] || 0})
-                                </option>
+                                <option value="ALL">Tất cả ({allRows.length})</option>
                                 <option value="CẦN TÌM CCCD">
-                                  CẦN TÌM CCCD ({statusCounts['CẦN TÌM CCCD'] || 0})
+                                  🔍 Cần Tìm CCCD ({statusCounts['CẦN TÌM CCCD'] || 0})
                                 </option>
                                 <option value="KHÔNG CÓ CCCD">
-                                  KHÔNG CÓ CCCD ({statusCounts['KHÔNG CÓ CCCD'] || 0})
+                                  ❓ Không Có CCCD ({statusCounts['KHÔNG CÓ CCCD'] || 0})
                                 </option>
+                                {statusCounts['ĐÃ CÓ CCCD (R2)'] > 0 && (
+                                  <option value="ĐÃ CÓ CCCD (R2)">
+                                    ⚡ Đã Có CCCD trên R2 ({statusCounts['ĐÃ CÓ CCCD (R2)']})
+                                  </option>
+                                )}
                               </select>
                             </div>
                           )}
@@ -4271,6 +4271,7 @@ export default function DashboardPage() {
                                 const maThua = String(row[1] || '').trim();
                                 const isChecked = readyToPackSelectedCodes.has(maThua);
                                 const isReadyToDeclare = isChuaThucHienSheet && checkIsRowReadyToDeclare(maThua, row);
+                                const isCanTimCccd = isChuaCoCccdSheet && getChuaCoCccdRowStatus(maThua, row) === 'CẦN TÌM CCCD';
                                 const isSaving = savingRowCodes.has(maThua);
                                 const hasEdited = Boolean(cellEdits[maThua]);
 
@@ -4282,6 +4283,10 @@ export default function DashboardPage() {
                                         ? isLight
                                           ? 'bg-indigo-50/70'
                                           : 'bg-indigo-950/30'
+                                        : isCanTimCccd
+                                        ? isLight
+                                          ? 'bg-amber-100/70 hover:bg-amber-200/80 text-amber-950 border-amber-300'
+                                          : 'bg-amber-950/40 hover:bg-amber-950/60 text-amber-100 border-amber-800/60'
                                         : isReadyToDeclare
                                         ? isLight
                                           ? 'bg-emerald-50/90 hover:bg-emerald-100/90 text-emerald-950 border-emerald-300'
