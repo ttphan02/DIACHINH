@@ -13,9 +13,9 @@ const R2_PUBLIC_BASE =
   process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL ||
   'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
 
-// Cache ngắn hạn 8 giây giúp Worker giảm 95% tải CPU và I/O khi người dùng bấm chuyển tab hoặc F5
+// Cache ngắn hạn 3 giây giúp Worker tránh nghẽn khi có nhiều request đồng thời, tự xóa khi force=true
 let cccdCache: { data: any; timestamp: number } | null = null;
-const CCCD_CACHE_TTL = 8000;
+const CCCD_CACHE_TTL = 3000;
 
 async function getR2Binding(): Promise<any | null> {
   try {
@@ -162,8 +162,14 @@ export async function GET(request: Request) {
 
       if (bucket) {
         try {
-          const listRes: any = await bucket.list({ prefix: 'cccd/', limit: 1000 });
-          objects = listRes.objects || [];
+          let cursor: string | undefined = undefined;
+          let it = 0;
+          do {
+            it++;
+            const listRes: any = await bucket.list({ prefix: 'cccd/', limit: 1000, cursor });
+            if (listRes?.objects) objects.push(...listRes.objects);
+            cursor = listRes?.truncated ? listRes.cursor : undefined;
+          } while (cursor && it < 10);
         } catch {}
       }
       if (objects.length === 0) {
@@ -171,14 +177,21 @@ export async function GET(request: Request) {
         if (s3) {
           try {
             const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
-            const res = await s3.send(
-              new ListObjectsV2Command({
-                Bucket: R2_BUCKET,
-                Prefix: 'cccd/',
-                MaxKeys: 1000,
-              })
-            );
-            objects = (res.Contents || []).map((c: any) => ({ key: c.Key || '' }));
+            let token: string | undefined = undefined;
+            let it = 0;
+            do {
+              it++;
+              const res: any = await s3.send(
+                new ListObjectsV2Command({
+                  Bucket: R2_BUCKET,
+                  Prefix: 'cccd/',
+                  MaxKeys: 1000,
+                  ContinuationToken: token,
+                })
+              );
+              if (res.Contents) objects.push(...res.Contents.map((c: any) => ({ key: c.Key || '' })));
+              token = res.IsTruncated ? res.NextContinuationToken : undefined;
+            } while (token && it < 10);
           } catch {}
         }
       }
@@ -206,20 +219,28 @@ export async function GET(request: Request) {
     let declarationsMap: Record<string, any> = {};
 
     if (bucket) {
-      // Thực hiện song song list objects và get declarations để giảm thời gian phản hồi
       try {
-        const [listRes, declObj] = await Promise.all([
-          bucket.list({ prefix: 'cccd/', limit: 1000 }).catch((e: any) => {
-            console.warn('Lỗi bucket.list cccd:', e);
-            return { objects: [] };
-          }),
-          bucket.get(KEY_ALL_DECLARATIONS).catch((e: any) => {
-            console.warn('Lỗi bucket.get declarations:', e);
-            return null;
-          }),
-        ]);
+        const declPromise = bucket.get(KEY_ALL_DECLARATIONS).catch((e: any) => {
+          console.warn('Lỗi bucket.get declarations:', e);
+          return null;
+        });
 
-        objects = listRes?.objects || [];
+        // Phân trang toàn bộ để không bị thiếu bất kỳ file nào (vượt quá 1000 file)
+        const listAllPromise = (async () => {
+          let list: any[] = [];
+          let cursor: string | undefined = undefined;
+          let it = 0;
+          do {
+            it++;
+            const listRes: any = await bucket.list({ prefix: 'cccd/', limit: 1000, cursor });
+            if (listRes?.objects) list.push(...listRes.objects);
+            cursor = listRes?.truncated ? listRes.cursor : undefined;
+          } while (cursor && it < 10);
+          return list;
+        })();
+
+        const [listRes, declObj] = await Promise.all([listAllPromise, declPromise]);
+        objects = listRes || [];
         if (declObj) {
           const payload = JSON.parse(await declObj.text());
           declarationsMap = payload.declarationsMap || {};
@@ -235,18 +256,29 @@ export async function GET(request: Request) {
       if (s3) {
         try {
           const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
-          const res = await s3.send(
-            new ListObjectsV2Command({
-              Bucket: R2_BUCKET,
-              Prefix: 'cccd/',
-              MaxKeys: 1000,
-            })
-          );
-          objects = (res.Contents || []).map((c: any) => ({
-            key: c.Key || '',
-            size: c.Size || 0,
-            uploaded: c.LastModified || null,
-          }));
+          let token: string | undefined = undefined;
+          let it = 0;
+          do {
+            it++;
+            const res: any = await s3.send(
+              new ListObjectsV2Command({
+                Bucket: R2_BUCKET,
+                Prefix: 'cccd/',
+                MaxKeys: 1000,
+                ContinuationToken: token,
+              })
+            );
+            if (res.Contents) {
+              objects.push(
+                ...res.Contents.map((c: any) => ({
+                  key: c.Key || '',
+                  size: c.Size || 0,
+                  uploaded: c.LastModified || null,
+                }))
+              );
+            }
+            token = res.IsTruncated ? res.NextContinuationToken : undefined;
+          } while (token && it < 10);
         } catch (err) {
           console.warn('Lỗi list CCCD qua S3 SDK:', err);
         }
@@ -338,7 +370,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(result, {
       headers: {
-        'Cache-Control': 'public, max-age=5, s-maxage=10, stale-while-revalidate=30',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
       },
     });
   } catch (error: any) {

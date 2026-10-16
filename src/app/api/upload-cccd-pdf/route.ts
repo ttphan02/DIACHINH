@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { PDFDocument } from 'pdf-lib';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { executeSyncToGoogleSheet, cleanCccd, cleanName, invalidateR2Cache } from '@/utils/syncGoogleSheets';
+import { cleanCccd, cleanName } from '@/utils/textHelpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,20 +11,6 @@ const R2_ACCESS_KEY = process.env.CLOUDFLARE_R2_ACCESS_KEY_ID;
 const R2_SECRET_KEY = process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY;
 const R2_BUCKET = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'diachinh-storage';
 
-function getS3Client(): S3Client | null {
-  if (R2_ACCOUNT_ID && R2_ACCESS_KEY && R2_SECRET_KEY) {
-    return new S3Client({
-      region: 'auto',
-      endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-      credentials: {
-        accessKeyId: R2_ACCESS_KEY,
-        secretAccessKey: R2_SECRET_KEY,
-      },
-    });
-  }
-  return null;
-}
-
 async function getR2Binding(): Promise<any | null> {
   try {
     const { env } = await getCloudflareContext({ async: true });
@@ -33,6 +18,25 @@ async function getR2Binding(): Promise<any | null> {
   } catch {
     return null;
   }
+}
+
+async function getS3Client(): Promise<any | null> {
+  if (R2_ACCOUNT_ID && R2_ACCESS_KEY && R2_SECRET_KEY) {
+    try {
+      const { S3Client } = await import('@aws-sdk/client-s3');
+      return new S3Client({
+        region: 'auto',
+        endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+        credentials: {
+          accessKeyId: R2_ACCESS_KEY,
+          secretAccessKey: R2_SECRET_KEY,
+        },
+      });
+    } catch (err) {
+      console.warn('Lỗi khởi tạo S3Client SDK:', err);
+    }
+  }
+  return null;
 }
 
 // Chuyển chuỗi base64 thành Uint8Array
@@ -129,7 +133,7 @@ export async function POST(request: Request) {
       });
     } else {
       // 1 ảnh (Mặt trước hoặc ảnh chụp gộp): Canh giữa trang A4
-      const singleB64 = frontBase64 || backBase64;
+      const singleB64 = frontBase64 || backBase64 || imgPrimary;
       const img = await embedImage(singleB64);
       const maxBoxW = pageWidth - 80;
       const maxBoxH = pageHeight - 120;
@@ -157,15 +161,10 @@ export async function POST(request: Request) {
       if (cccdClean && cccdClean.length >= 9) {
         try {
           // List các file trong cccd/ để tìm bất kỳ file cũ nào mang số CCCD này
-          const listRes: any = await bucket.list({ prefix: 'cccd/', limit: 1000 });
+          const listRes: any = await bucket.list({ prefix: `cccd/${cccdClean}`, limit: 10 });
           for (const obj of listRes?.objects || []) {
             const key = obj.key;
-            const fn = key.replace(/^cccd\//, '');
-            // Nếu file này chứa đúng số CCCD và khác tên file mới sắp ghi -> xóa file cũ
-            if (
-              key !== r2Key &&
-              (fn.startsWith(`${cccdClean}.`) || fn.startsWith(`${cccdClean}_`) || fn.includes(cccdClean))
-            ) {
+            if (key !== r2Key) {
               console.log(`>>> Thay thế CCCD cũ trong R2: Xóa file cũ ${key} để cập nhật file mới ${r2Key}`);
               await bucket.delete(key);
             }
@@ -181,12 +180,10 @@ export async function POST(request: Request) {
           cacheControl: 'public, max-age=31536000, immutable',
         },
       });
-
-      // Xóa cache R2 files để hệ thống cập nhật file mới ngay lập tức
-      invalidateR2Cache();
     } else {
-      const s3 = getS3Client();
+      const s3 = await getS3Client();
       if (s3) {
+        const { PutObjectCommand } = await import('@aws-sdk/client-s3');
         await s3.send(
           new PutObjectCommand({
             Bucket: R2_BUCKET,
@@ -196,7 +193,6 @@ export async function POST(request: Request) {
             CacheControl: 'public, max-age=31536000, immutable',
           })
         );
-        invalidateR2Cache();
       }
     }
 
@@ -234,7 +230,7 @@ export async function POST(request: Request) {
 
           if (changed) {
             payload.updatedAt = new Date().toISOString();
-            await bucket.put(KEY_ALL_DECLARATIONS, JSON.stringify(payload, null, 2), {
+            await bucket.put(KEY_ALL_DECLARATIONS, JSON.stringify(payload), {
               httpMetadata: { contentType: 'application/json' },
             });
           }
@@ -246,10 +242,14 @@ export async function POST(request: Request) {
     }
 
     // Tự động kích hoạt đồng bộ sang Google Sheet Realtime tức thì (nếu không bật cờ skipSync của tải hàng loạt)
-    if (bucket && !skipSync) {
-      executeSyncToGoogleSheet(updatedDeclarations, bucket).catch((err) =>
-        console.error('Lỗi sync Google Sheet sau khi upload CCCD:', err)
-      );
+    if (bucket && !skipSync && Object.keys(updatedDeclarations).length > 0) {
+      import('@/utils/syncGoogleSheets')
+        .then(({ executeSyncToGoogleSheet }) => {
+          executeSyncToGoogleSheet(updatedDeclarations, bucket).catch((err) =>
+            console.error('Lỗi sync Google Sheet sau khi upload CCCD:', err)
+          );
+        })
+        .catch((err) => console.warn('Lỗi nạp module syncGoogleSheets:', err));
     }
 
     return NextResponse.json({

@@ -19,6 +19,7 @@ import {
   ArrowUpRight,
 } from 'lucide-react';
 import CccdHoverPreviewCard from './CccdHoverPreviewCard';
+import { stripAccents } from '@/utils/textHelpers';
 
 export interface ScanFileItem {
   filename: string;
@@ -59,8 +60,11 @@ export default function ScanFileManagerTab({
     while (attempts < 2) {
       attempts++;
       try {
-        const res = await fetch(`/api/upload-filescan?t=${Date.now()}`, {
-          headers: { 'Cache-Control': 'no-cache' },
+        const res = await fetch(`/api/upload-filescan?force=true&t=${Date.now()}`, {
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            Pragma: 'no-cache',
+          },
         });
         if (!res.ok && attempts < 2) {
           await new Promise((r) => setTimeout(r, 600));
@@ -140,17 +144,17 @@ export default function ScanFileManagerTab({
     }
   };
 
-  // Lọc và tìm kiếm
+  // Lọc và tìm kiếm (Hỗ trợ tiếng Việt không dấu hoặc có dấu linh hoạt)
   const filteredFiles = useMemo(() => {
     let result = files;
 
     if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
+      const q = stripAccents(searchQuery);
       result = result.filter((f) => {
-        const fn = f.filename.toLowerCase();
+        const fn = stripAccents(f.filename);
         const to = (f.toBanDo || '').toLowerCase();
         const thua = (f.soThua || '').toLowerCase();
-        const owner = (f.ownerName || '').toLowerCase();
+        const owner = stripAccents(f.ownerName || '');
         const code = (f.matchedParcelCode || '').toLowerCase();
         return fn.includes(q) || to.includes(q) || thua.includes(q) || owner.includes(q) || code.includes(q);
       });

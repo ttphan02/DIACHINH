@@ -121,15 +121,27 @@ export async function GET(request: Request) {
 
     if (bucket) {
       try {
-        // Thực hiện song song 3 truy vấn R2: filescan, scanhoso và declarations
-        const [listRes, listHoso, declObj] = await Promise.all([
-          bucket.list({ prefix: 'filescan/', limit: 1000 }).catch(() => ({ objects: [] })),
-          bucket.list({ prefix: 'scanhoso/', limit: 1000 }).catch(() => ({ objects: [] })),
-          bucket.get(KEY_ALL_DECLARATIONS).catch(() => null),
+        const declPromise = bucket.get(KEY_ALL_DECLARATIONS).catch(() => null);
+
+        const listAll = async (prefix: string) => {
+          let list: any[] = [];
+          let cursor: string | undefined = undefined;
+          let it = 0;
+          do {
+            it++;
+            const res: any = await bucket.list({ prefix, limit: 1000, cursor });
+            if (res?.objects) list.push(...res.objects);
+            cursor = res?.truncated ? res.cursor : undefined;
+          } while (cursor && it < 10);
+          return list;
+        };
+
+        const [objects1, objects2, declObj] = await Promise.all([
+          listAll('filescan/'),
+          listAll('scanhoso/'),
+          declPromise,
         ]);
 
-        const objects1 = listRes?.objects || [];
-        const objects2 = listHoso?.objects || [];
         allObjects = [...objects1, ...objects2];
 
         if (declObj) {
@@ -263,7 +275,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(result, {
       headers: {
-        'Cache-Control': 'public, max-age=5, s-maxage=10, stale-while-revalidate=30',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
       },
     });
   } catch (error: any) {

@@ -20,6 +20,7 @@ import {
   Download,
 } from 'lucide-react';
 import CccdHoverPreviewCard from './CccdHoverPreviewCard';
+import { stripAccents } from '@/utils/textHelpers';
 
 interface CccdFileItem {
   filename: string;
@@ -36,6 +37,7 @@ interface CccdManagerTabProps {
   onSelectParcel?: (maThua: string) => void;
   onPreviewUrl?: (url: string, title: string) => void;
   theme?: 'dark' | 'light';
+  refreshKey?: number;
 }
 
 export default function CccdManagerTab({
@@ -43,6 +45,7 @@ export default function CccdManagerTab({
   onSelectParcel,
   onPreviewUrl,
   theme = 'dark',
+  refreshKey,
 }: CccdManagerTabProps) {
   const [files, setFiles] = useState<CccdFileItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -63,8 +66,11 @@ export default function CccdManagerTab({
     while (attempts < 2) {
       attempts++;
       try {
-        const res = await fetch(`/api/cccd?t=${Date.now()}`, {
-          headers: { 'Cache-Control': 'no-cache' },
+        const res = await fetch(`/api/cccd?force=true&t=${Date.now()}`, {
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            Pragma: 'no-cache',
+          },
         });
         if (!res.ok && attempts < 2) {
           await new Promise((r) => setTimeout(r, 600));
@@ -109,7 +115,7 @@ export default function CccdManagerTab({
 
   useEffect(() => {
     loadCccdFiles();
-  }, [loadCccdFiles]);
+  }, [loadCccdFiles, refreshKey]);
 
   // Xóa file CCCD khỏi R2
   const handleDeleteConfirm = async () => {
@@ -144,19 +150,19 @@ export default function CccdManagerTab({
     }
   };
 
-  // Lọc danh sách file theo search query và filterType
+  // Lọc danh sách file theo search query và filterType (Hỗ trợ tìm kiếm tiếng Việt không dấu hoặc có dấu linh hoạt)
   const filteredFiles = useMemo(() => {
     return files.filter((f) => {
       // 1. Lọc theo trạng thái gán thửa
       if (filterType === 'matched' && !f.matchedParcelCode) return false;
       if (filterType === 'unmatched' && f.matchedParcelCode) return false;
 
-      // 2. Tìm kiếm
+      // 2. Tìm kiếm linh hoạt tiếng Việt
       if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase().trim();
-      const fn = f.filename.toLowerCase();
+      const q = stripAccents(searchQuery);
+      const fn = stripAccents(f.filename);
       const cccd = (f.cccdNumber || '').toLowerCase();
-      const owner = (f.ownerName || '').toLowerCase();
+      const owner = stripAccents(f.ownerName || '');
       const parcel = (f.matchedParcelCode || '').toLowerCase();
 
       return fn.includes(q) || cccd.includes(q) || owner.includes(q) || parcel.includes(q);

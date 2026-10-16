@@ -192,6 +192,7 @@ export default function DashboardPage() {
   const [isMovingParcelsToPack, setIsMovingParcelsToPack] = useState(false);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [statusFilterPopupPos, setStatusFilterPopupPos] = useState<{ top: number; left: number } | null>(null);
+  const [cccdTabRefreshKey, setCccdTabRefreshKey] = useState(0);
 
   // Sắp xếp danh sách theo tên chủ đất A -> Z
   const [sortNameOrder, setSortNameOrder] = useState<'none' | 'asc' | 'desc'>('none');
@@ -2723,6 +2724,7 @@ export default function DashboardPage() {
         {activeTab === 'cccd' && (
           <CccdManagerTab
             theme={theme}
+            refreshKey={cccdTabRefreshKey}
             onOpenAddModal={(mode) => {
               setSelectedParcelForCccd('');
               setCccdModalMode(mode || 'folder');
@@ -4924,6 +4926,8 @@ export default function DashboardPage() {
         defaultMode={cccdModalMode}
         onSuccess={() => {
           fetchCloudDeclarations();
+          fetchR2CccdList();
+          setCccdTabRefreshKey((k) => k + 1);
         }}
       />
 
