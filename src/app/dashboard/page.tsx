@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
 import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
@@ -181,6 +181,9 @@ export default function DashboardPage() {
       [selectedReportSheet]: { ...(prev[selectedReportSheet] || {}), search: q },
     }));
   };
+
+  const viCollator = useMemo(() => new Intl.Collator('vi', { sensitivity: 'base' }), []);
+  const deferredReportSearchQuery = useDeferredValue(reportSearchQuery);
 
   const [reportPageSize, setReportPageSize] = useState<number | 'ALL'>(20);
   const [reportPage, setReportPage] = useState<number>(1);
@@ -2529,37 +2532,6 @@ export default function DashboardPage() {
             >
               {isLight ? <Moon className="w-4 h-4 text-indigo-600" /> : <Sun className="w-4 h-4 text-amber-400" />}
             </button>
-
-            {/* Đồng bộ GGS */}
-            <button
-              onClick={() => fetchGgsCodes(true)}
-              disabled={isSyncingGgs}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition disabled:opacity-60 shadow-xs cursor-pointer border ${
-                isLight
-                  ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
-                  : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border-slate-700'
-              }`}
-              title={lastSyncTime ? `Đồng bộ lúc ${lastSyncTime}` : 'Đồng bộ Google Sheets'}
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingGgs ? 'animate-spin text-cyan-400' : ''}`} />
-              <span className="hidden sm:inline">GGS</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            </button>
-
-            {/* Nút Hiển Thị / Đổi Tên Cán Bộ Kê Khai */}
-            <button
-              type="button"
-              onClick={() => setIsCadreModalOpen(true)}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer border ${
-                isLight
-                  ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
-                  : 'bg-indigo-950/70 hover:bg-indigo-900/80 text-cyan-300 border-indigo-500/40'
-              }`}
-              title="Bấm để đổi tên cán bộ kê khai"
-            >
-              <UserCheck className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="max-w-[80px] sm:max-w-none truncate">{cadreName || 'Cán bộ'}</span>
-            </button>
           </div>
         </div>
       </header>
@@ -2935,8 +2907,8 @@ export default function DashboardPage() {
                     });
                   }
 
-                  // Danh sách tất cả mã thửa duy nhất của sheet Chưa thực hiện (dùng cho Dropdown lọc kiểu Excel)
-                  const distinctMaThuas = isChuaThucHienSheet
+                  // Danh sách tất cả mã thửa duy nhất của sheet Chưa thực hiện (chỉ tính toán khi dropdown mở)
+                  const distinctMaThuas = (isChuaThucHienSheet && chuaThucHienDropdownOpen)
                     ? Array.from(new Set(allRows.map((r) => String(r[1] || '').trim()).filter(Boolean))).sort((a, b) => {
                         const [toA, thuaA] = a.split('_').map(Number);
                         const [toB, thuaB] = b.split('_').map(Number);
@@ -2945,22 +2917,37 @@ export default function DashboardPage() {
                       })
                     : [];
 
-                  const filteredDropdownList = distinctMaThuas.filter((mt) => {
-                    if (!chuaThucHienFilterSearch.trim()) return true;
-                    return mt.toLowerCase().includes(chuaThucHienFilterSearch.trim().toLowerCase());
-                  });
+                  const filteredDropdownList = (isChuaThucHienSheet && chuaThucHienDropdownOpen)
+                    ? distinctMaThuas.filter((mt) => {
+                        if (!chuaThucHienFilterSearch.trim()) return true;
+                        return mt.toLowerCase().includes(chuaThucHienFilterSearch.trim().toLowerCase());
+                      })
+                    : [];
+
+                  const cccdColIdx = headers.findIndex((h) => /cccd/i.test(h) && !/xem|file/i.test(h));
+                  const searchQ = deferredReportSearchQuery ? stripAccents(deferredReportSearchQuery) : '';
 
                   // Áp dụng bộ lọc
                   const filtered = allRows.filter((row) => {
                     const maThua = String(row[1] || '').trim();
 
                     // 1. Tìm kiếm text (soát cả giá trị vừa nhập trực tiếp)
-                    if (reportSearchQuery) {
-                      const q = stripAccents(reportSearchQuery);
-                      const match = row.some((cell, cIdx) => {
-                        const val = String(cellEdits[maThua]?.[cIdx] ?? cell ?? '');
-                        return stripAccents(val).includes(q);
-                      });
+                    if (searchQ) {
+                      // Short-circuit: Kiểm tra trước các cột thường tìm kiếm (mã thửa, tên, CCCD, thôn)
+                      const fastCandidates = [
+                        maThua,
+                        nameColIdx >= 0 ? String(cellEdits[maThua]?.[nameColIdx] ?? row[nameColIdx] ?? '') : '',
+                        cccdColIdx >= 0 ? String(cellEdits[maThua]?.[cccdColIdx] ?? row[cccdColIdx] ?? '') : '',
+                        villageColIdx >= 0 ? String(cellEdits[maThua]?.[villageColIdx] ?? row[villageColIdx] ?? '') : '',
+                      ];
+                      let match = fastCandidates.some((val) => val && stripAccents(val).includes(searchQ));
+                      if (!match) {
+                        match = row.some((cell, cIdx) => {
+                          if (!cell && !cellEdits[maThua]?.[cIdx]) return false;
+                          const val = String(cellEdits[maThua]?.[cIdx] ?? cell ?? '');
+                          return val ? stripAccents(val).includes(searchQ) : false;
+                        });
+                      }
                       if (!match) return false;
                     }
 
@@ -2993,14 +2980,14 @@ export default function DashboardPage() {
                     return true;
                   });
 
-                  // Sắp xếp theo Tên chủ đất A -> Z hoặc Z -> A
+                  // Sắp xếp theo Tên chủ đất A -> Z hoặc Z -> A (dùng viCollator dùng chung)
                   if (nameColIdx >= 0 && sortNameOrder !== 'none') {
                     filtered.sort((a, b) => {
                       const maA = String(a[1] || '').trim();
                       const maB = String(b[1] || '').trim();
                       const nameA = String(cellEdits[maA]?.[nameColIdx] ?? a[nameColIdx] ?? '').trim();
                       const nameB = String(cellEdits[maB]?.[nameColIdx] ?? b[nameColIdx] ?? '').trim();
-                      const cmp = nameA.localeCompare(nameB, 'vi', { sensitivity: 'base' });
+                      const cmp = viCollator.compare(nameA, nameB);
                       return sortNameOrder === 'asc' ? cmp : -cmp;
                     });
                   }

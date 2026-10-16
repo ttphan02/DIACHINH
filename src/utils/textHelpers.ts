@@ -1,11 +1,23 @@
+const stripAccentsCache = new Map<string, string>();
+const MAX_STRIP_ACCENTS_CACHE = 25000;
+
 export function stripAccents(text: string): string {
   if (!text) return '';
-  return text
+  const cached = stripAccentsCache.get(text);
+  if (cached !== undefined) return cached;
+
+  const result = text
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/đ/g, 'd')
     .trim();
+
+  if (stripAccentsCache.size >= MAX_STRIP_ACCENTS_CACHE) {
+    stripAccentsCache.clear();
+  }
+  stripAccentsCache.set(text, result);
+  return result;
 }
 
 // Chuẩn hóa CCCD (12 chữ số)
