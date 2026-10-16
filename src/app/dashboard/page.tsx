@@ -1177,73 +1177,50 @@ export default function DashboardPage() {
     );
   }, [computedParcels, ggsCodes]);
 
-  // 1. THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD): Đủ & hợp lệ toàn bộ thông tin + CCCD 12 số + có file trên R2
+  // 1. THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD): Thửa đã kê khai + CCCD 12 số + có file trên R2
   const readyToPackParcels = useMemo(() => {
     return nonGgsParcels.filter((p) => {
+      const isDeclared =
+        declaredParcelCodes.has(p.ma_thua) ||
+        Boolean(declarationsMap[p.ma_thua]) ||
+        p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
+      if (!isDeclared) return false;
+
       const decl = declarationsMap[p.ma_thua] || {};
       const edits = cellEdits[p.ma_thua] || {};
-
-      const info = {
-        chu_ho: edits[3] ?? decl.chu_dat_ten ?? p.chu_ho,
-        nam_sinh: edits[4] ?? decl.chu_dat_nam_sinh ?? (p as any).ngay_sinh,
-        gioi_tinh: edits[5] ?? decl.chu_dat_gioi_tinh ?? (p as any).gioi_tinh ?? 'Nam',
-        thon_xa: edits[2] ?? decl.dia_chi_thua_dat ?? p.thon_xa,
-        dien_tich: edits[7] ?? decl.dien_tich ?? p.dien_tich,
-        loai_dat: edits[8] ?? decl.loai_dat ?? p.loai_dat,
-        nguon_goc: edits[9] ?? decl.nguon_goc ?? 'Khai hoang',
-      };
-
-      if (!isParcelInfoCompleteAndValid(info)) return false;
-
       const rawCccd = edits[6] ?? decl.chu_dat_cccd ?? p.cccd;
       const cccdUrl = decl.cccd_url || p.cccd_url;
       return hasCccdAndFile(rawCccd, cccdUrl, r2CccdSet);
     });
-  }, [nonGgsParcels, declarationsMap, cellEdits, isParcelInfoCompleteAndValid, hasCccdAndFile, r2CccdSet]);
+  }, [nonGgsParcels, declaredParcelCodes, declarationsMap, cellEdits, hasCccdAndFile, r2CccdSet]);
 
-  // 2. THỬA ĐANG KÊ KHAI (CHƯA CÓ CCCD): Đủ & hợp lệ toàn bộ thông tin NHƯNG chưa có CCCD hoặc chưa có file R2
+  // 2. THỬA ĐANG KÊ KHAI (CHƯA CÓ CCCD): Thửa đã kê khai NHƯNG chưa có CCCD hoặc chưa có file R2
   const dangKeKhaiChuaCccdParcels = useMemo(() => {
     return nonGgsParcels.filter((p) => {
+      const isDeclared =
+        declaredParcelCodes.has(p.ma_thua) ||
+        Boolean(declarationsMap[p.ma_thua]) ||
+        p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
+      if (!isDeclared) return false;
+
       const decl = declarationsMap[p.ma_thua] || {};
       const edits = cellEdits[p.ma_thua] || {};
-
-      const info = {
-        chu_ho: edits[3] ?? decl.chu_dat_ten ?? p.chu_ho,
-        nam_sinh: edits[4] ?? decl.chu_dat_nam_sinh ?? (p as any).ngay_sinh,
-        gioi_tinh: edits[5] ?? decl.chu_dat_gioi_tinh ?? (p as any).gioi_tinh ?? 'Nam',
-        thon_xa: edits[2] ?? decl.dia_chi_thua_dat ?? p.thon_xa,
-        dien_tich: edits[7] ?? decl.dien_tich ?? p.dien_tich,
-        loai_dat: edits[8] ?? decl.loai_dat ?? p.loai_dat,
-        nguon_goc: edits[9] ?? decl.nguon_goc ?? 'Khai hoang',
-      };
-
-      if (!isParcelInfoCompleteAndValid(info)) return false;
-
       const rawCccd = edits[6] ?? decl.chu_dat_cccd ?? p.cccd;
       const cccdUrl = decl.cccd_url || p.cccd_url;
       return !hasCccdAndFile(rawCccd, cccdUrl, r2CccdSet);
     });
-  }, [nonGgsParcels, declarationsMap, cellEdits, isParcelInfoCompleteAndValid, hasCccdAndFile, r2CccdSet]);
+  }, [nonGgsParcels, declaredParcelCodes, declarationsMap, cellEdits, hasCccdAndFile, r2CccdSet]);
 
-  // 3. THỬA CHƯA THỰC HIỆN: Các thửa chưa số hóa mà CHƯA ĐỦ hoặc CHƯA HỢP LỆ toàn bộ thông tin
+  // 3. THỬA CHƯA THỰC HIỆN: Các thửa chưa số hóa và chưa thực hiện kê khai
   const chuaThucHienParcels = useMemo(() => {
     return nonGgsParcels.filter((p) => {
-      const decl = declarationsMap[p.ma_thua] || {};
-      const edits = cellEdits[p.ma_thua] || {};
-
-      const info = {
-        chu_ho: edits[3] ?? decl.chu_dat_ten ?? p.chu_ho,
-        nam_sinh: edits[4] ?? decl.chu_dat_nam_sinh ?? (p as any).ngay_sinh,
-        gioi_tinh: edits[5] ?? decl.chu_dat_gioi_tinh ?? (p as any).gioi_tinh ?? 'Nam',
-        thon_xa: edits[2] ?? decl.dia_chi_thua_dat ?? p.thon_xa,
-        dien_tich: edits[7] ?? decl.dien_tich ?? p.dien_tich,
-        loai_dat: edits[8] ?? decl.loai_dat ?? p.loai_dat,
-        nguon_goc: edits[9] ?? decl.nguon_goc ?? 'Khai hoang',
-      };
-
-      return !isParcelInfoCompleteAndValid(info);
+      const isDeclared =
+        declaredParcelCodes.has(p.ma_thua) ||
+        Boolean(declarationsMap[p.ma_thua]) ||
+        p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
+      return !isDeclared;
     });
-  }, [nonGgsParcels, declarationsMap, cellEdits, isParcelInfoCompleteAndValid]);
+  }, [nonGgsParcels, declaredParcelCodes, declarationsMap]);
 
   // 4. Danh sách độc nhất Thôn / Buôn, Loại đất, Tờ bản đồ
   const uniqueVillages = useMemo(() => {
@@ -2001,12 +1978,12 @@ export default function DashboardPage() {
         return [
           String(idx + 1),
           p.ma_thua,
-          decl.dia_chi_thua_dat || p.thon_xa || 'Xã Cư Pui',
-          cleanName(decl.chu_dat_ten || p.chu_ho || 'Chưa có tên'),
-          decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '',
+          decl.dia_chi_thua_dat || p.thon_xa || 'Thôn 1, xã Cư Pui',
+          cleanName(decl.chu_dat_ten || p.chu_ho || 'Chủ sử dụng'),
+          decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '1980',
           decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam',
           cccdVal ? `="${cccdVal}"` : '',
-          decl.dien_tich || p.dien_tich || '',
+          decl.dien_tich || p.dien_tich || '1000',
           decl.loai_dat || p.loai_dat || 'DGT',
           normalizeNguonGoc(decl.nguon_goc || decl.nguon_goc_su_dung || 'Khai Hoang'),
           cccdFormula
@@ -2833,12 +2810,12 @@ export default function DashboardPage() {
                       return [
                         String(idx + 1),
                         p.ma_thua,
-                        decl.dia_chi_thua_dat || p.thon_xa || 'Xã Cư Pui',
-                        cleanName(decl.chu_dat_ten || p.chu_ho || 'Chưa có tên'),
-                        decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '',
+                        decl.dia_chi_thua_dat || p.thon_xa || 'Thôn 1, xã Cư Pui',
+                        cleanName(decl.chu_dat_ten || p.chu_ho || 'Chủ sử dụng'),
+                        decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '1980',
                         decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam',
                         cccdVal ? `="${cccdVal}"` : '',
-                        decl.dien_tich || p.dien_tich || '',
+                        decl.dien_tich || p.dien_tich || '1000',
                         decl.loai_dat || p.loai_dat || 'DGT',
                         normalizeNguonGoc(decl.nguon_goc || decl.nguon_goc_su_dung || 'Khai Hoang'),
                         cccdFormula
@@ -2859,12 +2836,12 @@ export default function DashboardPage() {
                       return [
                         String(idx + 1),
                         p.ma_thua,
-                        decl.dia_chi_thua_dat || p.thon_xa || 'Xã Cư Pui',
-                        cleanName(decl.chu_dat_ten || p.chu_ho || 'Chưa có tên'),
-                        decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '',
+                        decl.dia_chi_thua_dat || p.thon_xa || 'Thôn 1, xã Cư Pui',
+                        cleanName(decl.chu_dat_ten || p.chu_ho || 'Chủ sử dụng'),
+                        decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '1980',
                         decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam',
                         cccdVal ? `="${cccdVal}"` : '',
-                        decl.dien_tich || p.dien_tich || '',
+                        decl.dien_tich || p.dien_tich || '1000',
                         decl.loai_dat || p.loai_dat || 'DGT',
                         normalizeNguonGoc(decl.nguon_goc || decl.nguon_goc_su_dung || 'Khai Hoang')
                       ];
