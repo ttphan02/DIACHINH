@@ -208,9 +208,16 @@ export async function GET(request: Request) {
         }
       }
 
-      const cccdNumbers = objects
-        .map((o) => o.key.replace(/^cccd\//, '').replace(/\.pdf$/i, '').trim())
-        .filter((c) => cleanCccd(c).length === 12);
+      const cccdSet = new Set<string>();
+      for (const o of objects) {
+        const fn = o.key.replace(/^cccd\//, '').replace(/\.pdf$/i, '').trim();
+        const m = fn.match(/\b\d{9,12}\b/);
+        const clean = m ? cleanCccd(m[0]) : cleanCccd(fn);
+        if (clean && clean.length === 12) {
+          cccdSet.add(clean);
+        }
+      }
+      const cccdNumbers = Array.from(cccdSet);
 
       const payload = {
         success: true,

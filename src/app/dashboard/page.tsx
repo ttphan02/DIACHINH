@@ -1201,7 +1201,7 @@ export default function DashboardPage() {
 
       const decl = declarationsMap[p.ma_thua] || {};
       const edits = cellEdits[p.ma_thua] || {};
-      const rawCccd = edits[6] ?? decl.chu_dat_cccd ?? p.cccd;
+      const rawCccd = edits[6] ?? decl.chu_dat_cccd ?? decl.cccd_chu_ho ?? decl.cccd ?? p.cccd;
       const cccdUrl = decl.cccd_url || p.cccd_url;
       return hasCccdAndFile(rawCccd, cccdUrl, r2CccdSet);
     });
@@ -1218,11 +1218,36 @@ export default function DashboardPage() {
 
       const decl = declarationsMap[p.ma_thua] || {};
       const edits = cellEdits[p.ma_thua] || {};
-      const rawCccd = edits[6] ?? decl.chu_dat_cccd ?? p.cccd;
+      const rawCccd = edits[6] ?? decl.chu_dat_cccd ?? decl.cccd_chu_ho ?? decl.cccd ?? p.cccd;
       const cccdUrl = decl.cccd_url || p.cccd_url;
       return !hasCccdAndFile(rawCccd, cccdUrl, r2CccdSet);
     });
   }, [nonGgsParcels, declaredParcelCodes, declarationsMap, cellEdits, hasCccdAndFile, r2CccdSet]);
+
+  // Số lượng hiển thị chính xác, đồng bộ 100% giữa Card thống kê và Bảng danh sách
+  const displayCountReadyToPack = useMemo(() => {
+    if (syncSummary?.daDongTap !== undefined) {
+      return syncSummary.daDongTap;
+    }
+    const rows = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'];
+    if (Array.isArray(rows) && rows.length > 1) {
+      return rows.length - 1;
+    }
+    return readyToPackParcels.length;
+  }, [syncSummary, syncSheetsData, readyToPackParcels.length]);
+
+  const displayCountChuaCccd = useMemo(() => {
+    if (syncSummary?.canTimCccd !== undefined && syncSummary?.khongCoCccd !== undefined) {
+      return syncSummary.canTimCccd + syncSummary.khongCoCccd;
+    }
+    const rows = syncSheetsData?.['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'];
+    if (Array.isArray(rows) && rows.length > 1) {
+      return rows.length - 1;
+    }
+    return dangKeKhaiChuaCccdParcels.length;
+  }, [syncSummary, syncSheetsData, dangKeKhaiChuaCccdParcels.length]);
+
+  const displayCountTotalDangKeKhai = displayCountReadyToPack + displayCountChuaCccd;
 
   // 3. THỬA CHƯA THỰC HIỆN: Các thửa chưa số hóa và chưa thực hiện kê khai
   const chuaThucHienParcels = useMemo(() => {
@@ -2568,7 +2593,7 @@ export default function DashboardPage() {
               <FileSpreadsheet className="w-4 h-4 text-indigo-500" />
             </div>
             <div className={`text-2xl sm:text-3xl font-black tracking-tight mb-2 ${isLight ? 'text-indigo-700' : 'text-indigo-300'}`}>
-              {(dangKeKhaiChuaCccdParcels.length + readyToPackParcels.length).toLocaleString('vi-VN')}
+              {displayCountTotalDangKeKhai.toLocaleString('vi-VN')}
               <span className={`text-xs font-normal ml-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>hồ sơ</span>
             </div>
 
@@ -2590,14 +2615,14 @@ export default function DashboardPage() {
                     ? 'bg-rose-50/70 hover:bg-rose-100/80 border-rose-200'
                     : 'bg-rose-950/30 hover:bg-rose-950/50 border-rose-800/60'
                 }`}
-                title={`Bấm để xem danh sách ${dangKeKhaiChuaCccdParcels.length} thửa đang kê khai chưa có CCCD`}
+                title={`Bấm để xem danh sách ${displayCountChuaCccd} thửa đang kê khai chưa có CCCD`}
               >
                 <div className="text-[10px] font-bold uppercase text-rose-500 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
                   Chưa CCCD
                 </div>
                 <div className="text-base sm:text-lg font-black text-rose-600 dark:text-rose-400 mt-0.5">
-                  {dangKeKhaiChuaCccdParcels.length.toLocaleString('vi-VN')}
+                  {displayCountChuaCccd.toLocaleString('vi-VN')}
                   <span className="text-[10px] font-normal ml-1 text-slate-500">thửa</span>
                 </div>
               </button>
@@ -2618,14 +2643,14 @@ export default function DashboardPage() {
                     ? 'bg-indigo-50/70 hover:bg-indigo-100/80 border-indigo-200'
                     : 'bg-indigo-950/30 hover:bg-indigo-950/50 border-indigo-800/60'
                 }`}
-                title={`Bấm để xem danh sách ${readyToPackParcels.length} thửa sẵn sàng đóng tập kèm CCCD`}
+                title={`Bấm để xem danh sách ${displayCountReadyToPack} thửa sẵn sàng đóng tập kèm CCCD`}
               >
                 <div className="text-[10px] font-bold uppercase text-indigo-500 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
                   Có CCCD
                 </div>
                 <div className="text-base sm:text-lg font-black text-indigo-600 dark:text-indigo-400 mt-0.5">
-                  {readyToPackParcels.length.toLocaleString('vi-VN')}
+                  {displayCountReadyToPack.toLocaleString('vi-VN')}
                   <span className="text-[10px] font-normal ml-1 text-slate-500">thửa</span>
                 </div>
               </button>
