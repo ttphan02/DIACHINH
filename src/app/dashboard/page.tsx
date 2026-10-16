@@ -413,8 +413,14 @@ export default function DashboardPage() {
   const [selectedParcelForCccd, setSelectedParcelForCccd] = useState('');
   const [cccdModalMode, setCccdModalMode] = useState<'folder' | 'single'>('folder');
 
+  const isFetchingCloudRef = useRef(false);
+  const lastFetchTimeRef = useRef(0);
+
   // 1. Đồng bộ danh sách kê khai từ Cloud R2 theo thời gian thực (Không cần F5)
   const fetchCloudDeclarations = useCallback(async () => {
+    if (isFetchingCloudRef.current) return;
+    isFetchingCloudRef.current = true;
+    lastFetchTimeRef.current = Date.now();
     try {
       const res = await fetch(`/api/declarations?t=${Date.now()}`, {
         cache: 'no-store',
@@ -466,6 +472,8 @@ export default function DashboardPage() {
       }
     } catch (err) {
       console.warn('Lỗi đồng bộ declarations trên Dashboard:', err);
+    } finally {
+      isFetchingCloudRef.current = false;
     }
   }, []);
 
@@ -475,9 +483,14 @@ export default function DashboardPage() {
     setDeclarationsMap(map);
     fetchCloudDeclarations();
 
-    // Tự động đồng bộ mỗi 12 giây (tiết kiệm CPU, không cần F5)
-    const interval = setInterval(fetchCloudDeclarations, 12000);
-    const onFocus = () => fetchCloudDeclarations();
+    // Tự động đồng bộ mỗi 30 giây (tiết kiệm CPU worker, không cần F5)
+    const interval = setInterval(fetchCloudDeclarations, 30000);
+    const onFocus = () => {
+      // Chỉ đồng bộ khi focus nếu lần fetch trước cách ít nhất 10 giây
+      if (Date.now() - lastFetchTimeRef.current > 10000) {
+        fetchCloudDeclarations();
+      }
+    };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onFocus);
 
@@ -546,7 +559,7 @@ export default function DashboardPage() {
       } catch (err) {
         console.warn('Lỗi đồng bộ cellEdits lên R2:', err);
       }
-    }, 600);
+    }, 2000);
   }, []);
 
   // Cập nhật giá trị ô trực tiếp khi người dùng gõ phím
@@ -663,10 +676,6 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedDecl),
       });
-      // Tự động làm mới bảng báo cáo sau khi lưu
-      if (selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)') {
-        fetchSyncSheetsReport();
-      }
     } catch (e) {
       console.warn('Lỗi lưu realtime:', e);
     } finally {
@@ -763,7 +772,6 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newDecl),
       });
-      fetchSyncSheetsReport();
     } catch (e) {
       console.warn('Lỗi lưu kê khai:', e);
     } finally {
@@ -973,8 +981,6 @@ export default function DashboardPage() {
             setDeclaredParcelCodes(new Set(result.declaredCodes));
             setDeclarationsMap(cloudMap);
           }
-          // Tự động tính toán lại báo cáo realtime
-          fetchSyncSheetsReport();
         }
       })
       .catch((err) => console.warn('Lỗi khi lưu chỉnh sửa lên Cloud:', err));

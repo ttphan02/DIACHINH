@@ -7,7 +7,7 @@ import {
   DeleteObjectCommand,
   HeadObjectCommand,
 } from '@aws-sdk/client-s3';
-import { executeSyncToGoogleSheet, cleanCccd, cleanName } from '@/utils/syncGoogleSheets';
+import { cleanCccd, cleanName } from '@/utils/textHelpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -405,9 +405,13 @@ export async function DELETE(request: Request) {
     }
 
     // Tự động kích hoạt đồng bộ Google Sheet
-    executeSyncToGoogleSheet(updatedDeclarations, bucket).catch((err) =>
-      console.error('Lỗi sync Google Sheet sau khi xóa CCCD:', err)
-    );
+    import('@/utils/syncGoogleSheets')
+      .then(({ executeSyncToGoogleSheet }) => {
+        executeSyncToGoogleSheet(updatedDeclarations, bucket).catch((err) =>
+          console.error('Lỗi sync Google Sheet sau khi xóa CCCD:', err)
+        );
+      })
+      .catch((err) => console.error('Lỗi import syncGoogleSheets:', err));
 
     return NextResponse.json({
       success: true,

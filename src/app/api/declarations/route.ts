@@ -1,10 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { DeclarationFormData } from '@/types';
-import parcelsBriefData from '@/data/parcels_brief.json';
-
-const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +19,10 @@ interface StoragePayload {
   updatedAt?: string;
 }
 
+// In-memory cache ngắn hạn (2.5 giây) giúp giảm tải triệt để I/O và CPU trên Cloudflare Worker khi client gửi request liên tiếp
+let memoryCache: { payload: StoragePayload; timestamp: number } | null = null;
+const MEMORY_CACHE_TTL = 2500;
+
 async function getR2Binding(): Promise<any | null> {
   try {
     const { env } = await getCloudflareContext({ async: true });
@@ -32,22 +32,32 @@ async function getR2Binding(): Promise<any | null> {
   }
 }
 
-function getS3Client(): S3Client | null {
+async function getS3Client(): Promise<any | null> {
   if (R2_ACCOUNT_ID && R2_ACCESS_KEY && R2_SECRET_KEY) {
-    return new S3Client({
-      region: 'auto',
-      endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-      credentials: {
-        accessKeyId: R2_ACCESS_KEY,
-        secretAccessKey: R2_SECRET_KEY,
-      },
-    });
+    try {
+      const { S3Client } = await import('@aws-sdk/client-s3');
+      return new S3Client({
+        region: 'auto',
+        endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+        credentials: {
+          accessKeyId: R2_ACCESS_KEY,
+          secretAccessKey: R2_SECRET_KEY,
+        },
+      });
+    } catch (err) {
+      console.warn('Lỗi khởi tạo S3Client SDK:', err);
+    }
   }
   return null;
 }
 
 // Đọc danh sách phiếu kê khai từ Cloudflare R2
-async function getDeclarationsFromR2(): Promise<StoragePayload> {
+async function getDeclarationsFromR2(forceRefresh = false): Promise<StoragePayload> {
+  const now = Date.now();
+  if (!forceRefresh && memoryCache && now - memoryCache.timestamp < MEMORY_CACHE_TTL) {
+    return memoryCache.payload;
+  }
+
   // 1. Thử đọc trực tiếp qua R2 Binding (nhanh nhất trên Cloudflare Worker)
   try {
     const bucket = await getR2Binding();
@@ -56,12 +66,14 @@ async function getDeclarationsFromR2(): Promise<StoragePayload> {
       if (obj) {
         const text = await obj.text();
         const data = JSON.parse(text);
-        return {
+        const payload: StoragePayload = {
           declaredCodes: Array.isArray(data.declaredCodes) ? data.declaredCodes : [],
           declarationsMap: data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {},
           cellEdits: data.cellEdits && typeof data.cellEdits === 'object' ? data.cellEdits : {},
           updatedAt: data.updatedAt || new Date().toISOString(),
         };
+        memoryCache = { payload, timestamp: now };
+        return payload;
       }
     }
   } catch (err) {
@@ -70,29 +82,34 @@ async function getDeclarationsFromR2(): Promise<StoragePayload> {
 
   // 2. Fallback đọc qua R2 Public URL
   try {
-    const res = await fetch(`${R2_PUBLIC_URL}/${KEY_ALL_DECLARATIONS}?t=${Date.now()}`, {
+    const res = await fetch(`${R2_PUBLIC_URL}/${KEY_ALL_DECLARATIONS}?t=${now}`, {
       headers: { 'Cache-Control': 'no-cache' },
       cache: 'no-store',
     });
     if (res.ok) {
       const data = (await res.json()) as any;
-      return {
+      const payload: StoragePayload = {
         declaredCodes: Array.isArray(data.declaredCodes) ? data.declaredCodes : [],
         declarationsMap: data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {},
         cellEdits: data.cellEdits && typeof data.cellEdits === 'object' ? data.cellEdits : {},
         updatedAt: data.updatedAt || new Date().toISOString(),
       };
+      memoryCache = { payload, timestamp: now };
+      return payload;
     }
   } catch (err) {
     console.warn('Lỗi khi fetch declarations từ public R2:', err);
   }
 
-  return { declaredCodes: [], declarationsMap: {}, cellEdits: {}, updatedAt: new Date().toISOString() };
+  const fallback: StoragePayload = { declaredCodes: [], declarationsMap: {}, cellEdits: {}, updatedAt: new Date().toISOString() };
+  memoryCache = { payload: fallback, timestamp: now };
+  return fallback;
 }
 
 // Lưu danh sách phiếu kê khai vào Cloudflare R2
 async function saveDeclarationsToR2(payload: StoragePayload): Promise<boolean> {
-  const jsonStr = JSON.stringify(payload, null, 2);
+  const jsonStr = JSON.stringify(payload);
+  memoryCache = { payload, timestamp: Date.now() };
 
   // 1. Ghi trực tiếp qua R2 Binding
   try {
@@ -109,8 +126,9 @@ async function saveDeclarationsToR2(payload: StoragePayload): Promise<boolean> {
 
   // 2. Fallback qua S3 Client SDK
   try {
-    const s3 = getS3Client();
+    const s3 = await getS3Client();
     if (s3) {
+      const { PutObjectCommand } = await import('@aws-sdk/client-s3');
       await s3.send(
         new PutObjectCommand({
           Bucket: R2_BUCKET,
@@ -206,11 +224,10 @@ export async function POST(request: Request) {
     }
 
     const timestamp = new Date().toISOString();
-    const canonicalAddr = (rootMaThua && parcelsBrief[rootMaThua]?.[2]) || '';
     const fullDeclData = {
       ...formData,
-      dia_chi_thua_dat: canonicalAddr || formData.dia_chi_thua_dat || 'xã Cư Pui',
-      chu_dat_dia_chi: canonicalAddr || formData.chu_dat_dia_chi || 'xã Cư Pui',
+      dia_chi_thua_dat: formData.dia_chi_thua_dat || 'xã Cư Pui',
+      chu_dat_dia_chi: formData.chu_dat_dia_chi || formData.dia_chi_thua_dat || 'xã Cư Pui',
       device_id: formData.device_id || previousDecl?.device_id || 'MAY_DEF',
       created_at: previousDecl?.created_at || timestamp,
       updated_at: timestamp,
@@ -234,8 +251,6 @@ export async function POST(request: Request) {
     if (!saved) {
       return NextResponse.json({ success: false, error: 'Không thể ghi vào Cloudflare R2' }, { status: 500 });
     }
-
-    // Lưu R2 hoàn tất, trả về client ngay lập tức mà không chờ bên thứ ba
 
     return NextResponse.json({
       success: true,
@@ -285,6 +300,7 @@ export async function DELETE(request: Request) {
     const updatedPayload: StoragePayload = {
       declaredCodes: updatedCodes,
       declarationsMap,
+      cellEdits: currentData.cellEdits || {},
       updatedAt: new Date().toISOString(),
     };
 
