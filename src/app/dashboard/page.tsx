@@ -3342,32 +3342,15 @@ export default function DashboardPage() {
                         </div>
                       )}
 
-                      {/* THẺ TIÊU ĐỀ DANH SÁCH & BỘ LỌC (CỐ ĐỊNH STICKY DƯỚI HEADER KHI CUỘN) */}
-                      <div className={`sticky top-[48px] sm:top-[52px] z-30 p-2.5 sm:p-3 rounded-xl border shadow-md backdrop-blur-md transition-all duration-200 space-y-2 ${
+                      {/* THẺ CÔNG CỤ BỘ LỌC & TÁC VỤ (CỐ ĐỊNH STICKY DƯỚI HEADER KHI CUỘN) */}
+                      <div className={`sticky top-[48px] sm:top-[52px] z-30 p-2 sm:p-2.5 rounded-xl border shadow-md backdrop-blur-md transition-all duration-200 ${
                         isLight
                           ? 'bg-white/95 border-slate-200/90 shadow-slate-200/50'
                           : 'bg-slate-900/95 border-slate-800 shadow-black/50'
                       }`}>
-                        {/* Toolbar trên cùng: Tên sheet, Số lượng & Nút tác vụ chính */}
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <h3 className={`text-sm sm:text-base font-black flex items-center gap-1.5 ${
-                              isLight ? 'text-slate-900' : 'text-white'
-                            }`}>
-                              <FileSpreadsheet className="w-4 h-4 text-indigo-500 shrink-0" />
-                              <span>{selectedReportSheet}</span>
-                            </h3>
-                            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${
-                              isLight
-                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                                : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
-                            }`}>
-                              {filtered.length} / {allRows.length} thửa
-                            </span>
-                          </div>
-
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {/* Nút Xuất DS Cần Thu CCCD cho mục Đang kê khai (Chưa có CCCD) */}
+                          <div className="flex flex-wrap items-center gap-2">
+                            {/* Nút Xuất DS Cần Thu CCCD cho mục Đang kê khai (Chưa có CCCD) */}
                           {isChuaCoCccdSheet && (
                             <button
                               type="button"
@@ -3523,15 +3506,6 @@ export default function DashboardPage() {
                             </div>
                           );
                         })()}
-
-                        </div>
-                    </div>
-
-                    {/* Hàng bộ lọc: Thôn / Buôn, Trạng thái, Có tên/Không có tên, Sắp xếp A-Z, Hiển thị, Tìm kiếm */}
-                      <div className={`pt-2 border-t flex flex-wrap items-center justify-between gap-2 transition-colors ${
-                        isLight ? 'border-slate-100' : 'border-slate-800/80'
-                      }`}>
-                        <div className="flex flex-wrap items-center gap-2">
 
 
                           {/* NÚT KÊ KHAI NGAY TRÊN CHỖ BỘ LỌC (cho mục Chưa thực hiện) */}
