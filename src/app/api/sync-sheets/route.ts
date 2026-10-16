@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
-import { executeSyncToGoogleSheet } from '@/utils/syncGoogleSheets';
+import { executeSyncToGoogleSheet, invalidateR2Cache } from '@/utils/syncGoogleSheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,6 +56,17 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const force = url.searchParams.get('force') === 'true';
   const now = Date.now();
+  const bucket = await getR2Binding();
+
+  // Khi yêu cầu làm mới dữ liệu bắt buộc (force=true)
+  if (force) {
+    cachedSyncResult = null;
+    lastSyncTime = 0;
+    invalidateR2Cache();
+    if (bucket) {
+      bucket.delete(KEY_SYNC_CACHE).catch(() => {});
+    }
+  }
 
   // 1. Kiểm tra cache trong bộ nhớ (In-memory cache)
   if (!force && cachedSyncResult && now - lastSyncTime < SYNC_CACHE_TTL) {
@@ -72,8 +83,6 @@ export async function GET(req: Request) {
       }
     );
   }
-
-  const bucket = await getR2Binding();
 
   // 2. Kiểm tra cache trong Cloudflare R2 (giúp các worker isolate mới không phải tính toán lại khi F5)
   if (!force && bucket) {

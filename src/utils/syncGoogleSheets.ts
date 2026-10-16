@@ -328,10 +328,10 @@ export async function executeSyncToGoogleSheet(
         const key = `${toNum}_${thuaNum}`;
         if (!scanByToThua.has(key)) scanByToThua.set(key, sf);
       }
-      const cMatch = sf.match(/\b\d{9,12}\b/);
-      if (cMatch) {
-        const cleanC = cleanCccd(cMatch[0]);
-        if (cleanC && !scanByCccd.has(cleanC)) scanByCccd.set(cleanC, sf);
+      const cMatch = sf.match(/(?:^|\D)(\d{9,12})(?:\D|$)/);
+      const cleanC = cMatch ? cleanCccd(cMatch[1]) : cleanCccd(sf);
+      if (cleanC && (cleanC.length === 12 || cleanC.length === 9) && !scanByCccd.has(cleanC)) {
+        scanByCccd.set(cleanC, sf);
       }
     }
 
@@ -342,14 +342,12 @@ export async function executeSyncToGoogleSheet(
 
     for (const cf of cccdFiles) {
       const cleanCf = cf.replace(/\.pdf$/i, '');
-      const digitsMatch = cleanCf.match(/\b\d{9,12}\b/);
-      if (digitsMatch) {
-        const num = cleanCccd(digitsMatch[0]);
-        if (num && !cccdByNumber.has(num)) {
-          cccdByNumber.set(num, cf);
-        }
+      const digitsMatch = cleanCf.match(/(?:^|\D)(\d{9,12})(?:\D|$)/);
+      const num = digitsMatch ? cleanCccd(digitsMatch[1]) : cleanCccd(cleanCf);
+      if (num && (num.length === 12 || num.length === 9) && !cccdByNumber.has(num)) {
+        cccdByNumber.set(num, cf);
       }
-      const mtMatch = cleanCf.match(/\b(\d+)[_-](\d+)\b/);
+      const mtMatch = cleanCf.match(/(?:^|\D)(\d+)[_-](\d+)(?:\D|$)/);
       if (mtMatch) {
         const toNum = String(parseInt(mtMatch[1], 10) || mtMatch[1]);
         const thuaNum = String(parseInt(mtMatch[2], 10) || mtMatch[2]);
@@ -360,7 +358,7 @@ export async function executeSyncToGoogleSheet(
       cccdByNameList.push({
         normName: cfNorm,
         filename: cf,
-        cccdCandidate: digitsMatch ? cleanCccd(digitsMatch[0]) : undefined,
+        cccdCandidate: (num && (num.length === 12 || num.length === 9)) ? num : undefined,
       });
     }
 
@@ -496,8 +494,26 @@ export async function executeSyncToGoogleSheet(
         foundCccd = cccdByToThua.get(toThuaKey) || cccdByToThua.get(maThua) || '';
       }
 
-      // Kiểm tra điều kiện SẴN SÀNG ĐÓNG TẬP: Có file CCCD trên R2 và có số CCCD 12 số
-      const hasCccdAndFile = Boolean(foundCccd && cccd && cleanCccd(cccd).length === 12);
+      // 4. Fallback đọc trực tiếp file CCCD đã liên kết trên phiếu kê khai
+      if (!foundCccd && (decl.cccd_file || decl.file_cccd_pdf || decl.cccd_url)) {
+        const rawCccdRef = String(decl.cccd_file || decl.file_cccd_pdf || decl.cccd_url || '').trim();
+        foundCccd = rawCccdRef.split('/').pop() || rawCccdRef;
+      }
+
+      // Nếu đã có file CCCD nhưng chưa có số CCCD, trích xuất từ tên file
+      if (foundCccd && (!cccd || cleanCccd(cccd).length < 9)) {
+        const extMatch = foundCccd.match(/(?:^|\D)(\d{9,12})(?:\D|$)/);
+        const extractedNum = extMatch ? cleanCccd(extMatch[1]) : cleanCccd(foundCccd);
+        if (extractedNum && (extractedNum.length === 12 || extractedNum.length === 9)) {
+          cccd = extractedNum;
+          item.cccd = cccd;
+          item.cccd_source = 'Trích từ file CCCD R2';
+        }
+      }
+
+      // Kiểm tra điều kiện SẴN SÀNG ĐÓNG TẬP: Có file CCCD trên R2 và có số CCCD hợp lệ (12 hoặc 9 số)
+      const cleanCVal = cleanCccd(cccd);
+      const hasCccdAndFile = Boolean(foundCccd && (cleanCVal.length === 12 || cleanCVal.length === 9));
 
       if (hasCccdAndFile) {
         item.cccd_file = foundCccd;

@@ -129,7 +129,7 @@ async function saveDeclarationsToR2(payload: StoragePayload): Promise<boolean> {
   try {
     const s3 = await getS3Client();
     if (s3) {
-      const { PutObjectCommand } = await import('@aws-sdk/client-s3');
+      const { PutObjectCommand, DeleteObjectCommand } = await import('@aws-sdk/client-s3');
       await s3.send(
         new PutObjectCommand({
           Bucket: R2_BUCKET,
@@ -138,6 +138,12 @@ async function saveDeclarationsToR2(payload: StoragePayload): Promise<boolean> {
           ContentType: 'application/json',
         })
       );
+      s3.send(
+        new DeleteObjectCommand({
+          Bucket: R2_BUCKET,
+          Key: 'cache/sync_sheets.json',
+        })
+      ).catch(() => {});
       return true;
     }
   } catch (err) {

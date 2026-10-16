@@ -111,5 +111,14 @@ export interface DeclarationFormData {
   ly_do_sai?: string;
   thua_kem_theo?: AdditionalParcel[];
   device_id?: string; // Mã định danh thiết bị đã kê khai thửa đất này
+  cccd_chu_ho?: string;
+  cccd?: string;
+  chu_ho?: string;
+  ho_va_ten_chu_ho?: string;
+  cccd_url?: string | null;
+  file_scan_pdf?: string;
+  cccd_file?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 

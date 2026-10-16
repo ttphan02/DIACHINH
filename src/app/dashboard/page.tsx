@@ -638,6 +638,15 @@ export default function DashboardPage() {
       ...existingDecl,
       [fieldKey]: formattedValue,
     };
+    if (fieldKey === 'chu_dat_cccd') {
+      updatedDecl.chu_dat_cccd = formattedValue;
+      updatedDecl.cccd_chu_ho = formattedValue;
+      (updatedDecl as any).cccd = formattedValue;
+    }
+    if (fieldKey === 'chu_dat_ten') {
+      (updatedDecl as any).chu_ho = formattedValue;
+      (updatedDecl as any).ho_va_ten_chu_ho = formattedValue;
+    }
     if (fieldKey === 'dia_chi_thua_dat') {
       updatedDecl.dia_chi_thua_dat = formattedValue;
       updatedDecl.chu_dat_dia_chi = formattedValue.includes('xã Cư Pui') ? formattedValue : `${formattedValue}, xã Cư Pui`;
@@ -3251,7 +3260,7 @@ export default function DashboardPage() {
 
                       setInlineSaveToast(`✓ Đã kê khai thành công ${newDecls.length} thửa đất đủ thông tin! Dữ liệu đã chuyển sang danh sách tương ứng.`);
                       setTimeout(() => setInlineSaveToast(null), 4500);
-                      await fetchSyncSheetsReport();
+                      await fetchSyncSheetsReport(true);
                     } catch (err) {
                       console.error('Lỗi kê khai các thửa đủ thông tin:', err);
                     } finally {
@@ -3299,6 +3308,7 @@ export default function DashboardPage() {
                             ...existingDecl,
                             chu_dat_cccd: cleanVal,
                             cccd_chu_ho: cleanVal,
+                            cccd: cleanVal,
                           };
                           saveOrUpdateDeclaration(updatedDecl);
                           updatedDecls.push(updatedDecl);
@@ -3306,6 +3316,78 @@ export default function DashboardPage() {
                       }
 
                       if (updatedDecls.length > 0) {
+                        // Dọn dẹp cellEdits của các thửa này
+                        setCellEdits((prev) => {
+                          const next = { ...prev };
+                          updatedDecls.forEach((d) => delete next[d.ma_thua]);
+                          try {
+                            localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
+                          } catch {}
+                          return next;
+                        });
+
+                        // Cập nhật UI tức thì (Optimistic UI Update): Di chuyển ngay lập tức giữa 2 sheet
+                        const movedMaThuas = new Set(updatedDecls.map((d) => d.ma_thua));
+                        setSyncSheetsData((prev) => {
+                          if (!prev) return prev;
+                          const oldUnpack = prev['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] || [];
+                          const oldPack = prev['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || [];
+
+                          const headerUnpack = oldUnpack[0] || [];
+                          const headerPack = oldPack[0] || [];
+
+                          const remainingUnpackRows = oldUnpack.slice(1).filter((r) => !movedMaThuas.has(String(r[1] || '').trim()));
+                          const newUnpack = [
+                            headerUnpack,
+                            ...remainingUnpackRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
+                          ];
+
+                          const newlyPackedRows = readyToMoveToPackRows.map((r) => {
+                            const maThua = String(r[1] || '').trim();
+                            const decl = updatedDecls.find((d) => d.ma_thua === maThua);
+                            const cccdNum = decl?.chu_dat_cccd || '';
+                            const cccdText = cccdNum ? `="${cccdNum}"` : '';
+                            const fileName = `${cccdNum}.pdf`;
+                            const fileUrl = `/api/image/cccd/${encodeURIComponent(fileName)}`;
+                            const fileFormula = `=HYPERLINK("${fileUrl}"; "${fileName}")`;
+                            return [
+                              '',
+                              maThua,
+                              String(r[2] || ''),
+                              String(decl?.chu_dat_ten || r[3] || ''),
+                              String(decl?.chu_dat_nam_sinh || r[4] || ''),
+                              String(decl?.chu_dat_gioi_tinh || r[5] || 'Nam'),
+                              cccdText,
+                              String(decl?.dien_tich || r[7] || ''),
+                              String(decl?.loai_dat || r[8] || 'DGT'),
+                              String(decl?.nguon_goc || r[9] || 'Khai Hoang'),
+                              fileFormula,
+                            ];
+                          });
+
+                          const mergedPackRows = [...oldPack.slice(1), ...newlyPackedRows];
+                          const newPack = [
+                            headerPack,
+                            ...mergedPackRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
+                          ];
+
+                          return {
+                            ...prev,
+                            'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)': newUnpack,
+                            'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)': newPack,
+                          };
+                        });
+
+                        setSyncSummary((prev) => {
+                          if (!prev) return prev;
+                          return {
+                            ...prev,
+                            daDongTap: (prev.daDongTap || 0) + updatedDecls.length,
+                            khongCoCccd: Math.max(0, (prev.khongCoCccd || 0) - updatedDecls.length),
+                          };
+                        });
+
+                        // Gửi batch lưu lên Cloudflare R2
                         const res = await fetch('/api/declarations', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
@@ -3322,8 +3404,8 @@ export default function DashboardPage() {
 
                       setInlineSaveToast(`✓ Đã chuyển thành công ${updatedDecls.length} thửa có file CCCD trên R2 sang Sẵn Sàng Đóng Tập!`);
                       setTimeout(() => setInlineSaveToast(null), 4000);
-                      await fetchSyncSheetsReport();
                       setSelectedReportSheet('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
+                      await fetchSyncSheetsReport(true);
                     } catch (err) {
                       console.error('Lỗi chuyển thửa sang đóng tập:', err);
                     } finally {
