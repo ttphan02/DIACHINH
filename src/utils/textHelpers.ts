@@ -278,3 +278,18 @@ export function getVillageColor(addrOrVillage: string, toBanDo?: string): Villag
     }
   );
 }
+
+export function cleanDisplayAddress(rawAddr?: string): string {
+  if (!rawAddr || !rawAddr.trim()) return 'Xã Cư Pui';
+  let addr = rawAddr.trim().replace(/,\s*$/, '');
+
+  if (/^(x[ãa]\s*)?c[uư]\s*pui$/i.test(addr)) return 'Xã Cư Pui';
+
+  addr = addr.replace(/([,\s]+x[ãa]\s*c[uư]\s*pui)+$/i, '');
+  addr = addr.replace(/([,\s]+c[uư]\s*pui)+$/i, '');
+  addr = addr.replace(/,\s*$/, '').trim();
+
+  if (!addr) return 'Xã Cư Pui';
+  return `${addr}, xã Cư Pui`;
+}
+

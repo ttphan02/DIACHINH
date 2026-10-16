@@ -35,9 +35,9 @@ import {
 import { downloadFile, autoDetectBoundaries, formatBoundaryText, processAndUploadImage, getResolvedImageUrl } from '@/utils/geo';
 import CccdImageEditorModal from '@/components/CccdImageEditorModal';
 import { AdditionalParcel } from '@/types';
-import { cleanCccd } from '@/utils/syncGoogleSheets';
 import { getOrCreateDeviceId } from '@/utils/declaration';
 import {
+  cleanCccd,
   cleanName,
   stripHonorifics,
   cleanBoundaryText,

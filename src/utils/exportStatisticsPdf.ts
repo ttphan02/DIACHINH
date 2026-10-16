@@ -1,7 +1,7 @@
 import { PDFDocument, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { Parcel } from '@/types';
-import { CANONICAL_VILLAGES, getCanonicalVillage } from '@/utils/syncGoogleSheets';
+import { CANONICAL_VILLAGES, getCanonicalVillage } from '@/utils/textHelpers';
 
 export interface VillageStatsItem {
   stt: number;

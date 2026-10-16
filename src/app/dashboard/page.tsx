@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
-import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, normalizeNguonGoc, NGUON_GOC_OPTIONS, cleanName, isValidFullName, isValidBirthYear, isValidCccd } from '@/utils/textHelpers';
+import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, normalizeNguonGoc, NGUON_GOC_OPTIONS, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress } from '@/utils/textHelpers';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
 import dynamic from 'next/dynamic';
 import type { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
@@ -18,7 +18,7 @@ import CccdHoverPreviewCard from '@/components/CccdHoverPreviewCard';
 const ExportMissingCccdModal = dynamic(() => import('@/components/ExportMissingCccdModal'), { ssr: false });
 import CadreNameModal from '@/components/CadreNameModal';
 import ScanFileManagerTab from '@/components/ScanFileManagerTab';
-import { cleanDisplayAddress, type ReadyToPackItem } from '@/utils/pdfPacker';
+import type { ReadyToPackItem } from '@/utils/pdfPacker';
 import {
   FileBarChart2,
   Loader2,
@@ -2955,7 +2955,9 @@ export default function DashboardPage() {
                     if (cleanVal && (r2CccdSet.has(cleanVal) || cccdUrl)) {
                       return 'ĐÃ CÓ CCCD (R2)';
                     }
-                    if (cleanVal && (cleanVal.length >= 9 || ggsCccdSet.has(cleanVal))) {
+                    // CHỈ KHI SỐ CCCD THỰC SỰ CÓ TRÊN GGS CHÍNH THÌ MỚI LÀ "CẦN TÌM CCCD"!
+                    // Nếu không có trên GGS chính lẫn R2 thì là "KHÔNG CÓ CCCD"
+                    if (cleanVal && ggsCccdSet.has(cleanVal)) {
                       return 'CẦN TÌM CCCD';
                     }
                     return 'KHÔNG CÓ CCCD';

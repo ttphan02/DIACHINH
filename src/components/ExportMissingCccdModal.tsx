@@ -15,7 +15,7 @@ import {
 import { Parcel, DeclarationFormData } from '@/types';
 import { getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
 import CadreNameModal from '@/components/CadreNameModal';
-import { cleanCccd } from '@/utils/syncGoogleSheets';
+import { cleanCccd } from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
 
 const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;

@@ -28,9 +28,9 @@ import {
   Loader2,
   AlertCircle,
 } from 'lucide-react';
-import { cleanCccd } from '@/utils/syncGoogleSheets';
 import { getOrCreateDeviceId } from '@/utils/declaration';
 import {
+  cleanCccd,
   cleanName,
   stripHonorifics,
   cleanBoundaryText,

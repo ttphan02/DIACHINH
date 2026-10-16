@@ -18,8 +18,8 @@ import {
   Loader2,
   AlertCircle,
 } from 'lucide-react';
-import { cleanCccd } from '@/utils/syncGoogleSheets';
 import {
+  cleanCccd,
   cleanName,
   cleanBoundaryText,
   NGUON_GOC_OPTIONS,
