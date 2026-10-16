@@ -1074,19 +1074,25 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const hasInitialLoadedRef = useRef(false);
   useEffect(() => {
+    if (hasInitialLoadedRef.current) return;
+    hasInitialLoadedRef.current = true;
     fetchGgsCodes();
     fetchR2CccdList();
-  }, [fetchGgsCodes, fetchR2CccdList]);
+    fetchSyncSheetsReport();
+  }, [fetchGgsCodes, fetchR2CccdList, fetchSyncSheetsReport]);
 
+  const prevTabRef = useRef(activeTab);
   useEffect(() => {
-    if (activeTab === 'progressReport') {
-      fetchR2CccdList();
+    // Chỉ nạp báo cáo khi người dùng thực sự chuyển sang tab progressReport và chưa có dữ liệu
+    if (activeTab === 'progressReport' && prevTabRef.current !== 'progressReport') {
       if (!syncSheetsData && !isLoadingSyncSheets) {
         fetchSyncSheetsReport();
       }
     }
-  }, [activeTab, syncSheetsData, isLoadingSyncSheets, fetchSyncSheetsReport, fetchR2CccdList]);
+    prevTabRef.current = activeTab;
+  }, [activeTab, syncSheetsData, isLoadingSyncSheets, fetchSyncSheetsReport]);
 
   // 3. Tính toán trạng thái thực tế của từng thửa
   const computedParcels = useMemo(() => {
@@ -3147,21 +3153,80 @@ export default function DashboardPage() {
 
                   const readyCount = readyChuaThucHienRows.length;
 
-                  // Kê khai toàn bộ các thửa đã có đầy đủ thông tin
+                  // Kê khai toàn bộ các thửa đã có đầy đủ thông tin (Batch 1 request duy nhất)
                   const handleCommitAllReadyDeclarations = async () => {
                     if (readyCount === 0 || isCommittingAllReady) return;
                     setIsCommittingAllReady(true);
                     try {
-                      let countDone = 0;
+                      const newDecls: DeclarationFormData[] = [];
+                      const deviceId = getOrCreateDeviceId();
+                      const newlyDeclaredCodes: string[] = [];
+
                       for (const r of readyChuaThucHienRows) {
                         const code = String(r[1] || '').trim();
-                        if (code) {
-                          await handleCommitChuaThucHienDeclaration(code, r);
-                          countDone++;
+                        if (!code) continue;
+                        const [toBanDo, soThua] = code.split('_');
+                        const p = computedParcels.find((cp) => cp.ma_thua === code);
+                        const edits = cellEdits[code] || {};
+                        const thonXa = String(edits[2] ?? r[2] ?? p?.thon_xa ?? '').trim();
+                        const chuDatTen = String(edits[3] ?? r[3] ?? p?.chu_ho ?? '').trim();
+                        const chuDatNamSinh = String(edits[4] ?? r[4] ?? '').trim();
+                        const chuDatGioiTinh = String(edits[5] ?? r[5] ?? 'Nam').trim();
+                        const rawCccdVal = String(edits[6] ?? r[6] ?? p?.cccd ?? '').replace(/^="|"$/g, '').trim();
+                        const cleanCccdVal = cleanCccd(rawCccdVal);
+                        const dienTich = String(edits[7] ?? r[7] ?? p?.dien_tich ?? '').trim();
+                        const loaiDat = String(edits[8] ?? r[8] ?? p?.loai_dat ?? 'DGT').trim();
+                        const nguonGoc = normalizeNguonGoc(String(edits[9] ?? r[9] ?? 'Khai hoang').trim());
+                        const diaChi = thonXa ? (thonXa.includes('xã Cư Pui') ? thonXa : `${thonXa}, xã Cư Pui`) : 'xã Cư Pui';
+
+                        const newDecl: DeclarationFormData = {
+                          ma_thua: code,
+                          to_ban_do: toBanDo,
+                          so_thua: soThua,
+                          chu_dat_ten: chuDatTen || (p?.chu_ho && p.chu_ho !== 'Chưa có tên' ? cleanName(p.chu_ho) : `Chủ Thửa ${soThua}`),
+                          chu_dat_nam_sinh: chuDatNamSinh,
+                          chu_dat_gioi_tinh: chuDatGioiTinh || 'Nam',
+                          chu_dat_cccd: cleanCccdVal,
+                          chu_dat_dia_chi: diaChi,
+                          dien_tich: dienTich,
+                          loai_dat: loaiDat,
+                          nguon_goc: nguonGoc,
+                          ghi_chu: '',
+                          device_id: deviceId,
+                        };
+                        newDecls.push(newDecl);
+                        newlyDeclaredCodes.push(code);
+                        saveOrUpdateDeclaration(newDecl);
+                      }
+
+                      // Gửi 1 request BATCH duy nhất lên Cloudflare R2
+                      const res = await fetch('/api/declarations', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ batch: newDecls }),
+                      });
+
+                      if (res.ok) {
+                        const data = (await res.json()) as any;
+                        if (data && data.declaredCodes) {
+                          setDeclaredParcelCodes(new Set(data.declaredCodes));
+                          setDeclarationsMap(data.declarationsMap || {});
                         }
                       }
-                      setInlineSaveToast(`✓ Đã kê khai thành công ${countDone} thửa đất đủ thông tin! Dữ liệu đã chuyển sang danh sách tương ứng.`);
+
+                      // Dọn dẹp cellEdits của các thửa này
+                      setCellEdits((prev) => {
+                        const next = { ...prev };
+                        newlyDeclaredCodes.forEach((c) => delete next[c]);
+                        try {
+                          localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
+                        } catch {}
+                        return next;
+                      });
+
+                      setInlineSaveToast(`✓ Đã kê khai thành công ${newDecls.length} thửa đất đủ thông tin! Dữ liệu đã chuyển sang danh sách tương ứng.`);
                       setTimeout(() => setInlineSaveToast(null), 4500);
+                      await fetchSyncSheetsReport();
                     } catch (err) {
                       console.error('Lỗi kê khai các thửa đủ thông tin:', err);
                     } finally {
@@ -3180,12 +3245,12 @@ export default function DashboardPage() {
                       })
                     : [];
 
-                  // Chuyển toàn bộ các thửa đã có file CCCD trên R2 sang SẴN SÀNG ĐÓNG TẬP
+                  // Chuyển toàn bộ các thửa đã có file CCCD trên R2 sang SẴN SÀNG ĐÓNG TẬP (Batch 1 request)
                   const handleMoveParcelsToReadyToPack = async () => {
                     if (readyToMoveToPackRows.length === 0 || isMovingParcelsToPack) return;
                     setIsMovingParcelsToPack(true);
                     try {
-                      let countMoved = 0;
+                      const updatedDecls: DeclarationFormData[] = [];
                       for (const r of readyToMoveToPackRows) {
                         const maThua = String(r[1] || '').trim();
                         const edits = cellEdits[maThua] || {};
@@ -3211,15 +3276,26 @@ export default function DashboardPage() {
                             cccd_chu_ho: cleanVal,
                           };
                           saveOrUpdateDeclaration(updatedDecl);
-                          await fetch('/api/declarations', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(updatedDecl),
-                          });
-                          countMoved++;
+                          updatedDecls.push(updatedDecl);
                         }
                       }
-                      setInlineSaveToast(`✓ Đã chuyển thành công ${countMoved} thửa có file CCCD trên R2 sang Sẵn Sàng Đóng Tập!`);
+
+                      if (updatedDecls.length > 0) {
+                        const res = await fetch('/api/declarations', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ batch: updatedDecls }),
+                        });
+                        if (res.ok) {
+                          const data = (await res.json()) as any;
+                          if (data && data.declaredCodes) {
+                            setDeclaredParcelCodes(new Set(data.declaredCodes));
+                            setDeclarationsMap(data.declarationsMap || {});
+                          }
+                        }
+                      }
+
+                      setInlineSaveToast(`✓ Đã chuyển thành công ${updatedDecls.length} thửa có file CCCD trên R2 sang Sẵn Sàng Đóng Tập!`);
                       setTimeout(() => setInlineSaveToast(null), 4000);
                       await fetchSyncSheetsReport();
                       setSelectedReportSheet('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');

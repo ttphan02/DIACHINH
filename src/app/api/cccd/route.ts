@@ -13,9 +13,11 @@ const R2_PUBLIC_BASE =
   process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL ||
   'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
 
-// Cache ngắn hạn 3 giây giúp Worker tránh nghẽn khi có nhiều request đồng thời, tự xóa khi force=true
+// Cache ngắn hạn giúp Worker tránh nghẽn khi có nhiều request đồng thời, tự xóa khi force=true
 let cccdCache: { data: any; timestamp: number } | null = null;
 const CCCD_CACHE_TTL = 3000;
+let listOnlyCache: { data: any; timestamp: number } | null = null;
+const LIST_ONLY_CACHE_TTL = 30000; // Cache 30 giây danh sách số CCCD, giảm 99% I/O và CPU Worker
 
 async function getR2Binding(): Promise<any | null> {
   try {
@@ -155,8 +157,18 @@ export async function GET(request: Request) {
       return NextResponse.json({ exists: false });
     }
 
-    // 2. Lấy danh sách tóm tắt tất cả các số CCCD đã có file PDF trên R2
+    // 2. Lấy danh sách tóm tắt tất cả các số CCCD đã có file PDF trên R2 (có cache 30s)
     if (searchParams.get('list_only')) {
+      const forceRefresh = searchParams.get('force') === 'true';
+      const now = Date.now();
+      if (!forceRefresh && listOnlyCache && now - listOnlyCache.timestamp < LIST_ONLY_CACHE_TTL) {
+        return NextResponse.json(listOnlyCache.data, {
+          headers: {
+            'Cache-Control': 'public, max-age=15, s-maxage=30',
+          },
+        });
+      }
+
       const bucket = await getR2Binding();
       let objects: Array<{ key: string }> = [];
 
@@ -200,10 +212,17 @@ export async function GET(request: Request) {
         .map((o) => o.key.replace(/^cccd\//, '').replace(/\.pdf$/i, '').trim())
         .filter((c) => cleanCccd(c).length === 12);
 
-      return NextResponse.json({
+      const payload = {
         success: true,
         count: cccdNumbers.length,
         cccdList: cccdNumbers,
+      };
+      listOnlyCache = { data: payload, timestamp: now };
+
+      return NextResponse.json(payload, {
+        headers: {
+          'Cache-Control': 'public, max-age=15, s-maxage=30',
+        },
       });
     }
 
@@ -411,6 +430,7 @@ export async function DELETE(request: Request) {
 
     // Xóa cache để cập nhật tức thì
     cccdCache = null;
+    listOnlyCache = null;
 
     // Trích xuất số CCCD từ tên file để hủy liên kết
     const cccdCandidate = cleanCccd(cleanFn.split('_')[0]);

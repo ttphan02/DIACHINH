@@ -287,6 +287,7 @@ export async function executeSyncToGoogleSheet(
     console.log('>>> Cloudflare Sync: Bắt đầu tối ưu...');
 
     // 1. Lấy mã GGS và danh sách file CCCD & SCAN từ R2
+    // 1. Lấy mã GGS và danh sách file CCCD & SCAN từ R2
     const [{ ggsCodes, ggsParcels, ggsAllCccds }, { cccdFiles, scanFiles }] = await Promise.all([
       getCachedGgsData(),
       getR2StorageFiles(r2Bucket),
@@ -313,6 +314,54 @@ export async function executeSyncToGoogleSheet(
           }
         }
       }
+    }
+
+    // Pre-index Scan Files để tra cứu O(1), triệt tiêu vòng lặp quét 1.000 files gây quá tải CPU (lỗi 1102)
+    const scanByToThua = new Map<string, string>();
+    const scanByCccd = new Map<string, string>();
+
+    for (const sf of scanFiles) {
+      const mtMatch = sf.match(/(\d+)[_-](\d+)/);
+      if (mtMatch) {
+        const toNum = String(parseInt(mtMatch[1], 10) || mtMatch[1]);
+        const thuaNum = String(parseInt(mtMatch[2], 10) || mtMatch[2]);
+        const key = `${toNum}_${thuaNum}`;
+        if (!scanByToThua.has(key)) scanByToThua.set(key, sf);
+      }
+      const cMatch = sf.match(/\b\d{9,12}\b/);
+      if (cMatch) {
+        const cleanC = cleanCccd(cMatch[0]);
+        if (cleanC && !scanByCccd.has(cleanC)) scanByCccd.set(cleanC, sf);
+      }
+    }
+
+    // Pre-index CCCD Files để tra cứu O(1), tiền xử lý bỏ dấu 1 LẦN DUY NHẤT thay vì 172.000 lần
+    const cccdByNumber = new Map<string, string>();
+    const cccdByToThua = new Map<string, string>();
+    const cccdByNameList: Array<{ normName: string; filename: string; cccdCandidate?: string }> = [];
+
+    for (const cf of cccdFiles) {
+      const cleanCf = cf.replace(/\.pdf$/i, '');
+      const digitsMatch = cleanCf.match(/\b\d{9,12}\b/);
+      if (digitsMatch) {
+        const num = cleanCccd(digitsMatch[0]);
+        if (num && !cccdByNumber.has(num)) {
+          cccdByNumber.set(num, cf);
+        }
+      }
+      const mtMatch = cleanCf.match(/\b(\d+)[_-](\d+)\b/);
+      if (mtMatch) {
+        const toNum = String(parseInt(mtMatch[1], 10) || mtMatch[1]);
+        const thuaNum = String(parseInt(mtMatch[2], 10) || mtMatch[2]);
+        const key = `${toNum}_${thuaNum}`;
+        if (!cccdByToThua.has(key)) cccdByToThua.set(key, cf);
+      }
+      const cfNorm = stripAccents(cleanCf);
+      cccdByNameList.push({
+        normName: cfNorm,
+        filename: cf,
+        cccdCandidate: digitsMatch ? cleanCccd(digitsMatch[0]) : undefined,
+      });
     }
 
     // 2. Phân loại 4 giai đoạn CHỈ TRÊN các phiếu đã kê khai (nhẹ, <1ms)
@@ -398,28 +447,14 @@ export async function executeSyncToGoogleSheet(
         continue;
       }
 
-      // NẾU THỬA ĐÓ CÓ FILE SCAN TRONG R2 RỒI -> CHUYỂN THẲNG QUA ĐÃ GIẢI QUYẾT!
-      const toRaw = String(toMoi || '').trim();
-      const thuaRaw = String(thuaMoi || '').trim();
-      const toNum = String(parseInt(toRaw, 10) || toRaw);
-      const toPad = toNum.padStart(2, '0');
-      const thuaNum = String(parseInt(thuaRaw, 10) || thuaRaw);
+      // NẾU THỬA ĐÓ CÓ FILE SCAN TRONG R2 RỒI -> CHUYỂN THẲNG QUA ĐÃ GIẢI QUYẾT (O(1))!
+      const toNum = String(parseInt(String(toMoi || ''), 10) || toMoi || '');
+      const thuaNum = String(parseInt(String(thuaMoi || ''), 10) || thuaMoi || '');
+      const toThuaKey = `${toNum}_${thuaNum}`;
 
-      let foundScan = '';
-      for (const sf of scanFiles) {
-        if (
-          sf.includes(maThua) ||
-          sf.includes(`${toRaw}_${thuaRaw}`) ||
-          sf.includes(`${toRaw}-${thuaRaw}`) ||
-          sf.includes(`${toNum}_${thuaNum}`) ||
-          sf.includes(`${toNum}-${thuaNum}`) ||
-          sf.includes(`${toPad}_${thuaNum}`) ||
-          sf.includes(`${toPad}-${thuaNum}`) ||
-          (cccd && cccd.length >= 9 && sf.includes(cccd))
-        ) {
-          foundScan = sf;
-          break;
-        }
+      let foundScan = scanByToThua.get(toThuaKey) || scanByToThua.get(maThua) || '';
+      if (!foundScan && cccd) {
+        foundScan = scanByCccd.get(cccd) || '';
       }
 
       if (!foundScan && (decl.file_scan_pdf || decl.anh_ho_so_pdf || decl.scan_file)) {
@@ -435,45 +470,30 @@ export async function executeSyncToGoogleSheet(
       // GIAI ĐOẠN 2: CÓ CCCD TRÊN R2 (Theo người dân, không phụ thuộc mã thửa)
       let foundCccd = '';
 
-      // 1. Tìm theo số CCCD 12 số (chính xác tuyệt đối)
-      if (cccd) {
-        for (const cf of cccdFiles) {
-          if (cf.startsWith(`${cccd}.`) || cf.startsWith(`${cccd}_`) || cf.includes(cccd)) {
-            foundCccd = cf;
-            break;
-          }
-        }
+      // 1. Tìm theo số CCCD (O(1))
+      if (cccd && cccdByNumber.has(cccd)) {
+        foundCccd = cccdByNumber.get(cccd)!;
       }
 
-      // 2. Nếu chưa có CCCD hoặc chưa tìm thấy theo số, đối soát theo tên chủ hộ trong file dạng sốcccd_tên.pdf
-      if (!foundCccd && chuHo) {
-        if (chuHoNorm.length >= 4) {
-          for (const cf of cccdFiles) {
-            const cleanCf = cf.replace(/\.pdf$/i, '');
-            const cfNorm = stripAccents(cleanCf);
-            if (cfNorm.includes(chuHoNorm)) {
-              foundCccd = cf;
-              const digitsMatch = cleanCf.match(/\b\d{9,12}\b/);
-              if (digitsMatch) {
-                cccd = digitsMatch[0];
-                cccdSource = 'Trích từ file CCCD R2';
-                item.cccd = cccd;
-                item.cccd_source = cccdSource;
-              }
-              break;
+      // 2. Nếu chưa có CCCD hoặc chưa tìm thấy theo số, đối soát theo tên chủ hộ (đã pre-strip)
+      if (!foundCccd && chuHoNorm.length >= 4) {
+        for (const cfItem of cccdByNameList) {
+          if (cfItem.normName.includes(chuHoNorm)) {
+            foundCccd = cfItem.filename;
+            if (cfItem.cccdCandidate) {
+              cccd = cfItem.cccdCandidate;
+              cccdSource = 'Trích từ file CCCD R2';
+              item.cccd = cccd;
+              item.cccd_source = cccdSource;
             }
+            break;
           }
         }
       }
 
-      // 3. Fallback tìm theo mã thửa nếu file đặt tên theo thửa
+      // 3. Fallback tìm theo mã thửa (O(1))
       if (!foundCccd) {
-        for (const cf of cccdFiles) {
-          if (cf.startsWith(`${maThua}.`) || cf.startsWith(`${maThua}_`)) {
-            foundCccd = cf;
-            break;
-          }
-        }
+        foundCccd = cccdByToThua.get(toThuaKey) || cccdByToThua.get(maThua) || '';
       }
 
       // Kiểm tra điều kiện SẴN SÀNG ĐÓNG TẬP: Có file CCCD trên R2 và có số CCCD 12 số
@@ -638,30 +658,41 @@ export async function executeSyncToGoogleSheet(
       };
     });
 
+    // Memoize kết quả getCanonicalVillage để không chạy lại regex/stripAccents 11.280 lần
+    const villageCache = new Map<string, string>();
+    const getVillageCached = (thon: string) => {
+      let v = villageCache.get(thon);
+      if (!v) {
+        v = getCanonicalVillage(thon);
+        villageCache.set(thon, v);
+      }
+      return v;
+    };
+
     // 1. Phân loại các hồ sơ đã kê khai nhưng CHƯA có trên GGS (stage 2, 1a, 1b)
     stage2DaDongTap.forEach((it) => {
-      const v = getCanonicalVillage(it.thon_xa);
+      const v = getVillageCached(it.thon_xa);
       if (vMap[v]) vMap[v].coCccd++;
       else vMap['Chưa xác định'].coCccd++;
     });
 
     stage1CanTimCccd.forEach((it) => {
-      const v = getCanonicalVillage(it.thon_xa);
+      const v = getVillageCached(it.thon_xa);
       if (vMap[v]) vMap[v].canTim++;
       else vMap['Chưa xác định'].canTim++;
     });
 
     stage1KhongCoCccd.forEach((it) => {
-      const v = getCanonicalVillage(it.thon_xa);
+      const v = getVillageCached(it.thon_xa);
       if (vMap[v]) vMap[v].khongCccd++;
       else vMap['Chưa xác định'].khongCccd++;
     });
 
-    // 2. Thống kê toàn bộ các thửa đất trong cơ sở dữ liệu xã Cư Pui (11.280 thửa) từ dữ liệu rút gọn siêu nhẹ
+    // 2. Thống kê toàn bộ các thửa đất trong cơ sở dữ liệu xã Cư Pui (11.280 thửa) từ dữ liệu rút gọn siêu nhẹ (O(1) cached)
     for (const [maThua, item] of Object.entries(parcelsBrief)) {
       const thonXa = item[2] || '';
       const statusFlag = item[3]; // 0: KHONG_TEN, 1: CO_TEN_CHUA_SO_HOA_VANG, 2: DA_SO_HOA_XANH
-      const v = getCanonicalVillage(thonXa);
+      const v = getVillageCached(thonXa);
       const row = vMap[v] || vMap['Chưa xác định'];
 
       const isOnGgs = ggsCodes.has(maThua);

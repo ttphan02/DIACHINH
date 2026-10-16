@@ -118,6 +118,7 @@ async function saveDeclarationsToR2(payload: StoragePayload): Promise<boolean> {
       await bucket.put(KEY_ALL_DECLARATIONS, jsonStr, {
         httpMetadata: { contentType: 'application/json' },
       });
+      bucket.delete('cache/sync_sheets.json').catch(() => {});
       return true;
     }
   } catch (err) {
@@ -189,6 +190,52 @@ export async function POST(request: Request) {
       };
       await saveDeclarationsToR2(updatedPayload);
       return NextResponse.json({ success: true, cellEdits: updatedPayload.cellEdits });
+    }
+
+    // Hỗ trợ lưu hàng loạt (batch) trong 1 request duy nhất, tránh gửi hàng chục requests làm quá tải Worker (lỗi 1102)
+    if (body && Array.isArray(body.batch) && body.batch.length > 0) {
+      const currentData = await getDeclarationsFromR2(true);
+      const declaredCodesSet = new Set<string>(currentData.declaredCodes);
+      const declarationsMap = { ...currentData.declarationsMap };
+      const currentCellEdits = { ...(currentData.cellEdits || {}) };
+      const timestamp = new Date().toISOString();
+
+      for (const item of body.batch) {
+        if (!item || !item.ma_thua) continue;
+        const code = item.ma_thua;
+        const fullDeclData = {
+          ...item,
+          dia_chi_thua_dat: item.dia_chi_thua_dat || 'xã Cư Pui',
+          chu_dat_dia_chi: item.chu_dat_dia_chi || item.dia_chi_thua_dat || 'xã Cư Pui',
+          device_id: item.device_id || 'MAY_DEF',
+          created_at: item.created_at || timestamp,
+          updated_at: timestamp,
+        };
+        declaredCodesSet.add(code);
+        declarationsMap[code] = fullDeclData;
+        delete currentCellEdits[code];
+      }
+
+      const updatedCodes = Array.from(declaredCodesSet);
+      const updatedPayload: StoragePayload = {
+        declaredCodes: updatedCodes,
+        declarationsMap,
+        cellEdits: currentCellEdits,
+        updatedAt: timestamp,
+      };
+
+      const saved = await saveDeclarationsToR2(updatedPayload);
+      if (!saved) {
+        return NextResponse.json({ success: false, error: 'Không thể ghi vào Cloudflare R2' }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        batchCount: body.batch.length,
+        declaredCodes: updatedCodes,
+        declarationsMap,
+        cellEdits: currentCellEdits,
+      });
     }
 
     const formData = body as DeclarationFormData;
