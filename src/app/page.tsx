@@ -13,6 +13,7 @@ import CadreNameModal from '@/components/CadreNameModal';
 import MapSheetMultiSelect from '@/components/MapSheetMultiSelect';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getSavedCadreName } from '@/utils/declaration';
+import { reportCadreLocation } from '@/utils/cadreTracker';
 import {
   Search,
   Layers,
@@ -174,6 +175,15 @@ export default function Home() {
         });
         setIsTracking(true);
         setIsLocating(false);
+
+        // Phát sóng vị trí thực địa của cán bộ lên máy chủ trung tâm Dashboard
+        reportCadreLocation({
+          lat: latitude,
+          lng: longitude,
+          accuracy: Math.round(accuracy),
+          speed: typeof speed === 'number' && !isNaN(speed) ? Math.round(speed * 3.6) : null,
+          heading: typeof gpsHeading === 'number' && !isNaN(gpsHeading) ? Math.round(gpsHeading) : null,
+        }).catch(() => {});
       },
       (err) => {
         console.warn('GPS auto-watch note:', err.message);
@@ -836,6 +846,19 @@ export default function Home() {
             }
             setPickToast('✓ Đã đồng bộ lên máy chủ thành công');
             setTimeout(() => setPickToast(null), 3000);
+
+            // Cập nhật trạng thái công việc của cán bộ: Vừa kê khai xong thửa đất
+            if (userLocation) {
+              reportCadreLocation({
+                lat: userLocation.lat,
+                lng: userLocation.lng,
+                accuracy: userLocation.accuracy,
+                speed: userLocation.speed,
+                heading: userLocation.heading,
+                action: `Kê khai thửa ${formData.ma_thua}`,
+                force: true,
+              }).catch(() => {});
+            }
           } else {
             console.warn('Đồng bộ cloud trả về mã lỗi:', res.status);
             setPickToast('✓ Đã lưu trên máy (Cloud sẽ đồng bộ sau)');
@@ -1177,9 +1200,13 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setIsCadreModalOpen(true)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 font-bold rounded-xl transition shrink-0 border border-emerald-500/40 shadow-xs cursor-pointer"
-                  title="Bấm để đổi tên cán bộ kê khai"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 font-bold rounded-xl transition shrink-0 border border-emerald-500/40 shadow-xs cursor-pointer"
+                  title="Bấm để đổi tên cán bộ kê khai (Đang kết nối GPS giám sát trực tuyến)"
                 >
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
                   <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
                   <span className="hidden xs:inline">{cadreName || 'Cán bộ'}</span>
                 </button>

@@ -122,3 +122,31 @@ export interface DeclarationFormData {
   updated_at?: string;
 }
 
+export type CadreWorkStatus = 'active_moving' | 'active_stationary' | 'idle' | 'offline';
+
+export interface CadreBreadcrumb {
+  lat: number;
+  lng: number;
+  timestamp: number; // epoch ms
+  speed?: number | null; // km/h
+  accuracy?: number | null; // meters
+}
+
+export interface CadreLocationRecord {
+  cadreName: string;
+  deviceId: string;
+  lat: number;
+  lng: number;
+  accuracy: number;
+  speed?: number | null; // km/h
+  heading?: number | null; // 0-360 deg
+  currentAction?: string; // e.g. "Đang kê khai thửa 45_12", "Di chuyển thực địa"
+  battery?: number | null;
+  lastUpdated: number; // epoch ms
+  status: CadreWorkStatus;
+  todayDistanceMeters?: number; // Quãng đường di chuyển trong ngày (mét)
+  breadcrumbs?: CadreBreadcrumb[]; // Lịch sử các điểm di chuyển gần nhất
+  nearestVillage?: string;
+  declaredTodayCount?: number;
+}
+

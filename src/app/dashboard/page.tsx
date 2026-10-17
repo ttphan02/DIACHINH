@@ -16,10 +16,12 @@ import CccdSupplementModal from '@/components/CccdSupplementModal';
 import CccdManagerTab from '@/components/CccdManagerTab';
 import CccdHoverPreviewCard from '@/components/CccdHoverPreviewCard';
 const ExportMissingCccdModal = dynamic(() => import('@/components/ExportMissingCccdModal'), { ssr: false });
-import CadreNameModal from '@/components/CadreNameModal';
 import ScanFileManagerTab from '@/components/ScanFileManagerTab';
+import CadreNameModal from '@/components/CadreNameModal';
+const CadreTrackingTab = dynamic(() => import('@/components/CadreTrackingTab'), { ssr: false });
 import type { ReadyToPackItem } from '@/utils/pdfPacker';
 import {
+  Radio,
   FileBarChart2,
   Loader2,
   Camera,
@@ -116,8 +118,8 @@ export default function DashboardPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
 
-  // Active view tab in Dashboard: Báo Cáo Tiến Độ, Tiến Độ 16 Thôn, Kho CCCD, Kho File Scan
-  const [activeTab, setActiveTab] = useState<'progressReport' | 'villages' | 'cccd' | 'filescan'>('progressReport');
+  // Active view tab in Dashboard: Báo Cáo Tiến Độ, Tiến Độ 16 Thôn, Kho CCCD, Kho File Scan, Vị Trí Cán Bộ
+  const [activeTab, setActiveTab] = useState<'progressReport' | 'villages' | 'cccd' | 'filescan' | 'cadres'>('progressReport');
 
   // Theme state: Dark mode hoặc Light mode (lưu vào localStorage)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
@@ -2482,6 +2484,24 @@ export default function DashboardPage() {
                 <HardDrive className="w-3.5 h-3.5 text-sky-500" />
                 <span>File Scan</span>
               </button>
+
+              {/* 4. Nút Vị trí Cán Bộ Thực Địa (GPS Realtime) */}
+              <button
+                type="button"
+                onClick={() => setActiveTab(activeTab === 'cadres' ? 'progressReport' : 'cadres')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  activeTab === 'cadres'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : isLight
+                    ? 'text-slate-700 hover:bg-white'
+                    : 'text-slate-300 hover:bg-slate-800'
+                }`}
+                title="Giám sát vị trí & di chuyển realtime của người kê khai"
+              >
+                <Radio className={`w-3.5 h-3.5 ${activeTab === 'cadres' ? 'text-white' : 'text-emerald-400 animate-pulse'}`} />
+                <span>Vị trí Cán bộ</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+              </button>
             </div>
 
             {/* Nút mở công cụ ScanName (Tách PDF & Đổi tên hồ sơ scan sau ký) */}
@@ -2689,6 +2709,14 @@ export default function DashboardPage() {
                 setIsDetailModalOpen(true);
               }
             }}
+          />
+        )}
+
+        {/* TAB 5c: QUẢN LÝ VỊ TRÍ & DI CHUYỂN REALTIME CỦA CÁN BỘ */}
+        {activeTab === 'cadres' && (
+          <CadreTrackingTab
+            theme={theme}
+            isLight={isLight}
           />
         )}
 
