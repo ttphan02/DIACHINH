@@ -1254,19 +1254,19 @@ export default function Home() {
                   </span>
                 </button>
 
-                {/* Nút Hiển Thị / Đổi Tên Cán Bộ Kê Khai */}
+                {/* Nút Hiển Thị / Đổi Tên Người Kê Khai */}
                 <button
                   type="button"
                   onClick={() => setIsCadreModalOpen(true)}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 font-bold rounded-xl transition shrink-0 border border-emerald-500/40 shadow-xs cursor-pointer"
-                  title="Bấm để đổi tên cán bộ kê khai (Đang kết nối GPS giám sát trực tuyến)"
+                  title="Bấm để đổi tên người kê khai (Đang kết nối GPS trực tuyến)"
                 >
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
                   <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="hidden xs:inline">{cadreName || 'Cán bộ'}</span>
+                  <span className="hidden xs:inline">{cadreName || 'Người kê khai'}</span>
                 </button>
               </div>
             </div>

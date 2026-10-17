@@ -79,17 +79,17 @@ export default function CadreNameModal({
         </div>
 
         <h3 className="text-lg font-black tracking-tight mb-1">
-          {isFirstTime ? 'Chào Bạn! Nhập Tên Cán Bộ' : 'Đổi Tên Cán Bộ Kê Khai'}
+          {isFirstTime ? 'Chào Bạn! Nhập Tên Người Kê Khai' : 'Đổi Tên Người Kê Khai'}
         </h3>
         <p className="text-xs text-slate-400 mb-5 leading-relaxed">
-          Tên định danh giúp hệ thống nhận diện chuẩn xác các thửa đất do bạn kê khai, không lo bị mất danh sách khi đổi máy hay dọn dẹp trình duyệt.
+          Tên định danh giúp hệ thống nhận diện chuẩn xác các thửa đất do bạn kê khai, lưu trữ an toàn và bảo lưu dữ liệu của bạn trên hệ thống.
         </p>
 
         {/* Form nhập tên */}
         <form onSubmit={handleSave} className="space-y-4">
           <div className="space-y-1.5 text-left">
             <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-              Tên cán bộ (In hoa liền không dấu):
+              Họ và tên người kê khai (In hoa liền không dấu):
             </label>
             <div className="relative">
               <input
@@ -97,7 +97,7 @@ export default function CadreNameModal({
                 autoFocus
                 value={name}
                 onChange={handleChange}
-                placeholder="Ví dụ: PHANTHANHTRUC"
+                placeholder="Ví dụ: NGUYENVANA hoặc PHANTHANHTRUC"
                 className={`w-full px-4 py-3 rounded-2xl text-center text-sm font-black tracking-widest border transition focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
                   isLight
                     ? 'bg-slate-50 border-slate-300 text-indigo-900 placeholder:text-slate-400'
@@ -125,14 +125,14 @@ export default function CadreNameModal({
               • Tự động viết hoa, viết liền, bỏ dấu tiếng Việt.
             </p>
             <p className="text-[11px]">
-              • <strong className="text-slate-200">Ví dụ:</strong> <span className="text-cyan-400 font-mono font-bold">PHANTHANHTRUC</span>, <span className="text-cyan-400 font-mono font-bold">CANBO_HUNG</span>, <span className="text-cyan-400 font-mono font-bold">TO1</span>.
+              • <strong className="text-slate-200">Ví dụ:</strong> <span className="text-cyan-400 font-mono font-bold">NGUYENVANA</span>, <span className="text-cyan-400 font-mono font-bold">PHANTHANHTRUC</span>, <span className="text-cyan-400 font-mono font-bold">TRANTHIB</span>.
             </p>
           </div>
 
-          {/* Thông báo bật GPS & Đút túi quần tự động */}
+          {/* Thông báo định vị GPS */}
           <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] text-left">
             <Radio className="w-4 h-4 shrink-0 animate-pulse text-emerald-400" />
-            <span>Sau khi xác nhận, GPS & Chế độ Đút túi quần sẽ tự động bật để theo dõi vị trí thực địa kể cả khi tắt màn hình.</span>
+            <span>Sau khi xác nhận, định vị GPS sẽ được kích hoạt để tự động tìm và dẫn đường chính xác đến thửa đất của bạn.</span>
           </div>
 
           {/* Nút Lưu */}
@@ -155,8 +155,8 @@ export default function CadreNameModal({
               disabled={name.length < 2}
               className={`flex-1 py-3 rounded-2xl text-xs font-black transition cursor-pointer shadow-lg bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white shadow-emerald-600/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5`}
             >
-              <UserCheck className="w-4 h-4" />
-              <span>Xác Nhận & Bật Vị Trí GPS</span>
+              <Check className="w-4 h-4" />
+              <span>Xác Nhận Tên</span>
             </button>
           </div>
         </form>
