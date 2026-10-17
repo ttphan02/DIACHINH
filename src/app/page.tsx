@@ -14,6 +14,7 @@ import MapSheetMultiSelect from '@/components/MapSheetMultiSelect';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getSavedCadreName } from '@/utils/declaration';
 import { reportCadreLocation } from '@/utils/cadreTracker';
+import { backgroundKeeper } from '@/utils/backgroundLocationKeeper';
 import {
   Search,
   Layers,
@@ -27,6 +28,7 @@ import {
   Camera,
   Users,
   UserCheck,
+  Headphones,
 } from 'lucide-react';
 
 // Dynamic import Leaflet Map (SSR disabled)
@@ -49,6 +51,9 @@ export default function Home() {
   const [isCadreModalOpen, setIsCadreModalOpen] = useState(false);
   const [isFirstTimeCadre, setIsFirstTimeCadre] = useState(false);
 
+  // Chế độ Đút Túi Quần (Background Audio Keep-Alive khi khóa màn hình)
+  const [isPocketMode, setIsPocketMode] = useState(false);
+
   useEffect(() => {
     const saved = getSavedCadreName();
     if (saved) {
@@ -57,7 +62,33 @@ export default function Home() {
       setIsFirstTimeCadre(true);
       setIsCadreModalOpen(true);
     }
+
+    try {
+      if (localStorage.getItem('diachinh_pocket_mode') === 'true') {
+        // Tự động kiểm tra trạng thái hoạt động của keeper
+        setIsPocketMode(backgroundKeeper.isActive());
+      }
+    } catch {}
   }, []);
+
+  const togglePocketMode = async () => {
+    if (isPocketMode) {
+      backgroundKeeper.stop();
+      setIsPocketMode(false);
+      setPickToast('✓ Đã tắt chế độ theo dõi khi khóa màn hình');
+      setTimeout(() => setPickToast(null), 3000);
+    } else {
+      const ok = await backgroundKeeper.start(cadreName);
+      if (ok) {
+        setIsPocketMode(true);
+        setPickToast('🟢 Đã bật chế độ Đút túi quần! Khi khóa màn hình, điện thoại vẫn liên tục gửi vị trí về Dashboard.');
+        setTimeout(() => setPickToast(null), 5000);
+      } else {
+        setPickToast('⚠️ Không thể kích hoạt âm thanh nền');
+        setTimeout(() => setPickToast(null), 3000);
+      }
+    }
+  };
 
   // Tải dữ liệu 11.280 thửa đất bất đồng bộ phía trình duyệt từ CDN tĩnh, giải phóng 100% tài nguyên Cloudflare Worker SSR (ngăn lỗi 1102)
   useEffect(() => {
@@ -1194,6 +1225,27 @@ export default function Home() {
                 >
                   <Users className="w-3.5 h-3.5 text-rose-400" />
                   <span className="hidden xs:inline">Cần Thu CCCD</span>
+                </button>
+
+                {/* Nút Chế độ Đút Túi Quần (Khóa màn hình vẫn theo dõi qua Audio Keep-Alive) */}
+                <button
+                  type="button"
+                  onClick={togglePocketMode}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold rounded-xl transition shrink-0 border shadow-xs cursor-pointer ${
+                    isPocketMode
+                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400 shadow-emerald-900/50'
+                      : 'bg-slate-900/90 hover:bg-slate-800 text-slate-300 border-slate-700'
+                  }`}
+                  title={
+                    isPocketMode
+                      ? 'Chế độ Đút túi quần ĐANG BẬT: Bạn có thể khóa màn hình, điện thoại vẫn liên tục gửi GPS về Dashboard'
+                      : 'Bấm để bật chế độ Đút túi quần (Khóa màn hình vẫn theo dõi GPS realtime)'
+                  }
+                >
+                  <Headphones className={`w-3.5 h-3.5 ${isPocketMode ? 'text-white animate-pulse' : 'text-slate-400'}`} />
+                  <span className="hidden xs:inline">
+                    {isPocketMode ? 'Đút túi: BẬT' : 'Đút túi: TẮT'}
+                  </span>
                 </button>
 
                 {/* Nút Hiển Thị / Đổi Tên Cán Bộ Kê Khai */}
