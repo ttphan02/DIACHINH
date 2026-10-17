@@ -51,24 +51,30 @@ export default function Home() {
   const [isCadreModalOpen, setIsCadreModalOpen] = useState(false);
   const [isFirstTimeCadre, setIsFirstTimeCadre] = useState(false);
 
-  // Chế độ Đút Túi Quần (Background Audio Keep-Alive khi khóa màn hình)
-  const [isPocketMode, setIsPocketMode] = useState(false);
+  // Chế độ Đút Túi Quần (Background Audio Keep-Alive khi khóa màn hình) - Luôn BẬT mặc định
+  const [isPocketMode, setIsPocketMode] = useState(true);
 
   useEffect(() => {
     const saved = getSavedCadreName();
     if (saved) {
       setCadreName(saved);
+      // Chế độ đút túi quần luôn bật (mặc định)
+      setIsPocketMode(true);
+
+      // Kích hoạt ngay audio nền khi người dùng chạm vào màn hình lần đầu
+      const startKeeperOnFirstInteraction = async () => {
+        if (!backgroundKeeper.isActive()) {
+          await backgroundKeeper.start(saved);
+        }
+        window.removeEventListener('click', startKeeperOnFirstInteraction);
+        window.removeEventListener('touchstart', startKeeperOnFirstInteraction);
+      };
+      window.addEventListener('click', startKeeperOnFirstInteraction, { once: true });
+      window.addEventListener('touchstart', startKeeperOnFirstInteraction, { once: true });
     } else {
       setIsFirstTimeCadre(true);
       setIsCadreModalOpen(true);
     }
-
-    try {
-      if (localStorage.getItem('diachinh_pocket_mode') === 'true') {
-        // Tự động kiểm tra trạng thái hoạt động của keeper
-        setIsPocketMode(backgroundKeeper.isActive());
-      }
-    } catch {}
   }, []);
 
   const togglePocketMode = async () => {
@@ -1335,9 +1341,60 @@ export default function Home() {
           setIsCadreModalOpen(false);
           setIsFirstTimeCadre(false);
         }}
-        onSaved={(newName) => {
+        onSaved={async (newName) => {
           setCadreName(newName);
           setIsFirstTimeCadre(false);
+
+          // 1. Chế độ đút túi quần luôn bật (mặc định)
+          setIsPocketMode(true);
+          await backgroundKeeper.start(newName);
+
+          // 2. Yêu cầu bật vị trí GPS ngay lập tức sau khi nhập tên
+          if (typeof window !== 'undefined' && navigator.geolocation) {
+            setPickToast('📍 Đang kích hoạt định vị GPS thực địa...');
+            navigator.geolocation.getCurrentPosition(
+              (pos) => {
+                const { latitude, longitude, accuracy, speed, heading } = pos.coords;
+                const spd = typeof speed === 'number' && !isNaN(speed) ? Math.round(speed * 3.6) : null;
+                setUserLocation({
+                  lat: latitude,
+                  lng: longitude,
+                  accuracy: Math.round(accuracy),
+                  heading: typeof heading === 'number' && !isNaN(heading) ? Math.round(heading) : null,
+                  speed: spd,
+                });
+                setIsTracking(true);
+                setIsLocating(false);
+
+                // Phát sóng tọa độ GPS ngay lập tức lên Dashboard
+                reportCadreLocation({
+                  lat: latitude,
+                  lng: longitude,
+                  accuracy: Math.round(accuracy),
+                  speed: spd,
+                  heading: typeof heading === 'number' && !isNaN(heading) ? Math.round(heading) : null,
+                  action: 'Bắt đầu làm việc thực địa',
+                  force: true,
+                }).catch(() => {});
+
+                setPickToast(`🟢 Đã kích hoạt GPS & Chế độ Đút túi quần (khóa màn hình vẫn theo dõi)!`);
+                setTimeout(() => setPickToast(null), 5000);
+              },
+              (err) => {
+                console.warn('Lỗi định vị sau khi nhập tên:', err);
+                if (err.code === 1) {
+                  alert('⚠️ Vui lòng cấp quyền "Cho phép truy cập vị trí" để hệ thống theo dõi GPS thực địa.');
+                }
+                setPickToast('⚠️ Vui lòng bật vị trí GPS trên máy để gửi tọa độ về Dashboard');
+                setTimeout(() => setPickToast(null), 5000);
+              },
+              {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0,
+              }
+            );
+          }
         }}
         isFirstTime={isFirstTimeCadre}
         theme="dark"

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { UserCheck, X, Check, ShieldCheck, Sparkles } from 'lucide-react';
+import { UserCheck, X, Check, ShieldCheck, Sparkles, Radio } from 'lucide-react';
 import { formatCadreName, getSavedCadreName, saveCadreName } from '@/utils/declaration';
 
 interface CadreNameModalProps {
@@ -129,8 +129,14 @@ export default function CadreNameModal({
             </p>
           </div>
 
+          {/* Thông báo bật GPS & Đút túi quần tự động */}
+          <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] text-left">
+            <Radio className="w-4 h-4 shrink-0 animate-pulse text-emerald-400" />
+            <span>Sau khi xác nhận, GPS & Chế độ Đút túi quần sẽ tự động bật để theo dõi vị trí thực địa kể cả khi tắt màn hình.</span>
+          </div>
+
           {/* Nút Lưu */}
-          <div className="pt-2 flex items-center gap-2">
+          <div className="pt-1 flex items-center gap-2">
             {!isFirstTime && (
               <button
                 type="button"
@@ -147,9 +153,10 @@ export default function CadreNameModal({
             <button
               type="submit"
               disabled={name.length < 2}
-              className={`flex-1 py-3 rounded-2xl text-xs font-black transition cursor-pointer shadow-lg bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white shadow-indigo-600/30 disabled:opacity-40 disabled:cursor-not-allowed`}
+              className={`flex-1 py-3 rounded-2xl text-xs font-black transition cursor-pointer shadow-lg bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white shadow-emerald-600/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5`}
             >
-              Lưu Tên Cán Bộ
+              <UserCheck className="w-4 h-4" />
+              <span>Xác Nhận & Bật Vị Trí GPS</span>
             </button>
           </div>
         </form>
