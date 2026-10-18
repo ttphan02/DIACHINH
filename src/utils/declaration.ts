@@ -26,8 +26,7 @@ export function formatCadreName(input: string): string {
 export function getSavedCadreName(): string {
   if (typeof window === 'undefined') return '';
   try {
-    const name = localStorage.getItem(CADRE_NAME_KEY) || localStorage.getItem(DEVICE_ID_KEY) || '';
-    if (name.startsWith('MAY_')) return ''; // Bỏ qua mã máy tự sinh cũ
+    const name = localStorage.getItem(CADRE_NAME_KEY) || '';
     return formatCadreName(name);
   } catch {
     return '';

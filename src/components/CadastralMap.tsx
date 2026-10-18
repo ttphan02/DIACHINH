@@ -810,7 +810,16 @@ export default function CadastralMap({
       </div>
 
       {/* NÚT TRÒN ĐỊNH VỊ VỊ TRÍ ĐANG ĐỨNG (GOOGLE MAPS STYLE - CÓ CHẾ ĐỘ BÁM BƯỚC CHÂN) */}
-      <div className="absolute bottom-20 right-3.5 sm:bottom-24 sm:right-4 z-[1000] flex flex-col items-center gap-2">
+      <div className="absolute bottom-20 right-3.5 sm:bottom-24 sm:right-4 z-[1000] flex flex-col items-end gap-1.5">
+        {!userLocation && (
+          <div
+            onClick={handleFlyToUserLocation}
+            className="cursor-pointer bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-[11px] font-extrabold px-3 py-1.5 rounded-2xl shadow-xl border border-emerald-400/50 flex items-center gap-1.5 animate-bounce active:scale-95 transition"
+          >
+            <span className="w-2 h-2 rounded-full bg-white animate-ping"></span>
+            <span>Chạm để Bật GPS</span>
+          </div>
+        )}
         <button
           type="button"
           onClick={handleFlyToUserLocation}
