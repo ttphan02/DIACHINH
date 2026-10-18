@@ -402,6 +402,32 @@ export default function Home() {
     window.addEventListener('focus', onInstantSync);
     document.addEventListener('visibilitychange', onInstantSync);
 
+    // Bắt lại vị trí và đồng bộ dữ liệu ngay lập tức khi thiết bị có mạng trở lại (Online event)
+    const onOnlineReconnect = () => {
+      fetchCloudDeclarations();
+      fetchGgsCodes(true);
+      if (typeof navigator !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const { latitude, longitude, accuracy, speed, heading } = pos.coords;
+            const spd = typeof speed === 'number' && !isNaN(speed) ? Math.round(speed * 3.6) : null;
+            reportCadreLocation({
+              lat: latitude,
+              lng: longitude,
+              accuracy: Math.round(accuracy),
+              speed: spd,
+              heading: typeof heading === 'number' && !isNaN(heading) ? Math.round(heading) : null,
+              action: 'Trực tuyến trở lại',
+              force: true,
+            }).catch(() => {});
+          },
+          () => {},
+          { enableHighAccuracy: true, timeout: 10000 }
+        );
+      }
+    };
+    window.addEventListener('online', onOnlineReconnect);
+
     // Đồng bộ Google Sheets mỗi 45 giây
     const ggsInterval = setInterval(() => {
       fetchGgsCodes(false);
@@ -412,6 +438,7 @@ export default function Home() {
       clearInterval(ggsInterval);
       window.removeEventListener('focus', onInstantSync);
       document.removeEventListener('visibilitychange', onInstantSync);
+      window.removeEventListener('online', onOnlineReconnect);
     };
   }, [fetchGgsCodes, fetchCloudDeclarations]);
 
