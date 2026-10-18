@@ -1,4 +1,4 @@
-import { getSavedCadreName, getOrCreateDeviceId } from './declaration';
+import { getSavedCadreName } from './declaration';
 
 interface SendLocationOptions {
   lat: number;
@@ -31,16 +31,38 @@ function calculateSimpleDistance(lat1: number, lon1: number, lat2: number, lon2:
 }
 
 /**
+ * Lấy hoặc khởi tạo mã phần cứng thiết bị vĩnh viễn (để giữ liên kết lộ trình kể cả trước và sau khi nhập tên)
+ */
+export function getPermanentDeviceId(): string {
+  if (typeof window === 'undefined') return 'DEV_UNKNOWN';
+  try {
+    let devId = localStorage.getItem('diachinh_permanent_device_id');
+    if (!devId) {
+      const legacy = localStorage.getItem('diachinh_device_id');
+      if (legacy && legacy.startsWith('MAY_')) {
+        devId = legacy;
+      } else {
+        const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+        devId = `MAY_${rand}`;
+      }
+      localStorage.setItem('diachinh_permanent_device_id', devId);
+    }
+    return devId;
+  } catch {
+    return 'MAY_DEF';
+  }
+}
+
+/**
  * Phát sóng tọa độ GPS của cán bộ lên máy chủ trung tâm
  */
 export async function reportCadreLocation(options: SendLocationOptions): Promise<boolean> {
   if (typeof window === 'undefined') return false;
 
-  const cadreName = getSavedCadreName();
-  if (!cadreName) {
-    // Chưa thiết lập tên cán bộ thì không phát sóng
-    return false;
-  }
+  const deviceId = getPermanentDeviceId();
+  const savedName = getSavedCadreName();
+  // Phương án B: Nếu chưa nhập tên, tự động gán tên định danh tạm thời theo mã máy
+  const cadreName = savedName || `CHUADATTEN_${deviceId.replace(/^MAY_/, '')}`;
 
   const { lat, lng, accuracy = 10, speed = null, heading = null, action, force = false } = options;
   if (!lat || !lng || isNaN(lat) || isNaN(lng)) return false;
@@ -57,8 +79,6 @@ export async function reportCadreLocation(options: SendLocationOptions): Promise
   lastReportTime = now;
   lastReportedLat = lat;
   lastReportedLng = lng;
-
-  const deviceId = getOrCreateDeviceId();
 
   let batteryLevel: number | null = null;
   try {

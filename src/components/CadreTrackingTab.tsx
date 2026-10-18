@@ -37,9 +37,16 @@ const CADRE_COLORS = [
   '#8b5cf6', // Purple
   '#ec4899', // Pink
   '#3b82f6', // Blue
-  '#14b8a6', // Teal
-  '#f97316', // Orange
 ];
+
+export function formatCadreDisplayName(cadreName: string): string {
+  if (!cadreName) return 'Chưa rõ';
+  if (cadreName.startsWith('CHUADATTEN')) {
+    const code = cadreName.replace('CHUADATTEN', '').replace(/^_/, '');
+    return `Chưa đặt tên (${code ? '#' + code : 'Khách'})`;
+  }
+  return cadreName;
+}
 
 export default function CadreTrackingTab({ theme = 'dark', isLight = false }: CadreTrackingTabProps) {
   const [cadres, setCadres] = useState<CadreLocationRecord[]>([]);
@@ -289,7 +296,7 @@ export default function CadreTrackingTab({ theme = 'dark', isLight = false }: Ca
               transition: transform 0.2s ease;
             ">
               <span style="color: #ffffff; font-weight: 900; font-size: 13px; font-family: sans-serif;">
-                ${cadre.cadreName.charAt(0)}
+                ${cadre.cadreName.startsWith('CHUADATTEN') ? '?' : cadre.cadreName.charAt(0)}
               </span>
               ${
                 typeof cadre.heading === 'number' && isMoving
@@ -324,7 +331,7 @@ export default function CadreTrackingTab({ theme = 'dark', isLight = false }: Ca
               gap: 4px;
             ">
               <span style="width: 6px; height: 6px; border-radius: 50%; background: ${statusBg};"></span>
-              <span>${cadre.cadreName}</span>
+              <span>${formatCadreDisplayName(cadre.cadreName)}</span>
             </div>
           </div>
         `,
@@ -344,7 +351,7 @@ export default function CadreTrackingTab({ theme = 'dark', isLight = false }: Ca
           <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 8px;">
             <div style="font-weight: 800; font-size: 14px; color: #1e293b; display: flex; align-items: center; gap: 6px;">
               <span style="width: 9px; height: 9px; border-radius: 50%; background: ${statusBg}; display: inline-block;"></span>
-              ${cadre.cadreName}
+              ${formatCadreDisplayName(cadre.cadreName)}
             </div>
             <span style="font-size: 10px; font-weight: 700; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; color: #64748b;">
               ${cadre.deviceId}
@@ -422,7 +429,7 @@ export default function CadreTrackingTab({ theme = 'dark', isLight = false }: Ca
           iconAnchor: [5, 5],
         });
         L.marker([startPt.lat, startPt.lng], { icon: startIcon })
-          .bindTooltip(`Điểm xuất phát: ${cadre.cadreName}`, { direction: 'top' })
+          .bindTooltip(`Điểm xuất phát: ${formatCadreDisplayName(cadre.cadreName)}`, { direction: 'top' })
           .addTo(polylinesLayer);
       }
     });
@@ -807,11 +814,11 @@ export default function CadreTrackingTab({ theme = 'dark', isLight = false }: Ca
                             className="w-8 h-8 rounded-full flex items-center justify-center font-black text-xs text-white shadow-xs shrink-0"
                             style={{ backgroundColor: color }}
                           >
-                            {cadre.cadreName.charAt(0)}
+                            {cadre.cadreName.startsWith('CHUADATTEN') ? '?' : cadre.cadreName.charAt(0)}
                           </div>
                           <div>
                             <div className="font-black text-xs sm:text-sm tracking-tight text-white flex items-center gap-1.5">
-                              <span>{cadre.cadreName}</span>
+                              <span>{formatCadreDisplayName(cadre.cadreName)}</span>
                               {isMoving && (
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
                               )}
