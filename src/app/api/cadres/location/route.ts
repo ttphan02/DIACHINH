@@ -48,6 +48,11 @@ function findNearestVillage(lat: number, lng: number): string {
       nearest = v.name;
     }
   }
+  // Nếu cách Cư Pui > 15km: Hiển thị rõ vị trí ngoài địa bàn xã
+  if (minDist > 15000) {
+    const km = Math.round(minDist / 1000);
+    return `Ngoài địa bàn Cư Pui (~${km} km)`;
+  }
   return nearest;
 }
 
