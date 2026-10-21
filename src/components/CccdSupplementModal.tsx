@@ -184,12 +184,18 @@ export default function CccdSupplementModal({
           ma_thua: maThua,
         }),
       });
-      const data: any = await res.json();
-      if (data.success) {
+
+      let data: any = null;
+      try {
+        const text = await res.text();
+        if (text) data = JSON.parse(text);
+      } catch {}
+
+      if (res.ok && data?.success) {
         setResultInfo({ fileName: data.fileName, r2Url: data.r2Url });
         if (onSuccess) onSuccess();
       } else {
-        setErrorMessage(data.error || 'Lỗi khi lưu file lên R2');
+        setErrorMessage(data?.error || `Lỗi tải lên (${res.status}: ${res.statusText || 'Không xác định'})`);
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Lỗi hệ thống');
@@ -299,15 +305,20 @@ export default function CccdSupplementModal({
           }),
         });
 
-        const uploadData: any = await uploadRes.json();
-        if (uploadData.success) {
+        let uploadData: any = null;
+        try {
+          const text = await uploadRes.text();
+          if (text) uploadData = JSON.parse(text);
+        } catch {}
+
+        if (uploadRes.ok && uploadData?.success) {
           item.status = 'success';
           item.r2Url = uploadData.r2Url;
           item.destFileName = uploadData.fileName || finalDestName;
           successCount++;
         } else {
           item.status = 'error';
-          item.errorMessage = uploadData.error || 'Lỗi lưu R2';
+          item.errorMessage = uploadData?.error || `Lỗi lưu R2 (${uploadRes.status}: ${uploadRes.statusText || 'Không xác định'})`;
         }
       } catch (err: any) {
         item.status = 'error';

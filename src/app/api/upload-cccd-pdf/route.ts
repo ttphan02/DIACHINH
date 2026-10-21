@@ -39,9 +39,13 @@ async function getS3Client(): Promise<any | null> {
   return null;
 }
 
-// Chuyển chuỗi base64 thành Uint8Array
+// Chuyển chuỗi base64 thành Uint8Array an toàn tuyệt đối
 function base64ToUint8Array(base64: string): Uint8Array {
-  const clean = base64.replace(/^data:image\/[a-zA-Z]+;base64,/, '');
+  const commaIdx = base64.indexOf(',');
+  const clean = (commaIdx !== -1 ? base64.slice(commaIdx + 1) : base64).replace(/\s/g, '');
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(clean, 'base64');
+  }
   const binaryString = atob(clean);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
@@ -93,12 +97,16 @@ export async function POST(request: Request) {
 
     const embedImage = async (b64: string) => {
       const bytes = base64ToUint8Array(b64);
-      const isPng = b64.startsWith('data:image/png');
+      const isPng = b64.toLowerCase().startsWith('data:image/png');
       try {
         return isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
-      } catch {
-        // Thử ngược lại nếu sai định dạng
-        return isPng ? await pdfDoc.embedJpg(bytes) : await pdfDoc.embedPng(bytes);
+      } catch (firstErr) {
+        // Thử ngược lại nếu MIME type header không khớp byte signature
+        try {
+          return isPng ? await pdfDoc.embedJpg(bytes) : await pdfDoc.embedPng(bytes);
+        } catch {
+          throw new Error('Định dạng ảnh không được hỗ trợ (cần JPG/PNG) hoặc dữ liệu ảnh bị hỏng.');
+        }
       }
     };
 

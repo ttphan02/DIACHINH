@@ -49,21 +49,15 @@ interface CccdUploadBottomSheetProps {
 
 type DragMode = 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e' | null;
 
-// Tối ưu hóa ảnh tải lên trên điện thoại: nén nhẹ & giới hạn kích thước tối đa 1600px để tránh lag RAM
+// Tối ưu hóa ảnh tải lên trên điện thoại: Luôn chuyển sang định dạng JPEG chuẩn (chất lượng 0.85, tối đa 1400px)
+// để đảm bảo dung lượng nhẹ (~150-250KB), tốc độ xử lý nhanh và tương thích hoàn toàn với pdf-lib
 async function optimizeImageForMobile(
   file: File,
-  maxDim = 1600
+  maxDim = 1400
 ): Promise<{ previewUrl: string; size: number }> {
   return new Promise((resolve) => {
-    // Nếu ảnh quá nhỏ (< 300KB), dùng trực tiếp
-    if (file.size < 300 * 1024) {
-      const url = URL.createObjectURL(file);
-      resolve({ previewUrl: url, size: file.size });
-      return;
-    }
-
-    const img = new Image();
     const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
       let { width, height } = img;
@@ -79,14 +73,14 @@ async function optimizeImageForMobile(
       }
 
       const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
+      canvas.width = Math.max(1, width);
+      canvas.height = Math.max(1, height);
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
         resolve({ previewUrl: dataUrl, size: Math.round(dataUrl.length * 0.75) });
         return;
       }
@@ -94,23 +88,56 @@ async function optimizeImageForMobile(
     };
 
     img.onerror = () => {
-      resolve({ previewUrl: objectUrl, size: file.size });
+      // Fallback nếu không load được qua Image (thử FileReader)
+      const reader = new FileReader();
+      reader.onload = () => resolve({ previewUrl: reader.result as string, size: file.size });
+      reader.onerror = () => resolve({ previewUrl: objectUrl, size: file.size });
+      reader.readAsDataURL(file);
     };
 
     img.src = objectUrl;
   });
 }
 
-// Chuyển DataURL hoặc Blob URL sang chuỗi base64 sạch
+// Chuyển DataURL hoặc Blob URL sang chuỗi base64 JPEG chuẩn
 const getBase64FromUrl = async (url: string): Promise<string> => {
-  if (url.startsWith('data:')) return url;
-  const res = await fetch(url);
-  const blob = await res.blob();
+  if (url.startsWith('data:image/jpeg') || url.startsWith('data:image/jpg') || url.startsWith('data:image/png')) {
+    return url;
+  }
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+          return;
+        }
+      } catch (err) {
+        console.warn('Lỗi vẽ canvas getBase64FromUrl, fallback FileReader:', err);
+      }
+      readDirect();
+    };
+    img.onerror = () => readDirect();
+    img.src = url;
+
+    function readDirect() {
+      if (url.startsWith('data:')) return resolve(url);
+      fetch(url)
+        .then((res) => res.blob())
+        .then((blob) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        })
+        .catch(reject);
+    }
   });
 };
 
@@ -708,9 +735,22 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
       return;
     }
 
+    const maxDim = 1400;
+    let targetW = Math.round(realCropW);
+    let targetH = Math.round(realCropH);
+    if (targetW > maxDim || targetH > maxDim) {
+      if (targetW > targetH) {
+        targetH = Math.round((targetH * maxDim) / targetW);
+        targetW = maxDim;
+      } else {
+        targetW = Math.round((targetW * maxDim) / targetH);
+        targetH = maxDim;
+      }
+    }
+
     const canvas = document.createElement('canvas');
-    canvas.width = Math.round(realCropW);
-    canvas.height = Math.round(realCropH);
+    canvas.width = Math.max(1, targetW);
+    canvas.height = Math.max(1, targetH);
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -720,7 +760,7 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(sourceImg, realCropX, realCropY, realCropW, realCropH, 0, 0, canvas.width, canvas.height);
-      const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.88);
 
       setImages((prev) =>
         prev.map((item) =>
@@ -782,15 +822,32 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
           }),
         });
 
-        const uploadData: any = await uploadRes.json();
-        if (uploadRes.ok && uploadData.success) {
+        let uploadData: any = null;
+        try {
+          const resText = await uploadRes.text();
+          if (resText) {
+            uploadData = JSON.parse(resText);
+          }
+        } catch {
+          // Phản hồi không phải JSON hợp lệ (ví dụ Cloudflare HTML timeout hoặc rỗng)
+        }
+
+        if (uploadRes.ok && uploadData?.success) {
           successCount++;
           successfulIds.add(item.id);
         } else {
+          const errDetail =
+            uploadData?.error ||
+            (uploadRes.status === 413
+              ? 'Dung lượng ảnh quá lớn (413)'
+              : uploadRes.status === 504 || uploadRes.status === 502
+              ? 'Máy chủ Cloudflare bị timeout/quá tải (502/504)'
+              : `Lỗi máy chủ (${uploadRes.status}: ${uploadRes.statusText || 'Không xác định'})`);
+
           setImages((prev) =>
             prev.map((img) =>
               img.id === item.id
-                ? { ...img, errorMessage: uploadData?.error || 'Lỗi khi lưu lên R2' }
+                ? { ...img, errorMessage: errDetail }
                 : img
             )
           );
@@ -798,7 +855,7 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
       } catch (err: any) {
         setImages((prev) =>
           prev.map((img) =>
-            img.id === item.id ? { ...img, errorMessage: err.message || 'Lỗi kết nối' } : img
+            img.id === item.id ? { ...img, errorMessage: err.message || 'Lỗi kết nối mạng' } : img
           )
         );
       }
