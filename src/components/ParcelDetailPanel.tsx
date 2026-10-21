@@ -455,10 +455,16 @@ export default function ParcelDetailPanel({
           </span>
         );
       case 'CO_TEN_CHUA_SO_HOA_VANG':
-      default:
         return (
           <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 rounded-full border border-amber-200 inline-flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span> 🟡 Chưa kê khai
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span> 🟡 Có tên (Chưa làm)
+          </span>
+        );
+      case 'CHUA_CO_TEN_XAM':
+      default:
+        return (
+          <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-700 rounded-full border border-slate-300 inline-flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span> ⚪ Không tên (Chưa làm)
           </span>
         );
     }

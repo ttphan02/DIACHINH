@@ -12,6 +12,7 @@ import ExportMissingCccdModal from '@/components/ExportMissingCccdModal';
 import CadreNameModal from '@/components/CadreNameModal';
 import MapSheetMultiSelect from '@/components/MapSheetMultiSelect';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
+import { isPersonName } from '@/utils/textHelpers';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getSavedCadreName } from '@/utils/declaration';
 import { reportCadreLocation } from '@/utils/cadreTracker';
 import { backgroundKeeper } from '@/utils/backgroundLocationKeeper';
@@ -452,17 +453,6 @@ export default function Home() {
       const isOnGgs = isGgsLoaded ? ggsCodes.has(p.ma_thua) : false;
       const isLocallyDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(declarationsMap[p.ma_thua]);
 
-      let trang_thai: ParcelStatus;
-      if (isOnGgs || p.trang_thai === 'DA_SO_HOA_XANH') {
-        trang_thai = 'DA_SO_HOA_XANH'; // Xanh lá: Đã số hóa (Có trên GGS hoặc đã được đánh dấu xanh trong Excel tổng)
-      } else if (isLocallyDeclared) {
-        trang_thai = 'DA_KE_KHAI_CHUA_SO_HOA_LAM'; // Xanh lam: Vừa kê khai trên web, chưa số hóa lên GGS
-      } else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') {
-        trang_thai = 'CO_TEN_CHUA_SO_HOA_VANG'; // Vàng: Có tên chủ đất (từ danh sách DSCOTEN)
-      } else {
-        trang_thai = 'CHUA_CO_TEN_XAM'; // Trắng: Chưa có tên (File tổng trừ đi DSCOTEN)
-      }
-
       // ĐỐI VỚI THỬA ĐÃ CÓ TRÊN GOOGLE SHEETS HOẶC ĐÃ KÊ KHAI:
       // ƯU TIÊN LẤY TÊN CHỦ THỬA VÀ CCCD TỪ GOOGLE SHEETS (loại bỏ hoàn toàn mã geohash rác w6jp...)
       const ggsInfo = ggsParcelsMap[p.ma_thua];
@@ -494,6 +484,22 @@ export default function Home() {
         chu_ho = ggsInfo.chu_ho;
       } else if (isInvalidName(chu_ho)) {
         chu_ho = 'Không có trong dữ liệu';
+      }
+
+      // XÁC ĐỊNH TRẠNG THÁI THỬA ĐẤT:
+      // 1. Thửa ĐÃ SỐ HÓA (có trên Google Sheets hoặc cccd đã đóng tập) -> Xanh lá
+      // 2. Thửa ĐÃ KÊ KHAI (vừa kê khai trên web, chưa số hóa lên GGS) -> Xanh lam
+      // 3. Thửa CHƯA KÊ KHAI CÓ TÊN (tên người thật) -> Vàng
+      // 4. Thửa CHƯA KÊ KHAI CHƯA CÓ TÊN (không phải tên người, địa danh, công cộng...) -> Trắng
+      let trang_thai: ParcelStatus;
+      if (isOnGgs || p.trang_thai === 'DA_SO_HOA_XANH') {
+        trang_thai = 'DA_SO_HOA_XANH';
+      } else if (isLocallyDeclared) {
+        trang_thai = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
+      } else if (isPersonName(chu_ho)) {
+        trang_thai = 'CO_TEN_CHUA_SO_HOA_VANG';
+      } else {
+        trang_thai = 'CHUA_CO_TEN_XAM';
       }
 
       if (ggsInfo?.cccd && ggsInfo.cccd.length >= 9) {
@@ -1141,20 +1147,36 @@ export default function Home() {
                   Đã kê khai ({stats.blue.toLocaleString('vi-VN')})
                 </button>
 
-                {/* Chưa kê khai (Màu trắng sáng) */}
+                {/* Có tên (Màu vàng) */}
                 <button
                   onClick={() => {
-                    setStatusFilter(statusFilter === 'CHUA_KE_KHAI' ? 'ALL' : 'CHUA_KE_KHAI');
+                    setStatusFilter(statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG' ? 'ALL' : 'CO_TEN_CHUA_SO_HOA_VANG');
                   }}
                   className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs shrink-0 ${
-                    statusFilter === 'CHUA_KE_KHAI'
+                    statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG'
+                      ? 'bg-amber-500 text-white shadow-sm ring-2 ring-amber-300'
+                      : 'bg-slate-800/80 text-amber-300 hover:bg-slate-700/80 border border-amber-500/30'
+                  }`}
+                  title="Thửa chưa kê khai có tên người (màu vàng trên bản đồ)"
+                >
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-amber-200"></span>
+                  Có tên ({stats.yellow.toLocaleString('vi-VN')})
+                </button>
+
+                {/* Không có tên (Màu trắng) */}
+                <button
+                  onClick={() => {
+                    setStatusFilter(statusFilter === 'CHUA_CO_TEN_XAM' ? 'ALL' : 'CHUA_CO_TEN_XAM');
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs shrink-0 ${
+                    statusFilter === 'CHUA_CO_TEN_XAM'
                       ? 'bg-slate-200 text-slate-900 shadow-sm ring-2 ring-white'
                       : 'bg-slate-800/80 text-white hover:bg-slate-700/80 border border-slate-600/50'
                   }`}
-                  title="Thửa chưa kê khai (hiển thị màu trắng sáng trên bản đồ)"
+                  title="Thửa chưa kê khai không có tên người, địa danh (màu trắng trên bản đồ)"
                 >
                   <span className="w-2.5 h-2.5 rounded-full bg-white ring-1 ring-slate-400 shadow-sm"></span>
-                  Chưa kê khai ({(stats.yellow + stats.gray).toLocaleString('vi-VN')})
+                  Không tên ({stats.gray.toLocaleString('vi-VN')})
                 </button>
 
                 {/* Nút bấm & Chỉ báo Realtime Google Sheets */}

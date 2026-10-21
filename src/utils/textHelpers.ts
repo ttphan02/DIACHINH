@@ -116,6 +116,144 @@ export function isValidFullName(name: string): boolean {
   return words.length >= 2;
 }
 
+/**
+ * Kiểm tra chuỗi tên có phải là tên người thật hay không
+ * Phân biệt chính xác giữa:
+ * - Tên người: Nguyễn Văn A, Y Ber Niê, H' Duyên Liêng, Ông Sơn, Bà Mai, Vàng A Chợ, etc.
+ * - Không phải tên người: Chuỗi rỗng, số, dấu chấm, mã geohash (w6jp...),
+ *   placeholder (Chưa có tên, không có tên, không có trong SMK, không có dữ liệu, chưa xác định, vô chủ...),
+ *   địa danh (Hồ Ea Rớt, suối, đường, đồi, sông, kênh, mương...),
+ *   cơ quan/công trình công cộng (UBND, Trường học, Trạm y tế, Nhà văn hóa, Nghĩa trang, Lâm trường, Công ty...)
+ */
+export function isPersonName(rawName?: string | null): boolean {
+  if (!rawName) return false;
+  let s = String(rawName).trim();
+  if (!s) return false;
+
+  const lower = s.toLowerCase();
+
+  // 1. Mã geohash hoặc mã rác hệ thống
+  if (lower.startsWith('w6jp') || /^[a-z0-9]{10,}$/i.test(s)) return false;
+
+  // 2. Các cụm từ placeholder / không có tên / rác dữ liệu
+  const placeholderPhrases = [
+    'chưa có tên',
+    'chua co ten',
+    'không có tên',
+    'khong co ten',
+    'chưa rõ',
+    'không rõ',
+    'vô chủ',
+    'vắng chủ',
+    'không có trong smk',
+    'không có dữ liệu',
+    'chưa xác định',
+    'không xác định',
+    'không tồn tại',
+    'đã thu hồi',
+    'thu hồi',
+    'giáp thửa đất',
+  ];
+  if (placeholderPhrases.some((p) => lower.includes(p))) return false;
+
+  // 3. Cơ quan, công trình công cộng, doanh nghiệp, tổ chức
+  const organizationPhrases = [
+    'ubnd',
+    'ủy ban',
+    'uy ban',
+    'hđnd',
+    'hdnd',
+    'nhà văn hóa',
+    'nha van hoa',
+    'nhà văn hoá',
+    'hội trường',
+    'hoi truong',
+    'trường học',
+    'truong hoc',
+    'trường tiểu học',
+    'mầm non',
+    'mẫu giáo',
+    'điểm trường',
+    'trạm y tế',
+    'tram y te',
+    'bệnh viện',
+    'nghĩa trang',
+    'nghia trang',
+    'nghĩa địa',
+    'nghia dia',
+    'mồ mả',
+    'thủy hệ',
+    'thuy he',
+    'thủy lợi',
+    'đập nước',
+    'giao thông',
+    'đường giao thông',
+    'đường đi',
+    'hành lang',
+    'kiểm lâm',
+    'lâm nghiệp',
+    'lâm trường',
+    'công ty',
+    'cty ',
+    'rừng phòng hộ',
+    'ban quản lý',
+    'ban ql',
+    'hợp tác xã',
+    'thao trường',
+    'quân sự',
+    'công an',
+    'đình làng',
+    'nhà thờ',
+    'giáo xứ',
+    'đất đồi',
+    'đất công',
+    'đất trống',
+    'đất hoang',
+    'đầu mối',
+  ];
+  if (organizationPhrases.some((o) => lower.includes(o))) return false;
+
+  // 4. Địa danh thuần túy (Hồ, suối, sông...) đứng riêng
+  if (lower.includes('hồ ea rớt') || lower.includes('ho ea rot')) {
+    // Nếu chỉ là Hồ Ea Rớt mà không kèm tên người
+    if (
+      !lower.includes('ông') &&
+      !lower.includes('bà') &&
+      !lower.includes('hộ') &&
+      !lower.includes('nguyễn') &&
+      !lower.includes('lý') &&
+      !lower.includes('trần') &&
+      !lower.includes('hoàng') &&
+      !lower.includes('dường') &&
+      !lower.includes('lăng')
+    ) {
+      return false;
+    }
+  }
+
+  if (['suối', 'đường', 'sông', 'núi', 'đồi', 'kênh', 'mương'].includes(lower)) {
+    return false;
+  }
+
+  // 5. Kiểm tra ký tự chữ: phải có ít nhất 2 chữ cái tiếng Việt/Latin
+  const lettersOnly = s.replace(/[^a-zA-Z\u00C0-\u024F\u1E00-\u1EFF]/g, '');
+  if (lettersOnly.length < 2) return false;
+
+  // 6. Tách danh xưng: Hộ ông, Hộ bà, Ông:, Bà:, Ông, Bà, Hộ...
+  const withoutHonorific = s
+    .replace(
+      /^(hộ\s+ông\s*:?|hộ\s+bà\s*:?|hộ\s+gia\s+đình\s*:?|vợ\s+chồng\s+ông\s*:?|vợ\s+chồng\s+bà\s*:?|hộ\s*:?|ông\s*:?|bà\s*:?)/gi,
+      ''
+    )
+    .trim();
+
+  const cleanWithoutHonorific = withoutHonorific.replace(/[^a-zA-Z\u00C0-\u024F\u1E00-\u1EFF]/g, '');
+  // Nếu sau khi bỏ danh xưng mà không còn chữ cái nào (ví dụ "Ông ..", "Ông 0", "Bà -") -> KHÔNG PHẢI TÊN NGƯỜI
+  if (cleanWithoutHonorific.length < 2) return false;
+
+  return true;
+}
+
 // Chuẩn hóa địa chỉ thôn/buôn
 export function normalizeAddress(addr: string): string {
   if (!addr) return 'xã Cư Pui';

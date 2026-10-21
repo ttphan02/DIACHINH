@@ -1,7 +1,7 @@
 import { PDFDocument, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { Parcel } from '@/types';
-import { CANONICAL_VILLAGES, getCanonicalVillage } from '@/utils/textHelpers';
+import { CANONICAL_VILLAGES, getCanonicalVillage, isPersonName } from '@/utils/textHelpers';
 
 export interface VillageStatsItem {
   stt: number;
@@ -122,13 +122,7 @@ export async function generateStatisticsPdf(
       const statusStr = (p.trang_thai || '') as string;
       if (statusStr.includes('DA_KE_KHAI') || statusStr === 'DA_SO_HOA_LAM') {
         row.daKeKhai++;
-      } else if (statusStr === 'CO_TEN_CHUA_SO_HOA_VANG') {
-        row.coTen++;
-        row.tongConLai++;
-      } else if (statusStr === 'CHUA_CO_TEN_CHUA_SO_HOA_TIM') {
-        row.khongTen++;
-        row.tongConLai++;
-      } else if (p.chu_ho && p.chu_ho.trim() && !p.chu_ho.toLowerCase().includes('chưa có tên')) {
+      } else if (statusStr === 'CO_TEN_CHUA_SO_HOA_VANG' || isPersonName(p.chu_ho)) {
         row.coTen++;
         row.tongConLai++;
       } else {
@@ -165,13 +159,9 @@ export async function generateStatisticsPdf(
       if (v !== vName) return false;
       const statusStr = String(p.trang_thai || '');
       const isNamedUndeclared =
-        statusStr === 'CO_TEN_CHUA_SO_HOA_VANG' ||
-        (!statusStr.includes('DA_KE_KHAI') &&
-          statusStr !== 'DA_SO_HOA_XANH' &&
-          p.chu_ho &&
-          p.chu_ho.trim() &&
-          !p.chu_ho.toLowerCase().includes('chưa có tên') &&
-          !p.chu_ho.toLowerCase().includes('vô chủ'));
+        (statusStr === 'CO_TEN_CHUA_SO_HOA_VANG' || isPersonName(p.chu_ho)) &&
+        !statusStr.includes('DA_KE_KHAI') &&
+        statusStr !== 'DA_SO_HOA_XANH';
       return Boolean(isNamedUndeclared);
     });
 

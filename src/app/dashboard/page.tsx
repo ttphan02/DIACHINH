@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredVa
 import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
-import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, normalizeNguonGoc, NGUON_GOC_OPTIONS, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress } from '@/utils/textHelpers';
+import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, normalizeNguonGoc, NGUON_GOC_OPTIONS, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName } from '@/utils/textHelpers';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
 import dynamic from 'next/dynamic';
 import type { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
@@ -1114,21 +1114,21 @@ export default function DashboardPage() {
       const isOnGgs = ggsCodes.has(p.ma_thua);
       const isDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(declarationsMap[p.ma_thua]);
 
+      // Gộp thêm dữ liệu kê khai mới nhất từ LocalStorage (nếu có)
+      const savedDecl = declarationsMap[p.ma_thua];
+      const mergedChuHo = savedDecl?.chu_dat_ten || p.chu_ho;
+      const mergedCccd = savedDecl?.chu_dat_cccd || p.cccd;
+
       let finalStatus: ParcelStatus;
       if (isOnGgs || p.trang_thai === 'DA_SO_HOA_XANH') {
         finalStatus = 'DA_SO_HOA_XANH';
       } else if (isDeclared) {
         finalStatus = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
-      } else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') {
+      } else if (isPersonName(mergedChuHo)) {
         finalStatus = 'CO_TEN_CHUA_SO_HOA_VANG';
       } else {
         finalStatus = 'CHUA_CO_TEN_XAM';
       }
-
-      // Gộp thêm dữ liệu kê khai mới nhất từ LocalStorage (nếu có)
-      const savedDecl = declarationsMap[p.ma_thua];
-      const mergedChuHo = savedDecl?.chu_dat_ten || p.chu_ho;
-      const mergedCccd = savedDecl?.chu_dat_cccd || p.cccd;
 
       return {
         ...p,

@@ -209,9 +209,11 @@ export default function CadastralMap({
         // Gom nhóm tọa độ để vẽ hàng loạt:
         // - Xanh lá: Đã số hóa (Google Sheets)
         // - Xanh lam: Đã kê khai (Web)
-        // - Trắng sáng: Chưa kê khai (đồng nhất toàn bộ các thửa chưa kê khai)
+        // - Vàng: Chưa kê khai CÓ TÊN (Tên người)
+        // - Trắng: Chưa kê khai CHƯA CÓ TÊN (Không phải tên người, địa danh...)
         const greenPts: number[] = [];
         const bluePts: number[] = [];
+        const yellowPts: number[] = [];
         const whitePts: number[] = [];
         const visibleScreenPts: RenderedPoint[] = [];
 
@@ -252,8 +254,10 @@ export default function CadastralMap({
             greenPts.push(cx, cy);
           } else if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') {
             bluePts.push(cx, cy);
+          } else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') {
+            yellowPts.push(cx, cy);
           } else {
-            // Thửa chưa kê khai -> màu trắng sáng chung
+            // Thửa chưa kê khai & chưa có tên / địa danh -> màu trắng sáng
             whitePts.push(cx, cy);
           }
         }
@@ -287,13 +291,16 @@ export default function CadastralMap({
         };
 
         // Vẽ theo thứ tự lớp ưu tiên từ dưới lên:
-        // 1. Trắng sáng: Chưa kê khai (sáng rõ, viền xám đậm tương phản sắc nét trên mọi nền vệ tinh/bản đồ tối)
+        // 1. Trắng sáng: Chưa kê khai & Chưa có tên (Không phải tên người, địa danh...)
         drawBatch(whitePts, '#ffffff', '#475569', baseRadius * 0.95, 1.4);
 
-        // 2. Xanh lá: Đã số hóa (Google Sheets)
+        // 2. Vàng nổi bật: Chưa kê khai & Có tên người
+        drawBatch(yellowPts, '#eab308', '#713f12', baseRadius * 0.95, 1.4);
+
+        // 3. Xanh lá: Đã số hóa (Google Sheets)
         drawBatch(greenPts, '#10b981', '#064e3b', baseRadius, 1.4);
 
-        // 3. Xanh lam: Đã kê khai (Web)
+        // 4. Xanh lam: Đã kê khai (Web)
         drawBatch(bluePts, '#2563eb', '#1e3a8a', baseRadius * 1.08, 1.6);
 
         ctx.restore();
@@ -366,7 +373,9 @@ export default function CadastralMap({
                   ? '<span style="color:#10b981;font-weight:700;">🟢 Đã số hóa (GGS)</span>'
                   : p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
                   ? '<span style="color:#60a5fa;font-weight:700;">🔵 Đã kê khai (Web)</span>'
-                  : '<span style="color:#ffffff;font-weight:700;display:inline-flex;align-items:center;gap:4px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ffffff;border:1px solid #94a3b8;"></span>Chưa kê khai</span>';
+                  : p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG'
+                  ? '<span style="color:#eab308;font-weight:700;">🟡 Có tên (Chưa làm)</span>'
+                  : '<span style="color:#ffffff;font-weight:700;display:inline-flex;align-items:center;gap:4px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ffffff;border:1px solid #94a3b8;"></span>⚪ Không tên / Địa danh</span>';
 
               tip.innerHTML = `
                 <div style="font-weight: 800; font-size: 13px; color: #fff; margin-bottom: 2px;">
@@ -799,13 +808,16 @@ export default function CadastralMap({
           </span>
         )}
         <span className="flex items-center gap-1 text-emerald-300">
-          <span className="w-2 h-2 rounded-full bg-emerald-500" /> Đã số hóa (GGS)
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Đã số hóa
         </span>
         <span className="flex items-center gap-1 text-blue-300">
-          <span className="w-2 h-2 rounded-full bg-blue-500" /> Đã kê khai
+          <span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Đã kê khai
+        </span>
+        <span className="flex items-center gap-1 text-amber-300 font-semibold">
+          <span className="w-2.5 h-2.5 rounded-full bg-amber-400 ring-1 ring-amber-600 shadow-sm" /> Có tên (chưa làm)
         </span>
         <span className="flex items-center gap-1 text-white font-semibold">
-          <span className="w-2.5 h-2.5 rounded-full bg-white ring-1 ring-slate-400 shadow-sm" /> Chưa kê khai
+          <span className="w-2.5 h-2.5 rounded-full bg-white ring-1 ring-slate-400 shadow-sm" /> Không tên (chưa làm)
         </span>
       </div>
 
