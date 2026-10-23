@@ -16,6 +16,8 @@ import { isPersonName } from '@/utils/textHelpers';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getSavedCadreName } from '@/utils/declaration';
 import { reportCadreLocation } from '@/utils/cadreTracker';
 import { backgroundKeeper } from '@/utils/backgroundLocationKeeper';
+import hiddenParcelsData from '@/data/hidden_parcels.json';
+const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
 import {
   Search,
   Layers,
@@ -444,12 +446,15 @@ export default function Home() {
   }, [fetchGgsCodes, fetchCloudDeclarations]);
 
   // TÍNH TOÁN TRẠNG THÁI REALTIME VÀ ĐỒNG BỘ THÔNG TIN TỪ GOOGLE SHEETS:
+  // (Đã loại trừ 1.330 thửa đất Nhóm 4 từ dòng 7917 đến 9246 theo yêu cầu)
   // 1. Thửa có trên Google Sheets -> Lấy Tên chủ hộ, CCCD từ GGS (thay thế bất kỳ dữ liệu excel lỗi thời nào)
   // 2. Thửa ĐÃ ĐƯỢC KÊ KHAI trên hệ thống web nhưng CHƯA có trên GGS -> Màu xanh lam
   // 3. Thửa có tên chủ đất (chưa kê khai, chưa có trên GGS) -> Màu vàng
   // 4. Thửa chưa có tên -> Màu trắng
   const computedParcels = useMemo<Parcel[]>(() => {
-    return parcels.map((p) => {
+    return parcels
+      .filter((p) => !HIDDEN_PARCEL_SET.has(p.ma_thua))
+      .map((p) => {
       const isOnGgs = isGgsLoaded ? ggsCodes.has(p.ma_thua) : false;
       const isLocallyDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(declarationsMap[p.ma_thua]);
 
@@ -1324,7 +1329,7 @@ export default function Home() {
             {isLoadingParcels && (
               <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-slate-950/90 text-white border border-blue-500/40 px-4 py-2 rounded-2xl shadow-2xl flex items-center gap-2.5 backdrop-blur-md animate-in fade-in">
                 <div className="w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin shrink-0"></div>
-                <span className="text-xs font-semibold text-slate-200">Đang nạp 11.280 thửa đất xã Cư Pui...</span>
+                <span className="text-xs font-semibold text-slate-200">Đang nạp 9.950 thửa đất bản đồ xã Cư Pui...</span>
               </div>
             )}
 

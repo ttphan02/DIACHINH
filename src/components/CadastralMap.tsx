@@ -5,6 +5,8 @@ import { Parcel, NeighborParcel, AdditionalParcel } from '@/types';
 import { extractShortOwnerName } from '@/utils/geo';
 import { Maximize2, LocateFixed, Loader2 } from 'lucide-react';
 import type { Map as LeafletMap, LayerGroup } from 'leaflet';
+import hiddenParcelsData from '@/data/hidden_parcels.json';
+const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
 
 interface CadastralMapProps {
   parcels: Parcel[];
@@ -466,7 +468,7 @@ export default function CadastralMap({
 
   // 3. CẬP NHẬT DỮ LIỆU THỬA ĐẤT CHO BATCH CANVAS (SIÊU NHANH < 1ms)
   useEffect(() => {
-    const validParcels = parcels.filter((p) => p.lat && p.lng);
+    const validParcels = parcels.filter((p) => p.lat && p.lng && !HIDDEN_PARCEL_SET.has(p.ma_thua));
     validParcelsRef.current = validParcels;
     setDotsCount(validParcels.length);
 
