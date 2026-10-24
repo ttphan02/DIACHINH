@@ -4,6 +4,59 @@ export const DECLARED_CODES_KEY = 'diachinh_declared_codes';
 export const DECLARATIONS_MAP_KEY = 'diachinh_declarations_map';
 export const DEVICE_ID_KEY = 'diachinh_device_id';
 export const CADRE_NAME_KEY = 'diachinh_cadre_name';
+export const PENDING_DECLARATIONS_KEY = 'diachinh_pending_declarations';
+
+/**
+ * Lấy danh sách phiếu kê khai đang chờ đẩy lên Cloud (chưa được Cloud xác nhận)
+ */
+export function getPendingDeclarations(): Record<string, DeclarationFormData> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(PENDING_DECLARATIONS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Thêm hoặc cập nhật phiếu kê khai vào hàng đợi đồng bộ Cloud
+ */
+export function savePendingDeclaration(formData: DeclarationFormData): void {
+  if (typeof window === 'undefined' || !formData?.ma_thua) return;
+  try {
+    const pending = getPendingDeclarations();
+    pending[formData.ma_thua] = formData;
+    localStorage.setItem(PENDING_DECLARATIONS_KEY, JSON.stringify(pending));
+  } catch {}
+}
+
+/**
+ * Xóa một hoặc nhiều phiếu khỏi hàng đợi đồng bộ Cloud khi đã đồng bộ thành công
+ */
+export function removePendingDeclaration(maThua: string): void {
+  if (typeof window === 'undefined' || !maThua) return;
+  try {
+    const pending = getPendingDeclarations();
+    if (pending[maThua]) {
+      delete pending[maThua];
+      localStorage.setItem(PENDING_DECLARATIONS_KEY, JSON.stringify(pending));
+    }
+  } catch {}
+}
+
+export function clearPendingDeclarations(maThuaList?: string[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (!maThuaList) {
+      localStorage.removeItem(PENDING_DECLARATIONS_KEY);
+      return;
+    }
+    const pending = getPendingDeclarations();
+    maThuaList.forEach((code) => delete pending[code]);
+    localStorage.setItem(PENDING_DECLARATIONS_KEY, JSON.stringify(pending));
+  } catch {}
+}
 
 /**
  * Định dạng tên cán bộ: IN HOA, LIỀN NHAU, KHÔNG DẤU
@@ -155,6 +208,7 @@ export function removeDeclaration(targetMaThua: string): {
     try {
       localStorage.setItem(DECLARED_CODES_KEY, JSON.stringify(updatedCodes));
       localStorage.setItem(DECLARATIONS_MAP_KEY, JSON.stringify(updatedMap));
+      removedCodes.forEach((c) => removePendingDeclaration(c));
     } catch (e) {
       console.error('Lỗi lưu localStorage khi xóa phiếu:', e);
     }
@@ -235,6 +289,7 @@ export function saveOrUpdateDeclaration(formData: DeclarationFormData): {
     try {
       localStorage.setItem(DECLARED_CODES_KEY, JSON.stringify(updatedCodes));
       localStorage.setItem(DECLARATIONS_MAP_KEY, JSON.stringify(updatedMap));
+      savePendingDeclaration(fullDeclData);
     } catch (e) {
       console.error('Lỗi lưu localStorage khi lưu phiếu:', e);
     }

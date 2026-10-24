@@ -13,7 +13,15 @@ import CadreNameModal from '@/components/CadreNameModal';
 import MapSheetMultiSelect from '@/components/MapSheetMultiSelect';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
 import { isPersonName } from '@/utils/textHelpers';
-import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getSavedCadreName } from '@/utils/declaration';
+import {
+  getStoredDeclarations,
+  saveOrUpdateDeclaration,
+  removeDeclaration,
+  getSavedCadreName,
+  getPendingDeclarations,
+  removePendingDeclaration,
+  clearPendingDeclarations,
+} from '@/utils/declaration';
 import { reportCadreLocation } from '@/utils/cadreTracker';
 import { backgroundKeeper } from '@/utils/backgroundLocationKeeper';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
@@ -274,6 +282,34 @@ export default function Home() {
     setIsPickingAdditional((prev) => !prev);
   };
 
+  const isFlushingPendingRef = useRef(false);
+  const flushPendingDeclarations = useCallback(async () => {
+    if (isFlushingPendingRef.current) return;
+    const pendingMap = getPendingDeclarations();
+    const pendingItems = Object.values(pendingMap);
+    if (pendingItems.length === 0) return;
+
+    isFlushingPendingRef.current = true;
+    try {
+      const res = await fetch('/api/declarations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batch: pendingItems }),
+      });
+      if (res.ok) {
+        const result = (await res.json()) as any;
+        if (result && result.success) {
+          clearPendingDeclarations(pendingItems.map((item) => item.ma_thua));
+          console.log(`✓ Đã tự động đồng bộ ngầm ${pendingItems.length} thửa lên Cloudflare R2.`);
+        }
+      }
+    } catch (err) {
+      console.warn('Lỗi đồng bộ ngầm pending declarations:', err);
+    } finally {
+      isFlushingPendingRef.current = false;
+    }
+  }, []);
+
   // Tải danh sách đã kê khai từ LocalStorage và đồng bộ từ Cloudflare R2
   const fetchCloudDeclarations = useCallback(async () => {
     try {
@@ -288,36 +324,62 @@ export default function Home() {
       if (res.ok) {
         const data = (await res.json()) as any;
         if (data && data.success && Array.isArray(data.declaredCodes)) {
-          if (data.updatedAt && data.updatedAt === lastCloudUpdatedAtRef.current) {
-            return;
-          }
-          const cloudMap = data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {};
-          const sig = JSON.stringify({ codes: data.declaredCodes, map: cloudMap });
+          // Lấy các thửa đang có trên máy và hàng đợi pending
+          const localStored = getStoredDeclarations();
+          const pendingMap = getPendingDeclarations();
+          const pendingCodes = Object.keys(pendingMap);
 
-          // CHỈ CẬP NHẬT STATE KHI DỮ LIỆU TRÊN CLOUD THỰC SỰ THAY ĐỔI (Tránh tính toán lại 18.000 thửa không cần thiết)
-          if (sig === lastCloudSigRef.current) {
-            if (data.updatedAt) lastCloudUpdatedAtRef.current = data.updatedAt;
-            return;
+          // Tạo tập hợp hợp nhất (MERGE): Cloud data + Local pending data
+          // ĐẢM BẢO KHÔNG BAO GIỜ BỊ MẤT PHIẾU ĐÃ KÊ KHAI TRÊN MÁY VÀ KHÔNG BỊ TRỞ LẠI MÀU VÀNG!
+          const mergedCodesSet = new Set<string>(data.declaredCodes);
+          const mergedMap: Record<string, any> = {
+            ...(data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {}),
+          };
+
+          // Hợp nhất các thửa cục bộ (nếu chưa có trên Cloud)
+          localStored.declaredCodes.forEach((code) => {
+            if (localStored.declarationsMap[code]) {
+              mergedCodesSet.add(code);
+              if (!mergedMap[code]) {
+                mergedMap[code] = localStored.declarationsMap[code];
+              }
+            }
+          });
+          pendingCodes.forEach((code) => {
+            if (pendingMap[code]) {
+              mergedCodesSet.add(code);
+              mergedMap[code] = pendingMap[code];
+            }
+          });
+
+          const mergedCodes = Array.from(mergedCodesSet);
+          const sig = JSON.stringify({ codes: mergedCodes, map: mergedMap });
+
+          // CHỈ CẬP NHẬT STATE KHI DỮ LIỆU CÓ THAY ĐỔI THỰC SỰ
+          if (sig !== lastCloudSigRef.current) {
+            lastCloudSigRef.current = sig;
+            setDeclaredParcelCodes(mergedCodesSet);
+            setDeclarationsMap(mergedMap);
+
+            if (typeof window !== 'undefined') {
+              try {
+                localStorage.setItem('diachinh_declared_codes', JSON.stringify(mergedCodes));
+                localStorage.setItem('diachinh_declarations_map', JSON.stringify(mergedMap));
+              } catch (e) {}
+            }
           }
-          lastCloudSigRef.current = sig;
+
           if (data.updatedAt) lastCloudUpdatedAtRef.current = data.updatedAt;
 
-          // CẬP NHẬT DỮ LIỆU ĐỒNG BỘ CHÍNH XÁC TỪ CLOUD R2
-          const cloudCodesSet = new Set<string>(data.declaredCodes);
-          setDeclaredParcelCodes(cloudCodesSet);
-          setDeclarationsMap(cloudMap);
-
-          if (typeof window !== 'undefined') {
-            try {
-              localStorage.setItem('diachinh_declared_codes', JSON.stringify(data.declaredCodes));
-              localStorage.setItem('diachinh_declarations_map', JSON.stringify(cloudMap));
-            } catch (e) {}
+          // Nếu có bất kỳ thửa nào đang pending chưa có trên Cloud -> Tự động kích hoạt sync ngầm
+          if (pendingCodes.length > 0) {
+            flushPendingDeclarations();
           }
 
-          // Khôi phục selectedParcel nếu đang xem đúng thửa vừa bị xóa trên máy khác
+          // Cập nhật selectedParcel: Nếu thửa đang xem đã kê khai trên máy thì giữ nguyên màu xanh lam!
           setSelectedParcel((curr) => {
             if (!curr) return null;
-            if (curr.is_declared && !cloudCodesSet.has(curr.ma_thua)) {
+            if (curr.is_declared && !mergedCodesSet.has(curr.ma_thua)) {
               const orig = parcels.find((p) => p.ma_thua === curr.ma_thua);
               return {
                 ...(orig || curr),
@@ -332,7 +394,7 @@ export default function Home() {
     } catch (err) {
       console.warn('Lỗi khi fetch declarations từ cloud:', err);
     }
-  }, [parcels]);
+  }, [parcels, flushPendingDeclarations]);
 
   useEffect(() => {
     const { declaredCodes, declarationsMap: loadedMap } = getStoredDeclarations();
@@ -902,15 +964,19 @@ export default function Home() {
 
       setPickToast('✓ Đang đồng bộ phiếu kê khai lên máy chủ...');
 
-      // Gửi đồng bộ lên Cloudflare R2
-      fetch('/api/declarations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      })
-        .then(async (res) => {
+      // Gửi đồng bộ lên Cloudflare R2 với cơ chế tự động thử lại (Retry)
+      const attemptSync = async (retryCount = 0) => {
+        try {
+          const res = await fetch('/api/declarations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData),
+          });
+
           if (res.ok) {
             const result = (await res.json()) as any;
+            removePendingDeclaration(formData.ma_thua);
+
             if (result.success && Array.isArray(result.declaredCodes)) {
               const cloudMap = result.declarationsMap || {};
               lastCloudSigRef.current = JSON.stringify({ codes: result.declaredCodes, map: cloudMap });
@@ -935,16 +1001,26 @@ export default function Home() {
               }).catch(() => {});
             }
           } else {
-            console.warn('Đồng bộ cloud trả về mã lỗi:', res.status);
-            setPickToast('✓ Đã lưu trên máy (Cloud sẽ đồng bộ sau)');
+            console.warn(`Đồng bộ cloud trả về mã lỗi ${res.status} (thử lại lần ${retryCount + 1}/3)`);
+            if (retryCount < 2) {
+              setTimeout(() => attemptSync(retryCount + 1), 1000 * (retryCount + 1));
+            } else {
+              setPickToast('✓ Đã lưu trên máy (Hệ thống đang tự động đồng bộ ngầm)');
+              setTimeout(() => setPickToast(null), 3500);
+            }
+          }
+        } catch (err) {
+          console.warn(`Lỗi kết nối khi đồng bộ lên Cloud (thử lại lần ${retryCount + 1}/3):`, err);
+          if (retryCount < 2) {
+            setTimeout(() => attemptSync(retryCount + 1), 1000 * (retryCount + 1));
+          } else {
+            setPickToast('✓ Đã lưu trên máy (Hệ thống đang tự động đồng bộ ngầm)');
             setTimeout(() => setPickToast(null), 3500);
           }
-        })
-        .catch((err) => {
-          console.warn('Lỗi kết nối khi đồng bộ lên Cloud:', err);
-          setPickToast('✓ Đã lưu trên máy (Đang chờ kết nối)');
-          setTimeout(() => setPickToast(null), 3500);
-        });
+        }
+      };
+
+      attemptSync(0);
     }
   };
 

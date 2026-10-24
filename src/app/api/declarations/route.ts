@@ -26,10 +26,13 @@ const MEMORY_CACHE_TTL = 2500;
 async function getR2Binding(): Promise<any | null> {
   try {
     const { env } = await getCloudflareContext({ async: true });
-    return (env as any)?.DIACHINH_STORAGE || null;
-  } catch {
-    return null;
-  }
+    if ((env as any)?.DIACHINH_STORAGE) return (env as any).DIACHINH_STORAGE;
+  } catch {}
+  try {
+    const { env } = getCloudflareContext({ async: false });
+    if ((env as any)?.DIACHINH_STORAGE) return (env as any).DIACHINH_STORAGE;
+  } catch {}
+  return null;
 }
 
 async function getS3Client(): Promise<any | null> {
@@ -111,18 +114,25 @@ async function saveDeclarationsToR2(payload: StoragePayload): Promise<boolean> {
   const jsonStr = JSON.stringify(payload);
   memoryCache = { payload, timestamp: Date.now() };
 
-  // 1. Ghi trực tiếp qua R2 Binding
-  try {
-    const bucket = await getR2Binding();
-    if (bucket) {
-      await bucket.put(KEY_ALL_DECLARATIONS, jsonStr, {
-        httpMetadata: { contentType: 'application/json' },
-      });
-      bucket.delete('cache/sync_sheets.json').catch(() => {});
-      return true;
+  // 1. Ghi trực tiếp qua R2 Binding với retry 3 lần
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const bucket = await getR2Binding();
+      if (bucket) {
+        await bucket.put(KEY_ALL_DECLARATIONS, jsonStr, {
+          httpMetadata: { contentType: 'application/json' },
+        });
+        try {
+          await bucket.delete('cache/sync_sheets.json');
+        } catch {}
+        return true;
+      }
+    } catch (err: any) {
+      console.warn(`Lỗi khi ghi qua R2 binding (lần ${attempt}/3):`, err?.message || err);
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 200 * attempt));
+      }
     }
-  } catch (err) {
-    console.warn('Lỗi khi ghi qua R2 binding, thử fallback S3 SDK:', err);
   }
 
   // 2. Fallback qua S3 Client SDK
@@ -138,12 +148,14 @@ async function saveDeclarationsToR2(payload: StoragePayload): Promise<boolean> {
           ContentType: 'application/json',
         })
       );
-      s3.send(
-        new DeleteObjectCommand({
-          Bucket: R2_BUCKET,
-          Key: 'cache/sync_sheets.json',
-        })
-      ).catch(() => {});
+      try {
+        await s3.send(
+          new DeleteObjectCommand({
+            Bucket: R2_BUCKET,
+            Key: 'cache/sync_sheets.json',
+          })
+        );
+      } catch {}
       return true;
     }
   } catch (err) {
@@ -187,7 +199,7 @@ export async function POST(request: Request) {
 
     // Đồng bộ nhanh các ô nhập nháp (cellEdits) qua các máy tính khác nhau
     if (body && body.type === 'cell_edits') {
-      const currentData = await getDeclarationsFromR2();
+      const currentData = await getDeclarationsFromR2(true);
       const updatedPayload: StoragePayload = {
         declaredCodes: currentData.declaredCodes,
         declarationsMap: currentData.declarationsMap,
@@ -249,7 +261,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Thiếu mã thửa đất' }, { status: 400 });
     }
 
-    const currentData = await getDeclarationsFromR2();
+    const currentData = await getDeclarationsFromR2(true);
     const declaredCodesSet = new Set<string>(currentData.declaredCodes);
     const declarationsMap = { ...currentData.declarationsMap };
     const currentCellEdits = { ...(currentData.cellEdits || {}) };
@@ -330,7 +342,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, error: 'Thiếu mã thửa cần xóa' }, { status: 400 });
     }
 
-    const currentData = await getDeclarationsFromR2();
+    const currentData = await getDeclarationsFromR2(true);
     const declaredCodesSet = new Set<string>(currentData.declaredCodes);
     const declarationsMap = { ...currentData.declarationsMap };
 
