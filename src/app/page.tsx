@@ -300,6 +300,8 @@ export default function Home() {
         const result = (await res.json()) as any;
         if (result && result.success) {
           clearPendingDeclarations(pendingItems.map((item) => item.ma_thua));
+          setPickToast(`✓ Đã tự động đồng bộ ${pendingItems.length} thửa lên máy chủ thành công`);
+          setTimeout(() => setPickToast(null), 3000);
           console.log(`✓ Đã tự động đồng bộ ngầm ${pendingItems.length} thửa lên Cloudflare R2.`);
         }
       }
@@ -376,15 +378,19 @@ export default function Home() {
             flushPendingDeclarations();
           }
 
-          // Cập nhật selectedParcel: Nếu thửa đang xem đã kê khai trên máy thì giữ nguyên màu xanh lam!
+          // Đảm bảo selectedParcel luôn phản ánh trạng thái chính xác: ĐÃ KÊ KHAI -> MÀU XANH LAM (hoặc XANH LÁ nếu có trên GGS)
+          // TUYỆT ĐỐI KHÔNG BAO GIỜ TỰ ĐỘNG CHUYỂN VỀ MÀU VÀNG KHI ĐÃ ĐƯỢC KÊ KHAI!
           setSelectedParcel((curr) => {
             if (!curr) return null;
-            if (curr.is_declared && !mergedCodesSet.has(curr.ma_thua)) {
-              const orig = parcels.find((p) => p.ma_thua === curr.ma_thua);
+            if (mergedCodesSet.has(curr.ma_thua) || curr.is_declared) {
+              const isOnGgs = ggsCodes.has(curr.ma_thua) || curr.trang_thai === 'DA_SO_HOA_XANH';
+              const decl = mergedMap[curr.ma_thua];
               return {
-                ...(orig || curr),
-                is_declared: false,
-                trang_thai: (orig?.trang_thai as ParcelStatus) || 'CHUA_CO_TEN_XAM',
+                ...curr,
+                chu_ho: decl?.chu_dat_ten || curr.chu_ho,
+                cccd: decl?.chu_dat_cccd || curr.cccd,
+                is_declared: true,
+                trang_thai: isOnGgs ? 'DA_SO_HOA_XANH' : 'DA_KE_KHAI_CHUA_SO_HOA_LAM',
               };
             }
             return curr;
@@ -394,7 +400,7 @@ export default function Home() {
     } catch (err) {
       console.warn('Lỗi khi fetch declarations từ cloud:', err);
     }
-  }, [parcels, flushPendingDeclarations]);
+  }, [flushPendingDeclarations]);
 
   useEffect(() => {
     const { declaredCodes, declarationsMap: loadedMap } = getStoredDeclarations();
@@ -457,9 +463,10 @@ export default function Home() {
     fetchGgsCodes(false);
     fetchCloudDeclarations();
 
-    // Kiểm tra đồng bộ phiếu kê khai (xóa/sửa/thêm) mỗi 12 giây (Tự động cập nhật như WebSocket mà không cần F5)
+    // Kiểm tra đồng bộ phiếu kê khai (xóa/sửa/thêm) và tự động đẩy dữ liệu pending mỗi 12 giây
     const declInterval = setInterval(() => {
       fetchCloudDeclarations();
+      flushPendingDeclarations();
     }, 12000);
 
     // Đồng bộ ngay lập tức khi người dùng chuyển tab hoặc mở màn hình điện thoại lên
@@ -984,13 +991,20 @@ export default function Home() {
           if (res.ok) {
             const result = (await res.json()) as any;
             removePendingDeclaration(formData.ma_thua);
+            if (Array.isArray(formData.thua_kem_theo)) {
+              formData.thua_kem_theo.forEach((ap) => {
+                if (ap?.ma_thua) removePendingDeclaration(ap.ma_thua);
+              });
+            }
 
             if (result.success && Array.isArray(result.declaredCodes)) {
-              const cloudMap = result.declarationsMap || {};
-              lastCloudSigRef.current = JSON.stringify({ codes: result.declaredCodes, map: cloudMap });
-              setDeclaredParcelCodes(new Set(result.declaredCodes));
+              setDeclaredParcelCodes((prev) => {
+                const nextSet = new Set(prev);
+                result.declaredCodes.forEach((c: string) => nextSet.add(c));
+                return nextSet;
+              });
               if (result.declarationsMap) {
-                setDeclarationsMap(result.declarationsMap);
+                setDeclarationsMap((prev) => ({ ...prev, ...result.declarationsMap }));
               }
             }
             setPickToast('✓ Đã đồng bộ lên máy chủ thành công');
@@ -1009,9 +1023,10 @@ export default function Home() {
               }).catch(() => {});
             }
           } else {
-            console.warn(`Đồng bộ cloud trả về mã lỗi ${res.status} (thử lại lần ${retryCount + 1}/3)`);
+            const errBody = await res.text().catch(() => '');
+            console.warn(`Đồng bộ cloud trả về mã lỗi ${res.status}: ${errBody} (thử lại lần ${retryCount + 1}/3)`);
             if (retryCount < 2) {
-              setTimeout(() => attemptSync(retryCount + 1), 1000 * (retryCount + 1));
+              setTimeout(() => attemptSync(retryCount + 1), 800 * (retryCount + 1));
             } else {
               setPickToast('✓ Đã lưu trên máy (Hệ thống đang tự động đồng bộ ngầm)');
               setTimeout(() => setPickToast(null), 3500);
@@ -1061,9 +1076,14 @@ export default function Home() {
         if (res.ok) {
           const result = (await res.json()) as any;
           if (result.success && Array.isArray(result.declaredCodes)) {
-            const cloudMap = result.declarationsMap || {};
-            lastCloudSigRef.current = JSON.stringify({ codes: result.declaredCodes, map: cloudMap });
-            setDeclaredParcelCodes(new Set(result.declaredCodes));
+            setDeclaredParcelCodes((prev) => {
+              const nextSet = new Set<string>(result.declaredCodes as string[]);
+              const stored = getStoredDeclarations();
+              stored.declaredCodes.forEach((c) => {
+                if (!removedCodes.includes(c)) nextSet.add(c);
+              });
+              return nextSet;
+            });
             if (result.declarationsMap) {
               setDeclarationsMap(result.declarationsMap);
             }
