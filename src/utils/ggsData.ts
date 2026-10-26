@@ -340,6 +340,48 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
       }
     }
 
+    // Các thửa đất ghi đè thủ công theo hồ sơ thực tế chuẩn
+    const MANUAL_PARCEL_OVERRIDES: Record<string, Partial<GgsParcelData>> = {
+      '78_243': {
+        chu_ho: 'Ly Mí Phà',
+        cccd: '002096001672',
+        nam_sinh: '1996',
+        gioi_tinh: 'Nam',
+        dien_tich: '2482.7',
+        loai_dat: 'ONT+HNK',
+      },
+      '6_188': {
+        chu_ho: 'Ly Mí Phà',
+        cccd: '002096001672',
+        nam_sinh: '1996',
+        gioi_tinh: 'Nam',
+        dien_tich: '6977.83',
+        loai_dat: 'NHK',
+      },
+    };
+
+    for (const [maThua, overrideData] of Object.entries(MANUAL_PARCEL_OVERRIDES)) {
+      ggsParcels[maThua] = {
+        ...(ggsParcels[maThua] || {}),
+        ...overrideData,
+      } as GgsParcelData;
+      codeSet.add(maThua);
+      if (overrideData.cccd) {
+        allCccdsSet.add(overrideData.cccd);
+      }
+    }
+
+    // Đảm bảo thông tin công dân Ly Mí Phà chuẩn
+    const lyMiPhaPerson: GgsPersonData = {
+      full_name: 'Ly Mí Phà',
+      nam_sinh: '1996',
+      gioi_tinh: 'Nam',
+      cccd: '002096001672',
+      dia_chi: 'Thôn Ea Uôl, xã Cư Pui',
+    };
+    ggsPeople['ly mí phà'] = lyMiPhaPerson;
+    ggsPeople['lý mí phà'] = lyMiPhaPerson;
+
     const ggsCodes = Array.from(codeSet);
     const allCccds = Array.from(allCccdsSet);
     const updatedAt = new Date().toISOString();

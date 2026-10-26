@@ -9368,10 +9368,10 @@
     "ma_thua": "6_188",
     "to_ban_do": "6",
     "so_thua": "188",
-    "thon_xa": "Thôn Ea Lang, xã Cư Pui",
+    "thon_xa": "Thôn Ea Uôl, xã Cư Pui",
     "ten_xa_goc": "Cư Pui",
-    "chu_ho": "LÝ VĂN LỜ",
-    "cccd": "002085007707",
+    "chu_ho": "Ly Mí Phà",
+    "cccd": "002096001672",
     "loai_dat": "NHK",
     "dien_tich": "6977.83",
     "trang_thai": "DA_SO_HOA_XANH",
@@ -9384,7 +9384,8 @@
     "has_gcn": false,
     "gcn_urls": [],
     "svg_url": null,
-    "is_on_ggs": true
+    "is_on_ggs": true,
+    "nam_sinh": "1996"
   },
   {
     "ma_thua": "6_189",
@@ -60700,8 +60701,8 @@
     "so_thua": "243",
     "thon_xa": "Thôn Ea Uôl, xã Cư Pui",
     "ten_xa_goc": "Cư Pui",
-    "chu_ho": "MUA NỎ PÁO",
-    "cccd": "066067000774",
+    "chu_ho": "Ly Mí Phà",
+    "cccd": "002096001672",
     "loai_dat": "ONT+HNK",
     "dien_tich": "2482.7",
     "trang_thai": "DA_SO_HOA_XANH",
@@ -60714,7 +60715,8 @@
     "has_gcn": false,
     "gcn_urls": [],
     "svg_url": null,
-    "is_on_ggs": true
+    "is_on_ggs": true,
+    "nam_sinh": "1996"
   },
   {
     "ma_thua": "78_244",
