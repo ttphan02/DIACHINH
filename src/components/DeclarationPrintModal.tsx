@@ -24,6 +24,7 @@ export default function DeclarationPrintModal({
   title = 'Tập Hồ Sơ Đăng Ký Đất Đai & CCCD / GCN',
 }: DeclarationPrintModalProps) {
   const [isExportingLocalPdf, setIsExportingLocalPdf] = useState(false);
+  const [packingMsg, setPackingMsg] = useState('');
 
   if (!isOpen || items.length === 0) return null;
 
@@ -60,6 +61,7 @@ export default function DeclarationPrintModal({
   const handleDownloadLocalPdf = async () => {
     try {
       setIsExportingLocalPdf(true);
+      setPackingMsg('Đang chuẩn bị dữ liệu hồ sơ...');
       const readyItems: ReadyToPackItem[] = items.map((it) => {
         const p = it.parcel;
         const decl = it.declaration || {};
@@ -70,6 +72,8 @@ export default function DeclarationPrintModal({
 
         const validOwner = cleanPrintOwner(decl.chu_dat_ten) || cleanPrintOwner(p.chu_ho) || '';
         const validGender = decl.chu_dat_gioi_tinh || (p.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
+        const rawCccd = decl.chu_dat_cccd || decl.cccd || decl.cccd_chu_ho || p.cccd || '';
+        const cleanCccdVal = rawCccd ? String(rawCccd).replace(/\D/g, '').trim() : '';
 
         return {
           ma_thua: p.ma_thua,
@@ -77,25 +81,29 @@ export default function DeclarationPrintModal({
           so_thua: p.so_thua,
           thon_xa: formatPrintAddress(decl.chu_dat_dia_chi, p.thon_xa),
           chu_ho: validOwner,
-          cccd: decl.chu_dat_cccd || p.cccd,
+          cccd: cleanCccdVal || rawCccd,
           dob: decl.chu_dat_nam_sinh || decl.nam_sinh_chu_ho || '',
           gender: validGender,
           loai_dat: p.loai_dat,
           dien_tich: p.dien_tich,
           nguon_goc: decl.nguon_goc_su_dung || 'Khai hoang',
           has_gcn: gcnList.length > 0 || Boolean(p.has_gcn),
-          cccd_url: decl.anh_cccd_truoc || p.cccd_url,
+          cccd_url: decl.anh_cccd_truoc || decl.cccd_url || decl.file_scan_pdf || p.cccd_url || null,
+          cccd_file: decl.cccd_file || (cleanCccdVal ? `${cleanCccdVal.padStart(12, '0')}.pdf` : null),
           gcn_urls: gcnList,
         };
       });
 
-      const { pdfBytes, fileName } = await generateReadyToPackPdf(readyItems);
+      const { pdfBytes, fileName } = await generateReadyToPackPdf(readyItems, (cur, total, msg) => {
+        setPackingMsg(msg);
+      });
       downloadPdfBlob(pdfBytes, fileName);
     } catch (err: any) {
       console.error('Lỗi đóng tập PDF:', err);
       alert('Không thể đóng tập PDF: ' + (err.message || 'Lỗi không xác định'));
     } finally {
       setIsExportingLocalPdf(false);
+      setPackingMsg('');
     }
   };
 
@@ -145,10 +153,10 @@ export default function DeclarationPrintModal({
             onClick={handleDownloadLocalPdf}
             disabled={isExportingLocalPdf}
             className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30 transition transform active:scale-95 cursor-pointer disabled:opacity-50"
-            title="Tải file PDF gốc 100% chuẩn template.pdf từ server local Python (PyMuPDF)"
+            title="Đóng tập PDF ghép trang CCCD chuẩn R2 và Mẫu đơn 15/15b"
           >
             {isExportingLocalPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            <span>Tải PDF Chuẩn Local (template.pdf)</span>
+            <span>{isExportingLocalPdf ? (packingMsg || 'Đang đóng tập...') : 'Tải Tập PDF Chuẩn (CCCD + Đơn)'}</span>
           </button>
 
           {/* Nút In / Lưu PDF qua trình duyệt */}

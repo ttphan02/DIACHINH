@@ -20,6 +20,17 @@ export interface ReadyToPackItem {
   gcn_urls?: string[] | null;
 }
 
+export function toProxyUrl(url?: string | null): string {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (trimmed.startsWith('/api/image/')) return trimmed;
+  if (trimmed.includes('.r2.dev/')) {
+    const path = trimmed.split('.r2.dev/')[1];
+    return `/api/image/${path}`;
+  }
+  return trimmed;
+}
+
 function resolveThoiHan(mucDich?: string | null): string {
   if (!mucDich) return '50 năm';
   const parts = String(mucDich).split('+');
@@ -108,6 +119,8 @@ export async function generateReadyToPackPdf(
 
   const mergedDoc = await PDFDocument.create();
   mergedDoc.registerFontkit(fontkit);
+  // Nhúng font 1 lần duy nhất cho toàn bộ tài liệu mergedDoc
+  const mergedTimesFont = await mergedDoc.embedFont(fontTimesBoldBytes);
 
   // Chuẩn kích thước toàn bộ các trang: Khổ đứng A4/Letter 612 x 792 pt (khớp 100% template.pdf)
   const PAGE_W = 612.0;
@@ -130,36 +143,43 @@ export async function generateReadyToPackPdf(
     // Tự động scale vừa trọn chiều ngang 612 pt, căn giữa trang, bù trắng trên/dưới
     // ========================================================
     let cccdInserted = false;
-    const cccdFileName = firstRow.cccd_file || (firstRow.cccd ? `${firstRow.cccd}.pdf` : '');
+    const rawCccd = firstRow.cccd ? String(firstRow.cccd).trim() : '';
+    const digits = rawCccd.replace(/\D/g, '');
 
-    const possibleUrls: string[] = [];
-    if (firstRow.cccd_url) possibleUrls.push(firstRow.cccd_url);
-    if (cccdFileName) {
-      if (cccdFileName.startsWith('http')) {
-        possibleUrls.push(cccdFileName);
-      } else {
-        possibleUrls.push(`/api/image/cccd/${encodeURIComponent(cccdFileName)}`);
-        possibleUrls.push(`https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/cccd/${encodeURIComponent(cccdFileName)}`);
+    // Danh sách URL ưu tiên cao (chỉ 1-3 URL chính xác, không lặp lại 19 lần gây nghẽn mạng)
+    const candidateUrls: string[] = [];
+
+    // 1. Nếu có tên file CCCD cụ thể hoặc URL đã lưu
+    if (firstRow.cccd_file) {
+      const f = firstRow.cccd_file.trim();
+      candidateUrls.push(
+        f.startsWith('http') ? toProxyUrl(f) : `/api/image/cccd/${encodeURIComponent(f)}`
+      );
+    }
+    if (firstRow.cccd_url) {
+      const u = toProxyUrl(firstRow.cccd_url);
+      if (u && !candidateUrls.includes(u)) candidateUrls.push(u);
+    }
+
+    // 2. Tra cứu theo số CCCD 12 số (/api/image/ tự động tìm file có hậu tố tên người như '038075015833 - CAO VĂN HĂNG.pdf')
+    if (digits && digits.length >= 9) {
+      const padded12 = digits.padStart(12, '0');
+      const url12 = `/api/image/cccd/${padded12}.pdf`;
+      if (!candidateUrls.includes(url12)) candidateUrls.push(url12);
+
+      if (padded12 !== digits) {
+        const urlRaw = `/api/image/cccd/${digits}.pdf`;
+        if (!candidateUrls.includes(urlRaw)) candidateUrls.push(urlRaw);
       }
     }
 
-    if (firstRow.cccd) {
-      const c = String(firstRow.cccd).trim();
-      for (const ext of ['.pdf', '.jpg', '.jpeg', '.png']) {
-        possibleUrls.push(`/api/image/cccd/${encodeURIComponent(c + ext)}`);
-        possibleUrls.push(`https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/cccd/${encodeURIComponent(c + ext)}`);
-      }
+    // 3. Fallback theo mã thửa
+    if (firstRow.ma_thua) {
+      const urlThua = `/api/image/cccd/${encodeURIComponent(firstRow.ma_thua)}.pdf`;
+      if (!candidateUrls.includes(urlThua)) candidateUrls.push(urlThua);
     }
 
-    const targetCodes = [firstRow.ma_thua, ...rows.map((r) => r.ma_thua)].filter(Boolean);
-    for (const code of Array.from(new Set(targetCodes))) {
-      for (const ext of ['.jpg', '.jpeg', '.pdf', '.png']) {
-        possibleUrls.push(`/api/image/cccd/${encodeURIComponent(code + ext)}`);
-        possibleUrls.push(`https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/cccd/${encodeURIComponent(code + ext)}`);
-      }
-    }
-
-    for (const url of possibleUrls) {
+    for (const url of candidateUrls) {
       try {
         const cccdRes = await fetch(url);
         if (cccdRes.ok) {
@@ -256,23 +276,22 @@ export async function generateReadyToPackPdf(
     if (!cccdInserted) {
       // Nếu không tìm thấy tệp CCCD: Trang bìa trống có viền đứt nét chuẩn PDF_Web_App
       const blankPage = mergedDoc.addPage([PAGE_W, PAGE_H]);
-      const timesFont = await mergedDoc.embedFont(fontTimesBoldBytes);
       const title = `BẢN SAO CĂN CƯỚC CÔNG DÂN: ${ownerDisplayName.toUpperCase()}`;
-      const titleW = timesFont.widthOfTextAtSize(title, 13);
+      const titleW = mergedTimesFont.widthOfTextAtSize(title, 13);
       blankPage.drawText(title, {
         x: Math.max(36, (PAGE_W - titleW) / 2),
         y: 650,
         size: 13,
-        font: timesFont,
+        font: mergedTimesFont,
         color: rgb(0.1, 0.1, 0.1),
       });
       const sub = `[ VỊ TRÍ ĐÍNH KÈM BẢN SAO CĂN CƯỚC CÔNG DÂN ]`;
-      const subW = timesFont.widthOfTextAtSize(sub, 11);
+      const subW = mergedTimesFont.widthOfTextAtSize(sub, 11);
       blankPage.drawText(sub, {
         x: Math.max(36, (PAGE_W - subW) / 2),
         y: 400,
         size: 11,
-        font: timesFont,
+        font: mergedTimesFont,
         color: rgb(0.5, 0.5, 0.5),
       });
     }
@@ -287,7 +306,8 @@ export async function generateReadyToPackPdf(
     if (hasGcn && firstRow.gcn_urls && firstRow.gcn_urls.length > 0) {
       for (const gcnUrl of firstRow.gcn_urls) {
         try {
-          const gcnRes = await fetch(gcnUrl);
+          const proxiedGcn = toProxyUrl(gcnUrl);
+          const gcnRes = await fetch(proxiedGcn);
           if (gcnRes.ok) {
             const gcnBuf = await gcnRes.arrayBuffer();
             const header = new Uint8Array(gcnBuf.slice(0, 4));
@@ -300,7 +320,7 @@ export async function generateReadyToPackPdf(
                 gPage.drawPage(emb, { x: 0, y: 0, width: PAGE_W, height: PAGE_H });
               }
             } else {
-              let embeddedImg;
+              let embeddedImg: any = null;
               try {
                 embeddedImg = await mergedDoc.embedJpg(gcnBuf);
               } catch {
