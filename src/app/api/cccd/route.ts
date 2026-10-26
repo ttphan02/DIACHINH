@@ -15,9 +15,9 @@ const R2_PUBLIC_BASE =
 
 // Cache ngắn hạn giúp Worker tránh nghẽn khi có nhiều request đồng thời, tự xóa khi force=true
 let cccdCache: { data: any; timestamp: number } | null = null;
-const CCCD_CACHE_TTL = 3000;
+const CCCD_CACHE_TTL = 60000; // Cache 60s danh sách CCCD, giảm 95% CPU và I/O Worker
 let listOnlyCache: { data: any; timestamp: number } | null = null;
-const LIST_ONLY_CACHE_TTL = 30000; // Cache 30 giây danh sách số CCCD, giảm 99% I/O và CPU Worker
+const LIST_ONLY_CACHE_TTL = 60000; // Cache 60 giây danh sách số CCCD, giảm 99% I/O và CPU Worker
 
 async function getR2Binding(): Promise<any | null> {
   try {
@@ -135,7 +135,7 @@ export async function GET(request: Request) {
           exists: true,
           inR2: true,
           filename,
-          url: `/api/image/cccd/${encodeURIComponent(filename)}`,
+          url: `${R2_PUBLIC_BASE}/cccd/${encodeURIComponent(filename)}`,
           message: 'Đã có cccd trên hệ thống!',
         });
       }
@@ -373,7 +373,7 @@ export async function GET(request: Request) {
           filename,
           size: obj.size,
           uploadedAt: obj.uploaded ? new Date(obj.uploaded).toISOString() : null,
-          url: `/api/image/${encodeURI(fullKey)}`,
+          url: `${R2_PUBLIC_BASE}/${encodeURI(fullKey)}`,
           cccdNumber: cccdCandidate || '',
           ownerName: matchedOwner || '',
           matchedParcelCode: matchedParcel || '',

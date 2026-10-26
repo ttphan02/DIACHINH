@@ -58,18 +58,18 @@ export default function CccdManagerTab({
 
   const isLight = theme === 'light';
 
-  // Tải danh sách file CCCD từ R2
-  const loadCccdFiles = useCallback(async () => {
+  // Tải danh sách file CCCD từ R2 (Mặc định dùng cache, chỉ ép buộc force=true khi người dùng nhấn nút làm mới)
+  const loadCccdFiles = useCallback(async (force = false) => {
     setIsLoading(true);
     setFeedbackMessage(null);
     let attempts = 0;
     while (attempts < 2) {
       attempts++;
       try {
-        const res = await fetch(`/api/cccd?force=true&t=${Date.now()}`, {
+        const fetchUrl = force ? `/api/cccd?force=true&t=${Date.now()}` : `/api/cccd?t=${Math.floor(Date.now() / 60000)}`;
+        const res = await fetch(fetchUrl, {
           headers: {
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            Pragma: 'no-cache',
+            'Cache-Control': force ? 'no-cache, no-store, must-revalidate' : 'public, max-age=60',
           },
         });
         if (!res.ok && attempts < 2) {
@@ -212,7 +212,7 @@ export default function CccdManagerTab({
 
         <div className="flex items-center gap-2.5 flex-wrap">
           <button
-            onClick={loadCccdFiles}
+            onClick={() => loadCccdFiles(true)}
             disabled={isLoading}
             className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border transition cursor-pointer disabled:opacity-50 ${
               isLight
