@@ -606,8 +606,6 @@ export default function DashboardPage() {
     else if (hLower.includes('giới tính')) fieldKey = 'chu_dat_gioi_tinh';
     else if (hLower.includes('cccd') && !hLower.includes('xem') && !hLower.includes('file')) fieldKey = 'chu_dat_cccd';
     else if (hLower.includes('thôn') || hLower.includes('buôn')) fieldKey = 'dia_chi_thua_dat';
-    else if (hLower.includes('diện tích')) fieldKey = 'dien_tich';
-    else if (hLower.includes('loại đất')) fieldKey = 'loai_dat';
     else if (hLower.includes('nguồn gốc')) fieldKey = 'nguon_goc';
     else if (hLower.includes('ghi chú') || hLower.includes('hướng dẫn')) fieldKey = 'ghi_chu';
 
@@ -727,8 +725,8 @@ export default function DashboardPage() {
     const rawCccd = String(edits[6] ?? row[6] ?? p?.cccd ?? '').replace(/^="|"$/g, '').trim();
     const cleanCccdVal = cleanCccd(rawCccd);
 
-    const dienTich = String(edits[7] ?? row[7] ?? p?.dien_tich ?? '').trim();
-    const loaiDat = String(edits[8] ?? row[8] ?? p?.loai_dat ?? 'DGT').trim();
+    const dienTich = String(p?.dien_tich ?? row[7] ?? '').trim();
+    const loaiDat = String(p?.loai_dat ?? row[8] ?? 'DGT').trim();
     const nguonGoc = normalizeNguonGoc(String(edits[9] ?? row[9] ?? 'Khai hoang').trim());
     const ghiChu = '';
 
@@ -3092,8 +3090,8 @@ export default function DashboardPage() {
                     const chuDatGioiTinh = String(edits[5] ?? r[5] ?? 'Nam').trim();
                     const rawCccd = String(edits[6] ?? r[6] ?? '').replace(/^="|"$/g, '').trim();
                     const cleanCccdVal = cleanCccd(rawCccd);
-                    const dienTich = String(edits[7] ?? r[7] ?? '').trim();
-                    const loaiDat = String(edits[8] ?? r[8] ?? 'DGT').trim();
+                    const dienTich = String(r[7] ?? '').trim();
+                    const loaiDat = String(r[8] ?? 'DGT').trim();
                     const nguonGoc = normalizeNguonGoc(String(edits[9] ?? r[9] ?? 'Khai hoang').trim());
 
                     return isParcelInfoCompleteAndValid({
@@ -3138,8 +3136,8 @@ export default function DashboardPage() {
                         const chuDatGioiTinh = String(edits[5] ?? r[5] ?? 'Nam').trim();
                         const rawCccdVal = String(edits[6] ?? r[6] ?? p?.cccd ?? '').replace(/^="|"$/g, '').trim();
                         const cleanCccdVal = cleanCccd(rawCccdVal);
-                        const dienTich = String(edits[7] ?? r[7] ?? p?.dien_tich ?? '').trim();
-                        const loaiDat = String(edits[8] ?? r[8] ?? p?.loai_dat ?? 'DGT').trim();
+                        const dienTich = String(p?.dien_tich ?? r[7] ?? '').trim();
+                        const loaiDat = String(p?.loai_dat ?? r[8] ?? 'DGT').trim();
                         const nguonGoc = normalizeNguonGoc(String(edits[9] ?? r[9] ?? 'Khai hoang').trim());
                         const diaChi = thonXa ? (thonXa.includes('xã Cư Pui') ? thonXa : `${thonXa}, xã Cư Pui`) : 'xã Cư Pui';
 
@@ -4613,7 +4611,8 @@ export default function DashboardPage() {
                                       }
 
                                       // 2. Các ô nhập chữ trực tiếp như Excel (Họ tên, Năm sinh, Giới tính, Số CCCD, Diện tích, Loại đất)
-                                      if (isNameCol || isDobCol || isGenderCol || isCccdCol || isVillageCol || isAreaCol || isLandTypeCol) {
+                                      // Cột Diện tích & Loại đất cố định theo bản đồ địa chính, KHÔNG cho phép sửa trên bảng
+                                      if (isNameCol || isDobCol || isGenderCol || isCccdCol || isVillageCol) {
                                         // Chỉ kiểm tra validate ở THỬA ĐANG KÊ KHAI (CHƯA CÓ CCCD) và SẲN SÀNG ĐÓNG TẬP
                                         // Bảng Chưa thực hiện thì không cần check valid
                                         const shouldValidate = isReadyToPackSheet || isChuaCoCccdSheet;
@@ -4642,12 +4641,6 @@ export default function DashboardPage() {
                                                 isInvalid = true;
                                                 invalidMsg = 'Số CCCD phải gồm đúng 12 chữ số';
                                               }
-                                            }
-                                          } else if (isAreaCol) {
-                                            const a = parseFloat(displayVal);
-                                            if (!displayVal || isNaN(a) || a <= 0) {
-                                              isInvalid = true;
-                                              invalidMsg = 'Diện tích phải là số lớn hơn 0';
                                             }
                                           } else if (isGenderCol && displayVal) {
                                             if (!['nam', 'nữ', 'nu'].includes(displayVal.trim().toLowerCase())) {
@@ -4768,7 +4761,16 @@ export default function DashboardPage() {
                                           style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
                                           className={`py-2 px-2.5 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
                                         >
-                                          <div className="truncate" title={cleanText}>
+                                           <div
+                                             className={`truncate ${
+                                               isAreaCol
+                                                 ? 'text-right font-mono font-medium text-slate-800 dark:text-slate-200'
+                                                 : isLandTypeCol
+                                                 ? 'text-center font-bold text-amber-700 dark:text-amber-400'
+                                                 : ''
+                                             }`}
+                                             title={cleanText}
+                                           >
                                             {cleanText}
                                           </div>
                                         </td>
