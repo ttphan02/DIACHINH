@@ -28,6 +28,9 @@ export function toProxyUrl(url?: string | null): string {
     const path = trimmed.split('.r2.dev/')[1];
     return `/api/image/${path}`;
   }
+  if (trimmed.startsWith('cccd/')) {
+    return `/api/image/${trimmed}`;
+  }
   return trimmed;
 }
 
@@ -149,28 +152,33 @@ export async function generateReadyToPackPdf(
     // Danh sách URL ưu tiên cao (chỉ 1-3 URL chính xác, không lặp lại 19 lần gây nghẽn mạng)
     const candidateUrls: string[] = [];
 
-    // 1. Nếu có tên file CCCD cụ thể hoặc URL đã lưu
+    // 1. Ưu tiên số 1: Tra cứu theo số CCCD 12 số chuẩn (/api/image/ tự động đối chiếu tiền tố và tên)
+    if (digits && digits.length >= 9) {
+      const padded12 = digits.padStart(12, '0');
+      candidateUrls.push(`/api/image/cccd/${padded12}.pdf`);
+      if (padded12 !== digits) {
+        candidateUrls.push(`/api/image/cccd/${digits}.pdf`);
+      }
+    }
+
+    // 2. Nếu có tên file CCCD cụ thể hoặc URL đã lưu
     if (firstRow.cccd_file) {
       const f = firstRow.cccd_file.trim();
-      candidateUrls.push(
-        f.startsWith('http') ? toProxyUrl(f) : `/api/image/cccd/${encodeURIComponent(f)}`
-      );
+      const u = f.startsWith('http') ? toProxyUrl(f) : `/api/image/cccd/${encodeURIComponent(f)}`;
+      if (!candidateUrls.includes(u)) candidateUrls.push(u);
     }
     if (firstRow.cccd_url) {
       const u = toProxyUrl(firstRow.cccd_url);
       if (u && !candidateUrls.includes(u)) candidateUrls.push(u);
     }
 
-    // 2. Tra cứu theo số CCCD 12 số (/api/image/ tự động tìm file có hậu tố tên người như '038075015833 - CAO VĂN HĂNG.pdf')
+    // 3. Dự phòng định dạng ảnh
     if (digits && digits.length >= 9) {
       const padded12 = digits.padStart(12, '0');
-      const url12 = `/api/image/cccd/${padded12}.pdf`;
-      if (!candidateUrls.includes(url12)) candidateUrls.push(url12);
-
-      if (padded12 !== digits) {
-        const urlRaw = `/api/image/cccd/${digits}.pdf`;
-        if (!candidateUrls.includes(urlRaw)) candidateUrls.push(urlRaw);
-      }
+      const uJpg = `/api/image/cccd/${padded12}.jpg`;
+      const uPng = `/api/image/cccd/${padded12}.png`;
+      if (!candidateUrls.includes(uJpg)) candidateUrls.push(uJpg);
+      if (!candidateUrls.includes(uPng)) candidateUrls.push(uPng);
     }
 
     // 3. Fallback theo mã thửa

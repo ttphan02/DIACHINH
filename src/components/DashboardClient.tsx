@@ -1876,7 +1876,7 @@ export default function DashboardPage() {
         const decl = declarationsMap[p.ma_thua] || {};
         const cccdVal = cleanCccd(decl.chu_dat_cccd || decl.cccd_chu_ho || p.cccd || '');
         const cccdFileName = `${cccdVal}.pdf`;
-        const cccdLink = `${R2_PUBLIC_BASE}/cccd/${encodeURIComponent(cccdFileName)}`;
+        const cccdLink = `/api/image/cccd/${encodeURIComponent(cccdFileName)}`;
         const cccdFormula = cccdVal ? `=HYPERLINK("${cccdLink}"; "${cccdFileName}")` : '';
         return [
           String(idx + 1),
@@ -1947,7 +1947,7 @@ export default function DashboardPage() {
         let cccdFileName = '';
         let cccdUrl = '';
 
-        const linkMatch = cccdFormula.match(/HYPERLINK\("([^"]+)";\s*"([^"]+)"\)/i);
+        const linkMatch = cccdFormula.match(/HYPERLINK\("([^"]+)"[,;]\s*"([^"]+)"\)/i);
         if (linkMatch) {
           cccdUrl = getResolvedImageUrl(linkMatch[1]);
           cccdFileName = linkMatch[2];
@@ -1959,7 +1959,7 @@ export default function DashboardPage() {
             cccdFileName = `${cccdRaw}.pdf`;
           }
           if (cccdFileName) {
-            cccdUrl = `${R2_PUBLIC_BASE}/cccd/${encodeURIComponent(cccdFileName)}`;
+            cccdUrl = `/api/image/cccd/${encodeURIComponent(cccdFileName)}`;
           }
         }
 
@@ -2028,7 +2028,7 @@ export default function DashboardPage() {
         const decl = declarationsMap[p.ma_thua] || {};
         const cccdVal = cleanCccd(decl.chu_dat_cccd || decl.cccd_chu_ho || p.cccd || '');
         const cccdFileName = `${cccdVal}.pdf`;
-        const cccdLink = `${R2_PUBLIC_BASE}/cccd/${encodeURIComponent(cccdFileName)}`;
+        const cccdLink = `/api/image/cccd/${encodeURIComponent(cccdFileName)}`;
         const cccdFormula = cccdVal ? `=HYPERLINK("${cccdLink}"; "${cccdFileName}")` : '';
         return [
           String(idx + 1),
@@ -2093,7 +2093,7 @@ export default function DashboardPage() {
       const cccdFormula = String(row[cccdFormulaIdx] || '');
       let cccdFileName = '';
       let cccdUrl = '';
-      const linkMatch = cccdFormula.match(/HYPERLINK\("([^"]+)";\s*"([^"]+)"\)/i);
+      const linkMatch = cccdFormula.match(/HYPERLINK\("([^"]+)"[,;]\s*"([^"]+)"\)/i);
       if (linkMatch) {
         cccdUrl = getResolvedImageUrl(linkMatch[1]);
         cccdFileName = linkMatch[2];
@@ -2105,7 +2105,7 @@ export default function DashboardPage() {
           cccdFileName = `${cccdRaw}.pdf`;
         }
         if (cccdFileName) {
-          cccdUrl = `${R2_PUBLIC_BASE}/cccd/${encodeURIComponent(cccdFileName)}`;
+          cccdUrl = `/api/image/cccd/${encodeURIComponent(cccdFileName)}`;
         }
       }
 
@@ -2766,7 +2766,7 @@ export default function DashboardPage() {
                       const decl = declarationsMap[p.ma_thua] || {};
                       const cccdVal = cleanCccd(decl.chu_dat_cccd || decl.cccd_chu_ho || p.cccd || '');
                       const cccdFileName = `${cccdVal}.pdf`;
-                      const cccdLink = `${R2_PUBLIC_BASE}/cccd/${encodeURIComponent(cccdFileName)}`;
+                      const cccdLink = `/api/image/cccd/${encodeURIComponent(cccdFileName)}`;
                       const cccdFormula = cccdVal ? `=HYPERLINK("${cccdLink}"; "${cccdFileName}")` : '';
                       return [
                         String(idx + 1),
@@ -3276,7 +3276,7 @@ export default function DashboardPage() {
                             const cccdNum = decl?.chu_dat_cccd || '';
                             const cccdText = cccdNum ? `="${cccdNum}"` : '';
                             const fileName = `${cccdNum}.pdf`;
-                            const fileUrl = `${R2_PUBLIC_BASE}/cccd/${encodeURIComponent(fileName)}`;
+                            const fileUrl = `/api/image/cccd/${encodeURIComponent(fileName)}`;
                             const fileFormula = `=HYPERLINK("${fileUrl}"; "${fileName}")`;
                             return [
                               '',
