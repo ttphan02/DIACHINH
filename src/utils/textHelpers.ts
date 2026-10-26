@@ -53,6 +53,30 @@ export function stripHonorifics(name: any): string {
   return s;
 }
 
+// Chuẩn hóa vị trí dấu thanh nguyên âm tiếng Việt (òa vs oà, úy vs uý) nhưng TUYỆT ĐỐI GIỮ NGUYÊN DẤU THANH
+export function normalizeVietnameseVowels(s: string): string {
+  if (!s) return '';
+  const replacements: Record<string, string> = {
+    'oà': 'òa', 'oá': 'óa', 'oả': 'ỏa', 'oã': 'õa', 'oạ': 'ọa',
+    'uỳ': 'ùy', 'uý': 'úy', 'uỷ': 'ủy', 'uỹ': 'ũy', 'uỵ': 'ụy',
+    'oè': 'òe', 'oé': 'óe', 'oẻ': 'ỏe', 'oẽ': 'õe', 'oẹ': 'ọe',
+  };
+  let res = s.normalize('NFC').toLowerCase();
+  for (const [k, v] of Object.entries(replacements)) {
+    res = res.replace(new RegExp(k, 'g'), v);
+  }
+  return res;
+}
+
+// Chuẩn hóa tên CHÍNH XÁC TỪNG DẤU THANH (Quang != Quảng, Ba != Bảy, Anh != Ánh, Vàng != Vang)
+export function cleanStrictName(name: any): string {
+  if (!name) return '';
+  let s = normalizeVietnameseVowels(stripHonorifics(name));
+  s = s.replace(/['’`"]/g, '');
+  s = s.replace(/\s+/g, ' ');
+  return s.trim();
+}
+
 // Chuẩn hóa tên (lọc bỏ toàn bộ danh xưng, bỏ dấu cách thừa, viết hoa chữ cái đầu từng từ)
 export function cleanName(name: any): string {
   if (!name) return '';

@@ -72,6 +72,55 @@ export default function DeclarationEditModal({
   const [cccdCheckResult, setCccdCheckResult] = useState<{ exists: boolean; filename?: string; url?: string } | null>(null);
   const [isCheckingCccd, setIsCheckingCccd] = useState(false);
 
+  // Tra cứu tự động công dân trên Google Sheet theo tên
+  const [isLookingUpGgs, setIsLookingUpGgs] = useState(false);
+  const [ggsLookupStatus, setGgsLookupStatus] = useState<{
+    checked: boolean;
+    found: boolean;
+    message?: string;
+  } | null>(null);
+
+  const lookupGgsByName = async (name: string, isManual = false) => {
+    const clean = cleanName(name);
+    if (!clean || clean.split(/\s+/).length < 2) {
+      setGgsLookupStatus(null);
+      return;
+    }
+    setIsLookingUpGgs(true);
+    try {
+      const res = await fetch(`/api/lookup-person?name=${encodeURIComponent(clean)}`);
+      const data = (await res.json()) as any;
+      if (data.found) {
+        if (data.nam_sinh) setChuDatNamSinh(data.nam_sinh);
+        if (data.cccd) setChuDatCccd(data.cccd);
+        if (data.gioi_tinh) setChuDatGioiTinh(data.gioi_tinh === 'Nữ' ? 'Nữ' : 'Nam');
+        if (data.dia_chi && (!chuDatDiaChi || (chuDatDiaChi.includes('xã Cư Pui') && !chuDatDiaChi.includes('Thôn') && !chuDatDiaChi.includes('Buôn')))) {
+          setChuDatDiaChi(data.dia_chi);
+        }
+        setGgsLookupStatus({
+          checked: true,
+          found: true,
+          message: `Khớp dữ liệu GGS: Năm sinh ${data.nam_sinh || '-'} | CCCD: ${data.cccd || '(Chưa có số)'}`,
+        });
+      } else {
+        // Nếu không có trên GGS: để trống thông tin theo yêu cầu
+        if (isManual) {
+          setChuDatNamSinh('');
+          setChuDatCccd('');
+        }
+        setGgsLookupStatus({
+          checked: true,
+          found: false,
+          message: 'Chưa có trên Google Sheet (đã để trống Năm sinh & CCCD để thu thập thực địa)',
+        });
+      }
+    } catch (err) {
+      console.warn('Lỗi tra cứu Google Sheet:', err);
+    } finally {
+      setIsLookingUpGgs(false);
+    }
+  };
+
   useEffect(() => {
     const clean = cleanCccd(chuDatCccd);
     if (clean.length === 12) {
@@ -206,10 +255,11 @@ export default function DeclarationEditModal({
       setNguoiKeKhaiSdt('');
       
       const parcelNameValid = parcel.chu_ho && !isInvalidOwnerName(parcel.chu_ho);
-      setChuDatTen(cleanName(parcelNameValid ? parcel.chu_ho : ''));
+      const initName = cleanName(parcelNameValid ? parcel.chu_ho : '');
+      setChuDatTen(initName);
       setChuDatNamSinh('');
       setChuDatGioiTinh(parcel.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
-      setChuDatCccd(parcel.cccd || '');
+      setChuDatCccd('');
       setChuDatDiaChi(formatThonAddress(undefined, parcel.thon_xa));
       setNguonGocSuDung('Khai Hoang');
       setGiapDong(cleanBoundaryText(parcel.giap_dong || ''));
@@ -218,6 +268,10 @@ export default function DeclarationEditModal({
       setGiapBac(cleanBoundaryText(parcel.giap_bac || ''));
       setGhiChu('');
       setThuaKemTheo([]);
+      setGgsLookupStatus(null);
+      if (initName) {
+        lookupGgsByName(initName, false);
+      }
 
       setAnhCccdTruoc(parcel.cccd_url || null);
       setAnhCccdSau(null);
@@ -406,22 +460,61 @@ export default function DeclarationEditModal({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
               <div className="sm:col-span-2">
-                <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  Họ & Tên cá nhân <span className="text-red-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={chuDatTen}
-                  onChange={(e) => setChuDatTen(e.target.value)}
-                  onBlur={() => setChuDatTen(cleanName(chuDatTen))}
-                  placeholder="NGUYỄN VĂN A"
-                  className={`w-full px-3 py-2 border rounded-xl bg-slate-900 text-white focus:outline-none font-bold uppercase transition ${
-                    (formSubmitted || (chuDatTen.length > 0 && chuDatTen.trim().split(/\s+/).length < 2)) && !isValidFullName(chuDatTen)
-                      ? 'border-red-500 bg-red-950/20 text-red-200 focus:ring-2 focus:ring-red-500 ring-1 ring-red-500'
-                      : 'border-slate-700 focus:ring-2 focus:ring-blue-500'
-                  }`}
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-bold text-slate-300">
+                    Họ & Tên cá nhân <span className="text-red-400">*</span>
+                  </label>
+                  {isLookingUpGgs && (
+                    <span className="text-[10px] text-blue-400 flex items-center gap-1 animate-pulse">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Đang tra cứu trên Google Sheet...
+                    </span>
+                  )}
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    required
+                    value={chuDatTen}
+                    onChange={(e) => {
+                      setChuDatTen(e.target.value);
+                      setGgsLookupStatus(null);
+                    }}
+                    onBlur={() => {
+                      const cleaned = cleanName(chuDatTen);
+                      setChuDatTen(cleaned);
+                      if (cleaned) {
+                        lookupGgsByName(cleaned, true);
+                      }
+                    }}
+                    placeholder="NGUYỄN VĂN A"
+                    className={`w-full px-3 py-2 pr-9 border rounded-xl bg-slate-900 text-white focus:outline-none font-bold uppercase transition ${
+                      (formSubmitted || (chuDatTen.length > 0 && chuDatTen.trim().split(/\s+/).length < 2)) && !isValidFullName(chuDatTen)
+                        ? 'border-red-500 bg-red-950/20 text-red-200 focus:ring-2 focus:ring-red-500 ring-1 ring-red-500'
+                        : 'border-slate-700 focus:ring-2 focus:ring-blue-500'
+                    }`}
+                  />
+                  {!isLookingUpGgs && ggsLookupStatus?.checked && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      {ggsLookupStatus.found ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-amber-400" />
+                      )}
+                    </div>
+                  )}
+                </div>
+                {ggsLookupStatus?.message && (
+                  <p className={`mt-1 text-[11px] font-semibold flex items-center gap-1 ${
+                    ggsLookupStatus.found ? 'text-emerald-400' : 'text-amber-400'
+                  }`}>
+                    {ggsLookupStatus.found ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    )}
+                    {ggsLookupStatus.message}
+                  </p>
+                )}
                 {(formSubmitted || (chuDatTen.length > 0 && chuDatTen.trim().split(/\s+/).length < 2)) && !isValidFullName(chuDatTen) && (
                   <p className="mt-1 text-[11px] text-red-400 font-medium flex items-center gap-1">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />

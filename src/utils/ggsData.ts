@@ -1,4 +1,5 @@
 import { getCloudflareContext } from '@opennextjs/cloudflare';
+import { cleanStrictName, cleanCccd } from './textHelpers';
 
 const DEFAULT_GGS_CSV_URL =
   'https://docs.google.com/spreadsheets/d/1c2xAknmc1fx-xKBJhLp-EcmZwAAnDIgCPf-pj6wmCHc/export?format=csv&gid=0';
@@ -12,9 +13,19 @@ export interface GgsParcelData {
   gioi_tinh?: string;
 }
 
+export interface GgsPersonData {
+  full_name: string;
+  nam_sinh?: string;
+  gioi_tinh?: string;
+  cccd?: string;
+  dia_chi?: string;
+  ma_thua?: string;
+}
+
 let cachedData: {
   codes: string[];
   parcels: Record<string, GgsParcelData>;
+  people: Record<string, GgsPersonData>;
   allCccds: string[];
   updatedAt: string;
   expiresAt: number;
@@ -56,6 +67,7 @@ function extractFields(line: string): string[] {
 export async function fetchOrGetCachedGgsData(force = false): Promise<{
   codes: string[];
   parcels: Record<string, GgsParcelData>;
+  people: Record<string, GgsPersonData>;
   allCccds: string[];
   updatedAt: string;
   cached: boolean;
@@ -67,6 +79,7 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
     return {
       codes: cachedData.codes,
       parcels: cachedData.parcels,
+      people: cachedData.people || {},
       allCccds: cachedData.allCccds,
       updatedAt: cachedData.updatedAt,
       cached: true,
@@ -87,6 +100,7 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
             return {
               codes: r2Data.codes,
               parcels: r2Data.parcels,
+              people: r2Data.people || {},
               allCccds: r2Data.allCccds,
               updatedAt: r2Data.updatedAt,
               cached: true,
@@ -120,6 +134,7 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
     const lines = csvText.split(/\r?\n/);
 
     const ggsParcels: Record<string, GgsParcelData> = {};
+    const ggsPeople: Record<string, GgsPersonData> = {};
     const codeSet = new Set<string>();
     const allCccdsSet = new Set<string>();
 
@@ -130,12 +145,59 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
       const row = extractFields(line);
       if (row.length < 3) continue;
 
-      // Thu thập toàn bộ CCCD xuất hiện trên trang tính chính để phục vụ đối soát nhanh
+      // Thu thập thông tin công dân (Person 1 và Person 2)
+      const name1 = (row[7] || '').trim();
       const rawCccd10 = (row[10] || '').replace(/\D/g, '');
-      if (rawCccd10.length >= 9 && rawCccd10.length <= 12) allCccdsSet.add(rawCccd10);
-      if (row.length > 15) {
-        const rawCccd15 = (row[15] || '').replace(/\D/g, '');
-        if (rawCccd15.length >= 9 && rawCccd15.length <= 12) allCccdsSet.add(rawCccd15);
+      const cleanCccd10 = (rawCccd10.length >= 9 && rawCccd10.length <= 12) ? rawCccd10.padStart(12, '0') : '';
+      if (cleanCccd10) allCccdsSet.add(cleanCccd10);
+
+      const rawCccd15 = row.length > 15 ? (row[15] || '').replace(/\D/g, '') : '';
+      const cleanCccd15 = (rawCccd15.length >= 9 && rawCccd15.length <= 12) ? rawCccd15.padStart(12, '0') : '';
+      if (cleanCccd15) allCccdsSet.add(cleanCccd15);
+
+      const addr11 = (row[11] || '').trim();
+      const addr23 = row.length > 23 ? (row[23] || '').trim() : '';
+      const citizenAddr = addr11 || addr23;
+
+      let mYear1 = '';
+      if (row.length > 8 && row[8]) {
+        const ym = row[8].match(/(?:19|20)\d{2}/);
+        if (ym) mYear1 = ym[0];
+      }
+      const gLower = (row[9] || '').toLowerCase();
+      const gender1 = (gLower.includes('nữ') || gLower.includes('nu')) ? 'Nữ' : 'Nam';
+
+      if (name1) {
+        const s1 = cleanStrictName(name1);
+        if (s1 && s1.length >= 2 && !['nam', 'nữ', 'nu', 'cá nhân', 'chung', 'hộ gia đình'].includes(s1)) {
+          if (!ggsPeople[s1] || (!ggsPeople[s1].cccd && cleanCccd10)) {
+            ggsPeople[s1] = {
+              full_name: name1,
+              nam_sinh: mYear1 || ggsPeople[s1]?.nam_sinh || '',
+              gioi_tinh: gender1,
+              cccd: cleanCccd10 || ggsPeople[s1]?.cccd || '',
+              dia_chi: citizenAddr ? `${citizenAddr}, xã Cư Pui` : 'Xã Cư Pui',
+            };
+          }
+        }
+      }
+
+      if (row.length > 14) {
+        const name2 = (row[14] || '').trim();
+        if (name2) {
+          const s2 = cleanStrictName(name2);
+          if (s2 && s2.length >= 2 && !['nam', 'nữ', 'nu', 'cá nhân', 'chung', 'hộ gia đình'].includes(s2)) {
+            if (!ggsPeople[s2] || (!ggsPeople[s2].cccd && cleanCccd15)) {
+              ggsPeople[s2] = {
+                full_name: name2,
+                nam_sinh: ggsPeople[s2]?.nam_sinh || '',
+                gioi_tinh: gender1 === 'Nam' ? 'Nữ' : 'Nam',
+                cccd: cleanCccd15 || ggsPeople[s2]?.cccd || '',
+                dia_chi: citizenAddr ? `${citizenAddr}, xã Cư Pui` : 'Xã Cư Pui',
+              };
+            }
+          }
+        }
       }
 
       const colC = (row[2] || '').trim();
@@ -285,6 +347,7 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
     cachedData = {
       codes: ggsCodes,
       parcels: ggsParcels,
+      people: ggsPeople,
       allCccds,
       updatedAt,
       expiresAt: now + CACHE_TTL_MS,
@@ -304,6 +367,7 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
     return {
       codes: ggsCodes,
       parcels: ggsParcels,
+      people: ggsPeople,
       allCccds,
       updatedAt,
       cached: false,
@@ -314,6 +378,7 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
       return {
         codes: cachedData.codes,
         parcels: cachedData.parcels,
+        people: cachedData.people || {},
         allCccds: cachedData.allCccds,
         updatedAt: cachedData.updatedAt,
         cached: true,

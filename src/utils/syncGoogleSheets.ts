@@ -30,6 +30,7 @@ import {
   stripAccents,
   cleanCccd,
   cleanName,
+  cleanStrictName,
   normalizeAddress,
   CANONICAL_VILLAGES,
   getCanonicalVillage,
@@ -300,16 +301,15 @@ export async function executeSyncToGoogleSheet(
 
     for (const p of Object.values(ggsParcels)) {
       if (p.chu_ho) {
-        const nClean = cleanName(p.chu_ho);
-        const nNorm = stripAccents(nClean);
-        if (nNorm) allGgsNames.add(nNorm);
+        const nStrict = cleanStrictName(p.chu_ho);
+        if (nStrict) allGgsNames.add(nStrict);
 
         if (p.cccd) {
           const cClean = cleanCccd(p.cccd);
           if (cClean) {
             allGgsCccds.add(cClean);
-            if (nClean && !nameToCccd.has(nClean)) {
-              nameToCccd.set(nClean, cClean);
+            if (nStrict && !nameToCccd.has(nStrict)) {
+              nameToCccd.set(nStrict, cClean);
             }
           }
         }
@@ -335,10 +335,10 @@ export async function executeSyncToGoogleSheet(
       }
     }
 
-    // Pre-index CCCD Files để tra cứu O(1), tiền xử lý bỏ dấu 1 LẦN DUY NHẤT thay vì 172.000 lần
+    // Pre-index CCCD Files để tra cứu O(1) theo số, theo mã thửa, và theo TÊN CHÍNH XÁC (STRICT TONE MATCHING)
     const cccdByNumber = new Map<string, string>();
     const cccdByToThua = new Map<string, string>();
-    const cccdByNameList: Array<{ normName: string; filename: string; cccdCandidate?: string }> = [];
+    const cccdByStrictName = new Map<string, { filename: string; cccdCandidate?: string }>();
 
     for (const cf of cccdFiles) {
       const cleanCf = cf.replace(/\.pdf$/i, '');
@@ -354,12 +354,17 @@ export async function executeSyncToGoogleSheet(
         const key = `${toNum}_${thuaNum}`;
         if (!cccdByToThua.has(key)) cccdByToThua.set(key, cf);
       }
-      const cfNorm = stripAccents(cleanCf);
-      cccdByNameList.push({
-        normName: cfNorm,
-        filename: cf,
-        cccdCandidate: (num && (num.length === 12 || num.length === 9)) ? num : undefined,
-      });
+      // Trích xuất tên công dân từ tên file CCCD (dạng {12_so}_{Ho_Ten}.pdf)
+      const namePartMatch = cleanCf.match(/^\d{9,12}_(.*)$/);
+      if (namePartMatch) {
+        const strictInFile = cleanStrictName(namePartMatch[1]);
+        if (strictInFile && !cccdByStrictName.has(strictInFile)) {
+          cccdByStrictName.set(strictInFile, {
+            filename: cf,
+            cccdCandidate: (num && (num.length === 12 || num.length === 9)) ? num : undefined,
+          });
+        }
+      }
     }
 
     // 2. Phân loại 4 giai đoạn CHỈ TRÊN các phiếu đã kê khai (nhẹ, <1ms)
@@ -384,8 +389,9 @@ export async function executeSyncToGoogleSheet(
       let cccdSource = cccd ? 'Kê khai web' : '';
 
       const ggsP = ggsParcels[maThua];
-      if (!cccd && chuHo && nameToCccd.has(chuHo)) {
-        cccd = nameToCccd.get(chuHo)!;
+      const chuHoStrict = cleanStrictName(chuHo);
+      if (!cccd && chuHoStrict && nameToCccd.has(chuHoStrict)) {
+        cccd = nameToCccd.get(chuHoStrict)!;
         cccdSource = 'Khớp tên GGS';
       } else if (!cccd && ggsP && ggsP.cccd) {
         cccd = cleanCccd(ggsP.cccd);
@@ -473,18 +479,16 @@ export async function executeSyncToGoogleSheet(
         foundCccd = cccdByNumber.get(cccd)!;
       }
 
-      // 2. Nếu chưa có CCCD hoặc chưa tìm thấy theo số, đối soát theo tên chủ hộ (đã pre-strip)
-      if (!foundCccd && chuHoNorm.length >= 4) {
-        for (const cfItem of cccdByNameList) {
-          if (cfItem.normName.includes(chuHoNorm)) {
-            foundCccd = cfItem.filename;
-            if (cfItem.cccdCandidate) {
-              cccd = cfItem.cccdCandidate;
-              cccdSource = 'Trích từ file CCCD R2';
-              item.cccd = cccd;
-              item.cccd_source = cccdSource;
-            }
-            break;
+      // 2. Nếu chưa có CCCD hoặc chưa tìm thấy theo số, đối soát CHÍNH XÁC 100% THEO TÊN (KHÔNG DÙNG INCLUDES SUBSTRING)
+      if (!foundCccd && chuHoStrict.length >= 2) {
+        const matchedCf = cccdByStrictName.get(chuHoStrict);
+        if (matchedCf) {
+          foundCccd = matchedCf.filename;
+          if (matchedCf.cccdCandidate) {
+            cccd = matchedCf.cccdCandidate;
+            cccdSource = 'Trích từ file CCCD R2';
+            item.cccd = cccd;
+            item.cccd_source = cccdSource;
           }
         }
       }
