@@ -108,6 +108,8 @@ export async function GET(
       ? 'image/png'
       : 'image/jpeg';
 
+    const filename = cleanKey.split('/').pop() || 'document.pdf';
+
     const corsHeaders: Record<string, string> = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
@@ -115,11 +117,45 @@ export async function GET(
       'Cache-Control': 'public, max-age=31536000, immutable',
     };
 
+    // Phân tích HTTP Range header cho PDF reader / trình duyệt
+    const rangeHeader = request.headers.get('range');
+    let r2Range: any = undefined;
+    if (rangeHeader) {
+      const match = rangeHeader.trim().match(/^bytes=(\d*)-(\d*)$/);
+      if (match) {
+        const [, startStr, endStr] = match;
+        if (startStr && endStr) {
+          const start = parseInt(startStr, 10);
+          const end = parseInt(endStr, 10);
+          if (!isNaN(start) && !isNaN(end) && end >= start) {
+            r2Range = { offset: start, length: end - start + 1 };
+          }
+        } else if (startStr) {
+          const start = parseInt(startStr, 10);
+          if (!isNaN(start)) {
+            r2Range = { offset: start };
+          }
+        } else if (endStr) {
+          const suffix = parseInt(endStr, 10);
+          if (!isNaN(suffix) && suffix > 0) {
+            r2Range = { suffix };
+          }
+        }
+      }
+    }
+
+    const getOptions: any = {};
+    if (r2Range) {
+      getOptions.range = r2Range;
+    } else if (rangeHeader) {
+      getOptions.range = request.headers;
+    }
+
     // 1. Phục vụ trực tiếp qua Cloudflare R2 Binding
     const bucket = await getR2Binding();
     if (bucket) {
       try {
-        let obj = await bucket.get(cleanKey);
+        let obj = await bucket.get(cleanKey, getOptions);
 
         // Fallback tra cứu CCCD theo tiền tố (VD: yêu cầu cccd/038075015833.pdf nhưng trong R2 là cccd/038075015833 - CAO VĂN HĂNG.pdf)
         if (!obj && cleanKey.startsWith('cccd/')) {
@@ -133,74 +169,102 @@ export async function GET(
             }
             if (listRes?.objects && listRes.objects.length > 0) {
               const matchedKey = listRes.objects[0].key;
-              obj = await bucket.get(matchedKey);
+              obj = await bucket.get(matchedKey, getOptions);
             }
           }
         }
 
         if (obj) {
+          const isPartial = Boolean(obj.range);
+          const status = isPartial ? 206 : 200;
+
           const headers = new Headers(corsHeaders);
+          headers.set('Accept-Ranges', 'bytes');
           headers.set('Content-Type', obj.httpMetadata?.contentType || defaultContentType);
-          if (obj.size) {
+          headers.set('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+
+          if (isPartial && obj.range) {
+            const offset = obj.range.offset;
+            const length = obj.range.length;
+            headers.set('Content-Range', `bytes ${offset}-${offset + length - 1}/${obj.size}`);
+            headers.set('Content-Length', String(length));
+          } else if (obj.size) {
             headers.set('Content-Length', String(obj.size));
           }
-          return new Response(obj.body, { headers });
+
+          // Trả về ArrayBuffer cho các file <= 10MB để không bị Next.js chuyển thành chunked stream,
+          // giúp PDF viewer của Chrome/Edge hiển thị trơn tru không báo lỗi
+          const contentLengthNum = isPartial && obj.range ? obj.range.length : obj.size;
+          if (contentLengthNum && contentLengthNum <= 10 * 1024 * 1024) {
+            const buffer = await obj.arrayBuffer();
+            return new Response(buffer, { status, headers });
+          }
+
+          return new Response(obj.body, { status, headers });
         }
       } catch (r2Err) {
         console.warn('Lỗi đọc R2 binding:', r2Err);
       }
     }
 
-    // 2. S3Client Fallback (Local Node.js dev mode)
-    const s3 = await getS3Client();
-    if (s3) {
-      try {
-        const { GetObjectCommand, ListObjectsV2Command } = await import('@aws-sdk/client-s3');
-        let targetKey = cleanKey;
+    // 2. S3Client Fallback (CHỈ cho Local Node.js dev mode, không chạy trên production Worker để tránh Error 1102)
+    if (process.env.NODE_ENV !== 'production' && !bucket) {
+      const s3 = await getS3Client();
+      if (s3) {
+        try {
+          const { GetObjectCommand, ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+          let targetKey = cleanKey;
 
-        if (cleanKey.startsWith('cccd/')) {
-          const m = cleanKey.match(/(?:^|\/)(\d{9,12})/);
-          if (m) {
-            const cccdDigits = m[1];
-            let listCmd = new ListObjectsV2Command({
-              Bucket: R2_BUCKET,
-              Prefix: `cccd/${cccdDigits}`,
-              MaxKeys: 5,
-            });
-            let listRes = await s3.send(listCmd);
-            if ((!listRes?.Contents || listRes.Contents.length === 0) && cccdDigits.length < 12) {
-              listCmd = new ListObjectsV2Command({
+          if (cleanKey.startsWith('cccd/')) {
+            const m = cleanKey.match(/(?:^|\/)(\d{9,12})/);
+            if (m) {
+              const cccdDigits = m[1];
+              let listCmd = new ListObjectsV2Command({
                 Bucket: R2_BUCKET,
-                Prefix: `cccd/${cccdDigits.padStart(12, '0')}`,
+                Prefix: `cccd/${cccdDigits}`,
                 MaxKeys: 5,
               });
-              listRes = await s3.send(listCmd);
-            }
-            if (listRes?.Contents && listRes.Contents.length > 0) {
-              targetKey = listRes.Contents[0].Key!;
+              let listRes = await s3.send(listCmd);
+              if ((!listRes?.Contents || listRes.Contents.length === 0) && cccdDigits.length < 12) {
+                listCmd = new ListObjectsV2Command({
+                  Bucket: R2_BUCKET,
+                  Prefix: `cccd/${cccdDigits.padStart(12, '0')}`,
+                  MaxKeys: 5,
+                });
+                listRes = await s3.send(listCmd);
+              }
+              if (listRes?.Contents && listRes.Contents.length > 0) {
+                targetKey = listRes.Contents[0].Key!;
+              }
             }
           }
-        }
 
-        const cmd = new GetObjectCommand({
-          Bucket: R2_BUCKET,
-          Key: targetKey,
-        });
-        const res = await s3.send(cmd);
-        if (res.Body) {
-          const headers = new Headers(corsHeaders);
-          headers.set('Content-Type', res.ContentType || defaultContentType);
-          if (res.ContentLength) {
-            headers.set('Content-Length', String(res.ContentLength));
+          const cmd = new GetObjectCommand({
+            Bucket: R2_BUCKET,
+            Key: targetKey,
+            Range: rangeHeader || undefined,
+          });
+          const res = await s3.send(cmd);
+          if (res.Body) {
+            const status = res.ContentRange ? 206 : 200;
+            const headers = new Headers(corsHeaders);
+            headers.set('Accept-Ranges', 'bytes');
+            headers.set('Content-Type', res.ContentType || defaultContentType);
+            headers.set('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+            if (res.ContentRange) {
+              headers.set('Content-Range', res.ContentRange);
+            }
+            if (res.ContentLength) {
+              headers.set('Content-Length', String(res.ContentLength));
+            }
+            const bodyStream = (res.Body as any).transformToWebStream
+              ? (res.Body as any).transformToWebStream()
+              : res.Body;
+            return new Response(bodyStream, { status, headers });
           }
-          // Chuyển Body sang ReadableStream nếu cần
-          const bodyStream = (res.Body as any).transformToWebStream
-            ? (res.Body as any).transformToWebStream()
-            : res.Body;
-          return new Response(bodyStream, { headers });
+        } catch (s3Err) {
+          console.warn('Lỗi S3 client fallback:', s3Err);
         }
-      } catch (s3Err) {
-        console.warn('Lỗi S3 client fallback:', s3Err);
       }
     }
 
@@ -212,16 +276,26 @@ export async function GET(
     const targetUrl = `${R2_PUBLIC_BASE}/${encodedKey}`;
 
     try {
+      const upstreamHeaders: Record<string, string> = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      };
+      if (rangeHeader) {
+        upstreamHeaders['Range'] = rangeHeader;
+      }
       const upstreamRes = await fetch(targetUrl, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+        headers: upstreamHeaders,
       });
 
-      if (upstreamRes.ok) {
+      if (upstreamRes.ok || upstreamRes.status === 206) {
         const headers = new Headers(corsHeaders);
+        headers.set('Accept-Ranges', 'bytes');
         headers.set('Content-Type', upstreamRes.headers.get('Content-Type') || defaultContentType);
-        const len = upstreamRes.headers.get('Content-Length');
-        if (len) headers.set('Content-Length', len);
-        return new Response(upstreamRes.body, { headers });
+        headers.set('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+        const cr = upstreamRes.headers.get('Content-Range');
+        if (cr) headers.set('Content-Range', cr);
+        const cl = upstreamRes.headers.get('Content-Length');
+        if (cl) headers.set('Content-Length', cl);
+        return new Response(upstreamRes.body, { status: upstreamRes.status, headers });
       }
     } catch (fetchErr) {
       console.warn('Lỗi fetch upstream CDN:', fetchErr);
