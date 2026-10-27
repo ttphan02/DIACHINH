@@ -1,7 +1,7 @@
 import { PDFDocument, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
-import { Parcel } from '@/types';
-import { CANONICAL_VILLAGES, getCanonicalVillage, isPersonName } from '@/utils/textHelpers';
+import type { Parcel } from '../types';
+import { CANONICAL_VILLAGES, getCanonicalVillage, isPersonName } from './textHelpers';
 
 export interface VillageStatsItem {
   stt: number;
@@ -45,10 +45,30 @@ export interface ExportStatisticsPdfOptions {
   includeUnexecutedOwners?: boolean;
   includeMissingCccdVillages?: boolean;
   onlyMissingCccd?: boolean;
+  targetVillage?: string;
   declarationsMap?: Record<string, any>;
 }
 
 async function loadBuffer(urlOrPath: string): Promise<ArrayBuffer> {
+  if (typeof window === 'undefined') {
+    try {
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const cleanPath = urlOrPath.startsWith('/') ? urlOrPath.slice(1) : urlOrPath;
+      const candidates = [
+        path.join(process.cwd(), 'public', cleanPath),
+        path.join(process.cwd(), 'diachinh-web', 'public', cleanPath),
+        urlOrPath,
+      ];
+      for (const cand of candidates) {
+        try {
+          const buf = await fs.readFile(cand);
+          return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+        } catch {}
+      }
+    } catch {}
+  }
+
   const resp = await fetch(urlOrPath);
   if (!resp.ok) {
     throw new Error(`Không thể tải tài nguyên: ${urlOrPath} (${resp.status})`);
@@ -82,8 +102,11 @@ export async function generateStatisticsPdf(
     includeUnexecutedOwners = true,
     includeMissingCccdVillages = true,
     onlyMissingCccd = false,
+    targetVillage,
     declarationsMap = {},
   } = options;
+
+  const filterVillage = targetVillage ? getCanonicalVillage(targetVillage) : null;
 
   onProgress?.('Đang tải font chữ tiếng Việt...');
 
@@ -109,9 +132,13 @@ export async function generateStatisticsPdf(
   // THÌ BỎ QUA PHẦN THỐNG KÊ TỔNG THỂ & DS CHƯA KÊ KHAI
   // ==========================================================
   if (!onlyMissingCccd) {
-    onProgress?.('Đang tính toán số liệu thống kê 16 thôn buôn...');
+    onProgress?.(
+      filterVillage
+        ? `Đang tính toán số liệu thống kê ${filterVillage}...`
+        : 'Đang tính toán số liệu thống kê 16 thôn buôn...'
+    );
 
-    // 1. TÍNH TOÁN BẢNG SỐ LIỆU 16 THÔN BUÔN
+    // 1. TÍNH TOÁN BẢNG SỐ LIỆU 16 THÔN BUÔN (HOẶC RIÊNG THÔN YÊU CẦU)
     const villageStats: VillageStatsItem[] = [];
     let sumTongConLai = 0;
     let sumKhongTen = 0;
@@ -122,8 +149,10 @@ export async function generateStatisticsPdf(
     const headerIdx = rawTkRows.findIndex((r) => Array.isArray(r) && r[0] === 'STT' && r[1] === 'Tên thôn / buôn');
     const tkDataRows = headerIdx >= 0 ? rawTkRows.slice(headerIdx + 1) : [];
 
+    const targetVillages = filterVillage ? [filterVillage] : CANONICAL_VILLAGES;
+
     if (tkDataRows.length >= 16) {
-      CANONICAL_VILLAGES.forEach((vName, idx) => {
+      targetVillages.forEach((vName, idx) => {
         const match = tkDataRows.find((r) => String(r[1] || '').trim().toLowerCase() === vName.toLowerCase());
         const tongConLai = match ? parseInt(String(match[2] || '0').replace(/\D/g, ''), 10) || 0 : 0;
         const coTen = match ? parseInt(String(match[3] || '0').replace(/\D/g, ''), 10) || 0 : 0;
@@ -167,7 +196,7 @@ export async function generateStatisticsPdf(
         }
       });
 
-      CANONICAL_VILLAGES.forEach((vName, idx) => {
+      targetVillages.forEach((vName, idx) => {
         const row = vMap[vName] || { tongConLai: 0, khongTen: 0, coTen: 0, daKeKhai: 0 };
         villageStats.push({
           stt: idx + 1,
@@ -189,7 +218,8 @@ export async function generateStatisticsPdf(
     const villageDetailGroups: VillageDetailGroup[] = [];
 
     if (includeUnexecutedOwners) {
-      CANONICAL_VILLAGES.forEach((vName) => {
+      const detailVillages = filterVillage ? [filterVillage] : CANONICAL_VILLAGES;
+      detailVillages.forEach((vName) => {
         const parcelsInVillage = computedParcels.filter((p) => {
           const v = getCanonicalVillage(p.thon_xa);
           if (v !== vName) return false;
@@ -280,7 +310,9 @@ export async function generateStatisticsPdf(
     });
 
     y -= 22;
-    const mainTitle = 'BÁO CÁO THỐNG KÊ TIẾN ĐỘ THỬA ĐẤT & KÊ KHAI ĐỊA CHÍNH';
+    const mainTitle = filterVillage
+      ? `BÁO CÁO THỐNG KÊ TIẾN ĐỘ THỬA ĐẤT - ${filterVillage.toUpperCase()}`
+      : 'BÁO CÁO THỐNG KÊ TIẾN ĐỘ THỬA ĐẤT & KÊ KHAI ĐỊA CHÍNH';
     const titleW = fontBold.widthOfTextAtSize(mainTitle, 13);
     page1.drawText(mainTitle, {
       x: (W - titleW) / 2,
@@ -292,7 +324,9 @@ export async function generateStatisticsPdf(
 
     y -= 14;
     const nowStr = new Date().toLocaleString('vi-VN');
-    const subTitle = `Thời điểm thống kê: ${nowStr} • Đồng bộ realtime trực tiếp từ Cloudflare R2`;
+    const subTitle = filterVillage
+      ? `Thời điểm thống kê: ${nowStr} • Thống kê chi tiết trên địa bàn ${filterVillage}, xã Cư Pui`
+      : `Thời điểm thống kê: ${nowStr} • Đồng bộ realtime trực tiếp từ Cloudflare R2`;
     const subTitleW = fontRegular.widthOfTextAtSize(subTitle, 8.5);
     page1.drawText(subTitle, {
       x: (W - subTitleW) / 2,
@@ -378,8 +412,11 @@ export async function generateStatisticsPdf(
 
     y -= cardH + 18;
 
-    // Tiêu đề bảng 16 thôn buôn
-    page1.drawText('BẢNG TIẾN ĐỘ THỐNG KÊ CHI TIẾT 16 THÔN / BUÔN XÃ CƯ PUI', {
+    // Tiêu đề bảng 16 thôn buôn (hoặc thôn lọc)
+    const tableTitle = filterVillage
+      ? `BẢNG TIẾN ĐỘ THỐNG KÊ CHI TIẾT - ${filterVillage.toUpperCase()}`
+      : 'BẢNG TIẾN ĐỘ THỐNG KÊ CHI TIẾT 16 THÔN / BUÔN XÃ CƯ PUI';
+    page1.drawText(tableTitle, {
       x: marginX,
       y,
       size: 9.5,
@@ -513,7 +550,10 @@ export async function generateStatisticsPdf(
     });
 
     let totX = marginX;
-    page1.drawText('TỔNG CỘNG TOÀN XÃ', {
+    const totalRowLabel = filterVillage
+      ? `TỔNG CỘNG ${filterVillage.toUpperCase()}`
+      : 'TỔNG CỘNG TOÀN XÃ';
+    page1.drawText(totalRowLabel, {
       x: totX + 10,
       y: y - 15,
       size: 8.5,
@@ -565,7 +605,10 @@ export async function generateStatisticsPdf(
       color: rgb(0.08, 0.5, 0.2),
     });
 
-    page1.drawText('Trang 1 • UBND Xã Cư Pui - Báo cáo địa chính tổng quan', {
+    const footerText = filterVillage
+      ? `Trang 1 • UBND Xã Cư Pui - Báo cáo địa chính ${filterVillage}`
+      : 'Trang 1 • UBND Xã Cư Pui - Báo cáo địa chính tổng quan';
+    page1.drawText(footerText, {
       x: marginX,
       y: 20,
       size: 7.5,
@@ -585,7 +628,10 @@ export async function generateStatisticsPdf(
       let currentY = H - 36;
 
       const drawPageHeader = (p: any, pNum: number) => {
-        p.drawText('DANH SÁCH CHỦ HỘ CÓ TÊN CHƯA THỰC HIỆN KÊ KHAI (CHI TIẾT THEO THÔN / BUÔN)', {
+        const headerTitle = filterVillage
+          ? `DANH SÁCH CHỦ HỘ CÓ TÊN CHƯA THỰC HIỆN KÊ KHAI - ${filterVillage.toUpperCase()}`
+          : 'DANH SÁCH CHỦ HỘ CÓ TÊN CHƯA THỰC HIỆN KÊ KHAI (CHI TIẾT THEO THÔN / BUÔN)';
+        p.drawText(headerTitle, {
           x: marginX,
           y: H - 30,
           size: 9.5,
@@ -858,9 +904,51 @@ export async function generateStatisticsPdf(
       { label: 'Ký nhận / Đã chụp CCCD', w: 130.28, align: 'left' },
     ];
 
-    const sortedMissingVillages = Array.from(villageMissingMap.keys()).sort((a, b) =>
+    const allMissingVillages = Array.from(villageMissingMap.keys()).sort((a, b) =>
       a.localeCompare(b, 'vi')
     );
+
+    const sortedMissingVillages = filterVillage
+      ? allMissingVillages.filter((v) => v.toLowerCase() === filterVillage.toLowerCase())
+      : allMissingVillages;
+
+    if (sortedMissingVillages.length === 0 && (onlyMissingCccd || filterVillage)) {
+      if (onlyMissingCccd) {
+        let page = doc.addPage([W, H]);
+        page.drawText('ỦY BAN NHÂN DÂN XÃ CƯ PUI', {
+          x: marginX,
+          y: H - 36,
+          size: 9.5,
+          font: fontBold,
+          color: rgb(0.12, 0.25, 0.5),
+        });
+        page.drawText('CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM', {
+          x: W - marginX - 210,
+          y: H - 36,
+          size: 9,
+          font: fontBold,
+          color: rgb(0.1, 0.1, 0.1),
+        });
+        const vTitle = filterVillage ? filterVillage.toUpperCase() : 'TOÀN XÃ';
+        page.drawText(`DANH SÁCH CẦN THU THẬP CCCD - ${vTitle}`, {
+          x: marginX,
+          y: H - 80,
+          size: 12,
+          font: fontBold,
+          color: rgb(0.1, 0.2, 0.5),
+        });
+        page.drawText(
+          `Hiện tại trên địa bàn ${filterVillage || 'xã'} không có hồ sơ nào thuộc diện cần thu thập CCCD (chưa có đơn kê khai hoặc đã đủ CCCD).`,
+          {
+            x: marginX,
+            y: H - 110,
+            size: 10,
+            font: fontRegular,
+            color: rgb(0.3, 0.3, 0.3),
+          }
+        );
+      }
+    }
 
     for (const vName of sortedMissingVillages) {
       const citizenMap = villageMissingMap.get(vName)!;
@@ -1117,9 +1205,13 @@ export async function generateStatisticsPdf(
   onProgress?.('Đang lưu và hoàn tất tài liệu PDF...');
   const pdfBytes = await doc.save();
   const dateStr = new Date().toISOString().slice(0, 10);
+  const slugVillage = filterVillage
+    ? '_' + filterVillage.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')
+    : '';
+
   const fileName = onlyMissingCccd
-    ? `Danh_Sach_Can_Thu_Thap_CCCD_Tung_Thon_Cu_Pui_${dateStr}.pdf`
-    : `Bao_Cao_Thong_Ke_Dia_Chinh_Kem_DS_Thu_CCCD_Cu_Pui_${dateStr}.pdf`;
+    ? `Danh_Sach_Can_Thu_Thap_CCCD${slugVillage ? slugVillage : '_Tung_Thon_Cu_Pui'}_${dateStr}.pdf`
+    : `Bao_Cao_Thong_Ke_Dia_Chinh${slugVillage ? slugVillage : '_Kem_DS_Thu_CCCD_Cu_Pui'}_${dateStr}.pdf`;
 
   return { pdfBytes, fileName };
 }

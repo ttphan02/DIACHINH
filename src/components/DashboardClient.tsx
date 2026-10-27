@@ -1835,7 +1835,7 @@ export default function DashboardPage() {
   };
 
   // Xuất Báo Cáo Thống Kê Tiến Độ Toàn Xã & DS Cần Thu Thập CCCD Theo Từng Thôn Buôn
-  const handleExportStatisticsPdf = async (options?: { onlyMissingCccd?: boolean }) => {
+  const handleExportStatisticsPdf = async (options?: { onlyMissingCccd?: boolean; targetVillage?: string }) => {
     try {
       setIsExportingStatsPdf(true);
       setExportStatsProgress('Đang chuẩn bị dữ liệu...');
@@ -1849,6 +1849,7 @@ export default function DashboardPage() {
         (msg) => setExportStatsProgress(msg),
         {
           onlyMissingCccd: options?.onlyMissingCccd,
+          targetVillage: options?.targetVillage,
           declarationsMap,
         }
       );
@@ -2550,6 +2551,21 @@ export default function DashboardPage() {
                 <FileBarChart2 className="w-3.5 h-3.5 text-amber-300" />
               )}
               <span>{isExportingStatsPdf ? 'Đang tạo...' : 'Xuất PDF'}</span>
+            </button>
+            {/* Nút Xuất PDF Riêng Cho Ea Rớt */}
+            <button
+              type="button"
+              disabled={isExportingStatsPdf}
+              onClick={() => handleExportStatisticsPdf({ targetVillage: 'Thôn Ea Rớt' })}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-75 border ${
+                isLight
+                  ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-600'
+                  : 'bg-amber-600 hover:bg-amber-500 text-white border-amber-500'
+              }`}
+              title="Xuất file PDF Báo cáo tiến độ và danh sách có tên chưa thực hiện dành riêng cho Thôn Ea Rớt"
+            >
+              <FileBarChart2 className="w-3.5 h-3.5 text-amber-200" />
+              <span>Ea Rớt PDF</span>
             </button>
 
             {/* Nút Chuyển Giao Diện Light / Dark Mode */}
@@ -3398,6 +3414,16 @@ export default function DashboardPage() {
                               >
                                 <FileDown className="w-3.5 h-3.5 text-white" />
                                 <span>{isExportingStatsPdf ? 'Đang tạo...' : 'Xuất PDF Thu CCCD (Theo thôn)'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleExportStatisticsPdf({ onlyMissingCccd: true, targetVillage: 'Thôn Ea Rớt' })}
+                                disabled={isExportingStatsPdf}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold shadow-md transition cursor-pointer bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-amber-600/30 disabled:opacity-50"
+                                title="Xuất file PDF danh sách thu CCCD riêng cho Thôn Ea Rớt"
+                              >
+                                <FileDown className="w-3.5 h-3.5 text-white" />
+                                <span>{isExportingStatsPdf ? 'Đang tạo...' : 'Thu CCCD (Ea Rớt)'}</span>
                               </button>
                             </div>
                           )}
