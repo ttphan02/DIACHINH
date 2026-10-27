@@ -551,26 +551,21 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Test Sheet Button
+  // Test Lookup Button (Đơn kê khai có CCCD nội bộ)
   const btnTestSheet = document.getElementById('btnTestSheet');
   if (btnTestSheet) {
     btnTestSheet.addEventListener('click', async () => {
-      const url = document.getElementById('sheetUrlInput')?.value.trim() || DEFAULT_SHEET_URL;
-      if (!url) {
-        showToast('Vui lòng nhập link Google Sheet công khai!', false);
-        return;
-      }
       const testIdInput = document.getElementById('testSearchIdInput');
       const testId = testIdInput ? testIdInput.value.trim() : '';
       if (testId) {
-        showSpinner(`Đang tra cứu thử mã "${testId}" từ Google Sheet...`);
+        showSpinner(`Đang tra cứu thử mã "${testId}" từ danh bạ đơn kê khai có CCCD...`);
         try {
           const names = await fetchNamesFromGoogleSheet(testId);
           if (names.length > 0) {
-            alert(`KẾT QUẢ TRA CỨU MÃ ${testId} (${names.length} giá trị tìm thấy trong ${document.getElementById('sheetLimitInput')?.value || 100} dòng mới nhất):\n\n` + names.map((n, i) => `${i + 1}. ${n}`).join('\n'));
-            showToast(`Tìm thấy ${names.length} giá trị cho mã ${testId}!`);
+            alert(`KẾT QUẢ TRA CỨU MÃ ${testId} (${names.length} tên file tìm thấy):\n\n` + names.map((n, i) => `${i + 1}. ${n}`).join('\n'));
+            showToast(`Tìm thấy ${names.length} thửa/tên file cho mã ${testId}!`);
           } else {
-            showToast(`Không tìm thấy mã ${testId} trong ${document.getElementById('sheetLimitInput')?.value || 100} dòng mới nhất.`, false);
+            showToast(`Không tìm thấy mã ${testId} trong danh bạ đơn kê khai có CCCD (Sẵn sàng đóng tập).`, false);
           }
         } catch (err) {
           showToast('Lỗi tra cứu: ' + err.message, false);
@@ -581,11 +576,11 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       if (pdfGroups.length === 0) {
-        showToast('Chưa có nhóm nào. Vui lòng nhập mã vào ô "Thử mã" hoặc chọn các trang bấm "Gom Nhóm Trang Chọn"!', false);
+        showToast('Chưa có nhóm nào. Vui lòng nhập mã vào ô "Tra cứu thử" hoặc chọn các trang bấm "Gom Nhóm Trang Chọn"!', false);
         return;
       }
       let updatedCount = 0;
-      showSpinner('Đang tra cứu Google Sheet cho tất cả các nhóm...');
+      showSpinner('Đang tra cứu danh bạ đơn kê khai có CCCD cho tất cả các nhóm...');
       try {
         for (const g of pdfGroups) {
           if (g.identifier) {
@@ -600,10 +595,32 @@ document.addEventListener('DOMContentLoaded', () => {
         if (updatedCount > 0) {
           showToast(`Đã tra cứu và cập nhật dữ liệu thành công cho ${updatedCount} nhóm!`);
         } else {
-          showToast(`Tra cứu hoàn tất nhưng không tìm thấy mã khớp nào trong ${document.getElementById('sheetLimitInput')?.value || 100} dòng mới nhất.`, false);
+          showToast(`Tra cứu hoàn tất nhưng không tìm thấy mã khớp nào trong danh bạ đơn kê khai có CCCD.`, false);
         }
       } catch (err) {
-        showToast('Lỗi tra cứu Sheet: ' + err.message, false);
+        showToast('Lỗi tra cứu: ' + err.message, false);
+      } finally {
+        hideSpinner();
+      }
+    });
+  }
+
+  // Refresh Local Declaration Store Button
+  const btnRefreshLocalData = document.getElementById('btnRefreshLocalData');
+  if (btnRefreshLocalData) {
+    btnRefreshLocalData.addEventListener('click', async () => {
+      showSpinner('Đang đồng bộ lại danh bạ Đơn Kê Khai có CCCD (Sẵn sàng đóng tập)...');
+      try {
+        if (typeof fetchLocalDeclarationsStore === 'function') {
+          const store = await fetchLocalDeclarationsStore(true);
+          if (store && store.success) {
+            showToast(`✓ Đã đồng bộ thành công: ${store.totalParcels || 0} thửa đất sẵn sàng đóng tập!`);
+          } else {
+            showToast('Không thể làm mới danh bạ kê khai!', false);
+          }
+        }
+      } catch (err) {
+        showToast('Lỗi đồng bộ: ' + err.message, false);
       } finally {
         hideSpinner();
       }

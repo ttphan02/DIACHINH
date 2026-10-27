@@ -88,29 +88,31 @@
       </div>
     </div>
 
-    <!-- Google Sheet Integration Bar -->
+    <!-- Data Source: Danh Sách Đơn Kê Khai Có CCCD (Sẵn Sàng Đóng Tập) -->
     <div class="sheet-config-bar" id="sheetConfigBar">
       <div class="sheet-config-row">
-        <div class="sheet-input-group">
-          <i class="fa-solid fa-table-cells" style="color: #10b981; font-size: 18px;"></i>
-          <label class="sheet-label" for="sheetUrlInput">Google Sheet Công Khai:</label>
-          <input type="text" id="sheetUrlInput" class="sheet-url-input" value="https://docs.google.com/spreadsheets/d/1V6ewEwiOVhm5wZfZ9bSwpDHVMyEAz0Nm/edit?gid=412207426" placeholder="Dán đường dẫn Google Sheet (Bất kỳ ai có liên kết đều xem được)...">
+        <div class="sheet-input-group" style="align-items: center; gap: 10px;">
+          <i class="fa-solid fa-database" style="color: #10b981; font-size: 18px;"></i>
+          <span class="sheet-label">Nguồn Dữ Liệu:</span>
+          <span id="dataSourceStatusText" style="color: #10b981; font-weight: 600; font-size: 13px; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); padding: 5px 12px; border-radius: 6px;">
+            <i class="fa-solid fa-spinner fa-spin"></i> Đang nạp danh bạ Đơn Kê Khai (có CCCD)...
+          </span>
+          <!-- Hidden inputs for backward compatibility -->
+          <input type="hidden" id="sheetUrlInput" value="https://docs.google.com/spreadsheets/d/1V6ewEwiOVhm5wZfZ9bSwpDHVMyEAz0Nm/edit?gid=412207426">
+          <input type="hidden" id="sheetNameInput" value="THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)">
+          <input type="hidden" id="sheetLimitInput" value="100">
         </div>
         <div class="sheet-sub-inputs">
           <div class="sheet-input-item">
-            <span>Trang:</span>
-            <input type="text" id="sheetNameInput" value="THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)" style="width: 230px;">
+            <span>Tra cứu thử:</span>
+            <input type="text" id="testSearchIdInput" placeholder="CCCD 12 số hoặc tờ_thửa..." style="width: 190px; text-align: left; padding: 6px 10px;" title="Nhập số CCCD hoặc mã tờ_thửa để kiểm tra nhanh">
           </div>
-          <div class="sheet-input-item">
-            <span>Giới hạn:</span>
-            <input type="number" id="sheetLimitInput" value="100" min="10" max="1000" style="width: 65px;" title="Số dòng mới nhất tra ngược từ dưới lên">
-            <span>dòng cuối</span>
-          </div>
-          <div class="sheet-input-item">
-            <span>Thử mã:</span>
-            <input type="text" id="testSearchIdInput" placeholder="Mã 12 số..." style="width: 125px; text-align: left;" title="Nhập mã 12 số để thử tra cứu trực tiếp không cần gom nhóm">
-          </div>
-          <button class="sheet-btn" id="btnTestSheet"><i class="fa-solid fa-rotate"></i> Tra Cứu Sheet</button>
+          <button class="sheet-btn" id="btnTestSheet" title="Tra cứu mã trong danh bạ">
+            <i class="fa-solid fa-magnifying-glass"></i> Tra Cứu
+          </button>
+          <button class="sheet-btn" id="btnRefreshLocalData" style="background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.4); color: #93c5fd;" title="Tải lại danh bạ kê khai mới nhất từ hệ thống">
+            <i class="fa-solid fa-arrows-rotate"></i> Đồng Bộ Dữ Liệu
+          </button>
         </div>
       </div>
     </div>

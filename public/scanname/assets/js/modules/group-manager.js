@@ -149,8 +149,8 @@ function createGroupCardElement(group) {
           <button class="sheet-btn btn-scan-single-ai" style="flex: 1; padding: 7px 8px; font-size: 12px; font-weight: 700; background: linear-gradient(135deg, #ec4899, #8b5cf6); color: #fff; border: none; white-space: nowrap; justify-content: center;" data-group-id="${group.id}" title="Quét AI CC-CD 12 số cho trang đầu nhóm này">
             <i class="fa-solid fa-microchip"></i> Quét AI
           </button>
-          <button class="sheet-btn btn-lookup-group" style="flex: 1; padding: 7px 8px; font-size: 12px; font-weight: 700; white-space: nowrap; justify-content: center;" data-group-id="${group.id}" title="Tra cứu từ Google Sheet">
-            <i class="fa-solid fa-rotate"></i> Tra Sheet
+          <button class="sheet-btn btn-lookup-group" style="flex: 1; padding: 7px 8px; font-size: 12px; font-weight: 700; white-space: nowrap; justify-content: center;" data-group-id="${group.id}" title="Tra cứu từ danh bạ đơn kê khai có CCCD (đóng tập)">
+            <i class="fa-solid fa-magnifying-glass"></i> Tra Mã
           </button>
         </div>
       </div>
@@ -265,7 +265,7 @@ function createGroupCardElement(group) {
         showToast('Vui lòng nhập Mã 12 số để tra cứu!', false);
         return;
       }
-      showSpinner(`Đang tra cứu mã ${group.identifier} từ Google Sheet...`);
+      showSpinner(`Đang tra cứu mã ${group.identifier} từ danh bạ đơn kê khai có CCCD...`);
       try {
         const names = await fetchNamesFromGoogleSheet(group.identifier);
         if (names.length > 0) {
@@ -276,7 +276,7 @@ function createGroupCardElement(group) {
           showToast(`Đã tìm thấy ${names.length} tên file cho mã ${group.identifier}!`);
         } else {
           group.sheetStatus = 'not_found';
-          showToast(`Không tìm thấy mã ${group.identifier} trong ${document.getElementById('sheetLimitInput')?.value || 100} dòng mới nhất.`, false);
+          showToast(`Không tìm thấy mã ${group.identifier} trong danh bạ đơn kê khai có CCCD (Sẵn sàng đóng tập).`, false);
         }
       } finally {
         hideSpinner();

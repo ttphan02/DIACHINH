@@ -266,10 +266,10 @@ async function autoProcessGroupCCCDAndSheet(group) {
           if (matchedAfterSheet && !isMatched) {
             showToast(`[${group.name}] Đã lấy mã ${code} & TỰ ĐỘNG CHÈN trang CCCD (${group.cccdName}) vào đầu nhóm!`);
           }
-          showToast(`[${group.name}] Đã lấy mã ${code} ở trang ${foundPageNum} & tìm thấy ${names.length} tên file từ Google Sheet!`);
+          showToast(`[${group.name}] Đã lấy mã ${code} ở trang ${foundPageNum} & tìm thấy ${names.length} tên file từ danh bạ đơn kê khai!`);
         } else {
           group.sheetStatus = 'not_found';
-          showToast(`[${group.name}] Đã lấy mã ${code} ở trang ${foundPageNum}, nhưng Google Sheet KHÔNG CÓ tên!`, false);
+          showToast(`[${group.name}] Đã lấy mã ${code} ở trang ${foundPageNum}, nhưng danh bạ đơn kê khai KHÔNG CÓ tên!`, false);
         }
       } catch (sheetErr) {
         group.sheetStatus = 'not_found';
@@ -308,7 +308,7 @@ async function extract12AllGroups() {
     if (noCodeCount > 0) {
       showToast(`Hoàn tất Extract 12! Còn ${noCodeCount} nhóm chưa lấy được mã 12 số (đang báo ĐỎ).`, false);
     } else {
-      showToast(`Hoàn tất Extract 12 & tra Google Sheet cho tất cả ${pdfGroups.length} nhóm!`);
+      showToast(`Hoàn tất Extract 12 & tra danh bạ đơn kê khai cho tất cả ${pdfGroups.length} nhóm!`);
     }
   } finally {
     hideSpinner();

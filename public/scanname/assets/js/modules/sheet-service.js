@@ -1,18 +1,129 @@
-// Google Sheet Integration Service (Cached GViz & Optional Backend Proxy)
+// Service kết nối Nguồn Dữ Liệu: Đơn Kê Khai Có CCCD (Sẵn Sàng Đóng Tập)
+// Tự động tải trước danh bạ từ /api/scanname/parcels để tra cứu tức thì trong 0ms
 
+let cachedLocalStore = null;
+let isLocalStoreLoading = false;
+let cachedSheetData = null;
+let cachedSheetTime = 0;
+
+// Nạp danh bạ từ backend nội bộ
+async function fetchLocalDeclarationsStore(force = false) {
+  if (!force && cachedLocalStore) return cachedLocalStore;
+  if (isLocalStoreLoading) {
+    while (isLocalStoreLoading) {
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    if (cachedLocalStore) return cachedLocalStore;
+  }
+
+  isLocalStoreLoading = true;
+  try {
+    const res = await fetch(`/api/scanname/parcels${force ? '?force=true' : ''}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.success) {
+        cachedLocalStore = data;
+        updateDataSourceBadgeUI(data);
+        return data;
+      }
+    }
+  } catch (err) {
+    console.warn('Lỗi kết nối /api/scanname/parcels:', err);
+  } finally {
+    isLocalStoreLoading = false;
+  }
+  return null;
+}
+
+// Cập nhật giao diện trạng thái nguồn dữ liệu
+function updateDataSourceBadgeUI(data) {
+  const statusEl = document.getElementById('dataSourceStatusText');
+  if (statusEl) {
+    if (data && data.success) {
+      const totalParcels = data.totalParcels || (data.records ? data.records.length : 0);
+      const totalCccd = data.totalCccd || (data.cccdMap ? Object.keys(data.cccdMap).length : 0);
+      statusEl.textContent = `✓ Đã kết nối: ${totalParcels} thửa đất có CCCD sẵn sàng đóng tập (${totalCccd} CCCD)`;
+      statusEl.style.color = '#10b981';
+    } else {
+      statusEl.textContent = 'Chưa tải được danh bạ kê khai';
+      statusEl.style.color = '#f59e0b';
+    }
+  }
+}
+
+// Tự động khởi tạo nạp danh bạ ngay khi tải trang
+if (typeof window !== 'undefined') {
+  window.addEventListener('DOMContentLoaded', () => {
+    fetchLocalDeclarationsStore().catch(() => {});
+  });
+}
+
+/**
+ * Tra cứu mã GCN (CHUACOGIAY_24478_{to}_{thua}) theo số CCCD (12 số) hoặc mã thửa
+ * ƯU TIÊN 1: Tra cứu từ Danh sách Đơn Kê Khai Có CCCD (Đóng Tập) nội bộ (0ms)
+ * FALLBACK 2: Tra cứu qua Google Sheet nếu cấu hình
+ */
 function fetchNamesFromGoogleSheet(identifier, forceRefresh = false) {
   return new Promise(async (resolve) => {
+    const rawId = String(identifier || '').trim();
+    if (!rawId) return resolve([]);
+
+    // 1. ƯU TIÊN SỐ 1: TRA CỨU TRỰC TIẾP TỪ NGUỒN ĐƠN KÊ KHAI CÓ CCCD (NỘI BỘ)
+    try {
+      const store = await fetchLocalDeclarationsStore(forceRefresh);
+      if (store && (store.cccdMap || store.thuaMap)) {
+        const cleanDigits = rawId.replace(/\D/g, '');
+        const pad12 = cleanDigits.length > 0 && cleanDigits.length <= 12 ? cleanDigits.padStart(12, '0') : '';
+        const matchedNames = [];
+
+        // Tìm theo CCCD
+        if (cleanDigits && store.cccdMap && store.cccdMap[cleanDigits]) {
+          store.cccdMap[cleanDigits].forEach((n) => {
+            if (!matchedNames.includes(n)) matchedNames.push(n);
+          });
+        }
+        if (pad12 && store.cccdMap && store.cccdMap[pad12]) {
+          store.cccdMap[pad12].forEach((n) => {
+            if (!matchedNames.includes(n)) matchedNames.push(n);
+          });
+        }
+
+        // Tìm theo mã thửa
+        if (store.thuaMap && store.thuaMap[rawId]) {
+          const n = store.thuaMap[rawId];
+          if (!matchedNames.includes(n)) matchedNames.push(n);
+        }
+        const cleanThua = rawId.replace(/^CHUACOGIAY_24478_/i, '').trim();
+        if (store.thuaMap && store.thuaMap[cleanThua]) {
+          const n = store.thuaMap[cleanThua];
+          if (!matchedNames.includes(n)) matchedNames.push(n);
+        }
+
+        if (matchedNames.length > 0) {
+          return resolve(matchedNames);
+        }
+
+        // Thử gọi API tìm kiếm trực tiếp backend nếu trong bộ nhớ chưa thấy
+        const qRes = await fetch(`/api/scanname/parcels?q=${encodeURIComponent(rawId)}`);
+        if (qRes.ok) {
+          const qData = await qRes.json();
+          if (qData.success && qData.matchedNames && qData.matchedNames.length > 0) {
+            return resolve(qData.matchedNames);
+          }
+        }
+      }
+    } catch (localErr) {
+      console.warn('Lỗi tra cứu danh bạ nội bộ, thử fallback sang Google Sheet:', localErr);
+    }
+
+    // 2. FALLBACK SỐ 2: GOOGLE SHEET CÔNG KHAI (NẾU CÓ CẤU HÌNH)
     const url = document.getElementById('sheetUrlInput')?.value.trim() || DEFAULT_SHEET_URL;
-    const cleanId = String(identifier).replace(/\D/g, '');
-    if (!url || (!identifier && !cleanId)) return resolve([]);
+    const cleanId = rawId.replace(/\D/g, '');
+    if (!url || (!rawId && !cleanId)) return resolve([]);
 
     const matchId = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
-    if (!matchId) {
-      showToast('Link Google Sheet không hợp lệ!', false);
-      return resolve([]);
-    }
-    const matchGid = url.match(/[?&#]gid=([0-9]+)/);
-    const gidParam = matchGid ? matchGid[1] : '';
+    if (!matchId) return resolve([]);
+    const spreadsheetId = matchId[1];
     const sheet = document.getElementById('sheetNameInput')?.value.trim() || (typeof DEFAULT_SHEET_NAME !== 'undefined' ? DEFAULT_SHEET_NAME : 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
     const limit = parseInt(document.getElementById('sheetLimitInput')?.value, 10) || 500;
 
@@ -26,12 +137,11 @@ function fetchNamesFromGoogleSheet(identifier, forceRefresh = false) {
         const row = recentRows[i];
         if (!row || !row.c) continue;
 
-        // Check CCCD from Col G (index 6, new sheet) or Col K (index 10, old sheet)
         let cccdCandidates = [];
-        [6, 10].forEach(idx => {
+        [6, 10].forEach((idx) => {
           const cell = row.c[idx];
           if (cell) {
-            const v = cell.f != null ? String(cell.f).trim() : (cell.v != null ? String(cell.v).trim() : '');
+            const v = cell.f != null ? String(cell.f).trim() : cell.v != null ? String(cell.v).trim() : '';
             if (v) cccdCandidates.push(v);
           }
         });
@@ -43,7 +153,7 @@ function fetchNamesFromGoogleSheet(identifier, forceRefresh = false) {
           const normId = cleanId.padStart(12, '0');
 
           if (
-            valCCCD === String(identifier).trim() ||
+            valCCCD === String(rawId).trim() ||
             (normVal.length === 12 && normVal === normId) ||
             (cleanVal.length >= 9 && cleanId.length >= 9 && (cleanVal === cleanId || normVal === normId))
           ) {
@@ -53,13 +163,10 @@ function fetchNamesFromGoogleSheet(identifier, forceRefresh = false) {
         }
 
         if (isMatch) {
-          // Case 1: Col B (index 1) = Mã thửa (ví dụ: 276_213) ở sheet mới
           const cellB = row.c[1];
-          const valB = cellB ? (cellB.f != null ? String(cellB.f).trim() : (cellB.v != null ? String(cellB.v).trim() : '')) : '';
-
-          // Case 2: Col C (index 2) = Mã GCN (CHUACOGIAY_...) ở sheet cũ
+          const valB = cellB ? (cellB.f != null ? String(cellB.f).trim() : cellB.v != null ? String(cellB.v).trim() : '') : '';
           const cellC = row.c[2];
-          const valC = cellC ? (cellC.f != null ? String(cellC.f).trim() : (cellC.v != null ? String(cellC.v).trim() : '')) : '';
+          const valC = cellC ? (cellC.f != null ? String(cellC.f).trim() : cellC.v != null ? String(cellC.v).trim() : '') : '';
 
           let gcnName = '';
           if (valB && /^\d+_\d+$/.test(valB)) {
@@ -82,12 +189,10 @@ function fetchNamesFromGoogleSheet(identifier, forceRefresh = false) {
       return matchedNames;
     };
 
-    // Nếu đã có cache và chưa hết hạn, tra cứu tức thì trong 1ms (không gọi mạng)
-    if (!forceRefresh && cachedSheetData && (Date.now() - cachedSheetTime < SHEET_CACHE_TTL)) {
+    if (!forceRefresh && cachedSheetData && Date.now() - cachedSheetTime < SHEET_CACHE_TTL) {
       return resolve(processTableData(cachedSheetData));
     }
 
-    // JSONP GViz Fetcher
     const callbackName = 'gvizJsonpCb_' + Math.random().toString(36).substr(2, 9);
     let timeoutId = null;
 
@@ -98,7 +203,7 @@ function fetchNamesFromGoogleSheet(identifier, forceRefresh = false) {
       if (el && el.parentNode) el.parentNode.removeChild(el);
     };
 
-    window[callbackName] = function(data) {
+    window[callbackName] = function (data) {
       cleanup();
       cachedSheetData = data;
       cachedSheetTime = Date.now();
@@ -108,53 +213,21 @@ function fetchNamesFromGoogleSheet(identifier, forceRefresh = false) {
     const scriptTag = document.createElement('script');
     scriptTag.id = callbackName;
     scriptTag.src = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=responseHandler:${callbackName}&sheet=${encodeURIComponent(sheet)}`;
-
-    scriptTag.onerror = function() {
+    scriptTag.onerror = function () {
       cleanup();
-      // Fallback JSONP without sheet parameter (defaults to 1st sheet)
-      const fbCallback = 'gvizJsonpCb_fb_' + Math.random().toString(36).substr(2, 9);
-      const fbCleanup = () => {
-        delete window[fbCallback];
-        const fbEl = document.getElementById(fbCallback);
-        if (fbEl && fbEl.parentNode) fbEl.parentNode.removeChild(fbEl);
-      };
-      window[fbCallback] = function(fbData) {
-        fbCleanup();
-        cachedSheetData = fbData;
-        cachedSheetTime = Date.now();
-        resolve(processTableData(fbData));
-      };
-      const fbScript = document.createElement('script');
-      fbScript.id = fbCallback;
-      fbScript.src = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=responseHandler:${fbCallback}`;
-      fbScript.onerror = function() {
-        fbCleanup();
-        if (cachedSheetData) {
-          resolve(processTableData(cachedSheetData));
-        } else {
-          showToast('Không thể kết nối đến Google Sheet!', false);
-          resolve([]);
-        }
-      };
-      document.body.appendChild(fbScript);
+      resolve([]);
     };
 
     timeoutId = setTimeout(() => {
-      if (window[callbackName]) {
-        cleanup();
-        if (cachedSheetData) {
-          resolve(processTableData(cachedSheetData));
-        } else {
-          showToast('Tra cứu Google Sheet quá thời gian chờ (Timeout)!', false);
-          resolve([]);
-        }
-      }
-    }, 8000);
+      cleanup();
+      resolve([]);
+    }, 4000);
 
     document.body.appendChild(scriptTag);
   });
 }
 
+// Tra cứu hàng loạt cho toàn bộ các nhóm
 async function batchFetchSheetNames() {
   if (!pdfGroups || pdfGroups.length === 0) {
     showToast('Chưa có nhóm nào được tạo!', false);
@@ -162,7 +235,7 @@ async function batchFetchSheetNames() {
   }
 
   let invalidGroups = [];
-  pdfGroups.forEach(group => {
+  pdfGroups.forEach((group) => {
     const isValid = validateGroupCode(group);
     if (!isValid) invalidGroups.push(group);
   });
@@ -172,12 +245,14 @@ async function batchFetchSheetNames() {
     return;
   }
 
-  showSpinner(`Đang tra cứu tên hàng loạt từ Google Sheet cho ${pdfGroups.length} nhóm...`);
+  showSpinner(`Đang tra cứu từ danh sách đơn kê khai có CCCD cho ${pdfGroups.length} nhóm...`);
   try {
+    // Đảm bảo dữ liệu nội bộ đã sẵn sàng trước khi lặp
+    await fetchLocalDeclarationsStore();
+
     let successCount = 0;
     for (let i = 0; i < pdfGroups.length; i++) {
       const group = pdfGroups[i];
-      showSpinner(`Đang tra cứu nhóm ${i + 1}/${pdfGroups.length}: Mã ${group.identifier}...`);
       const names = await fetchNamesFromGoogleSheet(group.identifier);
       if (names.length > 0) {
         group.filenamesText = names.join('\n');

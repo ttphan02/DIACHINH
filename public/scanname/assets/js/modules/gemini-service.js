@@ -180,7 +180,7 @@ async function scanGroupCCCDWithGemini(group) {
         showToast(`[${group.name}] Đã quét mã ${code} & TỰ ĐỘNG CHÈN trang CCCD (${group.cccdName}) vào đầu nhóm!`);
       }
 
-      // 2. Tra cứu tên file từ Google Sheet
+      // 2. Tra cứu tên file từ danh bạ đơn kê khai có CCCD
       try {
         const names = await fetchNamesFromGoogleSheet(code);
         if (names.length > 0) {
@@ -190,13 +190,13 @@ async function scanGroupCCCDWithGemini(group) {
             const txtEl = card.querySelector('.group-filename-input');
             if (txtEl) txtEl.value = group.filenamesText;
           }
-          showToast(`[${group.name}] Đã lấy mã ${code} & tìm thấy ${names.length} tên file từ Sheet!`);
+          showToast(`[${group.name}] Đã lấy mã ${code} & tìm thấy ${names.length} tên file!`);
         } else {
           group.sheetStatus = 'not_found';
-          showToast(`[${group.name}] Đã lấy mã ${code}, nhưng Google Sheet KHÔNG CÓ tên!`, false);
+          showToast(`[${group.name}] Đã lấy mã ${code}, nhưng danh bạ đơn kê khai KHÔNG CÓ tên!`, false);
         }
       } catch (sheetErr) {
-        console.warn(`Lỗi tra Google Sheet tự động cho nhóm ${group.name}:`, sheetErr);
+        console.warn(`Lỗi tra danh bạ tự động cho nhóm ${group.name}:`, sheetErr);
         group.sheetStatus = 'not_found';
       }
     } else {
@@ -227,7 +227,7 @@ async function scanAllGroupsWithGemini() {
     return;
   }
 
-  showSpinner(`Đang quét AI Gemini & tự động tra Google Sheet cho ${pdfGroups.length} nhóm...`);
+  showSpinner(`Đang quét AI Gemini & tự động tra danh bạ đơn kê khai cho ${pdfGroups.length} nhóm...`);
   try {
     for (let i = 0; i < pdfGroups.length; i++) {
       const group = pdfGroups[i];
@@ -239,7 +239,7 @@ async function scanAllGroupsWithGemini() {
     if (invalidCount > 0) {
       showToast(`Hoàn tất quét AI! Còn ${invalidCount} nhóm chưa có mã 12 số hợp lệ (đang báo ĐỎ).`, false);
     } else {
-      showToast(`Hoàn tất quét AI & tra Google Sheet cho tất cả ${pdfGroups.length} nhóm!`);
+      showToast(`Hoàn tất quét AI & tra danh bạ đơn kê khai cho tất cả ${pdfGroups.length} nhóm!`);
     }
   } finally {
     hideSpinner();
