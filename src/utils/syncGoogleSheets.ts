@@ -111,10 +111,12 @@ async function getCachedGgsData(): Promise<{
   ggsCodes: Set<string>;
   ggsParcels: Record<string, any>;
   ggsAllCccds: Set<string>;
+  ggsPeople: Record<string, any>;
 }> {
   const ggsCodes = new Set<string>();
   const ggsAllCccds = new Set<string>();
   let ggsParcels: Record<string, any> = {};
+  let ggsPeople: Record<string, any> = {};
 
   try {
     const data = await fetchOrGetCachedGgsData();
@@ -130,11 +132,14 @@ async function getCachedGgsData(): Promise<{
     if (data.parcels) {
       ggsParcels = data.parcels;
     }
+    if (data.people) {
+      ggsPeople = data.people;
+    }
   } catch (e) {
     console.warn('Lỗi lấy GGS cache:', e);
   }
 
-  return { ggsCodes, ggsParcels, ggsAllCccds };
+  return { ggsCodes, ggsParcels, ggsAllCccds, ggsPeople };
 }
 
 let cachedR2Files: { cccdFiles: Set<string>; scanFiles: Set<string>; timestamp: number } | null = null;
@@ -290,7 +295,7 @@ export async function executeSyncToGoogleSheet(
 
     // 1. Lấy mã GGS và danh sách file CCCD & SCAN từ R2
     // 1. Lấy mã GGS và danh sách file CCCD & SCAN từ R2
-    const [{ ggsCodes, ggsParcels, ggsAllCccds }, { cccdFiles, scanFiles }] = await Promise.all([
+    const [{ ggsCodes, ggsParcels, ggsAllCccds, ggsPeople }, { cccdFiles, scanFiles }] = await Promise.all([
       getCachedGgsData(),
       getR2StorageFiles(r2Bucket),
     ]);
@@ -312,6 +317,24 @@ export async function executeSyncToGoogleSheet(
             const cClean = cleanCccd(p.cccd);
             if (cClean) {
               allGgsCccds.add(cClean);
+              if (!nameAndVillageToCccd.has(nvKey)) {
+                nameAndVillageToCccd.set(nvKey, cClean);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (ggsPeople) {
+      for (const [stName, person] of Object.entries(ggsPeople)) {
+        if (person.cccd) {
+          const cClean = cleanCccd(person.cccd);
+          if (cClean) {
+            allGgsCccds.add(cClean);
+            const pVillage = getCanonicalVillage(person.dia_chi || '', person.to_ban_do);
+            if (pVillage && pVillage !== 'Chưa xác định') {
+              const nvKey = `${stName}__${pVillage}`;
               if (!nameAndVillageToCccd.has(nvKey)) {
                 nameAndVillageToCccd.set(nvKey, cClean);
               }
@@ -396,9 +419,16 @@ export async function executeSyncToGoogleSheet(
       let cccd = cleanCccd(decl.cccd_chu_ho || decl.cccd || decl.chu_dat_cccd || '');
       let cccdSource = cccd ? 'Kê khai web' : '';
 
+      const chuHoNorm = stripAccents(chuHo);
+      const meta = parcelsBrief[maThua];
+      const fallbackDt = meta ? meta[0] : '';
+      const fallbackLoaiDat = meta ? meta[1] : '';
+      const fallbackThon = meta ? meta[2] : '';
+      const fallbackOwner = meta ? meta[3] : '';
+
       const ggsP = ggsParcels[maThua];
       const chuHoStrict = cleanStrictName(chuHo);
-      const declVillage = getCanonicalVillage(decl.dia_chi_thua_dat || decl.thon_xa, toMoi);
+      const declVillage = getCanonicalVillage(decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || decl.thon_xa || fallbackThon, toMoi);
       const declNvKey = (chuHoStrict && declVillage && declVillage !== 'Chưa xác định')
         ? `${chuHoStrict}__${declVillage}`
         : '';
@@ -411,13 +441,6 @@ export async function executeSyncToGoogleSheet(
         cccd = cleanCccd(ggsP.cccd);
         if (cccd) cccdSource = 'Khớp thửa GGS';
       }
-
-      const chuHoNorm = stripAccents(chuHo);
-      const meta = parcelsBrief[maThua];
-      const fallbackDt = meta ? meta[0] : '';
-      const fallbackLoaiDat = meta ? meta[1] : '';
-      const fallbackThon = meta ? meta[2] : '';
-      const fallbackOwner = meta ? meta[3] : '';
 
       // Tự động bổ sung fallback dữ liệu mặc định/ảo nếu thiếu trường
       const rawChuHo = chuHo || fallbackOwner || 'Chủ sử dụng';
@@ -588,7 +611,7 @@ export async function executeSyncToGoogleSheet(
     const rowsUnpack: string[][] = [headersUnpack];
     const orderedStage1 = [...stage1CanTimCccd, ...stage1KhongCoCccd];
     orderedStage1.forEach((it, idx) => {
-      const cccdText = it.cccd ? `="${it.cccd}"` : 'Chưa có';
+      const cccdText = it.cccd ? `="${it.cccd}"` : '';
       rowsUnpack.push([
         String(idx + 1), it.ma_thua, it.thon_xa,
         cleanName(it.chu_ho), it.dob || '', it.gender || 'Nam', cccdText,
