@@ -63,7 +63,7 @@ interface ParcelDetailPanelProps {
   onSelectParcel?: (parcel: Parcel) => void;
   onClose: () => void;
   onOpenVectorViewer: (svgUrl: string, title: string, owner?: string, cccd?: string, urls?: string[]) => void;
-  onSaveDeclaration: (data: DeclarationFormData) => void;
+  onSaveDeclaration: (data: DeclarationFormData) => Promise<boolean> | void;
   onDeleteDeclaration?: (maThua: string) => void;
   currentDeclaration?: DeclarationFormData | any;
   userLocation?: { lat: number; lng: number; accuracy: number } | null;
@@ -290,6 +290,7 @@ export default function ParcelDetailPanel({
   const [lyDoBaoSai, setLyDoBaoSai] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [correctionSuccess, setCorrectionSuccess] = useState(false);
+  const [isSavingDeclaration, setIsSavingDeclaration] = useState(false);
 
   // Image Editor State (CCCD & GCN)
   const [isImageEditorOpen, setIsImageEditorOpen] = useState(false);
@@ -595,7 +596,7 @@ export default function ParcelDetailPanel({
     if (direction === 'bac') setGiapBac(text);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormSubmitted(true);
     const cleanedTen = cleanName(chuDatTen);
@@ -620,31 +621,38 @@ export default function ParcelDetailPanel({
       return;
     }
 
-    onSaveDeclaration({
-      ma_thua: parcel.ma_thua,
-      chu_dat_ten: cleanedTen,
-      chu_dat_nam_sinh: cleanedNamSinh,
-      chu_dat_gioi_tinh: chuDatGioiTinh,
-      chu_dat_cccd: cleanedCccd,
-      chu_dat_dia_chi: cleanedDiaChi,
-      nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung),
-      giap_dong: cleanBoundaryText(giapDong),
-      giap_tay: cleanBoundaryText(giapTay),
-      giap_nam: cleanBoundaryText(giapNam),
-      giap_bac: cleanBoundaryText(giapBac),
-      anh_cccd_truoc: cccdUploadedFiles[0]?.url,
-      anh_cccd_sau: cccdUploadedFiles[1]?.url,
-      anh_gcn: gcnUploadedFiles[0]?.url,
-      anh_gcn_list: gcnUploadedFiles.length > 0 ? gcnUploadedFiles.map((f) => f.url) : undefined,
-      ghi_chu: ghiChu,
-      thua_kem_theo: additionalParcels,
-      device_id: getOrCreateDeviceId(),
-    });
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
+    try {
+      setIsSavingDeclaration(true);
+      await onSaveDeclaration({
+        ma_thua: parcel.ma_thua,
+        chu_dat_ten: cleanedTen,
+        chu_dat_nam_sinh: cleanedNamSinh,
+        chu_dat_gioi_tinh: chuDatGioiTinh,
+        chu_dat_cccd: cleanedCccd,
+        chu_dat_dia_chi: cleanedDiaChi,
+        nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung),
+        giap_dong: cleanBoundaryText(giapDong),
+        giap_tay: cleanBoundaryText(giapTay),
+        giap_nam: cleanBoundaryText(giapNam),
+        giap_bac: cleanBoundaryText(giapBac),
+        anh_cccd_truoc: cccdUploadedFiles[0]?.url,
+        anh_cccd_sau: cccdUploadedFiles[1]?.url,
+        anh_gcn: gcnUploadedFiles[0]?.url,
+        anh_gcn_list: gcnUploadedFiles.length > 0 ? gcnUploadedFiles.map((f) => f.url) : undefined,
+        ghi_chu: ghiChu,
+        thua_kem_theo: additionalParcels,
+        device_id: getOrCreateDeviceId(),
+      });
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3500);
+    } catch (err) {
+      console.error('Lỗi khi lưu phiếu kê khai:', err);
+    } finally {
+      setIsSavingDeclaration(false);
+    }
   };
 
-  const handleCorrectionSubmit = (e: React.FormEvent) => {
+  const handleCorrectionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormSubmitted(true);
     const cleanedTen = cleanName(chuDatTen);
@@ -669,32 +677,39 @@ export default function ParcelDetailPanel({
       return;
     }
 
-    onSaveDeclaration({
-      ma_thua: parcel.ma_thua,
-      chu_dat_ten: cleanedTen,
-      chu_dat_nam_sinh: cleanedNamSinh,
-      chu_dat_gioi_tinh: chuDatGioiTinh,
-      chu_dat_cccd: cleanedCccd,
-      chu_dat_dia_chi: cleanedDiaChi,
-      nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung),
-      giap_dong: cleanBoundaryText(giapDong),
-      giap_tay: cleanBoundaryText(giapTay),
-      giap_nam: cleanBoundaryText(giapNam),
-      giap_bac: cleanBoundaryText(giapBac),
-      anh_cccd_truoc: cccdUploadedFiles[0]?.url,
-      anh_cccd_sau: cccdUploadedFiles[1]?.url,
-      anh_gcn: gcnUploadedFiles[0]?.url,
-      anh_gcn_list: gcnUploadedFiles.length > 0 ? gcnUploadedFiles.map((f) => f.url) : undefined,
-      ghi_chu: `[BÁO SAI / BỔ SUNG THỬA GGS: ${lyDoBaoSai}] ${ghiChu}`.trim(),
-      is_correction: true,
-      ly_do_sai: lyDoBaoSai,
-      device_id: getOrCreateDeviceId(),
-    });
-    setCorrectionSuccess(true);
-    setTimeout(() => {
-      setCorrectionSuccess(false);
-      setActiveTab('info');
-    }, 2500);
+    try {
+      setIsSavingDeclaration(true);
+      await onSaveDeclaration({
+        ma_thua: parcel.ma_thua,
+        chu_dat_ten: cleanedTen,
+        chu_dat_nam_sinh: cleanedNamSinh,
+        chu_dat_gioi_tinh: chuDatGioiTinh,
+        chu_dat_cccd: cleanedCccd,
+        chu_dat_dia_chi: cleanedDiaChi,
+        nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung),
+        giap_dong: cleanBoundaryText(giapDong),
+        giap_tay: cleanBoundaryText(giapTay),
+        giap_nam: cleanBoundaryText(giapNam),
+        giap_bac: cleanBoundaryText(giapBac),
+        anh_cccd_truoc: cccdUploadedFiles[0]?.url,
+        anh_cccd_sau: cccdUploadedFiles[1]?.url,
+        anh_gcn: gcnUploadedFiles[0]?.url,
+        anh_gcn_list: gcnUploadedFiles.length > 0 ? gcnUploadedFiles.map((f) => f.url) : undefined,
+        ghi_chu: `[BÁO SAI / BỔ SUNG THỬA GGS: ${lyDoBaoSai}] ${ghiChu}`.trim(),
+        is_correction: true,
+        ly_do_sai: lyDoBaoSai,
+        device_id: getOrCreateDeviceId(),
+      });
+      setCorrectionSuccess(true);
+      setTimeout(() => {
+        setCorrectionSuccess(false);
+        setActiveTab('info');
+      }, 2500);
+    } catch (err) {
+      console.error('Lỗi khi gửi báo sai:', err);
+    } finally {
+      setIsSavingDeclaration(false);
+    }
   };
 
   return (
@@ -1538,10 +1553,24 @@ export default function ParcelDetailPanel({
               </button>
               <button
                 type="submit"
-                className="flex-2 py-2 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-1.5"
+                disabled={isSavingDeclaration}
+                className={`flex-2 py-2 text-white font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  isSavingDeclaration
+                    ? 'bg-amber-400 cursor-not-allowed opacity-90'
+                    : 'bg-amber-600 hover:bg-amber-700'
+                }`}
               >
-                <CheckCircle2 className="w-4 h-4" />
-                Gửi báo sai & Bổ sung
+                {isSavingDeclaration ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>Đang đồng bộ dữ liệu...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Gửi báo sai & Bổ sung</span>
+                  </>
+                )}
               </button>
             </div>
           </form>
@@ -2077,10 +2106,29 @@ export default function ParcelDetailPanel({
 
               <button
                 type="submit"
-                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer flex items-center justify-center gap-1.5"
+                disabled={isSavingDeclaration}
+                className={`flex-1 py-2.5 font-bold text-xs rounded-xl shadow-md transition cursor-pointer flex items-center justify-center gap-1.5 text-white ${
+                  isSavingDeclaration
+                    ? 'bg-blue-400 cursor-not-allowed opacity-90'
+                    : 'bg-blue-600 hover:bg-blue-700'
+                }`}
               >
-                <Save className="w-4 h-4" />
-                <span>{currentDeclaration ? 'Lưu thay đổi phiếu kê khai' : 'Lưu phiếu kê khai'}</span>
+                {isSavingDeclaration ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>Đang đồng bộ lên máy chủ...</span>
+                  </>
+                ) : savedSuccess ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                    <span>Đã lưu thành công 100%!</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>{currentDeclaration ? 'Lưu thay đổi phiếu kê khai' : 'Lưu phiếu kê khai'}</span>
+                  </>
+                )}
               </button>
             </div>
 

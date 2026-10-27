@@ -24,6 +24,7 @@ import {
 } from '@/utils/declaration';
 import { reportCadreLocation } from '@/utils/cadreTracker';
 import { backgroundKeeper } from '@/utils/backgroundLocationKeeper';
+import { broadcastRealtimeEvent, onRealtimeEvent } from '@/utils/realtimeSync';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
 const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
 import {
@@ -504,9 +505,46 @@ export default function Home() {
       fetchGgsCodes(false);
     }, 45000);
 
+    // Lắng nghe sự kiện Realtime tức thì từ Dashboard / các tab khác (0ms)
+    const unsubscribeRealtime = onRealtimeEvent((event) => {
+      if (event.type === 'DECLARATION_SAVED' && event.maThua) {
+        const targetMaThua = event.maThua;
+        if (event.declaration) {
+          setDeclarationsMap((prev) => ({
+            ...prev,
+            [targetMaThua]: event.declaration,
+          }));
+        }
+        if (event.declaredCodes) {
+          setDeclaredParcelCodes(new Set(event.declaredCodes));
+        } else {
+          setDeclaredParcelCodes((prev) => new Set([...prev, targetMaThua]));
+        }
+      } else if (event.type === 'DECLARATION_DELETED' && event.maThua) {
+        const targetMaThua = event.maThua;
+        setDeclarationsMap((prev) => {
+          const next = { ...prev };
+          delete next[targetMaThua];
+          return next;
+        });
+        if (event.declaredCodes) {
+          setDeclaredParcelCodes(new Set(event.declaredCodes));
+        } else {
+          setDeclaredParcelCodes((prev) => {
+            const next = new Set(prev);
+            next.delete(targetMaThua);
+            return next;
+          });
+        }
+      } else if (event.type === 'FORCE_REFRESH_REPORT') {
+        fetchCloudDeclarations();
+      }
+    });
+
     return () => {
       clearInterval(declInterval);
       clearInterval(ggsInterval);
+      unsubscribeRealtime();
       window.removeEventListener('focus', onInstantSync);
       document.removeEventListener('visibilitychange', onInstantSync);
       window.removeEventListener('online', onOnlineReconnect);
@@ -990,7 +1028,7 @@ export default function Home() {
       setPickToast('✓ Đang đồng bộ phiếu kê khai lên máy chủ...');
 
       // Gửi đồng bộ lên Cloudflare R2 với cơ chế tự động thử lại (Retry)
-      const attemptSync = async (retryCount = 0) => {
+      const attemptSync = async (retryCount = 0): Promise<boolean> => {
         try {
           const res = await fetch('/api/declarations', {
             method: 'POST',
@@ -1017,6 +1055,15 @@ export default function Home() {
                 setDeclarationsMap((prev) => ({ ...prev, ...result.declarationsMap }));
               }
             }
+
+            // Phát tín hiệu Realtime tức thì (0ms) tới tất cả các tab khác (Dashboard, Bản đồ)
+            broadcastRealtimeEvent({
+              type: 'DECLARATION_SAVED',
+              maThua: formData.ma_thua,
+              declaration: formData,
+              declaredCodes: updatedCodes,
+            });
+
             setPickToast('✓ Đã đồng bộ lên máy chủ thành công');
             setTimeout(() => setPickToast(null), 3000);
 
@@ -1032,28 +1079,33 @@ export default function Home() {
                 force: true,
               }).catch(() => {});
             }
+            return true;
           } else {
             const errBody = await res.text().catch(() => '');
             console.warn(`Đồng bộ cloud trả về mã lỗi ${res.status}: ${errBody} (thử lại lần ${retryCount + 1}/3)`);
             if (retryCount < 2) {
-              setTimeout(() => attemptSync(retryCount + 1), 800 * (retryCount + 1));
+              await new Promise((r) => setTimeout(r, 600 * (retryCount + 1)));
+              return await attemptSync(retryCount + 1);
             } else {
               setPickToast('✓ Đã lưu trên máy (Hệ thống đang tự động đồng bộ ngầm)');
               setTimeout(() => setPickToast(null), 3500);
+              return false;
             }
           }
         } catch (err) {
           console.warn(`Lỗi kết nối khi đồng bộ lên Cloud (thử lại lần ${retryCount + 1}/3):`, err);
           if (retryCount < 2) {
-            setTimeout(() => attemptSync(retryCount + 1), 1000 * (retryCount + 1));
+            await new Promise((r) => setTimeout(r, 800 * (retryCount + 1)));
+            return await attemptSync(retryCount + 1);
           } else {
             setPickToast('✓ Đã lưu trên máy (Hệ thống đang tự động đồng bộ ngầm)');
             setTimeout(() => setPickToast(null), 3500);
+            return false;
           }
         }
       };
 
-      attemptSync(0);
+      return attemptSync(0);
     }
   };
 
@@ -1062,6 +1114,12 @@ export default function Home() {
     lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
     setDeclaredParcelCodes(new Set(updatedCodes));
     setDeclarationsMap(updatedMap);
+
+    broadcastRealtimeEvent({
+      type: 'DECLARATION_DELETED',
+      maThua: targetMaThua,
+      declaredCodes: updatedCodes,
+    });
     setAdditionalParcels([]);
     setIsPickingAdditional(false);
 

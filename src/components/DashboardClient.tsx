@@ -6,6 +6,7 @@ import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
 import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, normalizeNguonGoc, NGUON_GOC_OPTIONS, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName } from '@/utils/textHelpers';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
+import { broadcastRealtimeEvent, onRealtimeEvent } from '@/utils/realtimeSync';
 import dynamic from 'next/dynamic';
 import type { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
 const DeclarationPrintModal = dynamic(() => import('@/components/DeclarationPrintModal'), { ssr: false });
@@ -508,8 +509,52 @@ export default function DashboardPage() {
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onFocus);
 
+    // Lắng nghe sự kiện Realtime tức thì (0ms) từ Map hoặc các Tab khác
+    const unsubscribeRealtime = onRealtimeEvent((event) => {
+      if (event.type === 'DECLARATION_SAVED' && event.maThua) {
+        const targetMaThua = event.maThua;
+        if (event.declaration) {
+          setDeclarationsMap((prev) => ({
+            ...prev,
+            [targetMaThua]: event.declaration,
+          }));
+        }
+        if (event.declaredCodes) {
+          setDeclaredParcelCodes(new Set(event.declaredCodes));
+        } else {
+          setDeclaredParcelCodes((prev) => new Set([...prev, targetMaThua]));
+        }
+      } else if (event.type === 'DECLARATION_DELETED' && event.maThua) {
+        const targetMaThua = event.maThua;
+        setDeclarationsMap((prev) => {
+          const next = { ...prev };
+          delete next[targetMaThua];
+          return next;
+        });
+        if (event.declaredCodes) {
+          setDeclaredParcelCodes(new Set(event.declaredCodes));
+        } else {
+          setDeclaredParcelCodes((prev) => {
+            const next = new Set(prev);
+            next.delete(targetMaThua);
+            return next;
+          });
+        }
+      } else if (event.type === 'CELL_EDITS_SYNCED') {
+        if (event.cellEdits) {
+          setCellEdits((prev) => ({
+            ...prev,
+            ...event.cellEdits,
+          }));
+        }
+      } else if (event.type === 'FORCE_REFRESH_REPORT') {
+        fetchCloudDeclarations();
+      }
+    });
+
     return () => {
       clearInterval(interval);
+      unsubscribeRealtime();
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onFocus);
     };
@@ -559,11 +604,11 @@ export default function DashboardPage() {
 
   const cellEditsSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const syncCellEditsToCloud = useCallback((edits: Record<string, Record<number, string>>) => {
+  const syncCellEditsToCloud = useCallback((edits: Record<string, Record<number, string>>, immediate = false) => {
     if (cellEditsSyncTimeoutRef.current) {
       clearTimeout(cellEditsSyncTimeoutRef.current);
     }
-    cellEditsSyncTimeoutRef.current = setTimeout(async () => {
+    const doSync = async () => {
       try {
         await fetch('/api/declarations', {
           method: 'POST',
@@ -573,7 +618,12 @@ export default function DashboardPage() {
       } catch (err) {
         console.warn('Lỗi đồng bộ cellEdits lên R2:', err);
       }
-    }, 2000);
+    };
+    if (immediate) {
+      doSync();
+    } else {
+      cellEditsSyncTimeoutRef.current = setTimeout(doSync, 300);
+    }
   }, []);
 
   // Cập nhật giá trị ô trực tiếp khi người dùng gõ phím
@@ -600,53 +650,88 @@ export default function DashboardPage() {
     colIdx: number,
     headerName: string,
     newValue: string,
-    row: any[]
+    row: any[],
+    currentHeaders?: string[]
   ) => {
-    const hLower = headerName.toLowerCase();
+    const hNorm = stripAccents(headerName).toLowerCase().trim();
     let fieldKey: keyof DeclarationFormData | '' = '';
-    if (hLower.includes('họ và tên') || hLower.includes('chủ đất')) fieldKey = 'chu_dat_ten';
-    else if (hLower.includes('năm sinh') || hLower.includes('ngày sinh')) fieldKey = 'chu_dat_nam_sinh';
-    else if (hLower.includes('giới tính')) fieldKey = 'chu_dat_gioi_tinh';
-    else if (hLower.includes('cccd') && !hLower.includes('xem') && !hLower.includes('file')) fieldKey = 'chu_dat_cccd';
-    else if (hLower.includes('thôn') || hLower.includes('buôn')) fieldKey = 'dia_chi_thua_dat';
-    else if (hLower.includes('nguồn gốc')) fieldKey = 'nguon_goc';
-    else if (hLower.includes('ghi chú') || hLower.includes('hướng dẫn')) fieldKey = 'ghi_chu';
+    if (hNorm.includes('ho va ten') || hNorm.includes('chu dat') || hNorm.includes('chu su dung') || hNorm.includes('chu ho')) fieldKey = 'chu_dat_ten';
+    else if (hNorm.includes('nam sinh') || hNorm.includes('ngay sinh')) fieldKey = 'chu_dat_nam_sinh';
+    else if (hNorm.includes('gioi tinh')) fieldKey = 'chu_dat_gioi_tinh';
+    else if ((hNorm.includes('cccd') || hNorm.includes('cmnd') || hNorm.includes('dinh danh')) && !hNorm.includes('xem') && !hNorm.includes('file')) fieldKey = 'chu_dat_cccd';
+    else if (hNorm.includes('thon') || hNorm.includes('buon') || hNorm.includes('dia chi')) fieldKey = 'dia_chi_thua_dat';
+    else if (hNorm.includes('nguon goc')) fieldKey = 'nguon_goc';
+    else if (hNorm.includes('ghi chu') || hNorm.includes('huong dan')) fieldKey = 'ghi_chu';
+    else if (hNorm.includes('dien tich')) fieldKey = 'dien_tich';
+    else if (hNorm.includes('loai dat')) fieldKey = 'loai_dat';
 
     if (!fieldKey) return;
 
-    // Trong danh sách "CHƯA THỰC HIỆN": người dùng chỉ đang nhập nháp các ô.
-    // Dữ liệu đã được lưu trong ô tạm (cellEdits).
-    // Tuyệt đối không tự ý lưu thành hồ sơ kê khai chính thức lúc này để tránh việc vừa bấm chuột ra ngoài ô
-    // thì thửa đất tự động biến mất và nhảy sang "THỬA ĐANG KÊ KHAI" hoặc "THỬA SẲN SÀNG ĐÓNG TẬP".
-    // Chỉ khi người dùng chủ động bấm nút "Kê khai" trên dòng thì mới chính thức chuyển dữ liệu!
+    // Trong danh sách "CHƯA THỰC HIỆN": người dùng đang nhập nháp các ô.
+    // Lưu ngay lập tức lên R2 mà không chờ debounce
     if (selectedReportSheet === 'CHƯA THỰC HIỆN') {
-      syncCellEditsToCloud(cellEdits);
+      const updatedEdits = {
+        ...cellEdits,
+        [maThua]: {
+          ...(cellEdits[maThua] || {}),
+          [colIdx]: newValue,
+        },
+      };
+      syncCellEditsToCloud(updatedEdits, true);
+      broadcastRealtimeEvent({
+        type: 'CELL_EDITS_SYNCED',
+        cellEdits: updatedEdits,
+      });
       return;
     }
 
     // Tìm parcel gốc hoặc dựng từ row (đối với các sheet đã kê khai)
-    let p = computedParcels.find((cp) => cp.ma_thua === maThua);
-    const existingDecl = declarationsMap[maThua] || {
-      ma_thua: maThua,
-      to_ban_do: String(row[2] || p?.to_ban_do || ''),
-      so_thua: String(row[3] || p?.so_thua || ''),
-      chu_dat_ten: String(row[5] || p?.chu_ho || ''),
-      chu_dat_nam_sinh: String(row[6] || (p as any)?.ngay_sinh || ''),
-      chu_dat_gioi_tinh: String(row[7] || (p as any)?.gioi_tinh || 'Nam'),
-      chu_dat_cccd: String(row[8] || p?.cccd || '').replace(/^="|"$/g, ''),
-      chu_dat_dia_chi: p?.thon_xa ? `${p.thon_xa}, xã Cư Pui` : `${row[4] || ''}, xã Cư Pui`,
-      dien_tich: String(row[9] || p?.dien_tich || ''),
-      loai_dat: String(row[10] || p?.loai_dat || 'DGT'),
-      nguon_goc: String(row[11] || 'Khai hoang'),
+    const p = computedParcels.find((cp) => cp.ma_thua === maThua);
+    const existingDecl = declarationsMap[maThua] || {};
+
+    const findColVal = (patterns: RegExp[]): string => {
+      if (!currentHeaders || !Array.isArray(row)) return '';
+      const idx = currentHeaders.findIndex((h) => patterns.some((patt) => patt.test(stripAccents(String(h || '')).toLowerCase())));
+      if (idx >= 0 && row[idx] !== undefined) {
+        return String(row[idx]).replace(/^="|"$/g, '').trim();
+      }
+      return '';
     };
+
+    const [toPart, thuaPart] = maThua.split('_');
+    const toBanDo = existingDecl.to_ban_do || toPart || p?.to_ban_do || '';
+    const soThua = existingDecl.so_thua || thuaPart || p?.so_thua || '';
+    const chuDatTen = existingDecl.chu_dat_ten || existingDecl.chu_ho || findColVal([/ho va ten/, /chu dat/, /chu ho/]) || p?.chu_ho || '';
+    const chuDatNamSinh = existingDecl.chu_dat_nam_sinh || findColVal([/nam sinh/, /ngay sinh/]) || (p as any)?.ngay_sinh || '';
+    const chuDatGioiTinh = existingDecl.chu_dat_gioi_tinh || findColVal([/gioi tinh/]) || (p as any)?.gioi_tinh || 'Nam';
+    const chuDatCccd = cleanCccd(existingDecl.chu_dat_cccd || existingDecl.cccd || findColVal([/cccd/, /cmnd/]) || p?.cccd || '');
+    const diaChiThua = existingDecl.dia_chi_thua_dat || existingDecl.chu_dat_dia_chi || findColVal([/thon/, /buon/]) || (p?.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'Xã Cư Pui');
+    const dienTich = existingDecl.dien_tich || findColVal([/dien tich/]) || p?.dien_tich || '';
+    const loaiDat = existingDecl.loai_dat || findColVal([/loai dat/]) || p?.loai_dat || 'DGT';
+    const nguonGoc = existingDecl.nguon_goc || existingDecl.nguon_goc_su_dung || findColVal([/nguon goc/]) || 'Khai hoang';
 
     const formattedValue = fieldKey === 'chu_dat_cccd' ? cleanCccd(newValue) : newValue.trim();
 
-    // Nếu không thay đổi gì thì bỏ qua
-    if (existingDecl[fieldKey] === formattedValue) return;
+    const baseDecl: DeclarationFormData = {
+      ...existingDecl,
+      ma_thua: maThua,
+      to_ban_do: toBanDo,
+      so_thua: soThua,
+      chu_dat_ten: chuDatTen,
+      chu_dat_nam_sinh: chuDatNamSinh,
+      chu_dat_gioi_tinh: chuDatGioiTinh,
+      chu_dat_cccd: chuDatCccd,
+      chu_dat_dia_chi: diaChiThua,
+      dien_tich: dienTich,
+      loai_dat: loaiDat,
+      nguon_goc: nguonGoc,
+      device_id: existingDecl.device_id || getOrCreateDeviceId(),
+    };
+
+    if (baseDecl[fieldKey] === formattedValue) return;
 
     const updatedDecl: DeclarationFormData = {
-      ...existingDecl,
+      ...baseDecl,
       [fieldKey]: formattedValue,
     };
     if (fieldKey === 'chu_dat_cccd') {
@@ -663,13 +748,51 @@ export default function DashboardPage() {
       updatedDecl.chu_dat_dia_chi = formattedValue.includes('xã Cư Pui') ? formattedValue : `${formattedValue}, xã Cư Pui`;
     }
 
-    // Đánh dấu đang lưu
-    setSavingRowCodes((prev) => new Set(prev).add(maThua));
-
-    // Cập nhật state local
+    // 1. Cập nhật ngay tức thì vào React State & LocalStorage (0ms latency)
     const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(updatedDecl);
     setDeclaredParcelCodes(new Set(updatedCodes));
     setDeclarationsMap(updatedMap);
+
+    // 2. Cập nhật syncSheetsData cho sheet hiện tại
+    setSyncSheetsData((prev) => {
+      if (!prev || !prev[selectedReportSheet]) return prev;
+      const sheet = prev[selectedReportSheet];
+      const updatedRows = sheet.map((r, rIdx) => {
+        if (rIdx === 0) return r;
+        if (String(r[1] || '').trim() === maThua) {
+          const nextRow = [...r];
+          if (colIdx >= 0 && colIdx < nextRow.length) {
+            nextRow[colIdx] = formattedValue;
+          }
+          return nextRow;
+        }
+        return r;
+      });
+      return {
+        ...prev,
+        [selectedReportSheet]: updatedRows,
+      };
+    });
+
+    // 3. Xóa ô nháp trong cellEdits sau khi commit thành công
+    setCellEdits((prev) => {
+      if (!prev[maThua] || prev[maThua][colIdx] === undefined) return prev;
+      const nextParcelEdits = { ...prev[maThua] };
+      delete nextParcelEdits[colIdx];
+      const next = { ...prev, [maThua]: nextParcelEdits };
+      try {
+        localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    // 4. Phát tín hiệu realtime ngay lập tức cho các tab khác
+    broadcastRealtimeEvent({
+      type: 'DECLARATION_SAVED',
+      maThua,
+      declaration: updatedDecl,
+      declaredCodes: updatedCodes,
+    });
 
     // Tự động kiểm tra file CCCD trên R2 nếu vừa nhập/sửa CCCD
     if (fieldKey === 'chu_dat_cccd' && formattedValue.length === 12) {
@@ -690,22 +813,41 @@ export default function DashboardPage() {
       }
     }
 
-    // Gửi realtime lên Cloudflare R2 (không hiện popup thông báo làm phiền)
-    try {
-      await fetch('/api/declarations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedDecl),
-      });
-    } catch (e) {
-      console.warn('Lỗi lưu realtime:', e);
-    } finally {
-      setSavingRowCodes((prev) => {
-        const next = new Set(prev);
-        next.delete(maThua);
-        return next;
-      });
-    }
+    // 5. Gửi lên Cloudflare R2 với cơ chế tự động retry để đảm bảo lưu thành công 100%
+    setSavingRowCodes((prev) => new Set(prev).add(maThua));
+    const attemptSave = async (retryCount = 0): Promise<boolean> => {
+      try {
+        const res = await fetch('/api/declarations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedDecl),
+        });
+        if (res.ok) {
+          return true;
+        } else {
+          if (retryCount < 2) {
+            await new Promise((r) => setTimeout(r, 600 * (retryCount + 1)));
+            return await attemptSave(retryCount + 1);
+          }
+          return false;
+        }
+      } catch (err) {
+        if (retryCount < 2) {
+          await new Promise((r) => setTimeout(r, 800 * (retryCount + 1)));
+          return await attemptSave(retryCount + 1);
+        }
+        return false;
+      } finally {
+        if (retryCount === 0) {
+          setSavingRowCodes((prev) => {
+            const next = new Set(prev);
+            next.delete(maThua);
+            return next;
+          });
+        }
+      }
+    };
+    attemptSave(0);
   };
 
   // Xác nhận kê khai thửa đất từ danh sách CHƯA THỰC HIỆN
@@ -768,7 +910,7 @@ export default function DashboardPage() {
       try {
         localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
       } catch {}
-      syncCellEditsToCloud(next);
+      syncCellEditsToCloud(next, true);
       return next;
     });
 
@@ -786,22 +928,46 @@ export default function DashboardPage() {
     setInlineSaveToast(`✓ Đã kê khai Thửa ${soThua} (Tờ ${toBanDo}). Dữ liệu đã chuyển sang [${targetLabel}]!`);
     setTimeout(() => setInlineSaveToast(null), 4500);
 
-    // Gửi realtime lên Cloudflare R2
-    try {
-      await fetch('/api/declarations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newDecl),
-      });
-    } catch (e) {
-      console.warn('Lỗi lưu kê khai:', e);
-    } finally {
-      setSavingRowCodes((prev) => {
-        const next = new Set(prev);
-        next.delete(maThua);
-        return next;
-      });
-    }
+    // Gửi realtime lên Cloudflare R2 với retry và broadcast
+    const attemptSaveCommit = async (retryCount = 0): Promise<boolean> => {
+      try {
+        const res = await fetch('/api/declarations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newDecl),
+        });
+        if (res.ok) {
+          broadcastRealtimeEvent({
+            type: 'DECLARATION_SAVED',
+            maThua,
+            declaration: newDecl,
+            declaredCodes: updatedCodes,
+          });
+          return true;
+        } else {
+          if (retryCount < 2) {
+            await new Promise((r) => setTimeout(r, 600 * (retryCount + 1)));
+            return await attemptSaveCommit(retryCount + 1);
+          }
+          return false;
+        }
+      } catch (err) {
+        if (retryCount < 2) {
+          await new Promise((r) => setTimeout(r, 800 * (retryCount + 1)));
+          return await attemptSaveCommit(retryCount + 1);
+        }
+        return false;
+      } finally {
+        if (retryCount === 0) {
+          setSavingRowCodes((prev) => {
+            const next = new Set(prev);
+            next.delete(maThua);
+            return next;
+          });
+        }
+      }
+    };
+    attemptSaveCommit(0);
   };
 
   // -------------------------------------------------------------
@@ -4513,10 +4679,11 @@ export default function DashboardPage() {
 
                                       // Cột Phân loại trạng thái (Làm nổi bật badge & realtime check)
                                       if (cIdx === statusColIdx && isChuaCoCccdSheet) {
+                                        const cccdColIdx = headers.findIndex((h) => /cccd|cmnd|định danh/i.test(h));
                                         const cccdVal = cleanCccd(
-                                          cellEdits[maThua]?.[8] !== undefined
-                                            ? cellEdits[maThua][8]
-                                            : (declarationsMap[maThua]?.chu_dat_cccd || row[8] || '')
+                                          (cccdColIdx !== -1 && cellEdits[maThua]?.[cccdColIdx] !== undefined)
+                                            ? cellEdits[maThua][cccdColIdx]
+                                            : (declarationsMap[maThua]?.chu_dat_cccd || (cccdColIdx !== -1 ? row[cccdColIdx] : '') || '')
                                         );
                                         const hasR2 = Boolean(cccdVal && (r2CccdSet.has(cccdVal) || declarationsMap[maThua]?.cccd_url));
                                         const hasGgs = Boolean(cccdVal && ggsCccdSet.has(cccdVal));
@@ -4629,10 +4796,6 @@ export default function DashboardPage() {
                                         );
                                       }
 
-                                      // Hiển thị chuỗi định dạng Excel (="...")
-                                      const cleanText = cellStr.replace(/^="|"$/g, '');
-                                      const displayVal = cellEdits[maThua]?.[cIdx] !== undefined ? cellEdits[maThua][cIdx] : cleanText;
-
                                       // Kiểm tra xem cột này có cho phép sửa trực tiếp như Excel không
                                       const isNameCol = hLower.includes('họ và tên') || hLower.includes('chủ đất');
                                       const isDobCol = hLower.includes('năm sinh') || hLower.includes('ngày sinh');
@@ -4643,6 +4806,31 @@ export default function DashboardPage() {
                                       const isLandTypeCol = hLower.includes('loại đất');
                                       const isOriginCol = hLower.includes('nguồn gốc');
                                       const isNoteCol = hLower.includes('ghi chú') || hLower.includes('hướng dẫn');
+
+                                      // Hiển thị chuỗi định dạng Excel (="...") và ưu tiên dữ liệu mới nhất từ declarationsMap
+                                      const cleanText = cellStr.replace(/^="|"$/g, '');
+                                      const declForParcel = declarationsMap[maThua];
+                                      let effectiveVal = cleanText;
+                                      if (declForParcel && selectedReportSheet !== 'CHƯA THỰC HIỆN') {
+                                        if (isNameCol && (declForParcel.chu_dat_ten || declForParcel.chu_ho)) {
+                                          effectiveVal = cleanName(declForParcel.chu_dat_ten || declForParcel.chu_ho);
+                                        } else if (isDobCol && declForParcel.chu_dat_nam_sinh) {
+                                          effectiveVal = declForParcel.chu_dat_nam_sinh;
+                                        } else if (isGenderCol && declForParcel.chu_dat_gioi_tinh) {
+                                          effectiveVal = declForParcel.chu_dat_gioi_tinh;
+                                        } else if (isCccdCol && (declForParcel.chu_dat_cccd || declForParcel.cccd)) {
+                                          effectiveVal = cleanCccd(declForParcel.chu_dat_cccd || declForParcel.cccd);
+                                        } else if (isVillageCol && (declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi)) {
+                                          effectiveVal = declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi;
+                                        } else if (isOriginCol && (declForParcel.nguon_goc || declForParcel.nguon_goc_su_dung)) {
+                                          effectiveVal = normalizeNguonGoc(declForParcel.nguon_goc || declForParcel.nguon_goc_su_dung);
+                                        } else if (isAreaCol && declForParcel.dien_tich) {
+                                          effectiveVal = declForParcel.dien_tich;
+                                        } else if (isLandTypeCol && declForParcel.loai_dat) {
+                                          effectiveVal = declForParcel.loai_dat;
+                                        }
+                                      }
+                                      const displayVal = cellEdits[maThua]?.[cIdx] !== undefined ? cellEdits[maThua][cIdx] : effectiveVal;
 
                                       // 1. Ô Nguồn gốc sử dụng đất (Dropdown Khai hoang / Thừa kế / Tặng cho trực tiếp)
                                       if (isOriginCol) {
@@ -4657,7 +4845,7 @@ export default function DashboardPage() {
                                               onChange={(e) => {
                                                 const v = e.target.value;
                                                 handleInlineCellChange(maThua, cIdx, v);
-                                                handleInlineCellCommit(maThua, cIdx, headerName, v, row);
+                                                handleInlineCellCommit(maThua, cIdx, headerName, v, row, headers);
                                               }}
                                               className={`w-full min-w-0 px-1.5 py-1 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 transition cursor-pointer truncate ${
                                                 isLight
@@ -4771,7 +4959,7 @@ export default function DashboardPage() {
                                                 let val = e.target.value;
                                                 if (isNameCol) val = cleanName(val);
                                                 else if (isCccdCol) val = cleanCccd(val);
-                                                handleInlineCellCommit(maThua, cIdx, headerName, val, row);
+                                                handleInlineCellCommit(maThua, cIdx, headerName, val, row, headers);
                                               }}
                                               onKeyDown={(e) => {
                                                 if (e.key === 'Enter') {
