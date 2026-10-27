@@ -203,12 +203,17 @@ export async function GET(request: Request) {
 
     for (const [code, decl] of Object.entries(declarationsMap)) {
       declaredCodesSet.add(code);
-      const to = String(decl.to_ban_do || '').trim();
-      const thua = String(decl.so_thua || '').trim();
-      const owner = decl.chu_dat_ten || decl.chu_ho || '';
+      const parts = code.split('_');
+      const to = String(decl.to_ban_do || parts[0] || '').trim();
+      const thua = String(decl.so_thua || parts[1] || '').trim();
+      const owner = decl.chu_dat_ten || decl.chu_ho || decl.ho_va_ten_chu_ho || decl.nguoi_ke_khai_ten || '';
       if (to && thua) {
         toThuaMap.set(`${to}_${thua}`, { code, owner });
+        const toNum = String(parseInt(to, 10) || to);
+        const thuaNum = String(parseInt(thua, 10) || thua);
+        toThuaMap.set(`${toNum}_${thuaNum}`, { code, owner });
       }
+      toThuaMap.set(code, { code, owner });
     }
 
     const files = allObjects
@@ -222,7 +227,9 @@ export async function GET(request: Request) {
         let matchedOwner = '';
         let matchedParcel = '';
 
-        const m = filename.match(/(?:CHUACOGIAY_\d+_)?(\d+)[-_](\d+)(?:[-_]DDK)?/i);
+        // Tách số tờ, số thửa chuẩn xác: loại bỏ tiền tố CHUACOGIAY_24478_ và hậu tố -DDK
+        const cleanFn = filename.replace(/^CHUACOGIAY_\d+_/i, '').replace(/[-_]DDK(\.pdf)?$/i, '');
+        const m = cleanFn.match(/(\d+)[-_](\d+)/);
         if (m) {
           matchedTo = m[1];
           matchedThua = m[2];
@@ -230,19 +237,23 @@ export async function GET(request: Request) {
 
         // Tra cứu nhanh O(1)
         if (matchedTo && matchedThua) {
-          const match = toThuaMap.get(`${matchedTo}_${matchedThua}`);
+          const toNum = String(parseInt(matchedTo, 10) || matchedTo);
+          const thuaNum = String(parseInt(matchedThua, 10) || matchedThua);
+          const match = toThuaMap.get(`${matchedTo}_${matchedThua}`) || toThuaMap.get(`${toNum}_${thuaNum}`);
           if (match) {
             matchedParcel = match.code;
             matchedOwner = match.owner;
           }
         }
 
-        // Nếu chưa khớp, thử tìm mã thửa dạng to_thua trong tên file qua Set O(1)
+        // Nếu chưa khớp, thử tìm mã thửa dạng to_thua trong declarationsMap
         if (!matchedParcel) {
-          const codeMatch = filename.match(/\b(\d+_\d+)\b/);
-          if (codeMatch && declaredCodesSet.has(codeMatch[1])) {
-            matchedParcel = codeMatch[1];
-            matchedOwner = declarationsMap[matchedParcel]?.chu_dat_ten || declarationsMap[matchedParcel]?.chu_ho || '';
+          for (const declaredCode of declaredCodesSet) {
+            if (filename.includes(declaredCode)) {
+              matchedParcel = declaredCode;
+              matchedOwner = declarationsMap[matchedParcel]?.chu_dat_ten || declarationsMap[matchedParcel]?.chu_ho || declarationsMap[matchedParcel]?.ho_va_ten_chu_ho || declarationsMap[matchedParcel]?.nguoi_ke_khai_ten || '';
+              break;
+            }
           }
         }
 
@@ -359,6 +370,14 @@ export async function POST(request: Request) {
 
     // Xóa cache để cập nhật tức thì
     scanCache = null;
+    try {
+      const bucket = await getR2Binding();
+      if (bucket) {
+        bucket.delete('cache/sync_sheets.json').catch(() => {});
+      } else {
+        await deleteObjectFromR2('cache/sync_sheets.json').catch(() => {});
+      }
+    } catch {}
 
     return NextResponse.json({
       success: true,
@@ -400,6 +419,14 @@ export async function DELETE(request: Request) {
 
     // Xóa cache để cập nhật tức thì
     scanCache = null;
+    try {
+      const bucket = await getR2Binding();
+      if (bucket) {
+        bucket.delete('cache/sync_sheets.json').catch(() => {});
+      } else {
+        await deleteObjectFromR2('cache/sync_sheets.json').catch(() => {});
+      }
+    } catch {}
 
     return NextResponse.json({
       success: true,

@@ -326,12 +326,15 @@ export async function executeSyncToGoogleSheet(
     const scanByCccd = new Map<string, string>();
 
     for (const sf of scanFiles) {
-      const mtMatch = sf.match(/(\d+)[_-](\d+)/);
+      // Chuẩn hóa tên file: loại bỏ tiền tố CHUACOGIAY_24478_ và hậu tố -DDK
+      const cleanSf = sf.replace(/^CHUACOGIAY_\d+_/i, '').replace(/[-_]DDK(\.pdf)?$/i, '');
+      const mtMatch = cleanSf.match(/(\d+)[_-](\d+)/);
       if (mtMatch) {
         const toNum = String(parseInt(mtMatch[1], 10) || mtMatch[1]);
         const thuaNum = String(parseInt(mtMatch[2], 10) || mtMatch[2]);
         const key = `${toNum}_${thuaNum}`;
         if (!scanByToThua.has(key)) scanByToThua.set(key, sf);
+        scanByToThua.set(`${mtMatch[1]}_${mtMatch[2]}`, sf);
       }
       const cMatch = sf.match(/(?:^|\D)(\d{9,12})(?:\D|$)/);
       const cleanC = cMatch ? cleanCccd(cMatch[1]) : cleanCccd(sf);
@@ -467,7 +470,7 @@ export async function executeSyncToGoogleSheet(
       const thuaNum = String(parseInt(String(thuaMoi || ''), 10) || thuaMoi || '');
       const toThuaKey = `${toNum}_${thuaNum}`;
 
-      let foundScan = scanByToThua.get(toThuaKey) || scanByToThua.get(maThua) || '';
+      let foundScan = scanByToThua.get(toThuaKey) || scanByToThua.get(maThua) || scanByToThua.get(`${toMoi}_${thuaMoi}`) || '';
       if (!foundScan && cccd) {
         foundScan = scanByCccd.get(cccd) || '';
       }
@@ -618,14 +621,15 @@ export async function executeSyncToGoogleSheet(
     ];
     const rowsNhapDuLieu: string[][] = [headersNhapDuLieu];
     stage3ChoNhap.forEach((it, idx) => {
-      const scanLink = `/api/image/filescan/${encodeURIComponent(it.scan_file)}`;
-      const scanFormula = `=HYPERLINK("${scanLink}"; "${it.scan_file}")`;
+      const cleanFileName = String(it.scan_file || '').replace(/^filescan\//, '').replace(/^scanhoso\//, '');
+      const scanLink = `/api/image/filescan/${encodeURIComponent(cleanFileName)}`;
+      const scanFormula = `=HYPERLINK("${scanLink}"; "${cleanFileName}")`;
       const cccdText = it.cccd ? `="${it.cccd}"` : '';
       rowsNhapDuLieu.push([
         String(idx + 1), it.ma_thua, String(it.to_ban_do || ''), String(it.so_thua || ''), it.thon_xa,
         cleanName(it.chu_ho), it.dob || '', it.gender || 'Nam', cccdText,
         String(it.dien_tich || ''), it.loai_dat || 'DGT', normalizeNguonGoc(it.nguon_goc || 'Khai Hoang'),
-        it.scan_file,
+        cleanFileName,
         scanFormula
       ]);
     });
