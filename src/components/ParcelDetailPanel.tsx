@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Parcel, NeighborParcel, DeclarationMode, DeclarationFormData } from '@/types';
 import {
   X,
@@ -167,6 +167,79 @@ export default function ParcelDetailPanel({
   const [chuDatDiaChi, setChuDatDiaChi] = useState('');
   const [formSubmitted, setFormSubmitted] = useState(false);
 
+  // Tra cứu tự động công dân trên Google Sheet theo tên
+  const [isLookingUpGgs, setIsLookingUpGgs] = useState(false);
+  const [ggsLookupStatus, setGgsLookupStatus] = useState<{
+    checked: boolean;
+    found: boolean;
+    message?: string;
+  } | null>(null);
+
+  const lookupGgsByName = useCallback(async (name: string, overrideExisting = true) => {
+    const clean = cleanName(name);
+    if (!clean || clean.split(/\s+/).length < 2) {
+      setGgsLookupStatus(null);
+      return;
+    }
+    setIsLookingUpGgs(true);
+    try {
+      const res = await fetch(`/api/lookup-person?name=${encodeURIComponent(clean)}`);
+      const data = (await res.json()) as any;
+      if (data.found) {
+        if (data.nam_sinh) {
+          setChuDatNamSinh((prev) => (overrideExisting || !prev ? data.nam_sinh : prev));
+        }
+        if (data.cccd) {
+          setChuDatCccd((prev) => (overrideExisting || !prev ? cleanCccd(data.cccd) : prev));
+        }
+        if (data.gioi_tinh) {
+          setChuDatGioiTinh(data.gioi_tinh === 'Nữ' ? 'Nữ' : 'Nam');
+        }
+        if (data.dia_chi) {
+          setChuDatDiaChi((prev) => {
+            if (!prev || (prev.includes('xã Cư Pui') && !prev.includes('Thôn') && !prev.includes('Buôn'))) {
+              return data.dia_chi;
+            }
+            return prev;
+          });
+        }
+        setGgsLookupStatus({
+          checked: true,
+          found: true,
+          message: `Khớp dữ liệu GGS: Năm sinh ${data.nam_sinh || '-'} | Giới tính: ${data.gioi_tinh || 'Nam'} | CCCD: ${data.cccd || '(Chưa có số)'}`,
+        });
+      } else {
+        setGgsLookupStatus({
+          checked: true,
+          found: false,
+          message: 'Chưa có trên Google Sheet',
+        });
+      }
+    } catch (err) {
+      console.warn('Lỗi tra cứu Google Sheet:', err);
+    } finally {
+      setIsLookingUpGgs(false);
+    }
+  }, []);
+
+  // Tự động tra cứu GGS khi người dùng điền đủ họ tên (debounce 600ms)
+  const lastLookedUpNameRef = useRef<string>('');
+  useEffect(() => {
+    const clean = cleanName(chuDatTen);
+    if (!clean || clean.split(/\s+/).length < 2) {
+      lastLookedUpNameRef.current = '';
+      return;
+    }
+    if (clean === lastLookedUpNameRef.current) return;
+
+    const timer = setTimeout(() => {
+      lastLookedUpNameRef.current = clean;
+      lookupGgsByName(clean, false);
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [chuDatTen, lookupGgsByName]);
+
   // Tự động kiểm tra xem số CCCD đã có file ảnh trên DB hay chưa
   const [cccdCheckResult, setCccdCheckResult] = useState<{ exists: boolean; filename?: string; url?: string } | null>(null);
   const [isCheckingCccd, setIsCheckingCccd] = useState(false);
@@ -309,20 +382,23 @@ export default function ParcelDetailPanel({
         const declNameValid = currentDeclaration.chu_dat_ten && !isInvalidOwnerName(currentDeclaration.chu_dat_ten);
         const parcelNameValid = parcel.chu_ho && !isInvalidOwnerName(parcel.chu_ho);
         const rawName = declNameValid ? currentDeclaration.chu_dat_ten : (parcelNameValid ? parcel.chu_ho : '');
-        setChuDatTen(cleanName(rawName));
+        const cleanedDeclName = cleanName(rawName);
+        setChuDatTen(cleanedDeclName);
         
-        setChuDatNamSinh(
+        const existingNamSinh =
           currentDeclaration.chu_dat_nam_sinh ||
           currentDeclaration.nam_sinh_chu_ho ||
           currentDeclaration.chu_dat_ngay_sinh ||
-          ''
-        );
+          '';
+        const existingCccd = cleanCccd(currentDeclaration.chu_dat_cccd || parcel.cccd || '');
+
+        setChuDatNamSinh(existingNamSinh);
         setChuDatGioiTinh(
           currentDeclaration.chu_dat_gioi_tinh === 'Nữ' || parcel.chu_ho?.trim().toLowerCase() === 'nữ'
             ? 'Nữ'
             : 'Nam'
         );
-        setChuDatCccd(cleanCccd(currentDeclaration.chu_dat_cccd || parcel.cccd || ''));
+        setChuDatCccd(existingCccd);
         setChuDatDiaChi(formatThonAddress(currentDeclaration.chu_dat_dia_chi, parcel.thon_xa));
         setNguonGocSuDung(normalizeNguonGoc(currentDeclaration.nguon_goc_su_dung));
         setGiapDong(cleanBoundaryText(currentDeclaration.giap_dong || parcel.giap_dong || ''));
@@ -330,6 +406,12 @@ export default function ParcelDetailPanel({
         setGiapNam(cleanBoundaryText(currentDeclaration.giap_nam || parcel.giap_nam || ''));
         setGiapBac(cleanBoundaryText(currentDeclaration.giap_bac || parcel.giap_bac || ''));
         setGhiChu(currentDeclaration.ghi_chu || '');
+
+        setGgsLookupStatus(null);
+        if (cleanedDeclName && cleanedDeclName.split(/\s+/).length >= 2 && (!existingNamSinh || !existingCccd)) {
+          lastLookedUpNameRef.current = cleanedDeclName;
+          lookupGgsByName(cleanedDeclName, false);
+        }
       } else {
         setMode('SELF');
         setNguoiKeKhaiTen('');
@@ -341,12 +423,19 @@ export default function ParcelDetailPanel({
         setGhiChu('');
         
         const parcelNameValid = parcel.chu_ho && !isInvalidOwnerName(parcel.chu_ho);
-        setChuDatTen(cleanName(parcelNameValid ? parcel.chu_ho : ''));
+        const initName = cleanName(parcelNameValid ? parcel.chu_ho : '');
+        setChuDatTen(initName);
         setChuDatNamSinh('');
         setChuDatGioiTinh(parcel.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
         setChuDatCccd(cleanCccd(parcel.cccd || ''));
         setChuDatDiaChi(formatThonAddress(undefined, parcel.thon_xa));
         setNguonGocSuDung('Khai Hoang');
+
+        setGgsLookupStatus(null);
+        if (initName && initName.split(/\s+/).length >= 2) {
+          lastLookedUpNameRef.current = initName;
+          lookupGgsByName(initName, false);
+        }
       }
       setFormSubmitted(false);
       setLyDoBaoSai('');
@@ -1251,23 +1340,56 @@ export default function ParcelDetailPanel({
               </span>
               <div className="space-y-1.5">
                 <div>
-                  <label className="text-[10px] text-gray-500 block mb-0.5">Họ và tên chủ đất chuẩn:</label>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <label className="text-[10px] text-gray-500 block">Họ và tên chủ đất chuẩn:</label>
+                    {isLookingUpGgs && (
+                      <span className="text-[9px] text-blue-600 flex items-center gap-0.5 font-medium animate-pulse">
+                        <Loader2 className="w-2.5 h-2.5 animate-spin" /> Đang tìm trên GGS...
+                      </span>
+                    )}
+                    {!isLookingUpGgs && ggsLookupStatus?.found && (
+                      <span className="text-[9px] text-emerald-700 font-bold bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200 flex items-center gap-0.5">
+                        <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 shrink-0" /> Khớp GGS
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     required
                     value={chuDatTen}
                     onChange={(e) => setChuDatTen(e.target.value)}
-                    onBlur={() => setChuDatTen(cleanName(chuDatTen))}
+                    onBlur={() => {
+                      const cleaned = cleanName(chuDatTen);
+                      setChuDatTen(cleaned);
+                      if (cleaned && cleaned.split(/\s+/).length >= 2) {
+                        lastLookedUpNameRef.current = cleaned;
+                        lookupGgsByName(cleaned, true);
+                      }
+                    }}
                     placeholder="Họ và tên chủ đất chuẩn *"
                     className={`w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none focus:ring-2 font-bold uppercase transition ${
                       formSubmitted && !isValidFullName(chuDatTen)
                         ? 'border-red-500 bg-red-50/20 text-red-900 focus:ring-red-400'
+                        : ggsLookupStatus?.found
+                        ? 'border-emerald-500 bg-emerald-50/10 focus:ring-emerald-500'
                         : 'border-gray-300 focus:ring-amber-500'
                     }`}
                   />
                   {formSubmitted && !isValidFullName(chuDatTen) && (
                     <p className="mt-1 text-[10px] text-red-500 font-medium">
                       {!chuDatTen.trim() ? 'Vui lòng nhập họ và tên' : 'Họ và tên tối thiểu 2 từ (đã loại bỏ danh xưng)'}
+                    </p>
+                  )}
+                  {ggsLookupStatus?.message && (
+                    <p className={`mt-0.5 text-[9px] font-medium flex items-center gap-1 ${
+                      ggsLookupStatus.found ? 'text-emerald-700 font-bold' : 'text-gray-400'
+                    }`}>
+                      {ggsLookupStatus.found ? (
+                        <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+                      ) : (
+                        <AlertCircle className="w-2.5 h-2.5 text-gray-400 shrink-0" />
+                      )}
+                      {ggsLookupStatus.message}
                     </p>
                   )}
                 </div>
@@ -1554,19 +1676,40 @@ export default function ParcelDetailPanel({
               <div className="space-y-2 text-xs">
                 {/* Họ tên */}
                 <div>
-                  <label className="text-[11px] font-bold text-gray-700 block mb-1">
-                    Họ và tên cá nhân <span className="text-red-500">*</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold text-gray-700 block">
+                      Họ và tên cá nhân <span className="text-red-500">*</span>
+                    </label>
+                    {isLookingUpGgs && (
+                      <span className="text-[10px] text-blue-600 flex items-center gap-1 font-medium animate-pulse">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Đang tìm trên GGS...
+                      </span>
+                    )}
+                    {!isLookingUpGgs && ggsLookupStatus?.found && (
+                      <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1 shadow-2xs">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" /> Khớp GGS (Đã tự điền)
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     required
                     value={chuDatTen}
                     onChange={(e) => setChuDatTen(e.target.value)}
-                    onBlur={() => setChuDatTen(cleanName(chuDatTen))}
+                    onBlur={() => {
+                      const cleaned = cleanName(chuDatTen);
+                      setChuDatTen(cleaned);
+                      if (cleaned && cleaned.split(/\s+/).length >= 2) {
+                        lastLookedUpNameRef.current = cleaned;
+                        lookupGgsByName(cleaned, true);
+                      }
+                    }}
                     placeholder="Nhập họ và tên cá nhân..."
                     className={`w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none font-bold uppercase transition ${
                       (formSubmitted || (chuDatTen.length > 0 && chuDatTen.trim().split(/\s+/).length < 2)) && !isValidFullName(chuDatTen)
                         ? 'border-red-500 bg-red-50/20 text-red-900 focus:ring-2 focus:ring-red-400 ring-1 ring-red-400'
+                        : ggsLookupStatus?.found
+                        ? 'border-emerald-500 bg-emerald-50/20 text-emerald-950 focus:ring-2 focus:ring-emerald-500'
                         : 'border-gray-300 focus:ring-2 focus:ring-blue-500'
                     }`}
                   />
@@ -1574,6 +1717,18 @@ export default function ParcelDetailPanel({
                     <p className="mt-1 text-[11px] text-red-600 font-medium flex items-center gap-1">
                       <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                       {!chuDatTen.trim() ? 'Vui lòng nhập họ và tên cá nhân' : 'Họ và tên tối thiểu 2 từ (đã tự động lọc bỏ danh xưng)'}
+                    </p>
+                  )}
+                  {ggsLookupStatus?.message && (
+                    <p className={`mt-1 text-[10px] font-medium flex items-center gap-1 ${
+                      ggsLookupStatus.found ? 'text-emerald-700 font-bold' : 'text-gray-400'
+                    }`}>
+                      {ggsLookupStatus.found ? (
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                      ) : (
+                        <AlertCircle className="w-3 h-3 text-gray-400 shrink-0" />
+                      )}
+                      {ggsLookupStatus.message}
                     </p>
                   )}
                 </div>

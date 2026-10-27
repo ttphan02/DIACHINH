@@ -69,12 +69,13 @@ export function normalizeVietnameseVowels(s: string): string {
 }
 
 // Chuẩn hóa tên CHÍNH XÁC TỪNG DẤU THANH (Quang != Quảng, Ba != Bảy, Anh != Ánh, Vàng != Vang)
+// Đồng thời đưa về chữ thường để so sánh không phân biệt HOA / thường
 export function cleanStrictName(name: any): string {
   if (!name) return '';
   let s = normalizeVietnameseVowels(stripHonorifics(name));
   s = s.replace(/['’`"]/g, '');
   s = s.replace(/\s+/g, ' ');
-  return s.trim();
+  return s.trim().toLowerCase();
 }
 
 // Chuẩn hóa tên (lọc bỏ toàn bộ danh xưng, bỏ dấu cách thừa, viết hoa chữ cái đầu từng từ)

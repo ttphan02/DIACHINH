@@ -25,7 +25,16 @@ export async function GET(request: Request) {
   try {
     const data = await fetchOrGetCachedGgsData(false);
     const people = data.people || {};
-    const person = people[cleanQuery];
+    let person = people[cleanQuery];
+
+    if (!person) {
+      for (const [k, p] of Object.entries(people)) {
+        if (cleanStrictName(k) === cleanQuery || cleanStrictName(p.full_name) === cleanQuery) {
+          person = p;
+          break;
+        }
+      }
+    }
 
     if (person) {
       return NextResponse.json({
