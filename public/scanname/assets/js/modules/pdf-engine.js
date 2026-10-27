@@ -708,7 +708,7 @@ async function exportAllGroupsZip() {
   }
 }
 
-// Lưu toàn bộ nhóm file scan vào Cloudflare R2 (folder filescan/) & Kích hoạt đồng bộ Google Sheet
+// Lưu toàn bộ nhóm file scan vào Cloudflare R2 (folder filescan/)
 async function saveAllGroupsToR2() {
   if (!pdfGroups || pdfGroups.length === 0) {
     showToast('Chưa có nhóm nào được tạo để lưu vào R2!', false);
@@ -716,7 +716,7 @@ async function saveAllGroupsToR2() {
   }
 
   const confirmSave = confirm(
-    `Bạn có chắc chắn muốn lưu toàn bộ ${pdfGroups.length} nhóm file scan này vào folder "filescan/" trên Cloudflare R2 không?\n\nSau khi lưu, hệ thống sẽ tự động đồng bộ sang Google Sheet: Chuyển các thửa tương ứng từ "THỬA SẴN SÀNG ĐÓNG TẬP (CÓ CCCD)" sang "NHẬP GGS" (57 cột)!`
+    `Bạn có chắc chắn muốn lưu toàn bộ ${pdfGroups.length} nhóm file scan này vào folder "filescan/" trên Cloudflare R2 không?`
   );
   if (!confirmSave) return;
 
@@ -806,15 +806,8 @@ async function saveAllGroupsToR2() {
       }
     }
 
-    showSpinner('Đang kích hoạt đồng bộ Google Sheet sang NHẬP GGS...');
-    try {
-      await fetch('/api/sync-sheets');
-    } catch (e) {
-      console.warn('Lỗi trigger sync sheet:', e);
-    }
-
-    showToast(`✅ Đã lưu thành công ${successCount}/${payloadFiles.length} file vào R2 filescan/ & Đã tải về máy tính!`, true);
-    alert(`🎉 HOÀN TẤT THÀNH CÔNG!\n\n1. Đã lưu ${successCount}/${payloadFiles.length} file scan vào folder "filescan/" trên Cloudflare R2!\n2. Đã tự động tải về ${payloadFiles.length} file PDF scan về máy của bạn!\n3. Các thửa tương ứng đã được đồng bộ chuyển sang "NHẬP GGS"!`);
+    showToast(`✅ Đã lưu thành công ${successCount}/${payloadFiles.length} file scan vào R2 (filescan/) & Đã tải về máy tính!`, true);
+    alert(`🎉 HOÀN TẤT THÀNH CÔNG!\n\n1. Đã lưu ${successCount}/${payloadFiles.length} file scan vào folder "filescan/" trên Cloudflare R2!\n2. Đã tự động tải về ${payloadFiles.length} file PDF scan về máy của bạn!`);
   } catch (err) {
     console.error('Lỗi lưu R2:', err);
     showToast('Lỗi lưu file lên R2: ' + (err.message || 'Lỗi mạng'), false);

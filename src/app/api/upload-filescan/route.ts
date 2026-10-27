@@ -360,39 +360,11 @@ export async function POST(request: Request) {
     // Xóa cache để cập nhật tức thì
     scanCache = null;
 
-    // Đọc danh sách kê khai và kích hoạt đồng bộ Google Sheet
-    try {
-      const bucket = await getR2Binding();
-      let declMap: Record<string, any> = {};
-      if (bucket) {
-        const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
-        declMap = declObj ? JSON.parse(await declObj.text()).declarationsMap || {} : {};
-      } else {
-        const res = await fetch(`${R2_PUBLIC_BASE}/${KEY_ALL_DECLARATIONS}?t=${Date.now()}`, {
-          cache: 'no-store',
-        });
-        if (res.ok) {
-          const payload: any = await res.json();
-          declMap = payload.declarationsMap || {};
-        }
-      }
-
-      import('@/utils/syncGoogleSheets')
-        .then(({ executeSyncToGoogleSheet }) => {
-          executeSyncToGoogleSheet(declMap, bucket).catch((err) =>
-            console.error('Lỗi sync Google Sheet sau khi upload filescan:', err)
-          );
-        })
-        .catch((err) => console.warn('Lỗi nạp module syncGoogleSheets:', err));
-    } catch (err) {
-      console.warn('Lỗi trigger sync sheet:', err);
-    }
-
     return NextResponse.json({
       success: true,
       count: uploadedFiles.length,
       files: uploadedFiles,
-      message: `Đã lưu thành công ${uploadedFiles.length} file vào R2 folder filescan/ và kích hoạt đồng bộ Google Sheet!`,
+      message: `Đã lưu thành công ${uploadedFiles.length} file vào R2 folder filescan/!`,
     });
   } catch (error: any) {
     console.error('Lỗi POST /api/upload-filescan:', error);

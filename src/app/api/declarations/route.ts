@@ -270,6 +270,7 @@ export async function POST(request: Request) {
         updatedAt: new Date().toISOString(),
       };
       await saveDeclarationsToR2(updatedPayload);
+      memoryCache = { payload: updatedPayload, timestamp: Date.now() };
       return NextResponse.json({ success: true, cellEdits: updatedPayload.cellEdits });
     }
 
@@ -315,6 +316,8 @@ export async function POST(request: Request) {
           { status: 500 }
         );
       }
+
+      memoryCache = { payload: updatedPayload, timestamp: Date.now() };
 
       return NextResponse.json({
         success: true,
@@ -391,12 +394,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // SIÊU TỐI ƯU: Chỉ trả về mảng mã thửa đã kê khai và xác nhận thành công,
-    // KHÔNG serialize toàn bộ declarationsMap (508 KB) giúp response nhẹ < 5KB và phản hồi dưới 50ms trên điện thoại!
+    memoryCache = { payload: updatedPayload, timestamp: Date.now() };
+
     return NextResponse.json({
       success: true,
       declaredCodes: updatedCodes,
       savedParcel: rootMaThua,
+      declarationsMap,
       updatedAt: timestamp,
     });
   } catch (error: any) {
@@ -453,10 +457,12 @@ export async function DELETE(request: Request) {
     };
 
     await saveDeclarationsToR2(updatedPayload);
+    memoryCache = { payload: updatedPayload, timestamp: Date.now() };
 
     return NextResponse.json({
       success: true,
       declaredCodes: updatedCodes,
+      declarationsMap,
       deletedParcel: targetMaThua,
     });
   } catch (error: any) {

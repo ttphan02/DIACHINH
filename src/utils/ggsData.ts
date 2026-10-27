@@ -11,6 +11,8 @@ export interface GgsParcelData {
   loai_dat?: string;
   nam_sinh?: string;
   gioi_tinh?: string;
+  to_ban_do?: string;
+  thon_xa?: string;
 }
 
 export interface GgsPersonData {
@@ -20,6 +22,7 @@ export interface GgsPersonData {
   cccd?: string;
   dia_chi?: string;
   ma_thua?: string;
+  to_ban_do?: string;
 }
 
 let cachedData: {
@@ -310,6 +313,9 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
         }
       }
 
+      const toVal = (row.length > 21 && /^\d+$/.test(row[21])) ? row[21] : (ma_thua.split('_')[0] || '');
+      const thonVal = citizenAddr || '';
+
       const parcelData: GgsParcelData = {
         chu_ho: chu_ho || ggsParcels[ma_thua]?.chu_ho || '',
         cccd: cccd || ggsParcels[ma_thua]?.cccd || undefined,
@@ -317,6 +323,8 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
         loai_dat: loai_dat || ggsParcels[ma_thua]?.loai_dat || undefined,
         nam_sinh: nam_sinh || ggsParcels[ma_thua]?.nam_sinh || undefined,
         gioi_tinh: gioi_tinh || ggsParcels[ma_thua]?.gioi_tinh || undefined,
+        to_ban_do: toVal,
+        thon_xa: thonVal,
       };
 
       if (!ggsParcels[ma_thua] || (chu_ho && !ggsParcels[ma_thua].chu_ho)) {
@@ -336,6 +344,12 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
         }
         if (!ggsParcels[ma_thua].gioi_tinh && gioi_tinh) {
           ggsParcels[ma_thua].gioi_tinh = gioi_tinh;
+        }
+        if (!ggsParcels[ma_thua].to_ban_do && toVal) {
+          ggsParcels[ma_thua].to_ban_do = toVal;
+        }
+        if (!ggsParcels[ma_thua].thon_xa && thonVal) {
+          ggsParcels[ma_thua].thon_xa = thonVal;
         }
       }
     }

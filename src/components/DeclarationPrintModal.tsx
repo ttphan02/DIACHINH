@@ -33,19 +33,43 @@ export default function DeclarationPrintModal({
   };
 
   const formatPrintAddress = (addr?: string, thon?: string) => {
-    const target = (addr && !addr.includes('(khong đia chỉ)') ? addr : thon) || '';
-    const clean = target.trim();
-    if (!clean || clean.includes('(khong đia chỉ)')) return 'Xã Cư Pui, huyện Krông Bông, tỉnh Đắk Lắk';
-    if (clean.toLowerCase().includes('đắk lắk') || clean.toLowerCase().includes('dak lak')) {
-      return clean;
+    // Ưu tiên chuỗi nào có tên thôn/buôn cụ thể thay vì chỉ ghi chung chung 'xã Cư Pui'
+    const isSpecificVillage = (s?: string) => {
+      if (!s) return false;
+      const lower = s.toLowerCase().trim();
+      return (
+        lower.length > 0 &&
+        lower !== 'xã cư pui' &&
+        lower !== 'xa cu pui' &&
+        lower !== 'cư pui' &&
+        lower !== 'cu pui' &&
+        !lower.includes('(khong đia chỉ)')
+      );
+    };
+
+    let target = '';
+    if (isSpecificVillage(addr)) {
+      target = addr!.trim();
+    } else if (isSpecificVillage(thon)) {
+      target = thon!.trim();
+    } else {
+      target = (addr || thon || '').trim();
     }
-    if (clean.toLowerCase().includes('krông bông') || clean.toLowerCase().includes('krong bong')) {
-      return `${clean}, tỉnh Đắk Lắk`;
+
+    if (!target || target.toLowerCase() === 'xã cư pui' || target.toLowerCase() === 'cư pui' || target.includes('(khong đia chỉ)')) {
+      return 'Xã Cư Pui, huyện Krông Bông, tỉnh Đắk Lắk';
     }
-    if (clean.toLowerCase().includes('cư pui') || clean.toLowerCase().includes('cu pui')) {
-      return `${clean}, huyện Krông Bông, tỉnh Đắk Lắk`;
+
+    if (target.toLowerCase().includes('đắk lắk') || target.toLowerCase().includes('dak lak')) {
+      return target;
     }
-    return `${clean}, xã Cư Pui, huyện Krông Bông, tỉnh Đắk Lắk`;
+    if (target.toLowerCase().includes('krông bông') || target.toLowerCase().includes('krong bong')) {
+      return `${target}, tỉnh Đắk Lắk`;
+    }
+    if (target.toLowerCase().includes('cư pui') || target.toLowerCase().includes('cu pui')) {
+      return `${target}, huyện Krông Bông, tỉnh Đắk Lắk`;
+    }
+    return `${target}, xã Cư Pui, huyện Krông Bông, tỉnh Đắk Lắk`;
   };
 
   const cleanPrintOwner = (name?: string) => {

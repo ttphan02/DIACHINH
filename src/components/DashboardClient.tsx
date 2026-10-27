@@ -119,11 +119,11 @@ export default function DashboardPage() {
   const [landTypeFilter, setLandTypeFilter] = useState<string>('ALL');
   const [sheetFilter, setSheetFilter] = useState<string>('ALL');
 
-  // Sorting & Pagination
-  const [sortBy, setSortBy] = useState<'so_thua' | 'to_ban_do' | 'dien_tich' | 'chu_ho'>('so_thua');
+  // Sorting & Pagination (Mặc định hiển thị tất cả & sắp xếp A -> Z theo tên)
+  const [sortBy, setSortBy] = useState<'so_thua' | 'to_ban_do' | 'dien_tich' | 'chu_ho'>('chu_ho');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const [pageSize, setPageSize] = useState<number>(10000);
 
   // Active view tab in Dashboard: Báo Cáo Tiến Độ, Tiến Độ 16 Thôn, Kho CCCD, Kho File Scan, Vị Trí Cán Bộ
   const [activeTab, setActiveTab] = useState<'progressReport' | 'villages' | 'cccd' | 'filescan' | 'cadres'>('progressReport');
@@ -154,6 +154,7 @@ export default function DashboardPage() {
     totalDeclared: number;
     daGiaiQuyet: number;
     choNhap?: number;
+    nhapDuLieu?: number;
     nhapGgs: number;
     daDongTap: number;
     canTimCccd: number;
@@ -194,7 +195,7 @@ export default function DashboardPage() {
   const viCollator = useMemo(() => new Intl.Collator('vi', { sensitivity: 'base' }), []);
   const deferredReportSearchQuery = useDeferredValue(reportSearchQuery);
 
-  const [reportPageSize, setReportPageSize] = useState<number | 'ALL'>(20);
+  const [reportPageSize, setReportPageSize] = useState<number | 'ALL'>('ALL');
   const [reportPage, setReportPage] = useState<number>(1);
 
   // Danh sách CCCD đã có trên R2 và trên GGS phục vụ kiểm tra realtime
@@ -206,8 +207,8 @@ export default function DashboardPage() {
   const [statusFilterPopupPos, setStatusFilterPopupPos] = useState<{ top: number; left: number } | null>(null);
   const [cccdTabRefreshKey, setCccdTabRefreshKey] = useState(0);
 
-  // Sắp xếp danh sách theo tên chủ đất A -> Z
-  const [sortNameOrder, setSortNameOrder] = useState<'none' | 'asc' | 'desc'>('none');
+  // Sắp xếp danh sách theo tên chủ đất A -> Z (Mặc định luôn A -> Z)
+  const [sortNameOrder, setSortNameOrder] = useState<'none' | 'asc' | 'desc'>('asc');
 
   // Lọc thửa Có tên / Không có tên trong danh sách "Chưa Thực Hiện"
   const [chuaThucHienNameFilter, setChuaThucHienNameFilter] = useState<'ALL' | 'CO_TEN' | 'CHUA_CO_TEN'>('ALL');
@@ -996,7 +997,10 @@ export default function DashboardPage() {
         if (res.ok) {
           const result = (await res.json()) as any;
           if (result.success && Array.isArray(result.declaredCodes)) {
-            const cloudMap = result.declarationsMap || {};
+            const cloudMap =
+              result.declarationsMap && Object.keys(result.declarationsMap).length > 0
+                ? result.declarationsMap
+                : updatedMap;
             lastCloudSigRef.current = JSON.stringify({ codes: result.declaredCodes, map: cloudMap });
             setDeclaredParcelCodes(new Set(result.declaredCodes));
             setDeclarationsMap(cloudMap);
@@ -1025,7 +1029,10 @@ export default function DashboardPage() {
         if (res.ok) {
           const result = (await res.json()) as any;
           if (result.success && Array.isArray(result.declaredCodes)) {
-            const cloudMap = result.declarationsMap || {};
+            const cloudMap =
+              result.declarationsMap && Object.keys(result.declarationsMap).length > 0
+                ? result.declarationsMap
+                : updatedMap;
             lastCloudSigRef.current = JSON.stringify({ codes: result.declaredCodes, map: cloudMap });
             setDeclaredParcelCodes(new Set(result.declaredCodes));
             setDeclarationsMap(cloudMap);
@@ -1267,6 +1274,17 @@ export default function DashboardPage() {
   }, [syncSummary, syncSheetsData, dangKeKhaiChuaCccdParcels.length]);
 
   const displayCountTotalDangKeKhai = displayCountReadyToPack + displayCountChuaCccd;
+
+  const displayCountNhapDuLieu = useMemo(() => {
+    if (syncSummary?.nhapDuLieu !== undefined) {
+      return syncSummary.nhapDuLieu;
+    }
+    const rows = syncSheetsData?.['NHẬP DỮ LIỆU'] || syncSheetsData?.['CHỜ NHẬP'];
+    if (Array.isArray(rows) && rows.length > 1) {
+      return rows.length - 1;
+    }
+    return 0;
+  }, [syncSummary, syncSheetsData]);
 
   // 3. THỬA CHƯA THỰC HIỆN: Các thửa chưa số hóa và chưa thực hiện kê khai
   const chuaThucHienParcels = useMemo(() => {
@@ -2091,6 +2109,9 @@ export default function DashboardPage() {
       const toBanDo = parts[0] || '';
       const soThua = parts[1] || '';
 
+      const decl = declarationsMap[maThua] || {};
+      const edits = cellEdits[maThua] || {};
+
       const rawThonXa = String(row[thonXaIdx] || '').replace(/^="|"$/g, '').trim();
       const rawChuHo = cleanName(String(row[chuHoIdx] || '').replace(/^="|"$/g, '').trim());
       const dob = String(row[dobIdx] || '').replace(/^="|"$/g, '').trim();
@@ -2099,6 +2120,29 @@ export default function DashboardPage() {
       const dienTich = String(row[dienTichIdx] || '').replace(/^="|"$/g, '').trim();
       const loaiDat = String(row[loaiDatIdx] || 'DGT').replace(/^="|"$/g, '').trim();
       const nguonGoc = normalizeNguonGoc(String(row[nguonGocIdx] || 'Khai hoang').replace(/^="|"$/g, '').trim());
+
+      const p = computedParcels.find((cp) => cp.ma_thua === maThua);
+
+      // Ưu tiên cao nhất: Dữ liệu người dùng đã chỉnh sửa trong DeclarationsMap hoặc CellEdits
+      const finalChuHo = cleanName(String(decl.chu_dat_ten || edits[chuHoIdx] || rawChuHo || p?.chu_ho || '').trim());
+      const finalDob = String(decl.chu_dat_nam_sinh || edits[dobIdx] || dob || '').trim();
+      const finalGender = String(decl.chu_dat_gioi_tinh || edits[genderIdx] || gender || 'Nam').trim();
+      const finalCccd = cleanCccd(String(decl.chu_dat_cccd || edits[cccdIdx] || cccdRaw || p?.cccd || '').trim());
+      const finalDienTich = String(decl.dien_tich || dienTich || p?.dien_tich || '').trim();
+      const finalLoaiDat = String(decl.loai_dat || loaiDat || p?.loai_dat || 'DGT').trim();
+      const finalNguonGoc = normalizeNguonGoc(String(decl.nguon_goc || edits[nguonGocIdx] || nguonGoc || 'Khai hoang').trim());
+
+      // Xác định địa chỉ có thôn/buôn chuẩn (VD: Buôn Khanh, xã Cư Pui)
+      let finalThonXa = String(decl.dia_chi_thua_dat || decl.chu_dat_dia_chi || edits[thonXaIdx] || p?.thon_xa || rawThonXa || '').trim();
+      if (!finalThonXa || finalThonXa.toLowerCase() === 'xã cư pui' || finalThonXa.toLowerCase() === 'cư pui') {
+        if (p?.thon_xa && p.thon_xa.toLowerCase() !== 'xã cư pui') {
+          finalThonXa = p.thon_xa;
+        }
+      }
+      if (finalThonXa && !finalThonXa.toLowerCase().includes('cư pui')) {
+        finalThonXa = `${finalThonXa}, xã Cư Pui`;
+      }
+      if (!finalThonXa) finalThonXa = 'xã Cư Pui';
 
       const cccdFormula = String(row[cccdFormulaIdx] || '');
       let cccdFileName = '';
@@ -2111,24 +2155,24 @@ export default function DashboardPage() {
         const fileMatch = cccdFormula.match(/["']?([^"']+\.(pdf|jpg|jpeg|png))["']?/i);
         if (fileMatch) {
           cccdFileName = fileMatch[1];
-        } else if (cccdRaw) {
-          cccdFileName = `${cccdRaw}.pdf`;
+        } else if (finalCccd) {
+          cccdFileName = `${finalCccd}.pdf`;
         }
         if (cccdFileName) {
           cccdUrl = `/api/image/cccd/${encodeURIComponent(cccdFileName)}`;
         }
       }
 
-      const p = computedParcels.find((cp) => cp.ma_thua === maThua) || {
+      const parcelObj: Parcel = p ? { ...p, to_ban_do: toBanDo, so_thua: soThua, thon_xa: finalThonXa, chu_ho: finalChuHo, cccd: finalCccd, cccd_url: cccdUrl || p.cccd_url } : {
         ma_thua: maThua,
         to_ban_do: toBanDo,
         so_thua: soThua,
-        thon_xa: rawThonXa,
+        thon_xa: finalThonXa,
         ten_xa_goc: 'Xã Cư Pui',
-        chu_ho: rawChuHo,
-        cccd: cccdRaw,
-        loai_dat: loaiDat,
-        dien_tich: dienTich,
+        chu_ho: finalChuHo,
+        cccd: finalCccd,
+        loai_dat: finalLoaiDat,
+        dien_tich: finalDienTich,
         trang_thai: 'DA_KE_KHAI_CHUA_SO_HOA_LAM',
         lat: null,
         lng: null,
@@ -2136,24 +2180,26 @@ export default function DashboardPage() {
         cccd_url: cccdUrl,
       };
 
-      const decl = declarationsMap[maThua] || {
+      const declObj = {
+        ...decl,
         ma_thua: maThua,
         to_ban_do: toBanDo,
         so_thua: soThua,
-        chu_dat_ten: rawChuHo,
-        chu_dat_nam_sinh: dob,
-        chu_dat_gioi_tinh: gender,
-        chu_dat_cccd: cccdRaw,
-        dien_tich: dienTich,
-        loai_dat: loaiDat,
-        nguon_goc: nguonGoc,
-        dia_chi_thua_dat: rawThonXa,
-        anh_cccd_truoc: cccdUrl,
+        chu_dat_ten: finalChuHo,
+        chu_dat_nam_sinh: finalDob,
+        chu_dat_gioi_tinh: finalGender,
+        chu_dat_cccd: finalCccd,
+        dien_tich: finalDienTich,
+        loai_dat: finalLoaiDat,
+        nguon_goc: finalNguonGoc,
+        dia_chi_thua_dat: finalThonXa,
+        chu_dat_dia_chi: finalThonXa,
+        anh_cccd_truoc: cccdUrl || decl.anh_cccd_truoc,
       };
 
       itemsToPrint.push({
-        parcel: { ...p, to_ban_do: toBanDo, so_thua: soThua, thon_xa: rawThonXa, chu_ho: rawChuHo, cccd: cccdRaw, cccd_url: cccdUrl || p.cccd_url },
-        declaration: { ...decl, to_ban_do: toBanDo, so_thua: soThua, chu_dat_ten: rawChuHo, chu_dat_nam_sinh: dob, chu_dat_gioi_tinh: gender, chu_dat_cccd: cccdRaw, anh_cccd_truoc: cccdUrl || decl.anh_cccd_truoc },
+        parcel: parcelObj,
+        declaration: declObj,
       });
     });
 
@@ -2438,6 +2484,29 @@ export default function DashboardPage() {
                 <span className="text-[10px] font-medium">Có CCCD:</span>
                 <strong className="font-black">{displayCountReadyToPack}</strong>
               </button>
+
+              {/* Nhập dữ liệu (Đã scan) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedReportSheet('NHẬP DỮ LIỆU');
+                  setActiveTab('progressReport');
+                  setReportPage(1);
+                  setReportSearchQuery('');
+                }}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs transition cursor-pointer border ${
+                  selectedReportSheet === 'NHẬP DỮ LIỆU' && activeTab === 'progressReport'
+                    ? 'bg-cyan-600 text-white border-cyan-600 font-black shadow-xs ring-1 ring-cyan-400'
+                    : isLight
+                    ? 'bg-cyan-50 hover:bg-cyan-100 border-cyan-200 text-cyan-800'
+                    : 'bg-cyan-950/50 hover:bg-cyan-900/60 border-cyan-800/60 text-cyan-300'
+                }`}
+                title={`Đơn kê khai đã đóng tập & đã scan có file trong R2: ${displayCountNhapDuLieu} thửa`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+                <span className="text-[10px] font-medium">Nhập dữ liệu:</span>
+                <strong className="font-black">{displayCountNhapDuLieu}</strong>
+              </button>
             </div>
           </div>
 
@@ -2551,21 +2620,6 @@ export default function DashboardPage() {
                 <FileBarChart2 className="w-3.5 h-3.5 text-amber-300" />
               )}
               <span>{isExportingStatsPdf ? 'Đang tạo...' : 'Xuất PDF'}</span>
-            </button>
-            {/* Nút Xuất PDF Riêng Cho Ea Rớt */}
-            <button
-              type="button"
-              disabled={isExportingStatsPdf}
-              onClick={() => handleExportStatisticsPdf({ targetVillage: 'Thôn Ea Rớt' })}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-75 border ${
-                isLight
-                  ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-600'
-                  : 'bg-amber-600 hover:bg-amber-500 text-white border-amber-500'
-              }`}
-              title="Xuất file PDF Báo cáo tiến độ và danh sách có tên chưa thực hiện dành riêng cho Thôn Ea Rớt"
-            >
-              <FileBarChart2 className="w-3.5 h-3.5 text-amber-200" />
-              <span>Ea Rớt PDF</span>
             </button>
 
             {/* Nút Chuyển Giao Diện Light / Dark Mode */}
@@ -2900,6 +2954,7 @@ export default function DashboardPage() {
                   const isChuaThucHienSheet = selectedReportSheet === 'CHƯA THỰC HIỆN';
                   const isReadyToPackSheet = selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)';
                   const isChuaCoCccdSheet = selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)';
+                  const isNhapDuLieuSheet = selectedReportSheet === 'NHẬP DỮ LIỆU';
 
                   // Thống kê Thôn / Buôn và số lượng thửa
                   const villageCounts: Record<string, number> = {};
@@ -3043,6 +3098,12 @@ export default function DashboardPage() {
                       const maB = String(b[1] || '').trim();
                       const nameA = String(cellEdits[maA]?.[nameColIdx] ?? a[nameColIdx] ?? '').trim();
                       const nameB = String(cellEdits[maB]?.[nameColIdx] ?? b[nameColIdx] ?? '').trim();
+
+                      const isAValid = Boolean(nameA && !nameA.toLowerCase().includes('chưa có tên'));
+                      const isBValid = Boolean(nameB && !nameB.toLowerCase().includes('chưa có tên'));
+                      if (isAValid && !isBValid) return -1;
+                      if (!isAValid && isBValid) return 1;
+
                       const cmp = viCollator.compare(nameA, nameB);
                       return sortNameOrder === 'asc' ? cmp : -cmp;
                     });
@@ -3372,8 +3433,7 @@ export default function DashboardPage() {
                     reportStatusFilter !== 'ALL' ||
                     chuaThucHienNameFilter !== 'ALL' ||
                     (isChuaThucHienSheet && appliedMaThuas.size > 0) ||
-                    sortNameOrder !== 'none' ||
-                    reportPageSize === 'ALL';
+                    sortNameOrder !== 'asc';
 
                   return (
                     <div className="space-y-4">
@@ -3414,16 +3474,6 @@ export default function DashboardPage() {
                               >
                                 <FileDown className="w-3.5 h-3.5 text-white" />
                                 <span>{isExportingStatsPdf ? 'Đang tạo...' : 'Xuất PDF Thu CCCD (Theo thôn)'}</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleExportStatisticsPdf({ onlyMissingCccd: true, targetVillage: 'Thôn Ea Rớt' })}
-                                disabled={isExportingStatsPdf}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold shadow-md transition cursor-pointer bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-amber-600/30 disabled:opacity-50"
-                                title="Xuất file PDF danh sách thu CCCD riêng cho Thôn Ea Rớt"
-                              >
-                                <FileDown className="w-3.5 h-3.5 text-white" />
-                                <span>{isExportingStatsPdf ? 'Đang tạo...' : 'Thu CCCD (Ea Rớt)'}</span>
                               </button>
                             </div>
                           )}
@@ -3761,8 +3811,8 @@ export default function DashboardPage() {
                                 setChuaThucHienNameFilter('ALL');
                                 setAppliedMaThuas(new Set());
                                 setTempSelectedMaThuas(new Set());
-                                setSortNameOrder('none');
-                                setReportPageSize(20);
+                                setSortNameOrder('asc');
+                                setReportPageSize('ALL');
                                 setReportPage(1);
                               }}
                               className={`text-xs px-2.5 py-1.5 rounded-xl border font-semibold transition cursor-pointer ${
@@ -4547,7 +4597,7 @@ export default function DashboardPage() {
                                                   setPreviewPdfModal({
                                                     isOpen: true,
                                                     url: href,
-                                                    title: `CCCD: ${ownerName || text}`,
+                                                    title: href.includes('filescan') ? `Hồ sơ scan: ${ownerName || text}` : `CCCD: ${ownerName || text}`,
                                                     filename: text,
                                                   });
                                                 }}
@@ -4559,7 +4609,7 @@ export default function DashboardPage() {
                                                     setPreviewPdfModal({
                                                       isOpen: true,
                                                       url: href,
-                                                      title: `CCCD: ${ownerName || text}`,
+                                                      title: href.includes('filescan') ? `Hồ sơ scan: ${ownerName || text}` : `CCCD: ${ownerName || text}`,
                                                       filename: text,
                                                     });
                                                   }}

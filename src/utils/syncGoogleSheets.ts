@@ -277,6 +277,7 @@ export async function executeSyncToGoogleSheet(
     totalDeclared: number;
     daGiaiQuyet: number;
     choNhap?: number;
+    nhapDuLieu?: number;
     nhapGgs: number;
     daDongTap: number;
     canTimCccd: number;
@@ -294,22 +295,26 @@ export async function executeSyncToGoogleSheet(
       getR2StorageFiles(r2Bucket),
     ]);
 
-    // Lập bản đồ tra cứu tên chủ hộ -> CCCD, và tập hợp tất cả CCCD & Họ tên trên GGS chính (Trangtinh1)
-    const nameToCccd = new Map<string, string>();
+    // Lập bản đồ tra cứu tên chủ hộ + Thôn buôn -> CCCD (Cột K / Cột 10 trên GGS)
+    // Chỉ khớp khi tên trên GGS và tên đơn kê khai cùng 1 thôn buôn theo đúng yêu cầu nghiệp vụ
+    const nameAndVillageToCccd = new Map<string, string>();
     const allGgsCccds = new Set<string>(ggsAllCccds || []);
-    const allGgsNames = new Set<string>();
+    const allGgsNamesInVillage = new Set<string>();
 
     for (const p of Object.values(ggsParcels)) {
       if (p.chu_ho) {
         const nStrict = cleanStrictName(p.chu_ho);
-        if (nStrict) allGgsNames.add(nStrict);
-
-        if (p.cccd) {
-          const cClean = cleanCccd(p.cccd);
-          if (cClean) {
-            allGgsCccds.add(cClean);
-            if (nStrict && !nameToCccd.has(nStrict)) {
-              nameToCccd.set(nStrict, cClean);
+        const pVillage = getCanonicalVillage(p.thon_xa || '', p.to_ban_do);
+        if (nStrict && pVillage && pVillage !== 'Chưa xác định') {
+          const nvKey = `${nStrict}__${pVillage}`;
+          allGgsNamesInVillage.add(nvKey);
+          if (p.cccd) {
+            const cClean = cleanCccd(p.cccd);
+            if (cClean) {
+              allGgsCccds.add(cClean);
+              if (!nameAndVillageToCccd.has(nvKey)) {
+                nameAndVillageToCccd.set(nvKey, cClean);
+              }
             }
           }
         }
@@ -390,9 +395,15 @@ export async function executeSyncToGoogleSheet(
 
       const ggsP = ggsParcels[maThua];
       const chuHoStrict = cleanStrictName(chuHo);
-      if (!cccd && chuHoStrict && nameToCccd.has(chuHoStrict)) {
-        cccd = nameToCccd.get(chuHoStrict)!;
-        cccdSource = 'Khớp tên GGS';
+      const declVillage = getCanonicalVillage(decl.dia_chi_thua_dat || decl.thon_xa, toMoi);
+      const declNvKey = (chuHoStrict && declVillage && declVillage !== 'Chưa xác định')
+        ? `${chuHoStrict}__${declVillage}`
+        : '';
+
+      // Chỉ lấy CCCD từ GGS khi cùng 1 thôn buôn theo đúng yêu cầu nghiệp vụ
+      if (!cccd && declNvKey && nameAndVillageToCccd.has(declNvKey)) {
+        cccd = nameAndVillageToCccd.get(declNvKey)!;
+        cccdSource = 'Khớp tên GGS cùng thôn buôn';
       } else if (!cccd && ggsP && ggsP.cccd) {
         cccd = cleanCccd(ggsP.cccd);
         if (cccd) cccdSource = 'Khớp thửa GGS';
@@ -451,7 +462,7 @@ export async function executeSyncToGoogleSheet(
         continue;
       }
 
-      // NẾU THỬA ĐÓ CÓ FILE SCAN TRONG R2 RỒI -> CHUYỂN THẲNG QUA ĐÃ GIẢI QUYẾT (O(1))!
+      // GIAI ĐOẠN 3: ĐÃ ĐÓNG TẬP & ĐÃ CÓ FILE SCAN TRONG R2 -> CHUYỂN SANG NHẬP DỮ LIỆU!
       const toNum = String(parseInt(String(toMoi || ''), 10) || toMoi || '');
       const thuaNum = String(parseInt(String(thuaMoi || ''), 10) || thuaMoi || '');
       const toThuaKey = `${toNum}_${thuaNum}`;
@@ -467,7 +478,7 @@ export async function executeSyncToGoogleSheet(
 
       if (foundScan) {
         item.scan_file = foundScan;
-        stage4DaGiaiQuyet.push(item);
+        stage3ChoNhap.push(item);
         continue;
       }
 
@@ -599,30 +610,28 @@ export async function executeSyncToGoogleSheet(
     });
     sheetsData['ĐÃ GIẢI QUYẾT'] = rowsDone;
 
-    // SHEET 3: CHỜ NHẬP (57 cột)
-    const headers57 = [
-      'Mã Xã', 'Mã GCN', 'Loại ĐT', 'Tên Vợ/Chồng', 'Năm Sinh VC', 'CCCD VC',
-      'Họ và Tên Chủ', 'Năm Sinh', 'Giới Tính', 'Số CCCD', 'Địa Chỉ Chủ',
-      'Loại Chủ', 'Hình Thức', 'Mã Giấy', 'Số Seri', 'Số Vào Sổ', 'Ngày Cấp',
-      'Người Ký', 'Cơ Quan Ký', 'Tờ Cũ', 'Tờ Mới', 'Thửa Mới', 'Địa Chỉ Thửa',
-      'Thửa Cũ', 'Diện Tích', 'DT Phù Hợp', 'DT Không Phù Hợp', 'Mục Đích SD',
-      'DT Mục Đích', 'Thời Hạn', 'Nguồn Gốc', 'Hạn Mức', 'Hình Thức SD',
-      'Nguồn Gốc SD', 'Ghi Chú', 'Sơ Đồ', 'Tọa Độ', 'Chiều Dài', 'Giáp Ranh',
-      'Hiện Trạng', 'Kết Quả', 'Số Tiền', 'Nợ Nghĩa Vụ', 'Lý Do Nợ',
-      'Số Quyết Định', 'Ngày QĐ', 'Cơ Quan QĐ', 'Nội Dung QĐ', 'Loại Biến Động',
-      'Ngày Biến Động', 'Nội Dung BĐ', 'Tên File Đính Kèm', 'Đường Dẫn',
-      'Mã Vạch', 'Loại Đất Khác', 'Ghi Chú Khác', 'Trạng Thái'
+    // SHEET 3: NHẬP DỮ LIỆU (Đơn kê khai đã đóng tập và có file scan trong R2 filescan/)
+    const headersNhapDuLieu = [
+      'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
+      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
+      'Tên file scan', 'Xem file scan (Bấm vào xem)'
     ];
-    const rows57: string[][] = [headers57];
-    stage3ChoNhap.forEach((it) => {
-      const r = build57ColRow(
-        it.to_ban_do, it.so_thua, it.thon_xa, it.chu_ho, it.dob,
-        it.gender, it.cccd, it.loai_dat, it.dien_tich, it.nguon_goc, it.scan_file
-      );
-      rows57.push(r);
+    const rowsNhapDuLieu: string[][] = [headersNhapDuLieu];
+    stage3ChoNhap.forEach((it, idx) => {
+      const scanLink = `/api/image/filescan/${encodeURIComponent(it.scan_file)}`;
+      const scanFormula = `=HYPERLINK("${scanLink}"; "${it.scan_file}")`;
+      const cccdText = it.cccd ? `="${it.cccd}"` : '';
+      rowsNhapDuLieu.push([
+        String(idx + 1), it.ma_thua, String(it.to_ban_do || ''), String(it.so_thua || ''), it.thon_xa,
+        cleanName(it.chu_ho), it.dob || '', it.gender || 'Nam', cccdText,
+        String(it.dien_tich || ''), it.loai_dat || 'DGT', normalizeNguonGoc(it.nguon_goc || 'Khai Hoang'),
+        it.scan_file,
+        scanFormula
+      ]);
     });
-    sheetsData['CHỜ NHẬP'] = rows57;
-    sheetsData['NHẬP GGS'] = rows57; // Hỗ trợ tương thích ngược
+    sheetsData['NHẬP DỮ LIỆU'] = rowsNhapDuLieu;
+    sheetsData['CHỜ NHẬP'] = rowsNhapDuLieu;
+    sheetsData['NHẬP GGS'] = rowsNhapDuLieu; // Hỗ trợ tương thích ngược
 
     // SHEET 1: THỐNG KÊ (Bảng chỉ số tổng quan & Bảng 16 thôn buôn)
     const totalDeclared = processedParcels.size;
@@ -632,8 +641,8 @@ export async function executeSyncToGoogleSheet(
       [],
       ['CHỈ SỐ TIẾN ĐỘ TỔNG THỂ', '', 'SỐ LƯỢNG', 'TỶ LỆ % / GHI CHÚ'],
       ['TỔNG SỐ PHIẾU KÊ KHAI ĐÃ NỘP TRÊN HỆ THỐNG', '', String(totalDeclared), '100%'],
-      ['  • GIAI ĐOẠN 4: ĐÃ GIẢI QUYẾT (ĐÃ LÊN GGS HOẶC ĐÃ CÓ SCAN R2)', '', String(stage4DaGiaiQuyet.length), `${((stage4DaGiaiQuyet.length / (totalDeclared || 1)) * 100).toFixed(1)}%`],
-      ['  • GIAI ĐOẠN 3: CHỜ NHẬP (57 CỘT)', '', String(stage3ChoNhap.length), `${((stage3ChoNhap.length / (totalDeclared || 1)) * 100).toFixed(1)}%`],
+      ['  • GIAI ĐOẠN 4: ĐÃ SỐ HÓA (ĐÃ LÊN GGS CHÍNH)', '', String(stage4DaGiaiQuyet.length), `${((stage4DaGiaiQuyet.length / (totalDeclared || 1)) * 100).toFixed(1)}%`],
+      ['  • GIAI ĐOẠN 3: NHẬP DỮ LIỆU (ĐÃ ĐÓNG TẬP & ĐÃ CÓ SCAN R2)', '', String(stage3ChoNhap.length), `${((stage3ChoNhap.length / (totalDeclared || 1)) * 100).toFixed(1)}%`],
       ['  • GIAI ĐOẠN 2: SẴN SÀNG ĐÓNG TẬP (ĐÃ CÓ FILE PDF CCCD R2)', '', String(stage2DaDongTap.length), `${((stage2DaDongTap.length / (totalDeclared || 1)) * 100).toFixed(1)}%`],
       ['  • GIAI ĐOẠN 1: ĐANG KÊ KHAI (ĐANG THIẾU FILE CCCD R2)', '', String(orderedStage1.length), `${((orderedStage1.length / (totalDeclared || 1)) * 100).toFixed(1)}%`],
       ['      - Nhóm 1: CẦN TÌM CCCD (Có trên GGS nhưng thiếu PDF)', '', String(stage1CanTimCccd.length), `${stage1CanTimCccd.length} hồ sơ`],
@@ -779,8 +788,9 @@ export async function executeSyncToGoogleSheet(
 
     sheetsData['THỐNG KÊ'] = padRectangular(rowsTk);
     sheetsData['ĐÃ GIẢI QUYẾT'] = padRectangular(rowsDone);
-    sheetsData['CHỜ NHẬP'] = padRectangular(rows57);
-    sheetsData['NHẬP GGS'] = padRectangular(rows57);
+    sheetsData['NHẬP DỮ LIỆU'] = padRectangular(rowsNhapDuLieu);
+    sheetsData['CHỜ NHẬP'] = padRectangular(rowsNhapDuLieu);
+    sheetsData['NHẬP GGS'] = padRectangular(rowsNhapDuLieu);
     sheetsData['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] = padRectangular(rowsPack);
     sheetsData['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] = padRectangular(rowsUnpack);
 
@@ -793,8 +803,9 @@ export async function executeSyncToGoogleSheet(
       summary: {
         totalDeclared,
         daGiaiQuyet: stage4DaGiaiQuyet.length,
-        choNhap: 0,
-        nhapGgs: 0,
+        nhapDuLieu: stage3ChoNhap.length,
+        choNhap: stage3ChoNhap.length,
+        nhapGgs: stage3ChoNhap.length,
         daDongTap: stage2DaDongTap.length,
         canTimCccd: stage1CanTimCccd.length,
         khongCoCccd: stage1KhongCoCccd.length,
