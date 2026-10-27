@@ -4480,7 +4480,8 @@ export default function DashboardPage() {
                                         const href = getResolvedImageUrl(cleanUrl);
                                         const text = linkMatch ? linkMatch[2].trim() : (cleanUrl.split('/').pop() || 'Xem PDF');
                                         const ownerName = String(cellEdits[maThua]?.[nameColIdx] ?? row[nameColIdx] ?? '').trim();
-                                        const cccdVal = String(row[8] || '').replace(/^="|"$/g, '').trim();
+                                        const cccdColIdx = headers.findIndex((h) => /cccd|cmnd|định danh/i.test(h));
+                                        const cccdVal = String((cccdColIdx !== -1 ? row[cccdColIdx] : row[6]) || '').replace(/^="|"$/g, '').trim();
 
                                         return (
                                           <td
