@@ -185,9 +185,14 @@ export async function generateStatisticsPdf(
         if (!row) return;
 
         const statusStr = (p.trang_thai || '') as string;
+        // Các thửa đã hoàn thành (số hóa xanh hoặc đã có trên GGS) thì không tính vào số còn lại cần thực hiện!
+        if (statusStr === 'DA_SO_HOA_XANH' || (p as any).is_on_ggs) {
+          return;
+        }
+
         if (statusStr.includes('DA_KE_KHAI') || statusStr === 'DA_SO_HOA_LAM') {
           row.daKeKhai++;
-        } else if (statusStr === 'CO_TEN_CHUA_SO_HOA_VANG' || isPersonName(p.chu_ho)) {
+        } else if (isPersonName(p.chu_ho)) {
           row.coTen++;
           row.tongConLai++;
         } else {
