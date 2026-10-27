@@ -103,15 +103,11 @@ export default function DeclarationEditModal({
           message: `Khớp dữ liệu GGS: Năm sinh ${data.nam_sinh || '-'} | CCCD: ${data.cccd || '(Chưa có số)'}`,
         });
       } else {
-        // Nếu không có trên GGS: để trống thông tin theo yêu cầu
-        if (isManual) {
-          setChuDatNamSinh('');
-          setChuDatCccd('');
-        }
+        // Nếu không có trên GGS: giữ nguyên thông tin đã nhập/lưu của người dùng, không xóa trắng
         setGgsLookupStatus({
           checked: true,
           found: false,
-          message: 'Chưa có trên Google Sheet (đã để trống Năm sinh & CCCD để thu thập thực địa)',
+          message: 'Chưa có trên Google Sheet (vui lòng nhập số CCCD & năm sinh thực địa)',
         });
       }
     } catch (err) {
