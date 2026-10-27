@@ -1939,7 +1939,7 @@ export default function DashboardPage() {
         const toBanDo = parts[0] || p?.to_ban_do || '';
         const soThua = parts[1] || p?.so_thua || '';
 
-        const rawThonXa = String(row[thonXaIdx] || decl?.dia_chi_thua_dat || p?.thon_xa || '').replace(/^="|"$/g, '').trim();
+        const rawThonXa = String(row[thonXaIdx] || decl?.dia_chi_thua_dat || decl?.chu_dat_dia_chi || p?.thon_xa || '').replace(/^="|"$/g, '').trim();
         const rawChuHo = String(row[chuHoIdx] || decl?.chu_dat_ten || p?.chu_ho || '').replace(/^="|"$/g, '').trim();
         const chuHo = cleanName(rawChuHo);
         const dob = String(row[dobIdx] || decl?.chu_dat_nam_sinh || '').replace(/^="|"$/g, '').trim();
@@ -1974,12 +1974,15 @@ export default function DashboardPage() {
         else if (decl?.anh_gcn) gcnList.push(decl.anh_gcn);
         else if (p?.gcn_urls && p.gcn_urls.length > 0) gcnList.push(...p.gcn_urls);
 
+        const permanentAddr = decl?.chu_dat_dia_chi || rawThonXa || p?.thon_xa || 'Xã Cư Pui';
+        const parcelAddr = decl?.dia_chi_thua_dat || rawThonXa || p?.thon_xa || 'Xã Cư Pui';
+
         return {
           ma_thua: maThua,
           to_ban_do: toBanDo,
           so_thua: soThua,
-          thon_xa: rawThonXa || 'Xã Cư Pui',
-          dia_chi: rawThonXa ? cleanDisplayAddress(rawThonXa) : 'Xã Cư Pui',
+          thon_xa: cleanDisplayAddress(parcelAddr),
+          dia_chi: cleanDisplayAddress(permanentAddr),
           chu_ho: chuHo,
           dob: dob,
           gender: gender,

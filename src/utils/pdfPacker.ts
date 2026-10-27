@@ -381,9 +381,21 @@ export async function generateReadyToPackPdf(
     const x_nguongoc = 265.59;
 
     const cccdVal = firstRow.cccd || '';
-    const diaChiVal = cleanDisplayAddress(firstRow.dia_chi || firstRow.thon_xa || '');
+    const diaChiThuongTru = cleanDisplayAddress(firstRow.dia_chi || firstRow.thon_xa || 'Xã Cư Pui');
 
-    // Mục 1: Họ tên, CCCD, Địa chỉ chung
+    // Gom địa chỉ các thửa đất (hỗ trợ trường hợp nhiều thửa thuộc các thôn khác nhau)
+    const villageSet = Array.from(
+      new Set(
+        rows.map((r) => cleanDisplayAddress(r.thon_xa || r.dia_chi || 'Xã Cư Pui')).filter(Boolean)
+      )
+    );
+    const diaChiThuaDat =
+      villageSet.length === 1
+        ? villageSet[0]
+        : villageSet.map((v) => v.replace(/,\s*x[ãa]\s*c[uư]\s*pui$/i, '').trim()).join(', ') +
+          ', xã Cư Pui';
+
+    // Mục 1: Họ tên, CCCD, Địa chỉ thường trú
     p1.drawText(ownerDisplayName, {
       x: x_hoten,
       y: fitzToPdfY(248),
@@ -400,17 +412,19 @@ export async function generateReadyToPackPdf(
         color: rgb(0, 0, 0),
       });
     }
-    p1.drawText(diaChiVal, {
+    p1.drawText(diaChiThuongTru, {
       x: x_dc4,
       y: fitzToPdfY(320),
-      size: diaChiVal.length > 35 ? 10.5 : 12,
+      size: diaChiThuongTru.length > 35 ? 10.5 : 12,
       font: timesFont,
       color: rgb(0, 0, 0),
     });
-    p1.drawText('Xã Cư Pui', {
+
+    // Mục 2.b: Địa chỉ thửa đất (In đúng Thôn / Buôn thực tế, KHÔNG gán cứng 'Xã Cư Pui')
+    p1.drawText(diaChiThuaDat, {
       x: x_dc5,
       y: fitzToPdfY(489),
-      size: 12,
+      size: diaChiThuaDat.length > 35 ? 10.5 : 12,
       font: timesFont,
       color: rgb(0, 0, 0),
     });
@@ -548,13 +562,18 @@ export async function generateReadyToPackPdf(
         const yStart = 235 + 16.44; // 235 + pt(0.58) = 251.44
         const rowSpace = 27.637; // pt(0.975)
 
-        const drawCenter = (text: string, xCenter: number, yFit: number) => {
+        const drawCenter = (text: string, xCenter: number, yFit: number, maxW = 0) => {
           if (!text) return;
-          const textW = calibriBoldFont.widthOfTextAtSize(text, 10);
+          let fontSize = 10;
+          let textW = calibriBoldFont.widthOfTextAtSize(text, fontSize);
+          if (maxW > 0 && textW > maxW) {
+            fontSize = Math.max(7, Math.floor(fontSize * (maxW / textW) * 10) / 10);
+            textW = calibriBoldFont.widthOfTextAtSize(text, fontSize);
+          }
           pTable.drawText(text, {
             x: xCenter - textW / 2,
             y: pageH - yFit,
-            size: 10,
+            size: fontSize,
             font: calibriBoldFont,
             color: rgb(0, 0, 0),
           });
@@ -569,10 +588,23 @@ export async function generateReadyToPackPdf(
           }
           drawCenter(String(row.so_thua || ''), 131.16, curY);
           drawCenter(String(row.to_ban_do || ''), 180.86, curY);
+
+          // CỘT 4: ĐỊA CHỈ THỬA ĐẤT (Che phủ chữ "Xã Cư Pui" in sẵn của template bằng địa chỉ Thôn/Buôn thực tế)
+          pTable.drawRectangle({
+            x: 202,
+            y: pageH - curY - 3,
+            width: 72,
+            height: 14,
+            color: rgb(1, 1, 1),
+          });
+          const rowThon = cleanDisplayAddress(row.thon_xa || row.dia_chi || 'Xã Cư Pui');
+          const shortVillage = rowThon.replace(/,\s*x[ãa]\s*c[uư]\s*pui$/i, '').trim() || 'Xã Cư Pui';
+          drawCenter(shortVillage, 238, curY, 70);
+
           drawCenter(dt, 300.92, curY);
           drawCenter(String(row.loai_dat || ''), 369.78, curY);
           drawCenter(resolveThoiHan(row.loai_dat), 439.54, curY);
-          drawCenter(String(row.nguon_goc || 'Khai hoang').trim(), 538.54, curY);
+          drawCenter(String(row.nguon_goc || 'Khai hoang').trim(), 538.54, curY, 65);
         });
 
         const [pTableCopy] = await mergedDoc.copyPages(tableDoc, [2]);

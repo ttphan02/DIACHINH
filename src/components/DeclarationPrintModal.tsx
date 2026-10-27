@@ -75,11 +75,15 @@ export default function DeclarationPrintModal({
         const rawCccd = decl.chu_dat_cccd || decl.cccd || decl.cccd_chu_ho || p.cccd || '';
         const cleanCccdVal = rawCccd ? String(rawCccd).replace(/\D/g, '').trim() : '';
 
+        const permanentAddr = formatPrintAddress(decl.chu_dat_dia_chi, p.thon_xa);
+        const parcelAddr = formatPrintAddress(decl.dia_chi_thua_dat || p.thon_xa, decl.chu_dat_dia_chi);
+
         return {
           ma_thua: p.ma_thua,
           to_ban_do: p.to_ban_do,
           so_thua: p.so_thua,
-          thon_xa: formatPrintAddress(decl.chu_dat_dia_chi, p.thon_xa),
+          thon_xa: parcelAddr,
+          dia_chi: permanentAddr,
           chu_ho: validOwner,
           cccd: cleanCccdVal || rawCccd,
           dob: decl.chu_dat_nam_sinh || decl.nam_sinh_chu_ho || '',
@@ -397,7 +401,7 @@ export default function DeclarationPrintModal({
                         </div>
                         <div className="pl-4 space-y-1 text-[13px]">
                           <div>
-                            a) Địa chỉ thửa đất: <strong>{diaChi}</strong>
+                            a) Địa chỉ thửa đất: <strong>{formatPrintAddress(decl.dia_chi_thua_dat || p.thon_xa, decl.chu_dat_dia_chi)}</strong>
                           </div>
                           <div className="grid grid-cols-2 gap-4">
                             <div>
