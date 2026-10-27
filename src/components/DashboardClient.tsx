@@ -37,6 +37,7 @@ import {
   AlertTriangle,
   FileSpreadsheet,
   Download,
+  FileDown,
   RefreshCw,
   Search,
   Filter,
@@ -1832,8 +1833,8 @@ export default function DashboardPage() {
     URL.revokeObjectURL(url);
   };
 
-  // Xuất Báo Cáo Thống Kê Tiến Độ Toàn Xã (Trang 1: 4 nhóm & 16 thôn buôn, Trang 2+: Lưới 3 cột chuẩn)
-  const handleExportStatisticsPdf = async () => {
+  // Xuất Báo Cáo Thống Kê Tiến Độ Toàn Xã & DS Cần Thu Thập CCCD Theo Từng Thôn Buôn
+  const handleExportStatisticsPdf = async (options?: { onlyMissingCccd?: boolean }) => {
     try {
       setIsExportingStatsPdf(true);
       setExportStatsProgress('Đang chuẩn bị dữ liệu...');
@@ -1844,12 +1845,16 @@ export default function DashboardPage() {
       const { pdfBytes, fileName } = await generateStatisticsPdf(
         syncSheetsData,
         computedParcels,
-        (msg) => setExportStatsProgress(msg)
+        (msg) => setExportStatsProgress(msg),
+        {
+          onlyMissingCccd: options?.onlyMissingCccd,
+          declarationsMap,
+        }
       );
       downloadPdfBlob(pdfBytes, fileName);
     } catch (err: any) {
-      console.error('Lỗi xuất PDF thống kê:', err);
-      alert('Không thể xuất PDF thống kê: ' + (err.message || 'Lỗi không xác định'));
+      console.error('Lỗi xuất PDF:', err);
+      alert('Không thể xuất PDF: ' + (err.message || 'Lỗi không xác định'));
     } finally {
       setIsExportingStatsPdf(false);
       setExportStatsProgress('');
@@ -2527,7 +2532,7 @@ export default function DashboardPage() {
             <button
               type="button"
               disabled={isExportingStatsPdf}
-              onClick={handleExportStatisticsPdf}
+              onClick={() => handleExportStatisticsPdf()}
               className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-75 border ${
                 isLight
                   ? 'bg-blue-600 hover:bg-blue-500 text-white border-blue-600'
@@ -3370,15 +3375,27 @@ export default function DashboardPage() {
                           <div className="flex flex-wrap items-center gap-2">
                             {/* Nút Xuất DS Cần Thu CCCD cho mục Đang kê khai (Chưa có CCCD) */}
                           {isChuaCoCccdSheet && (
-                            <button
-                              type="button"
-                              onClick={() => setIsExportMissingCccdOpen(true)}
-                              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-rose-600/30"
-                              title="Xuất ảnh danh sách cần thu thập CCCD theo từng thôn buôn"
-                            >
-                              <Users className="w-3.5 h-3.5 text-white" />
-                              <span>Xuất DS Cần CCCD</span>
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setIsExportMissingCccdOpen(true)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold shadow-md transition cursor-pointer bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20"
+                                title="Xuất ảnh danh sách cần thu thập CCCD (Tỷ lệ 16:9 dọc gửi Zalo)"
+                              >
+                                <Users className="w-3.5 h-3.5 text-white" />
+                                <span>Xuất ảnh Zalo</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleExportStatisticsPdf({ onlyMissingCccd: true })}
+                                disabled={isExportingStatsPdf}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold shadow-md transition cursor-pointer bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-rose-600/30 disabled:opacity-50"
+                                title="Xuất file PDF danh sách cần thu thập CCCD (Mỗi thôn buôn là 1 trang riêng biệt)"
+                              >
+                                <FileDown className="w-3.5 h-3.5 text-white" />
+                                <span>{isExportingStatsPdf ? 'Đang tạo...' : 'Xuất PDF Thu CCCD (Theo thôn)'}</span>
+                              </button>
+                            </div>
                           )}
                           {/* Nút tác vụ đóng tập nếu là sheet Sẵn sàng đóng tập */}
                         {isReadyToPackSheet && (() => {
