@@ -3,8 +3,7 @@
 
 let cachedLocalStore = null;
 let isLocalStoreLoading = false;
-let cachedSheetData = null;
-let cachedSheetTime = 0;
+// (cachedSheetData và cachedSheetTime được khai báo tập trung trong state.js)
 
 // Nạp danh bạ từ backend nội bộ (kèm fallback trực tiếp từ R2 public CDN)
 async function fetchLocalDeclarationsStore(force = false) {
@@ -123,9 +122,13 @@ function updateDataSourceBadgeUI(data) {
 
 // Tự động khởi tạo nạp danh bạ ngay khi tải trang
 if (typeof window !== 'undefined') {
-  window.addEventListener('DOMContentLoaded', () => {
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', () => {
+      fetchLocalDeclarationsStore().catch(() => {});
+    });
+  } else {
     fetchLocalDeclarationsStore().catch(() => {});
-  });
+  }
 }
 
 /**
@@ -345,4 +348,12 @@ async function batchFetchSheetNames() {
     hideSpinner();
     updateGroupStatusSummaryUI();
   }
+}
+
+// Gắn trực tiếp vào window để đảm bảo các module khác luôn truy cập được
+if (typeof window !== 'undefined') {
+  window.fetchLocalDeclarationsStore = fetchLocalDeclarationsStore;
+  window.updateDataSourceBadgeUI = updateDataSourceBadgeUI;
+  window.fetchNamesFromGoogleSheet = fetchNamesFromGoogleSheet;
+  window.batchFetchSheetNames = batchFetchSheetNames;
 }

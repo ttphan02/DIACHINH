@@ -29,3 +29,10 @@ let renderedPagesSet = new Set();
 let renderQueue = [];
 let activeRenderCount = 0;
 let pageRenderObserver = null;
+
+// Safe stub fallback for sheet service methods
+if (typeof window !== 'undefined') {
+  if (!window.fetchNamesFromGoogleSheet) {
+    window.fetchNamesFromGoogleSheet = async (id, force) => [];
+  }
+}

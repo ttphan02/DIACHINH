@@ -257,7 +257,8 @@ async function autoProcessGroupCCCDAndSheet(group) {
 
       // 2. Tự động tra cứu tên file từ danh bạ đơn kê khai có CCCD
       try {
-        const names = await fetchNamesFromGoogleSheet(code);
+        const lookupFn = window.fetchNamesFromGoogleSheet || (typeof fetchNamesFromGoogleSheet === 'function' ? fetchNamesFromGoogleSheet : null);
+        const names = lookupFn ? await lookupFn(code) : [];
         if (names.length > 0) {
           group.filenamesText = names.join('\n');
           group.sheetStatus = 'found';

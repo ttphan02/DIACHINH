@@ -241,7 +241,8 @@ function createGroupCardElement(group) {
         clearTimeout(autoLookupDebounce);
         autoLookupDebounce = setTimeout(async () => {
           try {
-            const names = await fetchNamesFromGoogleSheet(val);
+            const lookupFn = window.fetchNamesFromGoogleSheet || (typeof fetchNamesFromGoogleSheet === 'function' ? fetchNamesFromGoogleSheet : null);
+            const names = lookupFn ? await lookupFn(val) : [];
             if (names && names.length > 0) {
               group.filenamesText = names.join('\n');
               group.sheetStatus = 'found';
