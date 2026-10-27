@@ -15,6 +15,7 @@ const VectorViewerModal = dynamic(() => import('@/components/VectorViewerModal')
 import CccdSupplementModal from '@/components/CccdSupplementModal';
 import CccdManagerTab from '@/components/CccdManagerTab';
 import CccdHoverPreviewCard from '@/components/CccdHoverPreviewCard';
+const PdfViewer = dynamic(() => import('@/components/PdfViewer'), { ssr: false });
 const ExportMissingCccdModal = dynamic(() => import('@/components/ExportMissingCccdModal'), { ssr: false });
 import ScanFileManagerTab from '@/components/ScanFileManagerTab';
 import CadreNameModal from '@/components/CadreNameModal';
@@ -5098,11 +5099,13 @@ export default function DashboardPage() {
                 </button>
               </div>
             </div>
-            <div className="flex-1 w-full bg-slate-950 relative">
-              <iframe
-                src={previewPdfModal.url}
-                className="w-full h-full border-0 bg-white"
+            <div className="flex-1 w-full bg-slate-950 relative overflow-hidden">
+              <PdfViewer
+                url={previewPdfModal.url}
                 title={previewPdfModal.title}
+                compact={false}
+                theme={theme}
+                showActions={false}
               />
             </div>
           </div>
