@@ -243,7 +243,11 @@ async function autoProcessGroupCCCDAndSheet(group) {
 
     if (code && /^\d{12}$/.test(code)) {
       group.identifier = code;
-      if (idInput) idInput.value = code;
+      if (idInput) {
+        idInput.value = code;
+        idInput.classList.remove('invalid-code-alert');
+        idInput.dispatchEvent(new Event('input'));
+      }
 
       // 1. TỰ ĐỘNG CHÈN TRANG CCCD VÀO ĐẦU NHÓM (Y hệt như quét AI)
       const isMatched = matchCccdForGroup(group);
@@ -251,14 +255,15 @@ async function autoProcessGroupCCCDAndSheet(group) {
         showToast(`[${group.name}] Đã lấy mã ${code} ở trang ${foundPageNum} & TỰ ĐỘNG CHÈN trang CCCD (${group.cccdName}) vào đầu nhóm!`);
       }
 
-      // 2. Tự động tra cứu tên file từ Google Sheet
+      // 2. Tự động tra cứu tên file từ danh bạ đơn kê khai có CCCD
       try {
         const names = await fetchNamesFromGoogleSheet(code);
         if (names.length > 0) {
           group.filenamesText = names.join('\n');
           group.sheetStatus = 'found';
-          if (card) {
-            const txtEl = card.querySelector('.group-filename-input');
+          const freshCard = document.querySelector(`.group-card-item[data-group-id="${group.id}"]`) || card;
+          if (freshCard) {
+            const txtEl = freshCard.querySelector('.group-filename-input');
             if (txtEl) txtEl.value = group.filenamesText;
           }
           // Thử khớp lại CCCD theo tên file nếu lúc trước chưa khớp

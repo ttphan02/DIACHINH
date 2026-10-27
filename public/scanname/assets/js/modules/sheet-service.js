@@ -6,7 +6,7 @@ let isLocalStoreLoading = false;
 let cachedSheetData = null;
 let cachedSheetTime = 0;
 
-// Nạp danh bạ từ backend nội bộ
+// Nạp danh bạ từ backend nội bộ (kèm fallback trực tiếp từ R2 public CDN)
 async function fetchLocalDeclarationsStore(force = false) {
   if (!force && cachedLocalStore) return cachedLocalStore;
   if (isLocalStoreLoading) {
@@ -18,6 +18,7 @@ async function fetchLocalDeclarationsStore(force = false) {
 
   isLocalStoreLoading = true;
   try {
+    // 1. Thử gọi API backend nội bộ
     const res = await fetch(`/api/scanname/parcels${force ? '?force=true' : ''}`);
     if (res.ok) {
       const data = await res.json();
@@ -29,6 +30,75 @@ async function fetchLocalDeclarationsStore(force = false) {
     }
   } catch (err) {
     console.warn('Lỗi kết nối /api/scanname/parcels:', err);
+  }
+
+  // 2. Fallback trực tiếp từ Cloudflare R2 Public CDN
+  try {
+    const cdnRes = await fetch(`https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/declarations/all.json?t=${Date.now()}`);
+    if (cdnRes.ok) {
+      const cdnData = await cdnRes.json();
+      const dmap = cdnData.declarationsMap || {};
+      const cccdMap = {};
+      const thuaMap = {};
+      const records = [];
+
+      for (const [maThua, decl] of Object.entries(dmap)) {
+        if (!decl) continue;
+        const rawCccd = String(decl.chu_dat_cccd || decl.cccd_chu_ho || decl.cccd || '').replace(/^="|"$/g, '').trim();
+        const cleanDigits = rawCccd.replace(/\D/g, '');
+        if (cleanDigits.length < 9) continue;
+
+        const chuHo = (decl.chu_dat_ten || decl.chu_ho || decl.ho_va_ten_chu_ho || 'Chủ sử dụng').trim();
+        const thonXa = (decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || 'Xã Cư Pui').trim();
+        const gcnName = `CHUACOGIAY_24478_${maThua}`;
+
+        const rec = {
+          ma_thua: maThua,
+          to_ban_do: decl.to_ban_do || maThua.split('_')[0] || '',
+          so_thua: decl.so_thua || maThua.split('_')[1] || '',
+          chu_ho: chuHo,
+          cccd: cleanDigits,
+          thon_xa: thonXa,
+          gcn_name: gcnName,
+          cccd_file: decl.cccd_file || (cleanDigits ? `${cleanDigits.padStart(12, '0')}.pdf` : null),
+        };
+        records.push(rec);
+        thuaMap[maThua] = gcnName;
+        thuaMap[gcnName] = gcnName;
+
+        const addCccdKey = (key, name) => {
+          if (!key) return;
+          if (!cccdMap[key]) cccdMap[key] = [];
+          if (!cccdMap[key].includes(name)) cccdMap[key].push(name);
+        };
+        addCccdKey(cleanDigits, gcnName);
+        if (cleanDigits.length < 12) addCccdKey(cleanDigits.padStart(12, '0'), gcnName);
+
+        if (Array.isArray(decl.thua_kem_theo)) {
+          decl.thua_kem_theo.forEach(ap => {
+            if (!ap || !ap.ma_thua) return;
+            const apGcn = `CHUACOGIAY_24478_${ap.ma_thua}`;
+            thuaMap[ap.ma_thua] = apGcn;
+            thuaMap[apGcn] = apGcn;
+            addCccdKey(cleanDigits, apGcn);
+            if (cleanDigits.length < 12) addCccdKey(cleanDigits.padStart(12, '0'), apGcn);
+          });
+        }
+      }
+
+      cachedLocalStore = {
+        success: true,
+        totalParcels: records.length,
+        totalCccd: Object.keys(cccdMap).length,
+        cccdMap,
+        thuaMap,
+        records,
+      };
+      updateDataSourceBadgeUI(cachedLocalStore);
+      return cachedLocalStore;
+    }
+  } catch (cdnErr) {
+    console.warn('Lỗi nạp CDN declarations:', cdnErr);
   } finally {
     isLocalStoreLoading = false;
   }

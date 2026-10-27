@@ -225,16 +225,43 @@ function createGroupCardElement(group) {
   if (idInput) {
     validateGroupCode(group, idInput);
 
+    let autoLookupDebounce = null;
     const updateId = () => {
-      group.identifier = idInput.value.trim();
+      const val = idInput.value.trim();
+      group.identifier = val;
       validateGroupCode(group, idInput);
       matchCccdForGroup(group);
       group.pageNumbers.forEach(p => updatePageGroupStyling(p));
       updateGroupStatusSummaryUI();
       if (typeof triggerAutoSave === 'function') triggerAutoSave();
+
+      // TỰ ĐỘNG TRA CỨU & ĐIỀN TÊN FILE NGAY KHI CÓ ĐỦ MÃ CCCD HOẶC TỜ_THỬA
+      const digits = val.replace(/\D/g, '');
+      if (digits.length === 12 || digits.length === 9 || /^\d+_\d+$/.test(val)) {
+        clearTimeout(autoLookupDebounce);
+        autoLookupDebounce = setTimeout(async () => {
+          try {
+            const names = await fetchNamesFromGoogleSheet(val);
+            if (names && names.length > 0) {
+              group.filenamesText = names.join('\n');
+              group.sheetStatus = 'found';
+              const txtEl = card.querySelector('.group-filename-input');
+              if (txtEl) txtEl.value = group.filenamesText;
+              validateGroupCode(group, idInput);
+              updateGroupStatusSummaryUI();
+              matchCccdForGroup(group);
+              showToast(`[${group.name}] ✓ Đã tự động khớp ${names.length} tên file: ${names[0]}!`);
+              if (typeof triggerAutoSave === 'function') triggerAutoSave();
+            }
+          } catch (err) {
+            console.warn('Lỗi tự động tra mã CCCD:', err);
+          }
+        }, 120);
+      }
     };
     idInput.addEventListener('input', updateId);
     idInput.addEventListener('change', updateId);
+    idInput.addEventListener('paste', () => setTimeout(updateId, 50));
     idInput.addEventListener('keyup', (e) => {
       if (e.key === 'Enter' && lookupBtn) lookupBtn.click();
     });

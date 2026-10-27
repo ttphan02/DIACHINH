@@ -172,7 +172,11 @@ async function scanGroupCCCDWithGemini(group) {
     const code = await callGeminiApiForCCCD(base64Image);
     if (code) {
       group.identifier = code;
-      if (idInput) idInput.value = code;
+      if (idInput) {
+        idInput.value = code;
+        idInput.classList.remove('invalid-code-alert');
+        idInput.dispatchEvent(new Event('input'));
+      }
 
       // 1. TỰ ĐỘNG KHỚP VÀ CHÈN TRANG CCCD VÀO ĐẦU NHÓM NGAY LẬP TỨC
       const isMatched = matchCccdForGroup(group);
@@ -186,11 +190,12 @@ async function scanGroupCCCDWithGemini(group) {
         if (names.length > 0) {
           group.filenamesText = names.join('\n');
           group.sheetStatus = 'found';
-          if (card) {
-            const txtEl = card.querySelector('.group-filename-input');
+          const freshCard = document.querySelector(`.group-card-item[data-group-id="${group.id}"]`) || card;
+          if (freshCard) {
+            const txtEl = freshCard.querySelector('.group-filename-input');
             if (txtEl) txtEl.value = group.filenamesText;
           }
-          showToast(`[${group.name}] Đã lấy mã ${code} & tìm thấy ${names.length} tên file!`);
+          showToast(`[${group.name}] Đã lấy mã ${code} & tìm thấy ${names.length} tên file: ${names[0]}!`);
         } else {
           group.sheetStatus = 'not_found';
           showToast(`[${group.name}] Đã lấy mã ${code}, nhưng danh bạ đơn kê khai KHÔNG CÓ tên!`, false);
