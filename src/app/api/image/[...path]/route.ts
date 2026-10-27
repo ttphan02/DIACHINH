@@ -114,7 +114,6 @@ export async function GET(
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
       'Access-Control-Allow-Headers': '*',
-      'Cache-Control': 'public, max-age=31536000, immutable',
     };
 
     // Phân tích HTTP Range header cho PDF reader / trình duyệt
@@ -175,11 +174,12 @@ export async function GET(
         }
 
         if (obj) {
-          const isPartial = Boolean(obj.range);
+          const isPartial = Boolean(rangeHeader && obj.range);
           const status = isPartial ? 206 : 200;
 
           const headers = new Headers(corsHeaders);
           headers.set('Accept-Ranges', 'bytes');
+          headers.set('Vary', 'Range');
           headers.set('Content-Type', obj.httpMetadata?.contentType || defaultContentType);
           headers.set('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
 
@@ -188,8 +188,12 @@ export async function GET(
             const length = obj.range.length;
             headers.set('Content-Range', `bytes ${offset}-${offset + length - 1}/${obj.size}`);
             headers.set('Content-Length', String(length));
-          } else if (obj.size) {
-            headers.set('Content-Length', String(obj.size));
+            headers.set('Cache-Control', 'no-cache');
+          } else {
+            if (obj.size) {
+              headers.set('Content-Length', String(obj.size));
+            }
+            headers.set('Cache-Control', 'public, max-age=86400');
           }
 
           // Trả về ArrayBuffer cho các file <= 10MB để không bị Next.js chuyển thành chunked stream,
@@ -246,13 +250,18 @@ export async function GET(
           });
           const res = await s3.send(cmd);
           if (res.Body) {
-            const status = res.ContentRange ? 206 : 200;
+            const isPartial = Boolean(res.ContentRange);
+            const status = isPartial ? 206 : 200;
             const headers = new Headers(corsHeaders);
             headers.set('Accept-Ranges', 'bytes');
+            headers.set('Vary', 'Range');
             headers.set('Content-Type', res.ContentType || defaultContentType);
             headers.set('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
             if (res.ContentRange) {
               headers.set('Content-Range', res.ContentRange);
+              headers.set('Cache-Control', 'no-cache');
+            } else {
+              headers.set('Cache-Control', 'public, max-age=86400');
             }
             if (res.ContentLength) {
               headers.set('Content-Length', String(res.ContentLength));
@@ -289,10 +298,16 @@ export async function GET(
       if (upstreamRes.ok || upstreamRes.status === 206) {
         const headers = new Headers(corsHeaders);
         headers.set('Accept-Ranges', 'bytes');
+        headers.set('Vary', 'Range');
         headers.set('Content-Type', upstreamRes.headers.get('Content-Type') || defaultContentType);
         headers.set('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
         const cr = upstreamRes.headers.get('Content-Range');
-        if (cr) headers.set('Content-Range', cr);
+        if (cr) {
+          headers.set('Content-Range', cr);
+          headers.set('Cache-Control', 'no-cache');
+        } else {
+          headers.set('Cache-Control', 'public, max-age=86400');
+        }
         const cl = upstreamRes.headers.get('Content-Length');
         if (cl) headers.set('Content-Length', cl);
         return new Response(upstreamRes.body, { status: upstreamRes.status, headers });
