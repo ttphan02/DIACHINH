@@ -892,11 +892,13 @@ export default function ParcelDetailPanel({
             <div className="grid grid-cols-2 gap-2 bg-gray-50 p-3 rounded-xl border border-gray-100 text-xs">
               <div>
                 <span className="text-gray-400 text-[11px] block">Chủ sử dụng đất</span>
-                <p className="font-bold text-gray-800 truncate" title={parcel.chu_ho}>
-                  {parcel.chu_ho || 'Chưa xác định'}
+                <p className="font-bold text-gray-800 truncate" title={currentDeclaration?.chu_dat_ten || parcel.chu_ho}>
+                  {currentDeclaration?.chu_dat_ten || parcel.chu_ho || 'Chưa xác định'}
                 </p>
-                {parcel.cccd && (
-                  <span className="text-[10px] text-gray-500 block font-mono">CCCD: {parcel.cccd}</span>
+                {(currentDeclaration?.chu_dat_cccd || parcel.cccd) && (
+                  <span className="text-[10px] text-gray-500 block font-mono">
+                    CCCD: {currentDeclaration?.chu_dat_cccd || parcel.cccd}
+                  </span>
                 )}
               </div>
               <div>
@@ -935,7 +937,7 @@ export default function ParcelDetailPanel({
                     Thửa khác cùng chủ ({resolvedSameCccdParcels.length} thửa)
                   </h4>
                   <span className="text-[10px] font-bold text-emerald-800 bg-white px-2 py-0.5 rounded-full border border-emerald-200 shadow-2xs font-mono">
-                    CCCD: {parcel.cccd}
+                    CCCD: {currentDeclaration?.chu_dat_cccd || parcel.cccd}
                   </span>
                 </div>
                 <p className="text-[11px] text-emerald-800 leading-snug">

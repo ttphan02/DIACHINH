@@ -417,13 +417,12 @@ export default function Home() {
       if (!res.ok) throw new Error(`Lỗi HTTP ${res.status}`);
       const data: any = await res.json();
       if (data && data.success && Array.isArray(data.ggsCodes)) {
-        // Chỉ tạo Set mới và tính toán lại 18.000 thửa nếu số lượng mã trên GGS thay đổi hoặc người dùng bấm làm mới
+        if (data.ggsParcels) {
+          setGgsParcelsMap(data.ggsParcels);
+        }
         if (force || data.ggsCodes.length !== lastGgsCountRef.current) {
           lastGgsCountRef.current = data.ggsCodes.length;
           setGgsCodes(new Set(data.ggsCodes));
-          if (data.ggsParcels) {
-            setGgsParcelsMap(data.ggsParcels);
-          }
           setIsGgsLoaded(true);
         }
         setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
@@ -556,16 +555,22 @@ export default function Home() {
         );
       };
 
-      // Ưu tiên dữ liệu kê khai thực địa nếu thửa này đã kê khai trên web (và tên không phải là giới tính)
-      if (savedDecl) {
-        if (savedDecl.chu_dat_ten && !isInvalidName(savedDecl.chu_dat_ten)) chu_ho = savedDecl.chu_dat_ten;
-        if (savedDecl.chu_dat_cccd) cccd = savedDecl.chu_dat_cccd;
-      }
-
+      // 1. Áp dụng thông tin từ Google Sheets (nếu có)
       if (ggsInfo?.chu_ho && !isInvalidName(ggsInfo.chu_ho)) {
         chu_ho = ggsInfo.chu_ho;
       } else if (isInvalidName(chu_ho)) {
         chu_ho = 'Không có trong dữ liệu';
+      }
+
+      if (ggsInfo?.cccd && ggsInfo.cccd.length >= 9) {
+        cccd = ggsInfo.cccd;
+      }
+
+      // 2. ƯU TIÊN TUYỆT ĐỐI dữ liệu kê khai thực địa của cán bộ (savedDecl):
+      // Phiếu kê khai thực địa do cán bộ lập/chỉnh sửa luôn là chân lý và ghi đè hoàn toàn Google Sheets
+      if (savedDecl) {
+        if (savedDecl.chu_dat_ten && !isInvalidName(savedDecl.chu_dat_ten)) chu_ho = savedDecl.chu_dat_ten;
+        if (savedDecl.chu_dat_cccd) cccd = savedDecl.chu_dat_cccd;
       }
 
       // XÁC ĐỊNH TRẠNG THÁI THỬA ĐẤT:
@@ -584,15 +589,14 @@ export default function Home() {
         trang_thai = 'CHUA_CO_TEN_XAM';
       }
 
-      if (ggsInfo?.cccd && ggsInfo.cccd.length >= 9) {
-        cccd = ggsInfo.cccd;
-      }
-
       let dien_tich = p.dien_tich ? String(p.dien_tich) : '';
       if ((!dien_tich || dien_tich.startsWith('w6jp')) && ggsInfo?.dien_tich) {
         dien_tich = String(ggsInfo.dien_tich);
       } else if (dien_tich?.startsWith('w6jp')) {
         dien_tich = '';
+      }
+      if (savedDecl?.dien_tich) {
+        dien_tich = String(savedDecl.dien_tich);
       }
 
       let loai_dat = p.loai_dat ? String(p.loai_dat) : '';
@@ -600,6 +604,9 @@ export default function Home() {
         loai_dat = String(ggsInfo.loai_dat);
       } else if (loai_dat?.includes('http') || loai_dat?.startsWith('w6jp')) {
         loai_dat = '';
+      }
+      if (savedDecl?.loai_dat) {
+        loai_dat = String(savedDecl.loai_dat);
       }
 
       return {
@@ -709,19 +716,19 @@ export default function Home() {
 
   // 1. Danh sách các thửa đất cùng chủ CHÍNH XÁC theo CCCD (duy nhất) - Loại bỏ các thửa đã chọn gộp
   const sameCccdParcels = useMemo(() => {
-    if (!selectedParcel || !selectedParcel.cccd || selectedParcel.cccd.trim().length < 9) {
+    const selDecl = selectedParcel ? declarationsMap[selectedParcel.ma_thua] : undefined;
+    const activeCccd = (selDecl?.chu_dat_cccd || selectedParcel?.cccd || '').trim();
+    if (!selectedParcel || !activeCccd || activeCccd.length < 9) {
       return [];
     }
-    const cleanCccd = selectedParcel.cccd.trim();
     const additionalCodes = new Set(additionalParcels.map((ap) => ap.ma_thua));
     return computedParcels.filter(
       (p) =>
         p.ma_thua !== selectedParcel.ma_thua &&
         !additionalCodes.has(p.ma_thua) &&
-        p.cccd &&
-        p.cccd.trim() === cleanCccd
+        (p.cccd?.trim() === activeCccd || declarationsMap[p.ma_thua]?.chu_dat_cccd?.trim() === activeCccd)
     );
-  }, [selectedParcel, computedParcels, additionalParcels]);
+  }, [selectedParcel, computedParcels, additionalParcels, declarationsMap]);
 
   // 2. Danh sách các thửa đất khác có cùng Tên (trừ các thửa đã trùng CCCD) - "Có thể chủ hộ này còn sở hữu" - Loại bỏ các thửa đã chọn gộp
   const sameNameParcels = useMemo(() => {
@@ -740,14 +747,17 @@ export default function Home() {
       '..',
     ];
 
+    const selDecl = selectedParcel ? declarationsMap[selectedParcel.ma_thua] : undefined;
+    const activeOwner = (selDecl?.chu_dat_ten || selectedParcel?.chu_ho || '').trim();
+
     if (
       !selectedParcel ||
-      !selectedParcel.chu_ho ||
-      nonPersonPlaceholders.some((np) => selectedParcel.chu_ho.toLowerCase().includes(np.toLowerCase()))
+      !activeOwner ||
+      nonPersonPlaceholders.some((np) => activeOwner.toLowerCase().includes(np.toLowerCase()))
     ) {
       return [];
     }
-    const cleanOwner = selectedParcel.chu_ho.trim().toLowerCase();
+    const cleanOwner = activeOwner.toLowerCase();
     const cccdMatchedCodes = new Set(sameCccdParcels.map((p) => p.ma_thua));
     const additionalCodes = new Set(additionalParcels.map((ap) => ap.ma_thua));
 
@@ -756,11 +766,11 @@ export default function Home() {
         p.ma_thua !== selectedParcel.ma_thua &&
         !additionalCodes.has(p.ma_thua) &&
         !cccdMatchedCodes.has(p.ma_thua) &&
-        p.chu_ho &&
-        !nonPersonPlaceholders.some((np) => p.chu_ho.toLowerCase().includes(np.toLowerCase())) &&
-        p.chu_ho.trim().toLowerCase() === cleanOwner
+        (p.chu_ho || declarationsMap[p.ma_thua]?.chu_dat_ten) &&
+        !nonPersonPlaceholders.some((np) => (p.chu_ho || declarationsMap[p.ma_thua]?.chu_dat_ten || '').toLowerCase().includes(np.toLowerCase())) &&
+        ((declarationsMap[p.ma_thua]?.chu_dat_ten || p.chu_ho || '').trim().toLowerCase() === cleanOwner)
     );
-  }, [selectedParcel, computedParcels, sameCccdParcels, additionalParcels]);
+  }, [selectedParcel, computedParcels, sameCccdParcels, additionalParcels, declarationsMap]);
 
   const sameOwnerParcels = useMemo(() => {
     return [...sameCccdParcels, ...sameNameParcels];
