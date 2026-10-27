@@ -4495,6 +4495,14 @@ export default function DashboardPage() {
                                                 ownerName={ownerName || undefined}
                                                 cccdNumber={cccdVal || undefined}
                                                 theme={theme}
+                                                onOpenFullModal={() => {
+                                                  setPreviewPdfModal({
+                                                    isOpen: true,
+                                                    url: href,
+                                                    title: `CCCD: ${ownerName || text}`,
+                                                    filename: text,
+                                                  });
+                                                }}
                                               >
                                                 <button
                                                   type="button"
