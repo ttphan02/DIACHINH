@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Eye,
@@ -13,7 +13,11 @@ import {
   CreditCard,
   HardDrive,
   Loader2,
-  AlertCircle,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Layers,
+  Sparkles,
 } from 'lucide-react';
 
 interface CccdHoverPreviewProps {
@@ -39,8 +43,16 @@ export default function CccdHoverPreviewCard({
   const [isOpen, setIsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isLoadingContent, setIsLoadingContent] = useState(true);
-  const [renderError, setRenderError] = useState(false);
   const [mounted, setMounted] = useState(false);
+  // viewMode: 'iframe' (Viewer gốc của trình duyệt - cho phép zoom/pinch tự nhiên) hoặc 'canvas' (PDF.js vẽ canvas)
+  const [viewMode, setViewMode] = useState<'iframe' | 'canvas'>('iframe');
+  
+  // Trạng thái zoom & pan cho chế độ Canvas
+  const [canvasZoom, setCanvasZoom] = useState(1);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
   const [cardPos, setCardPos] = useState<{ top: number; left: number; placement: 'top' | 'bottom' }>({
     top: 0,
     left: 0,
@@ -61,8 +73,8 @@ export default function CccdHoverPreviewCard({
   const calculatePosition = () => {
     if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
-    const cardW = Math.min(440, window.innerWidth - 32);
-    const cardH = 460;
+    const cardW = Math.min(460, window.innerWidth - 32);
+    const cardH = 470;
 
     // Căn theo cạnh phải của nút trigger để tránh tràn mép phải màn hình
     let left = rect.right - cardW;
@@ -87,17 +99,15 @@ export default function CccdHoverPreviewCard({
 
   const isPdf = /\.pdf($|\?)/i.test(filename || fileUrl);
 
-  // Render PDF trực tiếp lên HTML Canvas bằng PDF.js
+  // Render PDF.js khi người dùng chọn chế độ Canvas
   useEffect(() => {
-    if (!isOpen || !isPdf) return;
+    if (!isOpen || !isPdf || viewMode !== 'canvas') return;
 
     let isCancelled = false;
     setIsLoadingContent(true);
-    setRenderError(false);
 
     async function loadAndRenderPdf() {
       try {
-        // 1. Nạp thư viện pdfjs nếu chưa có sẵn trên window
         if (!(window as any).pdfjsLib) {
           await new Promise<void>((resolve, reject) => {
             const existingScript = document.querySelector('script[data-pdfjs="1"]');
@@ -119,14 +129,12 @@ export default function CccdHoverPreviewCard({
         if (!pdfjsLib) throw new Error('Không thể nạp PDF.js engine');
         pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.js';
 
-        // 2. Fetch dữ liệu PDF qua ArrayBuffer (tránh lỗi chunked stream của iframe trình duyệt)
         const res = await fetch(fileUrl);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.arrayBuffer();
 
         if (isCancelled) return;
 
-        // 3. Đọc trang đầu tiên của CCCD
         const loadingTask = pdfjsLib.getDocument({
           data,
           cMapPacked: true,
@@ -140,20 +148,19 @@ export default function CccdHoverPreviewCard({
         const ctx = canvas.getContext('2d');
         if (!ctx) throw new Error('Canvas 2D context error');
 
-        // Tính tỉ lệ phóng vừa vặn khung xem (rộng ~400px, cao ~300px)
         const unscaledViewport = page.getViewport({ scale: 1.0 });
-        const targetWidth = containerRef.current?.clientWidth || 400;
-        const targetHeight = 290;
+        const targetWidth = containerRef.current?.clientWidth || 420;
+        const targetHeight = 310;
 
         const scaleX = targetWidth / unscaledViewport.width;
         const scaleY = targetHeight / unscaledViewport.height;
-        const scale = Math.min(scaleX, scaleY, 2.0); // Tối đa phóng x2 để nét
+        // Nhân thêm 1.5 để khi zoom vẫn giữ độ sắc nét
+        const baseScale = Math.min(scaleX, scaleY) * 1.5;
 
-        const viewport = page.getViewport({ scale });
+        const viewport = page.getViewport({ scale: baseScale });
         canvas.width = viewport.width;
         canvas.height = viewport.height;
 
-        // Huỷ tác vụ render cũ nếu có
         if (renderTaskRef.current) {
           try {
             renderTaskRef.current.cancel();
@@ -172,8 +179,8 @@ export default function CccdHoverPreviewCard({
         }
       } catch (err: any) {
         if (!isCancelled) {
-          console.warn('Lỗi vẽ PDF bằng Canvas:', err);
-          setRenderError(true);
+          console.warn('Lỗi vẽ PDF bằng Canvas, chuyển về iframe:', err);
+          setViewMode('iframe');
           setIsLoadingContent(false);
         }
       }
@@ -189,7 +196,7 @@ export default function CccdHoverPreviewCard({
         } catch {}
       }
     };
-  }, [isOpen, fileUrl, isPdf]);
+  }, [isOpen, fileUrl, isPdf, viewMode]);
 
   const handleMouseEnter = () => {
     if (closeTimerRef.current) {
@@ -200,9 +207,10 @@ export default function CccdHoverPreviewCard({
       openTimerRef.current = setTimeout(() => {
         calculatePosition();
         setIsLoadingContent(true);
-        setRenderError(false);
+        setCanvasZoom(1);
+        setPanOffset({ x: 0, y: 0 });
         setIsOpen(true);
-      }, 150); // Phản hồi nhanh 150ms khi hover
+      }, 150);
     }
   };
 
@@ -213,7 +221,7 @@ export default function CccdHoverPreviewCard({
     }
     closeTimerRef.current = setTimeout(() => {
       setIsOpen(false);
-    }, 200); // 200ms để chuột kịp di chuyển vào trong popover
+    }, 220);
   };
 
   const handleCardMouseEnter = () => {
@@ -226,7 +234,7 @@ export default function CccdHoverPreviewCard({
   const handleCardMouseLeave = () => {
     closeTimerRef.current = setTimeout(() => {
       setIsOpen(false);
-    }, 150);
+    }, 180);
   };
 
   const handleCopyCccd = (e: React.MouseEvent) => {
@@ -236,6 +244,59 @@ export default function CccdHoverPreviewCard({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  // Zoom và Pan cho Canvas
+  const handleZoomIn = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCanvasZoom((prev) => Math.min(3, Math.round((prev + 0.25) * 100) / 100));
+  };
+
+  const handleZoomOut = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCanvasZoom((prev) => {
+      const next = Math.max(0.75, Math.round((prev - 0.25) * 100) / 100);
+      if (next <= 1) setPanOffset({ x: 0, y: 0 });
+      return next;
+    });
+  };
+
+  const handleResetZoom = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCanvasZoom(1);
+    setPanOffset({ x: 0, y: 0 });
+  };
+
+  const handleCanvasWheel = (e: React.WheelEvent) => {
+    if (viewMode !== 'canvas') return;
+    e.stopPropagation();
+    const delta = e.deltaY < 0 ? 0.15 : -0.15;
+    setCanvasZoom((prev) => {
+      const next = Math.min(3, Math.max(0.75, Math.round((prev + delta) * 100) / 100));
+      if (next <= 1) setPanOffset({ x: 0, y: 0 });
+      return next;
+    });
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (viewMode !== 'canvas' || canvasZoom <= 1) return;
+    setIsDragging(true);
+    dragStartRef.current = {
+      x: e.clientX - panOffset.x,
+      y: e.clientY - panOffset.y,
+    };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || viewMode !== 'canvas') return;
+    setPanOffset({
+      x: e.clientX - dragStartRef.current.x,
+      y: e.clientY - dragStartRef.current.y,
+    });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
   };
 
   const isLight = theme === 'light';
@@ -254,7 +315,7 @@ export default function CccdHoverPreviewCard({
         position: 'fixed',
         top: `${cardPos.top}px`,
         left: `${cardPos.left}px`,
-        width: `${Math.min(440, window.innerWidth - 32)}px`,
+        width: `${Math.min(460, window.innerWidth - 32)}px`,
         zIndex: 99999,
       }}
       className={`rounded-2xl p-3 shadow-2xl border transition-all duration-150 animate-in fade-in zoom-in-95 pointer-events-auto ${
@@ -300,8 +361,65 @@ export default function CccdHoverPreviewCard({
           )}
         </div>
 
-        {/* Action icons */}
+        {/* Action icons & Toolbars */}
         <div className="flex items-center gap-1 shrink-0">
+          {/* Nút chuyển đổi chế độ xem: Iframe trình duyệt gốc (cho phép zoom) <-> Canvas */}
+          {isPdf && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsLoadingContent(true);
+                setViewMode((prev) => (prev === 'iframe' ? 'canvas' : 'iframe'));
+              }}
+              className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 transition cursor-pointer ${
+                viewMode === 'iframe'
+                  ? isLight
+                    ? 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+                    : 'bg-indigo-950/60 text-indigo-300 border border-indigo-700/50 hover:bg-indigo-900/60'
+                  : isLight
+                  ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                  : 'bg-amber-950/60 text-amber-300 border border-amber-700/50 hover:bg-amber-900/60'
+              }`}
+              title={viewMode === 'iframe' ? 'Đang dùng Viewer gốc (Hỗ trợ zoom). Bấm để chuyển sang Canvas' : 'Đang dùng Canvas. Bấm để chuyển sang Viewer gốc'}
+            >
+              {viewMode === 'iframe' ? <Layers className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
+              <span>{viewMode === 'iframe' ? 'Viewer gốc' : 'Canvas'}</span>
+            </button>
+          )}
+
+          {/* Thanh điều khiển zoom khi ở chế độ Canvas */}
+          {isPdf && viewMode === 'canvas' && (
+            <div className={`flex items-center rounded-lg border text-[10px] ${
+              isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-800 border-slate-700'
+            }`}>
+              <button
+                type="button"
+                onClick={handleZoomOut}
+                className="p-1 hover:bg-slate-500/20 rounded-l transition cursor-pointer"
+                title="Thu nhỏ"
+              >
+                <ZoomOut className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                onClick={handleResetZoom}
+                className="px-1.5 font-mono text-[9px] hover:bg-slate-500/20 transition cursor-pointer"
+                title="Đặt lại kích thước chuẩn"
+              >
+                {Math.round(canvasZoom * 100)}%
+              </button>
+              <button
+                type="button"
+                onClick={handleZoomIn}
+                className="p-1 hover:bg-slate-500/20 rounded-r transition cursor-pointer"
+                title="Phóng to"
+              >
+                <ZoomIn className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
           {onOpenFullModal && (
             <button
               type="button"
@@ -342,30 +460,46 @@ export default function CccdHoverPreviewCard({
         </div>
       </div>
 
-      {/* 2. Visual Content Area: Hiển thị ngay file CCCD (Canvas trực tiếp hoặc Image) */}
+      {/* 2. Visual Content Area: Hiển thị ngay file CCCD (Iframe gốc hỗ trợ zoom / Canvas / Ảnh) */}
       <div
         ref={containerRef}
-        className={`relative w-full h-[300px] rounded-xl overflow-hidden border flex items-center justify-center ${
+        onWheel={handleCanvasWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        className={`relative w-full h-[320px] rounded-xl overflow-hidden border flex items-center justify-center select-none ${
           isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-950 border-slate-800'
-        }`}
+        } ${canvasZoom > 1 && viewMode === 'canvas' ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : ''}`}
       >
         {isLoadingContent && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/70 z-10 text-indigo-400">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/70 z-10 text-indigo-400 pointer-events-none">
             <Loader2 className="w-6 h-6 animate-spin mb-1.5" />
-            <span className="text-[11px] font-medium text-slate-300">Đang dựng hình CCCD...</span>
+            <span className="text-[11px] font-medium text-slate-300">
+              {viewMode === 'iframe' ? 'Đang tải PDF viewer...' : 'Đang dựng hình CCCD...'}
+            </span>
           </div>
         )}
 
         {isPdf ? (
-          renderError ? (
-            /* Fallback iframe nếu Canvas không nạp được */
+          viewMode === 'iframe' ? (
+            /* Chế độ Iframe trình duyệt gốc: Cho phép cuộn chuột, pinch-to-zoom và công cụ PDF của trình duyệt */
             <iframe
               src={`${fileUrl}#toolbar=0&navpanes=0&scrollbar=0&view=Fit`}
+              onLoad={() => setIsLoadingContent(false)}
               className="w-full h-full border-0 bg-white"
               title={`CCCD: ${ownerName || filename}`}
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center p-1 overflow-hidden">
+            /* Chế độ Canvas trực tiếp: Kèm thanh zoom & rê kéo tự do */
+            <div
+              className="w-full h-full flex items-center justify-center p-1 overflow-hidden"
+              style={{
+                transform: `scale(${canvasZoom}) translate(${panOffset.x / canvasZoom}px, ${panOffset.y / canvasZoom}px)`,
+                transformOrigin: 'center center',
+                transition: isDragging ? 'none' : 'transform 0.15s ease-out',
+              }}
+            >
               <canvas
                 ref={canvasRef}
                 className="max-w-full max-h-full object-contain rounded-lg shadow-sm border border-slate-700/30"
@@ -384,38 +518,45 @@ export default function CccdHoverPreviewCard({
         )}
       </div>
 
-      {/* 3. Footer: Tên file & Nút xem chi tiết */}
+      {/* 3. Footer: Tên file & Ghi chú zoom */}
       <div className="flex items-center justify-between mt-2 pt-1.5 text-[10px]">
-        <div className={`flex items-center gap-1 truncate max-w-[250px] font-mono ${
+        <div className={`flex items-center gap-1 truncate max-w-[260px] font-mono ${
           isLight ? 'text-slate-500' : 'text-slate-400'
         }`} title={filename}>
           <HardDrive className="w-3 h-3 text-amber-500 shrink-0" />
           <span className="truncate">{filename}</span>
         </div>
-        {onOpenFullModal ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsOpen(false);
-              onOpenFullModal();
-            }}
-            className="text-indigo-400 hover:text-indigo-300 font-bold hover:underline cursor-pointer flex items-center gap-1"
-          >
-            <Eye className="w-3 h-3" />
-            <span>Xem đầy đủ</span>
-          </button>
-        ) : (
-          <a
-            href={fileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-indigo-400 hover:text-indigo-300 font-bold hover:underline cursor-pointer flex items-center gap-1"
-          >
-            <Eye className="w-3 h-3" />
-            <span>Mở tab mới</span>
-          </a>
-        )}
+        <div className="flex items-center gap-2">
+          {viewMode === 'iframe' ? (
+            <span className="text-[10px] text-slate-400 hidden sm:inline">Ctrl + cuộn để zoom</span>
+          ) : (
+            <span className="text-[10px] text-slate-400 hidden sm:inline">Cuộn hoặc kéo để xem</span>
+          )}
+          {onOpenFullModal ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsOpen(false);
+                onOpenFullModal();
+              }}
+              className="text-indigo-400 hover:text-indigo-300 font-bold hover:underline cursor-pointer flex items-center gap-1"
+            >
+              <Eye className="w-3 h-3" />
+              <span>Xem đầy đủ</span>
+            </button>
+          ) : (
+            <a
+              href={fileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-indigo-400 hover:text-indigo-300 font-bold hover:underline cursor-pointer flex items-center gap-1"
+            >
+              <Eye className="w-3 h-3" />
+              <span>Mở tab mới</span>
+            </a>
+          )}
+        </div>
       </div>
     </div>
   );

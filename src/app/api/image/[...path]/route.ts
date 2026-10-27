@@ -183,10 +183,20 @@ export async function GET(
           headers.set('Content-Type', obj.httpMetadata?.contentType || defaultContentType);
           headers.set('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
 
+          let contentLengthNum = obj.size || 0;
+
           if (isPartial && obj.range) {
-            const offset = obj.range.offset;
-            const length = obj.range.length;
-            headers.set('Content-Range', `bytes ${offset}-${offset + length - 1}/${obj.size}`);
+            let offset = typeof obj.range.offset === 'number' ? obj.range.offset : 0;
+            if (typeof obj.range.suffix === 'number') {
+              offset = Math.max(0, (obj.size || 0) - obj.range.suffix);
+            }
+            const length = typeof obj.range.length === 'number'
+              ? obj.range.length
+              : Math.max(0, (obj.size || 0) - offset);
+            const end = Math.max(offset, offset + length - 1);
+            contentLengthNum = length;
+
+            headers.set('Content-Range', `bytes ${offset}-${end}/${obj.size}`);
             headers.set('Content-Length', String(length));
             headers.set('Cache-Control', 'no-cache');
           } else {
@@ -198,7 +208,6 @@ export async function GET(
 
           // Trả về ArrayBuffer cho các file <= 10MB để không bị Next.js chuyển thành chunked stream,
           // giúp PDF viewer của Chrome/Edge hiển thị trơn tru không báo lỗi
-          const contentLengthNum = isPartial && obj.range ? obj.range.length : obj.size;
           if (contentLengthNum && contentLengthNum <= 10 * 1024 * 1024) {
             const buffer = await obj.arrayBuffer();
             return new Response(buffer, { status, headers });
