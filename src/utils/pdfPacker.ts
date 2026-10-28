@@ -420,11 +420,11 @@ export async function generateReadyToPackPdf(
       color: rgb(0, 0, 0),
     });
 
-    // Mục 2.b: Địa chỉ thửa đất (In đúng Thôn / Buôn thực tế, KHÔNG gán cứng 'Xã Cư Pui')
-    p1.drawText(diaChiThuaDat, {
+    // Mục 2.b: Địa chỉ thửa đất (Giá trị thứ 6 từ trên xuống - mặc định luôn là 'Xã Cư Pui')
+    p1.drawText('Xã Cư Pui', {
       x: x_dc5,
       y: fitzToPdfY(489),
-      size: diaChiThuaDat.length > 35 ? 10.5 : 12,
+      size: 12,
       font: timesFont,
       color: rgb(0, 0, 0),
     });
@@ -562,6 +562,18 @@ export async function generateReadyToPackPdf(
         const yStart = 235 + 16.44; // 235 + pt(0.58) = 251.44
         const rowSpace = 27.637; // pt(0.975)
 
+        // Mặc định luôn che phủ sạch sẽ toàn bộ 15 dòng ở Cột 4 (Địa chỉ thửa đất) của template để trống hoàn toàn
+        for (let r = 0; r < 15; r++) {
+          const rY = yStart + r * rowSpace;
+          pTable.drawRectangle({
+            x: 202,
+            y: pageH - rY - 4,
+            width: 73,
+            height: 16,
+            color: rgb(1, 1, 1),
+          });
+        }
+
         const drawCenter = (text: string, xCenter: number, yFit: number, maxW = 0) => {
           if (!text) return;
           let fontSize = 10;
@@ -589,17 +601,14 @@ export async function generateReadyToPackPdf(
           drawCenter(String(row.so_thua || ''), 131.16, curY);
           drawCenter(String(row.to_ban_do || ''), 180.86, curY);
 
-          // CỘT 4: ĐỊA CHỈ THỬA ĐẤT (Che phủ chữ "Xã Cư Pui" in sẵn của template bằng địa chỉ Thôn/Buôn thực tế)
+          // CỘT 4: ĐỊA CHỈ THỬA ĐẤT - Mặc định luôn để trống hoàn toàn (che phủ chữ in sẵn của template)
           pTable.drawRectangle({
             x: 202,
-            y: pageH - curY - 3,
-            width: 72,
-            height: 14,
+            y: pageH - curY - 4,
+            width: 73,
+            height: 16,
             color: rgb(1, 1, 1),
           });
-          const rowThon = cleanDisplayAddress(row.thon_xa || row.dia_chi || 'Xã Cư Pui');
-          const shortVillage = rowThon.replace(/,\s*x[ãa]\s*c[uư]\s*pui$/i, '').trim() || 'Xã Cư Pui';
-          drawCenter(shortVillage, 238, curY, 70);
 
           drawCenter(dt, 300.92, curY);
           drawCenter(String(row.loai_dat || ''), 369.78, curY);
