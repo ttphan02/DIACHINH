@@ -640,7 +640,7 @@ export async function executeSyncToGoogleSheet(
     const headersNhapDuLieu = [
       'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
       'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
-      'Tên file scan', 'Xem file scan (Bấm vào xem)'
+      'Xem & Tải file scan'
     ];
     const rowsNhapDuLieu: string[][] = [headersNhapDuLieu];
     stage3ChoNhap.forEach((it, idx) => {
@@ -652,7 +652,6 @@ export async function executeSyncToGoogleSheet(
         String(idx + 1), it.ma_thua, String(it.to_ban_do || ''), String(it.so_thua || ''), it.thon_xa,
         cleanName(it.chu_ho), it.dob || '', it.gender || 'Nam', cccdText,
         String(it.dien_tich || ''), it.loai_dat || 'DGT', normalizeNguonGoc(it.nguon_goc || 'Khai Hoang'),
-        cleanFileName,
         scanFormula
       ]);
     });

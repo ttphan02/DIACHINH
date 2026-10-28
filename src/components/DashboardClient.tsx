@@ -988,6 +988,7 @@ export default function DashboardPage() {
     if (h.includes('loại đất')) return 80;
     if (h.includes('nguồn gốc')) return 120;
     if (h.includes('cccd') && (h.includes('xem') || h.includes('file'))) return 105;
+    if (h.includes('scan') || (h.includes('file') && h.includes('tải'))) return 175;
     if (h.includes('ghi chú')) return 140;
     return 110;
   };
@@ -4736,6 +4737,22 @@ export default function DashboardPage() {
                                       const linkMatch = cellStr.match(/HYPERLINK\(\s*["']?([^"';,]+)["']?\s*[;,]\s*["']?([^"')]+)["']?\s*\)/i);
                                       const isPdfCell = !linkMatch && (/\.pdf$/i.test(cellStr.trim().replace(/^="|"$/g, '')) || cellStr.includes('.r2.dev/'));
 
+                                      // Nếu là cột tên file scan thuần túy (không phải link) thì chỉ hiển thị text tên file, không render nút
+                                      if (hLower.includes('tên file scan')) {
+                                        return (
+                                          <td
+                                            key={cIdx}
+                                            style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                            className={`py-2 px-2.5 border-r overflow-hidden text-xs font-mono truncate ${
+                                              isLight ? 'border-slate-200 text-slate-700' : 'border-slate-800/60 text-slate-300'
+                                            }`}
+                                            title={cellStr.replace(/^="|"$/g, '')}
+                                          >
+                                            {cellStr.replace(/^="|"$/g, '')}
+                                          </td>
+                                        );
+                                      }
+
                                       if (linkMatch || isPdfCell) {
                                         const rawUrl = linkMatch ? linkMatch[1].trim() : cellStr.trim().replace(/^="|"$/g, '');
                                         const cleanUrl = rawUrl.startsWith('http') || rawUrl.startsWith('/api/')
@@ -4746,6 +4763,7 @@ export default function DashboardPage() {
                                         const ownerName = String(cellEdits[maThua]?.[nameColIdx] ?? row[nameColIdx] ?? '').trim();
                                         const cccdColIdx = headers.findIndex((h) => /cccd|cmnd|định danh/i.test(h));
                                         const cccdVal = String((cccdColIdx !== -1 ? row[cccdColIdx] : row[6]) || '').replace(/^="|"$/g, '').trim();
+                                        const isScan = href.includes('filescan') || hLower.includes('scan') || isNhapDuLieuSheet;
 
                                         return (
                                           <td
@@ -4753,7 +4771,7 @@ export default function DashboardPage() {
                                             style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
                                             className={`py-2 px-2 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
                                           >
-                                            <div className="truncate">
+                                            <div className="flex items-center gap-1.5 truncate">
                                               <CccdHoverPreviewCard
                                                 fileUrl={href}
                                                 filename={text}
@@ -4764,7 +4782,7 @@ export default function DashboardPage() {
                                                   setPreviewPdfModal({
                                                     isOpen: true,
                                                     url: href,
-                                                    title: href.includes('filescan') ? `Hồ sơ scan: ${ownerName || text}` : `CCCD: ${ownerName || text}`,
+                                                    title: isScan ? `Hồ sơ scan: ${ownerName || text}` : `CCCD: ${ownerName || text}`,
                                                     filename: text,
                                                   });
                                                 }}
@@ -4776,21 +4794,38 @@ export default function DashboardPage() {
                                                     setPreviewPdfModal({
                                                       isOpen: true,
                                                       url: href,
-                                                      title: href.includes('filescan') ? `Hồ sơ scan: ${ownerName || text}` : `CCCD: ${ownerName || text}`,
+                                                      title: isScan ? `Hồ sơ scan: ${ownerName || text}` : `CCCD: ${ownerName || text}`,
                                                       filename: text,
                                                     });
                                                   }}
-                                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition shadow-xs cursor-pointer ${
+                                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition shadow-xs cursor-pointer ${
                                                     isLight
                                                       ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
                                                       : 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
                                                   }`}
-                                                  title="Xem trực tiếp file CCCD trên giao diện"
+                                                  title={isScan ? 'Xem trực tiếp file scan trên giao diện' : 'Xem trực tiếp file CCCD trên giao diện'}
                                                 >
                                                   <Eye className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                                                  <span className="truncate">Xem CCCD</span>
+                                                  <span className="truncate">{isScan ? 'Xem scan' : 'Xem CCCD'}</span>
                                                 </button>
                                               </CccdHoverPreviewCard>
+
+                                              {isScan && (
+                                                <a
+                                                  href={href}
+                                                  download={text.endsWith('.pdf') ? text : `${text}.pdf`}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border transition shadow-xs cursor-pointer shrink-0 ${
+                                                    isLight
+                                                      ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                                                      : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                                  }`}
+                                                  title={`Tải file scan ${text} về máy tính`}
+                                                >
+                                                  <Download className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                                                  <span>Tải về</span>
+                                                </a>
+                                              )}
                                             </div>
                                           </td>
                                         );

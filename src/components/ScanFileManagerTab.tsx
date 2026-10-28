@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import JSZip from 'jszip';
 import {
   FileText,
   RefreshCw,
@@ -48,9 +49,92 @@ export default function ScanFileManagerTab({
   const [searchQuery, setSearchQuery] = useState('');
   const [deletingFile, setDeletingFile] = useState<ScanFileItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isZipping, setIsZipping] = useState(false);
+  const [zipProgress, setZipProgress] = useState<{ current: number; total: number } | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const isLight = theme === 'light';
+
+  // Tải về toàn bộ file scan dưới dạng file ZIP
+  const handleDownloadAllZip = async () => {
+    if (!files || files.length === 0) {
+      setFeedbackMessage({ type: 'error', text: 'Không có file scan nào trong kho để tải về!' });
+      return;
+    }
+
+    const confirmDl = confirm(`Bạn có muốn tải về toàn bộ ${files.length} file scan dưới dạng 1 file ZIP nén không?`);
+    if (!confirmDl) return;
+
+    setIsZipping(true);
+    setZipProgress({ current: 0, total: files.length });
+    setFeedbackMessage({ type: 'success', text: `Đang bắt đầu tải và đóng gói ${files.length} file scan vào file ZIP...` });
+
+    try {
+      const zip = new JSZip();
+      const folder = zip.folder('filescan') || zip;
+      let successCount = 0;
+
+      // Tải song song theo batch 5 files một lúc để tối ưu tốc độ
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < files.length; i += BATCH_SIZE) {
+        const batch = files.slice(i, i + BATCH_SIZE);
+        await Promise.all(
+          batch.map(async (file) => {
+            try {
+              const fileUrl = file.url || `/api/image/filescan/${encodeURIComponent(file.filename)}`;
+              const res = await fetch(fileUrl);
+              if (res.ok) {
+                const arrayBuffer = await res.arrayBuffer();
+                folder.file(file.filename, arrayBuffer);
+                successCount++;
+              }
+            } catch (err) {
+              console.warn(`Lỗi khi nạp file ${file.filename} vào ZIP:`, err);
+            }
+          })
+        );
+        setZipProgress({ current: Math.min(i + BATCH_SIZE, files.length), total: files.length });
+      }
+
+      if (successCount === 0) {
+        throw new Error('Không thể tải được nội dung file scan nào từ máy chủ!');
+      }
+
+      setFeedbackMessage({ type: 'success', text: 'Đang nén file ZIP, vui lòng đợi giây lát...' });
+
+      const zipBlob = await zip.generateAsync(
+        {
+          type: 'blob',
+          compression: 'DEFLATE',
+          compressionOptions: { level: 6 },
+        }
+      );
+
+      const downloadUrl = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      const dateStr = new Date().toISOString().slice(0, 10);
+      a.download = `Kho_File_Scan_Cu_Pui_${dateStr}_(${successCount}_file).zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(downloadUrl), 3000);
+
+      setFeedbackMessage({
+        type: 'success',
+        text: `Đã nén và tải về thành công file ZIP chứa ${successCount}/${files.length} file scan!`,
+      });
+    } catch (err: any) {
+      console.error('Lỗi tạo file zip:', err);
+      setFeedbackMessage({
+        type: 'error',
+        text: `Lỗi tải file ZIP: ${err.message || 'Không xác định'}`,
+      });
+    } finally {
+      setIsZipping(false);
+      setZipProgress(null);
+    }
+  };
 
   // Tải danh sách file scan từ R2
   const loadScanFiles = useCallback(async () => {
@@ -232,6 +316,28 @@ export default function ScanFileManagerTab({
 
         {/* Nút tác vụ */}
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleDownloadAllZip}
+            disabled={isLoading || isZipping || files.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white shadow-md shadow-emerald-600/25 transition cursor-pointer"
+            title="Tải về toàn bộ tất cả file scan trong kho lưu trữ R2 dưới dạng 1 file ZIP duy nhất"
+          >
+            {isZipping ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>
+                  Đang Nén ZIP ({zipProgress ? `${zipProgress.current}/${zipProgress.total}` : '...'})
+                </span>
+              </>
+            ) : (
+              <>
+                <Download className="w-3.5 h-3.5" />
+                <span>Tải ZIP Tất Cả File ({files.length})</span>
+              </>
+            )}
+          </button>
+
           <a
             href="/scanname"
             target="_blank"
@@ -247,7 +353,7 @@ export default function ScanFileManagerTab({
           <button
             type="button"
             onClick={loadScanFiles}
-            disabled={isLoading}
+            disabled={isLoading || isZipping}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition disabled:opacity-50 cursor-pointer shadow-xs ${
               isLight
                 ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
