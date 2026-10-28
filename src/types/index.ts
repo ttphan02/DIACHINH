@@ -82,6 +82,9 @@ export interface DeclarationFormData {
   loai_dat?: string;
   nguon_goc?: string;
   dia_chi_thua_dat?: string;
+  thon_xa?: string;
+  is_thua_kem_theo?: boolean;
+  parent_ma_thua?: string;
   // 1.1 Cá nhân
   chu_dat_ten: string; // Họ tên cá nhân *
   chu_dat_nam_sinh?: string; // Năm sinh *

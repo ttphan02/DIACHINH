@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { DeclarationFormData } from '@/types';
+import parcelsBriefData from '@/data/parcels_brief.json';
+
+const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
 
 export const dynamic = 'force-dynamic';
 
@@ -360,23 +363,67 @@ export async function POST(request: Request) {
     }
 
     const timestamp = new Date().toISOString();
-    const fullDeclData = {
+    const rootParts = rootMaThua.split('_');
+    const rootBrief = parcelsBrief[rootMaThua];
+    const rootDienTich = (rootBrief && rootBrief[0]) || formData.dien_tich || '1000';
+    const rootLoaiDat = formData.loai_dat || (rootBrief && rootBrief[1]) || 'LUK';
+    const rootThonXa = formData.thon_xa || formData.dia_chi_thua_dat || (rootBrief && rootBrief[2]) || 'xã Cư Pui';
+
+    const rootDeclData = {
       ...formData,
-      dia_chi_thua_dat: formData.dia_chi_thua_dat || 'xã Cư Pui',
-      chu_dat_dia_chi: formData.chu_dat_dia_chi || formData.dia_chi_thua_dat || 'xã Cư Pui',
+      ma_thua: rootMaThua,
+      to_ban_do: rootParts[0] || formData.to_ban_do || '',
+      so_thua: rootParts[1] || formData.so_thua || '',
+      dien_tich: String(rootDienTich),
+      loai_dat: rootLoaiDat,
+      thon_xa: rootThonXa,
+      dia_chi_thua_dat: rootThonXa,
+      chu_dat_dia_chi: formData.chu_dat_dia_chi || rootThonXa,
       device_id: formData.device_id || previousDecl?.device_id || 'MAY_DEF',
       created_at: previousDecl?.created_at || timestamp,
       updated_at: timestamp,
     };
 
-    targetCodes.forEach((code) => {
-      declaredCodesSet.add(code);
-      declarationsMap[code] = fullDeclData;
-      delete currentCellEdits[code]; // Đã kê khai chính thức thì xóa khỏi bảng nháp
+    // 1. Lưu thửa chính
+    declaredCodesSet.add(rootMaThua);
+    declarationsMap[rootMaThua] = rootDeclData;
+    delete currentCellEdits[rootMaThua];
+    saveSingleDeclarationToR2(rootMaThua, rootDeclData);
 
-      // Lưu song song file nguyên tử cho từng thửa đất
-      saveSingleDeclarationToR2(code, fullDeclData);
-    });
+    // 2. Lưu từng thửa kèm theo với đúng mã thửa, tờ, thửa, diện tích và loại đất của chính nó
+    if (Array.isArray(formData.thua_kem_theo)) {
+      formData.thua_kem_theo.forEach((ap) => {
+        if (!ap?.ma_thua) return;
+        const apCode = ap.ma_thua;
+        const apParts = apCode.split('_');
+        const apBrief = parcelsBrief[apCode];
+        const apDienTich = (apBrief && apBrief[0]) || ap.dien_tich || '1000';
+        const apLoaiDat = ap.loai_dat || (apBrief && apBrief[1]) || rootLoaiDat;
+        const apThonXa = ap.thon_xa || (apBrief && apBrief[2]) || rootThonXa;
+        const apNguonGoc = ap.nguon_goc || formData.nguon_goc_su_dung || 'Khai hoang';
+
+        const attachedDeclData = {
+          ...rootDeclData,
+          ma_thua: apCode,
+          to_ban_do: ap.to_ban_do || apParts[0] || '',
+          so_thua: ap.so_thua || apParts[1] || '',
+          dien_tich: String(apDienTich),
+          loai_dat: apLoaiDat,
+          thon_xa: apThonXa,
+          dia_chi_thua_dat: apThonXa,
+          nguon_goc: apNguonGoc,
+          nguon_goc_su_dung: apNguonGoc,
+          is_thua_kem_theo: true,
+          parent_ma_thua: rootMaThua,
+          thua_kem_theo: undefined,
+        };
+
+        declaredCodesSet.add(apCode);
+        declarationsMap[apCode] = attachedDeclData;
+        delete currentCellEdits[apCode];
+        saveSingleDeclarationToR2(apCode, attachedDeclData);
+      });
+    }
 
     const updatedCodes = Array.from(declaredCodesSet);
     const updatedPayload: StoragePayload = {

@@ -412,8 +412,8 @@ export async function executeSyncToGoogleSheet(
       processedParcels.add(maThua);
 
       const parts = maThua.split('_');
-      const toMoi = decl.to_ban_do || parts[0] || '';
-      const thuaMoi = decl.so_thua || parts[1] || '';
+      const toMoi = parts[0] || decl.to_ban_do || '';
+      const thuaMoi = parts[1] || decl.so_thua || '';
 
       const chuHo = cleanName(decl.ho_va_ten_chu_ho || decl.chu_ho || decl.chu_dat_ten || '');
       let cccd = cleanCccd(decl.cccd_chu_ho || decl.cccd || decl.chu_dat_cccd || '');
@@ -448,11 +448,13 @@ export async function executeSyncToGoogleSheet(
       const thonXa = normalizeAddress(
         decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || fallbackThon || 'Thôn 1, xã Cư Pui'
       );
-      const dienTich = (decl.dien_tich && parseFloat(decl.dien_tich) > 0)
-        ? String(decl.dien_tich)
-        : ((ggsP && ggsP.dien_tich && parseFloat(ggsP.dien_tich) > 0)
-            ? String(ggsP.dien_tich)
-            : (fallbackDt && parseFloat(fallbackDt) > 0 ? String(fallbackDt) : '1000'));
+      const dienTich = (fallbackDt && parseFloat(fallbackDt) > 0)
+        ? String(fallbackDt)
+        : ((decl.dien_tich && parseFloat(decl.dien_tich) > 0 && decl.ma_thua === maThua)
+            ? String(decl.dien_tich)
+            : ((ggsP && ggsP.dien_tich && parseFloat(ggsP.dien_tich) > 0)
+                ? String(ggsP.dien_tich)
+                : '1000'));
       const loaiDat = decl.loai_dat || (ggsP && ggsP.loai_dat) || fallbackLoaiDat || 'DGT';
       const rawDob = (decl.chu_dat_nam_sinh || decl.nam_sinh_chu_ho || decl.chu_dat_ngay_sinh || '').trim();
       const dob = isValidBirthYear(rawDob) ? rawDob : '1980';

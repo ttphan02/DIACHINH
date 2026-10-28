@@ -1,4 +1,7 @@
 import { DeclarationFormData } from '@/types';
+import parcelsBriefData from '@/data/parcels_brief.json';
+
+const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
 
 export const DECLARED_CODES_KEY = 'diachinh_declared_codes';
 export const DECLARATIONS_MAP_KEY = 'diachinh_declarations_map';
@@ -267,16 +270,58 @@ export function saveOrUpdateDeclaration(formData: DeclarationFormData): {
   const timestamp = new Date().toISOString();
   const currentDeviceId = getOrCreateDeviceId();
   const deviceId = formData.device_id || previousDecl?.device_id || currentDeviceId;
-  const fullDeclData = {
+  const rootParts = rootMaThua.split('_');
+  const rootBrief = parcelsBrief[rootMaThua];
+  const rootDienTich = (rootBrief && rootBrief[0]) || formData.dien_tich || '1000';
+  const rootLoaiDat = formData.loai_dat || (rootBrief && rootBrief[1]) || 'LUK';
+  const rootThonXa = formData.thon_xa || formData.dia_chi_thua_dat || (rootBrief && rootBrief[2]) || 'xã Cư Pui';
+
+  const rootDeclData = {
     ...formData,
+    ma_thua: rootMaThua,
+    to_ban_do: rootParts[0] || formData.to_ban_do || '',
+    so_thua: rootParts[1] || formData.so_thua || '',
+    dien_tich: String(rootDienTich),
+    loai_dat: rootLoaiDat,
+    thon_xa: rootThonXa,
+    dia_chi_thua_dat: rootThonXa,
+    chu_dat_dia_chi: formData.chu_dat_dia_chi || rootThonXa,
     device_id: deviceId,
     created_at: previousDecl?.created_at || timestamp,
     updated_at: timestamp,
   };
 
-  addedCodes.forEach((code) => {
-    updatedMap[code] = fullDeclData;
-  });
+  updatedMap[rootMaThua] = rootDeclData;
+
+  // Xử lý thửa kèm theo nếu có
+  if (Array.isArray(formData.thua_kem_theo)) {
+    formData.thua_kem_theo.forEach((ap) => {
+      if (!ap?.ma_thua) return;
+      const apCode = ap.ma_thua;
+      const apParts = apCode.split('_');
+      const apBrief = parcelsBrief[apCode];
+      const apDienTich = (apBrief && apBrief[0]) || ap.dien_tich || '1000';
+      const apLoaiDat = ap.loai_dat || (apBrief && apBrief[1]) || rootLoaiDat;
+      const apThonXa = ap.thon_xa || (apBrief && apBrief[2]) || rootThonXa;
+      const apNguonGoc = ap.nguon_goc || formData.nguon_goc_su_dung || 'Khai hoang';
+
+      updatedMap[apCode] = {
+        ...rootDeclData,
+        ma_thua: apCode,
+        to_ban_do: ap.to_ban_do || apParts[0] || '',
+        so_thua: ap.so_thua || apParts[1] || '',
+        dien_tich: String(apDienTich),
+        loai_dat: apLoaiDat,
+        thon_xa: apThonXa,
+        dia_chi_thua_dat: apThonXa,
+        nguon_goc: apNguonGoc,
+        nguon_goc_su_dung: apNguonGoc,
+        is_thua_kem_theo: true,
+        parent_ma_thua: rootMaThua,
+        thua_kem_theo: undefined,
+      };
+    });
+  }
 
   // Tự động gán device_id cho các thửa cũ đã kê khai trên máy này nếu chưa có
   Object.keys(updatedMap).forEach((code) => {
@@ -289,7 +334,7 @@ export function saveOrUpdateDeclaration(formData: DeclarationFormData): {
     try {
       localStorage.setItem(DECLARED_CODES_KEY, JSON.stringify(updatedCodes));
       localStorage.setItem(DECLARATIONS_MAP_KEY, JSON.stringify(updatedMap));
-      savePendingDeclaration(fullDeclData);
+      savePendingDeclaration(rootDeclData);
     } catch (e) {
       console.error('Lỗi lưu localStorage khi lưu phiếu:', e);
     }

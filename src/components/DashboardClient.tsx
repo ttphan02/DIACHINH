@@ -4859,7 +4859,7 @@ export default function DashboardPage() {
                                           effectiveVal = declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi;
                                         } else if (isOriginCol && (declForParcel.nguon_goc || declForParcel.nguon_goc_su_dung)) {
                                           effectiveVal = normalizeNguonGoc(declForParcel.nguon_goc || declForParcel.nguon_goc_su_dung);
-                                        } else if (isAreaCol && declForParcel.dien_tich) {
+                                        } else if (isAreaCol && (!cleanText || cleanText === '0' || cleanText === '1000') && declForParcel.dien_tich && declForParcel.ma_thua === maThua) {
                                           effectiveVal = declForParcel.dien_tich;
                                         } else if (isLandTypeCol && declForParcel.loai_dat) {
                                           effectiveVal = declForParcel.loai_dat;

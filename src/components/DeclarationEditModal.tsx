@@ -380,6 +380,12 @@ export default function DeclarationEditModal({
 
     const data: DeclarationFormData = {
       ma_thua: parcel.ma_thua,
+      to_ban_do: parcel.to_ban_do,
+      so_thua: parcel.so_thua,
+      dien_tich: parcel.dien_tich,
+      loai_dat: parcel.loai_dat,
+      thon_xa: parcel.thon_xa,
+      dia_chi_thua_dat: parcel.thon_xa,
       chu_dat_ten: cleanedTen,
       chu_dat_nam_sinh: cleanedNamSinh,
       chu_dat_gioi_tinh: chuDatGioiTinh,
