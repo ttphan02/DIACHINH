@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getD1Binding, initD1Schema, upsertD1Declaration, getAllD1Declarations } from '@/utils/d1Database';
+import { getD1Binding, initD1Schema, batchUpsertD1Declarations, getAllD1Declarations } from '@/utils/d1Database';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 
 export const dynamic = 'force-dynamic';
@@ -60,14 +60,8 @@ export async function GET(req: Request) {
       }
     }
 
-    const items = Object.values(declarationsMap);
-    let migratedCount = 0;
-
-    for (const decl of items) {
-      if (!decl || !decl.ma_thua) continue;
-      await upsertD1Declaration(db, decl);
-      migratedCount++;
-    }
+    const items = Object.values(declarationsMap).filter((d: any) => d && d.ma_thua);
+    const migratedCount = await batchUpsertD1Declarations(db, items);
 
     // Nạp cell_edits nếu có
     for (const [maThua, cols] of Object.entries(cellEdits)) {
