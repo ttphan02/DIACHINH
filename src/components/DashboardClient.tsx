@@ -1762,8 +1762,32 @@ export default function DashboardPage() {
     });
   };
 
-  // 9. XUẤT EXCEL DANH SÁCH THỬA ĐÃ KÊ KHAI
-  const handleExportDeclaredExcel = () => {
+  // Helper xuất dữ liệu ra file Excel (.xlsx) thật 100% bằng thư viện SheetJS
+  const exportToExcelXlsx = async (data: any[][], fileName: string, sheetName: string = 'Sheet1') => {
+    try {
+      const XLSX = await import('xlsx');
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      const safeSheetName = (sheetName || 'Sheet1').slice(0, 31).replace(/[:\\/\?\*\[\]]/g, '_');
+      XLSX.utils.book_append_sheet(wb, ws, safeSheetName);
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName.endsWith('.xlsx') ? fileName : `${fileName}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('Lỗi khi xuất file Excel:', err);
+      alert('Có lỗi khi tạo file Excel: ' + (err?.message || err));
+    }
+  };
+
+  // 9. XUẤT EXCEL DANH SÁCH THỬA ĐÃ KÊ KHAI (.xlsx)
+  const handleExportDeclaredExcel = async () => {
     const declaredList = computedParcels.filter(
       (p) =>
         declaredParcelCodes.has(p.ma_thua) ||
@@ -1799,58 +1823,53 @@ export default function DashboardPage() {
       'Tọa Độ Kinh Độ (Lng)',
     ];
 
-    const rows = declaredList.map((p, idx) => {
+    const rows: any[][] = declaredList.map((p, idx) => {
       const decl = declarationsMap[p.ma_thua] || {};
       const chuHo = decl.chu_dat_ten || p.chu_ho || '';
       const cccd = decl.chu_dat_cccd || p.cccd || '';
-      const ngaySinh = decl.chu_dat_ngay_sinh || '';
+      const ngaySinh = decl.chu_dat_ngay_sinh || (p as any).ngay_sinh || decl.chu_dat_nam_sinh || '';
       const sdt = decl.nguoi_ke_khai_sdt || p.sdt || '';
-      const diaChi = decl.chu_dat_dia_chi || p.thon_xa || '';
+      const diaChi = decl.chu_dat_dia_chi || (p.thon_xa ? `${p.thon_xa}, Cư Pui` : 'Xã Cư Pui');
       const nguoiKekhai = decl.nguoi_ke_khai_ten || chuHo;
       const createdAt = decl.created_at || '';
       const ghiChu = decl.ghi_chu || '';
-      const hasCccdImg = Boolean(decl.anh_cccd_truoc || p.cccd_url) ? 'Có' : 'Chưa';
-      const hasGcnImg = Boolean(decl.anh_gcn || (p.gcn_urls && p.gcn_urls.length > 0)) ? 'Có' : 'Chưa';
+      const hasCccdImg = Boolean(decl.anh_cccd_truoc || p.cccd_url || decl.file_scan) ? 'Có' : 'Chưa';
+      const hasGcnImg = Boolean(decl.anh_gcn || (p.gcn_urls && p.gcn_urls.length > 0) || decl.file_scan) ? 'Có' : 'Chưa';
 
       return [
         idx + 1,
-        `"${p.so_thua || ''}"`,
-        `"${p.to_ban_do || ''}"`,
-        `"${p.ma_thua || ''}"`,
-        `"${(p.thon_xa || '').replace(/"/g, '""')}"`,
-        `"${chuHo.replace(/"/g, '""')}"`,
-        `"${cccd ? `'${cccd}` : ''}"`,
-        `"${ngaySinh}"`,
-        `"${sdt ? `'${sdt}` : ''}"`,
-        `"${diaChi.replace(/"/g, '""')}"`,
-        `"${nguoiKekhai.replace(/"/g, '""')}"`,
-        p.dien_tich || '0',
-        `"${p.loai_dat || ''}"`,
-        `"${createdAt}"`,
-        `"${ghiChu.replace(/"/g, '""')}"`,
-        '"Đã kê khai thực địa"',
-        `"${hasCccdImg}"`,
-        `"${hasGcnImg}"`,
+        p.so_thua || '',
+        p.to_ban_do || '',
+        p.ma_thua || '',
+        p.thon_xa || '',
+        chuHo,
+        cccd,
+        ngaySinh,
+        sdt,
+        diaChi,
+        nguoiKekhai,
+        Number(p.dien_tich) || p.dien_tich || 0,
+        p.loai_dat || '',
+        createdAt,
+        ghiChu,
+        'Đã kê khai thực địa',
+        hasCccdImg,
+        hasGcnImg,
         p.lat || '',
         p.lng || '',
-      ].join(',');
+      ];
     });
 
-    const csvContent = '\uFEFF' + [headers.map((h) => `"${h}"`).join(','), ...rows].join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Danh_sach_thua_da_ke_khai_Cu_Pui_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    await exportToExcelXlsx(
+      [headers, ...rows],
+      `Danh_sach_thua_da_ke_khai_Cu_Pui_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      'ThuaDaKeKhai'
+    );
   };
 
   // 9b. XUẤT FILE EXCEL CHUẨN MẪU ĐÓNG TẬP (EXCEL-MAUNHAP.xlsx)
-  const handleExportExcelMauNhap = (customRows?: any[]) => {
-    const rows: string[] = [];
+  const handleExportExcelMauNhap = async (customRows?: any[]) => {
+    const rows: any[][] = [];
 
     if (customRows && Array.isArray(customRows) && customRows.length > 0) {
       customRows.forEach((r) => {
@@ -1863,6 +1882,8 @@ export default function DashboardPage() {
         const thonM = String(edits[4] ?? r[4] ?? decl.thon_xa ?? '').trim();
         const diaChi = thonM ? (thonM.toLowerCase().includes('cư pui') ? thonM : `${thonM}, Cư Pui`) : 'Xã Cư Pui';
         const chuHo = String(edits[5] ?? r[5] ?? decl.chu_dat_ten ?? decl.chu_ho ?? '').trim();
+        const dob = String(edits[6] ?? r[6] ?? decl.chu_dat_nam_sinh ?? decl.chu_dat_ngay_sinh ?? '').trim();
+        const gender = String(edits[7] ?? r[7] ?? decl.chu_dat_gioi_tinh ?? 'Nam').trim();
         const rawCccd = String(edits[8] ?? r[8] ?? decl.chu_dat_cccd ?? decl.cccd ?? '').replace(/^="|"$/g, '').trim();
         const cccd = cleanCccd(rawCccd);
         const dt = String(edits[9] ?? r[9] ?? decl.dien_tich ?? '0').trim();
@@ -1870,36 +1891,35 @@ export default function DashboardPage() {
         const ghiChu = String(edits[11] ?? r[11] ?? decl.ghi_chu ?? decl.nguon_goc_su_dung ?? 'Khai hoang').trim();
 
         rows.push([
-          `"${toThua}"`,
-          `"${diaChi.replace(/"/g, '""')}"`,
-          `"${chuHo.replace(/"/g, '""')}"`,
-          '""',
-          '""',
-          `"${cccd ? `'${cccd}` : ''}"`,
-          `"${loaiDat}"`,
-          dt,
-          `"${ghiChu.replace(/"/g, '""')}"`,
-        ].join(','));
+          toThua,
+          diaChi,
+          chuHo,
+          dob,
+          gender,
+          cccd,
+          loaiDat,
+          Number(dt) || dt,
+          ghiChu,
+        ]);
 
         if (decl.thua_kem_theo && Array.isArray(decl.thua_kem_theo)) {
           decl.thua_kem_theo.forEach((ap: any) => {
             const apToThua = `${ap.to_ban_do}_${ap.so_thua}`;
             rows.push([
-              `"${apToThua}"`,
-              `"${diaChi.replace(/"/g, '""')}"`,
-              `"${chuHo.replace(/"/g, '""')}"`,
-              '""',
-              '""',
-              `"${cccd ? `'${cccd}` : ''}"`,
-              `"${ap.loai_dat || 'CLN'}"`,
-              ap.dien_tich || '0',
-              `"${ap.nguon_goc || 'Khai hoang'}"`,
-            ].join(','));
+              apToThua,
+              diaChi,
+              chuHo,
+              dob,
+              gender,
+              cccd,
+              ap.loai_dat || 'CLN',
+              Number(ap.dien_tich) || ap.dien_tich || 0,
+              ap.nguon_goc || 'Khai hoang',
+            ]);
           });
         }
       });
     } else {
-      // Thu thập tất cả các thửa đã kê khai hoặc các thửa đang được tích chọn
       let targetParcels = computedParcels.filter(
         (p) =>
           declaredParcelCodes.has(p.ma_thua) ||
@@ -1919,38 +1939,38 @@ export default function DashboardPage() {
       targetParcels.forEach((p) => {
         const decl = declarationsMap[p.ma_thua] || {};
         const chuHo = decl.chu_dat_ten || p.chu_ho || '';
-        const cccd = decl.chu_dat_cccd || p.cccd || '';
+        const cccd = cleanCccd(decl.chu_dat_cccd || p.cccd || '');
         const diaChi = decl.chu_dat_dia_chi || (p.thon_xa ? `${p.thon_xa}, Cư Pui` : 'Xã Cư Pui');
+        const dob = decl.chu_dat_ngay_sinh || (p as any).ngay_sinh || decl.chu_dat_nam_sinh || '';
+        const gender = decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam';
 
-        // 1. Dòng cho thửa chính theo chuẩn 9 cột EXCEL-MAUNHAP.xlsx
         const toThua = `${p.to_ban_do}_${p.so_thua}`;
         rows.push([
-          `"${toThua}"`,
-          `"${diaChi.replace(/"/g, '""')}"`,
-          `"${chuHo.replace(/"/g, '""')}"`,
-          '""',
-          '""',
-          `"${cccd ? `'${cccd}` : ''}"`,
-          `"${p.loai_dat || 'ONT'}"`,
-          p.dien_tich || '0',
-          `"${decl.ghi_chu ? decl.ghi_chu.replace(/"/g, '""') : 'Khai hoang'}"`,
-        ].join(','));
+          toThua,
+          diaChi,
+          chuHo,
+          dob,
+          gender,
+          cccd,
+          p.loai_dat || 'ONT',
+          Number(p.dien_tich) || p.dien_tich || 0,
+          decl.ghi_chu || 'Khai hoang',
+        ]);
 
-        // 2. Dòng cho các thửa gộp kèm theo (nếu người đó kê khai nhiều thửa)
         if (decl.thua_kem_theo && Array.isArray(decl.thua_kem_theo)) {
           decl.thua_kem_theo.forEach((ap: any) => {
             const apToThua = `${ap.to_ban_do}_${ap.so_thua}`;
             rows.push([
-              `"${apToThua}"`,
-              `"${diaChi.replace(/"/g, '""')}"`,
-              `"${chuHo.replace(/"/g, '""')}"`,
-              '""',
-              '""',
-              `"${cccd ? `'${cccd}` : ''}"`,
-              `"${ap.loai_dat || 'CLN'}"`,
-              ap.dien_tich || '0',
-              `"${ap.nguon_goc || 'Khai hoang'}"`,
-            ].join(','));
+              apToThua,
+              diaChi,
+              chuHo,
+              dob,
+              gender,
+              cccd,
+              ap.loai_dat || 'CLN',
+              Number(ap.dien_tich) || ap.dien_tich || 0,
+              ap.nguon_goc || 'Khai hoang',
+            ]);
           });
         }
       });
@@ -1961,20 +1981,15 @@ export default function DashboardPage() {
       return;
     }
 
-    const csvContent = '\uFEFF' + rows.join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `EXCEL-MAUNHAP_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    await exportToExcelXlsx(
+      rows,
+      `EXCEL-MAUNHAP_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      'MAUNHAP'
+    );
   };
 
-  // 9c. XUẤT FILE 57 CỘT CHUẨN NHẬP GOOGLE SHEETS TRỰC TIẾP TỪ WEB (EXCEL-MAUNHAP_57COT)
-  const handleExport57Cot = (customRows?: any[]) => {
+  // 9c. XUẤT FILE 57 CỘT CHUẨN NHẬP GOOGLE SHEETS TRỰC TIẾP TỪ WEB (EXCEL-MAUNHAP_57COT.xlsx)
+  const handleExport57Cot = async (customRows?: any[]) => {
     const headers_57 = [
       'Mã Xã', 'Mã GCN', 'Số seri', 'Số vào sổ', 'Ngày cấp', 'Người ký',
       'Chủ sử dụng', 'Ngày sinh', 'Giới tính', 'Số CCCD', 'Địa chỉ thường trú', 'Đối tượng', 'Chủ hộ',
@@ -1987,7 +2002,7 @@ export default function DashboardPage() {
       'Tranh chấp', 'Quyền hạn chế', 'Ghi chú nội bộ'
     ];
 
-    const rows: string[] = [];
+    const rows: any[][] = [];
 
     if (customRows && Array.isArray(customRows) && customRows.length > 0) {
       customRows.forEach((r) => {
@@ -2024,23 +2039,23 @@ export default function DashboardPage() {
         const colArray = new Array(57).fill('');
         colArray[0] = '24478';
         colArray[1] = maGcn;
-        colArray[6] = cleanTen;
+        colArray[6] = cleanName;
         colArray[7] = dobM;
         colArray[8] = genderM;
-        colArray[9] = cleanCccdVal ? `="${cleanCccdVal}"` : '';
+        colArray[9] = cleanCccdVal;
         colArray[10] = addr;
         colArray[11] = subjType;
         colArray[12] = subjType;
         colArray[20] = toM;
         colArray[21] = thuaM;
         colArray[22] = addr;
-        colArray[23] = dtM;
+        colArray[23] = Number(dtM) || dtM;
         colArray[24] = loaiDatM;
-        colArray[25] = dtM;
+        colArray[25] = Number(dtM) || dtM;
         colArray[26] = originM;
         colArray[48] = fileName;
 
-        rows.push(colArray.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','));
+        rows.push(colArray);
 
         if (decl.thua_kem_theo && Array.isArray(decl.thua_kem_theo)) {
           decl.thua_kem_theo.forEach((ap: any) => {
@@ -2054,23 +2069,23 @@ export default function DashboardPage() {
             const apCol = new Array(57).fill('');
             apCol[0] = '24478';
             apCol[1] = apMaGcn;
-            apCol[6] = cleanTen;
+            apCol[6] = cleanName;
             apCol[7] = dobM;
             apCol[8] = genderM;
-            apCol[9] = cleanCccdVal ? `="${cleanCccdVal}"` : '';
+            apCol[9] = cleanCccdVal;
             apCol[10] = addr;
             apCol[11] = subjType;
             apCol[12] = subjType;
             apCol[20] = apTo;
             apCol[21] = apThua;
             apCol[22] = addr;
-            apCol[23] = apDt;
+            apCol[23] = Number(apDt) || apDt;
             apCol[24] = apLoai;
-            apCol[25] = apDt;
+            apCol[25] = Number(apDt) || apDt;
             apCol[26] = apNguonGoc;
             apCol[48] = fileName;
 
-            rows.push(apCol.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','));
+            rows.push(apCol);
           });
         }
       });
@@ -2116,20 +2131,20 @@ export default function DashboardPage() {
         colArray[6] = cleanName;
         colArray[7] = dob;
         colArray[8] = gender;
-        colArray[9] = cccd ? `="${cccd}"` : '';
+        colArray[9] = cccd;
         colArray[10] = addr;
         colArray[11] = subjType;
         colArray[12] = subjType;
         colArray[20] = toM;
         colArray[21] = thuaM;
         colArray[22] = addr;
-        colArray[23] = dt;
+        colArray[23] = Number(dt) || dt;
         colArray[24] = loaiDat;
-        colArray[25] = dt;
+        colArray[25] = Number(dt) || dt;
         colArray[26] = origin;
         colArray[48] = fileName;
 
-        rows.push(colArray.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','));
+        rows.push(colArray);
 
         if (decl.thua_kem_theo && Array.isArray(decl.thua_kem_theo)) {
           decl.thua_kem_theo.forEach((ap: any) => {
@@ -2146,20 +2161,20 @@ export default function DashboardPage() {
             apCol[6] = cleanName;
             apCol[7] = dob;
             apCol[8] = gender;
-            apCol[9] = cccd ? `="${cccd}"` : '';
+            apCol[9] = cccd;
             apCol[10] = addr;
             apCol[11] = subjType;
             apCol[12] = subjType;
             apCol[20] = apTo;
             apCol[21] = apThua;
             apCol[22] = addr;
-            apCol[23] = apDt;
+            apCol[23] = Number(apDt) || apDt;
             apCol[24] = apLoai;
-            apCol[25] = apDt;
+            apCol[25] = Number(apDt) || apDt;
             apCol[26] = apNguonGoc;
             apCol[48] = fileName;
 
-            rows.push(apCol.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','));
+            rows.push(apCol);
           });
         }
       });
@@ -2170,46 +2185,24 @@ export default function DashboardPage() {
       return;
     }
 
-    const csvContent = '\uFEFF' + [headers_57.map((h) => `"${h}"`).join(','), ...rows].join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `EXCEL-MAUNHAP_57COT_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    await exportToExcelXlsx(
+      [headers_57, ...rows],
+      `EXCEL-MAUNHAP_57COT_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      '57COT'
+    );
   };
 
-  
-
-
-
-  // Xuất file Excel / CSV cho bảng báo cáo đang xem
-  const handleExportReportSheet = (sheetName: string) => {
+  // Xuất file Excel (.xlsx) cho bảng báo cáo đang xem
+  const handleExportReportSheet = async (sheetName: string) => {
     const rows = syncSheetsData?.[sheetName] || (sheetName === 'CHỜ NHẬP' ? syncSheetsData?.['NHẬP GGS'] : undefined);
-    if (!rows) return;
-    const csvContent =
-      '\uFEFF' +
-      rows
-        .map((row) =>
-          row
-            .map((cell) => `"${String(cell || '').replace(/"/g, '""')}"`)
-            .join(',')
-        )
-        .join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
+    if (!rows || rows.length === 0) return;
     const dateStr = new Date().toISOString().slice(0, 10);
     const safeName = sheetName.replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1E00-\u1EFF]/g, '_');
-    link.download = `BAO_CAO_${safeName}_${dateStr}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    await exportToExcelXlsx(
+      rows,
+      `BAO_CAO_${safeName}_${dateStr}.xlsx`,
+      sheetName
+    );
   };
 
   // Xuất Báo Cáo Thống Kê Tiến Độ Toàn Xã & DS Cần Thu Thập CCCD Theo Từng Thôn Buôn
@@ -2662,8 +2655,8 @@ export default function DashboardPage() {
     setIsImageViewerOpen(true);
   };
 
-  // 15. Xuất file CSV toàn bộ danh sách đang lọc
-  const handleExportCsv = () => {
+  // 15. Xuất file Excel (.xlsx) toàn bộ danh sách đang lọc
+  const handleExportCsv = async () => {
     const headers = [
       'STT',
       'Số Thửa',
@@ -2689,30 +2682,25 @@ export default function DashboardPage() {
 
       return [
         idx + 1,
-        `"${p.so_thua || ''}"`,
-        `"${p.to_ban_do || ''}"`,
-        `"${(p.thon_xa || '').replace(/"/g, '""')}"`,
-        `"${(p.chu_ho || '').replace(/"/g, '""')}"`,
-        `"${p.cccd ? `'${p.cccd}` : ''}"`,
-        `"${p.loai_dat || ''}"`,
-        p.dien_tich || '0',
-        `"${statusText}"`,
+        p.so_thua || '',
+        p.to_ban_do || '',
+        p.thon_xa || '',
+        p.chu_ho || '',
+        p.cccd ? cleanCccd(p.cccd) : '',
+        p.loai_dat || '',
+        Number(p.dien_tich) || p.dien_tich || 0,
+        statusText,
         p.lat || '',
         p.lng || '',
-        `"${p.gmap_link || ''}"`,
-      ].join(',');
+        p.gmap_link || '',
+      ];
     });
 
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Bao_cao_dia_chinh_Cu_Pui_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    await exportToExcelXlsx(
+      [headers, ...rows],
+      `Bao_cao_dia_chinh_Cu_Pui_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      'BaoCaoDiaChinh'
+    );
   };
 
   const isLight = theme === 'light';
