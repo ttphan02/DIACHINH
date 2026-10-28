@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import JSZip from 'jszip';
 import {
   FileText,
   RefreshCw,
@@ -70,6 +69,8 @@ export default function ScanFileManagerTab({
     setFeedbackMessage({ type: 'success', text: `Đang bắt đầu tải và đóng gói ${files.length} file scan vào file ZIP...` });
 
     try {
+      const JSZipModule = await import('jszip');
+      const JSZip = (JSZipModule as any).default || JSZipModule;
       const zip = new JSZip();
       const folder = zip.folder('filescan') || zip;
       let successCount = 0;
