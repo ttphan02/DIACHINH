@@ -16,20 +16,57 @@ const R2_PUBLIC_BASE =
 let scanCache: { data: any; timestamp: number } | null = null;
 const SCAN_CACHE_TTL = 8000;
 
+let cachedR2Bucket: any = null;
+
 async function getR2Binding(): Promise<any | null> {
+  if (cachedR2Bucket) return cachedR2Bucket;
+
+  // 1. globalThis.__CF_ENV__
+  if ((globalThis as any).__CF_ENV__?.DIACHINH_STORAGE) {
+    cachedR2Bucket = (globalThis as any).__CF_ENV__.DIACHINH_STORAGE;
+    return cachedR2Bucket;
+  }
+
+  // 2. OpenNext global Symbol
+  try {
+    const ctx = (globalThis as any)[Symbol.for('__cloudflare-context__')];
+    if (ctx?.env?.DIACHINH_STORAGE) {
+      cachedR2Bucket = ctx.env.DIACHINH_STORAGE;
+      (globalThis as any).__CF_ENV__ = ctx.env;
+      return cachedR2Bucket;
+    }
+  } catch {}
+
+  // 3. getCloudflareContext async
   try {
     const { env } = await getCloudflareContext({ async: true });
-    return (env as any)?.DIACHINH_STORAGE || null;
-  } catch {
-    return null;
-  }
+    if ((env as any)?.DIACHINH_STORAGE) {
+      cachedR2Bucket = (env as any).DIACHINH_STORAGE;
+      (globalThis as any).__CF_ENV__ = env;
+      return cachedR2Bucket;
+    }
+  } catch {}
+
+  // 4. getCloudflareContext sync
+  try {
+    const { env } = getCloudflareContext({ async: false });
+    if ((env as any)?.DIACHINH_STORAGE) {
+      cachedR2Bucket = (env as any).DIACHINH_STORAGE;
+      (globalThis as any).__CF_ENV__ = env;
+      return cachedR2Bucket;
+    }
+  } catch {}
+
+  return null;
 }
 
+let cachedS3Client: any = null;
 async function getS3Client(): Promise<any | null> {
+  if (cachedS3Client) return cachedS3Client;
   if (R2_ACCOUNT_ID && R2_ACCESS_KEY && R2_SECRET_KEY) {
     try {
       const { S3Client } = await import('@aws-sdk/client-s3');
-      return new S3Client({
+      cachedS3Client = new S3Client({
         region: 'auto',
         endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
         credentials: {
@@ -37,6 +74,7 @@ async function getS3Client(): Promise<any | null> {
           secretAccessKey: R2_SECRET_KEY,
         },
       });
+      return cachedS3Client;
     } catch (err) {
       console.warn('Lỗi khởi tạo S3Client SDK:', err);
     }

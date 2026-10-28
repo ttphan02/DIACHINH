@@ -49,65 +49,174 @@ export default function ScanFileManagerTab({
   const [deletingFile, setDeletingFile] = useState<ScanFileItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isZipping, setIsZipping] = useState(false);
-  const [zipProgress, setZipProgress] = useState<{ current: number; total: number } | null>(null);
+  const [zipProgress, setZipProgress] = useState<{
+    current: number;
+    total: number;
+    percent: number;
+    success: number;
+    failed: number;
+    mb: string;
+    statusText?: string;
+  } | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const isLight = theme === 'light';
 
-  // Tải về toàn bộ file scan dưới dạng file ZIP
-  const handleDownloadAllZip = async () => {
-    if (!files || files.length === 0) {
-      setFeedbackMessage({ type: 'error', text: 'Không có file scan nào trong kho để tải về!' });
+  // Helper tải 1 file có retry và fallback URL chống rớt mạng / 503
+  const fetchScanFileWithRetry = async (
+    file: ScanFileItem,
+    maxRetries = 3
+  ): Promise<ArrayBuffer | null> => {
+    const urls = [
+      file.url,
+      `/api/image/filescan/${encodeURIComponent(file.filename)}`,
+      `/api/image/scanhoso/${encodeURIComponent(file.filename)}`,
+    ].filter(Boolean) as string[];
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      for (const url of urls) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 18000); // 18s timeout per file
+          const res = await fetch(url, {
+            signal: controller.signal,
+            headers: { 'Cache-Control': 'no-cache' },
+          });
+          clearTimeout(timer);
+          if (res.ok) {
+            const buf = await res.arrayBuffer();
+            if (buf && buf.byteLength > 0) {
+              return buf;
+            }
+          }
+        } catch {
+          // Thử URL tiếp theo hoặc lần thử tiếp theo
+        }
+      }
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, 300 * attempt));
+      }
+    }
+    return null;
+  };
+
+  // Tải về file scan dưới dạng file ZIP (Tốc độ siêu nhanh, không sót file, song song 8 luồng, STORE compression)
+  const handleDownloadZip = async (targetList?: ScanFileItem[]) => {
+    const targetFiles = targetList || files;
+    if (!targetFiles || targetFiles.length === 0) {
+      setFeedbackMessage({ type: 'error', text: 'Không có file scan nào để tải về!' });
       return;
     }
 
-    const confirmDl = confirm(`Bạn có muốn tải về toàn bộ ${files.length} file scan dưới dạng 1 file ZIP nén không?`);
+    const isSubset = targetFiles.length < files.length;
+    const confirmDl = confirm(
+      isSubset
+        ? `Bạn có muốn tải về ${targetFiles.length} file scan đang lọc dưới dạng 1 file ZIP không?`
+        : `Bạn có muốn tải về toàn bộ ${targetFiles.length} file scan dưới dạng 1 file ZIP không?`
+    );
     if (!confirmDl) return;
 
     setIsZipping(true);
-    setZipProgress({ current: 0, total: files.length });
-    setFeedbackMessage({ type: 'success', text: `Đang bắt đầu tải và đóng gói ${files.length} file scan vào file ZIP...` });
+    setZipProgress({
+      current: 0,
+      total: targetFiles.length,
+      percent: 0,
+      success: 0,
+      failed: 0,
+      mb: '0.0',
+      statusText: `Khởi tạo kết nối song song 8 luồng tải ${targetFiles.length} file...`,
+    });
+    setFeedbackMessage({
+      type: 'success',
+      text: `Đang tải song song 8 luồng và đóng gói ${targetFiles.length} file scan vào file ZIP...`,
+    });
 
     try {
       const JSZipModule = await import('jszip');
       const JSZip = (JSZipModule as any).default || JSZipModule;
       const zip = new JSZip();
       const folder = zip.folder('filescan') || zip;
-      let successCount = 0;
 
-      // Tải song song theo batch 5 files một lúc để tối ưu tốc độ
-      const BATCH_SIZE = 5;
-      for (let i = 0; i < files.length; i += BATCH_SIZE) {
-        const batch = files.slice(i, i + BATCH_SIZE);
-        await Promise.all(
-          batch.map(async (file) => {
-            try {
-              const fileUrl = file.url || `/api/image/filescan/${encodeURIComponent(file.filename)}`;
-              const res = await fetch(fileUrl);
-              if (res.ok) {
-                const arrayBuffer = await res.arrayBuffer();
-                folder.file(file.filename, arrayBuffer);
-                successCount++;
-              }
-            } catch (err) {
-              console.warn(`Lỗi khi nạp file ${file.filename} vào ZIP:`, err);
-            }
-          })
-        );
-        setZipProgress({ current: Math.min(i + BATCH_SIZE, files.length), total: files.length });
+      let successCount = 0;
+      let totalBytes = 0;
+      let currentIndex = 0;
+      let completedCount = 0;
+      const failedItems: ScanFileItem[] = [];
+
+      const CONCURRENCY = 8; // 8 luồng tải song song tối ưu băng thông
+
+      const updateProgress = (statusText?: string) => {
+        const pct = Math.round((completedCount / targetFiles.length) * 100);
+        setZipProgress({
+          current: completedCount,
+          total: targetFiles.length,
+          percent: pct,
+          success: successCount,
+          failed: failedItems.length,
+          mb: (totalBytes / (1024 * 1024)).toFixed(1),
+          statusText: statusText || `Đang tải: ${completedCount}/${targetFiles.length} file (${pct}%) • ${(totalBytes / (1024 * 1024)).toFixed(1)} MB`,
+        });
+      };
+
+      // Vòng 1: Tải song song 8 worker
+      const worker = async () => {
+        while (currentIndex < targetFiles.length) {
+          const idx = currentIndex++;
+          const file = targetFiles[idx];
+          const buffer = await fetchScanFileWithRetry(file, 2);
+          if (buffer) {
+            folder.file(file.filename, buffer);
+            totalBytes += buffer.byteLength;
+            successCount++;
+          } else {
+            failedItems.push(file);
+          }
+          completedCount++;
+          updateProgress();
+        }
+      };
+
+      await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+
+      // Vòng 2: Tự động tải lại các file lỗi (nếu có) để đảm bảo 100% không sót file
+      if (failedItems.length > 0) {
+        updateProgress(`Đang tự động tải lại ${failedItems.length} file chưa hoàn tất...`);
+        const retryList = [...failedItems];
+        failedItems.length = 0;
+
+        for (const file of retryList) {
+          const buffer = await fetchScanFileWithRetry(file, 3);
+          if (buffer) {
+            folder.file(file.filename, buffer);
+            totalBytes += buffer.byteLength;
+            successCount++;
+          } else {
+            failedItems.push(file);
+          }
+          updateProgress();
+        }
       }
 
       if (successCount === 0) {
         throw new Error('Không thể tải được nội dung file scan nào từ máy chủ!');
       }
 
-      setFeedbackMessage({ type: 'success', text: 'Đang nén file ZIP, vui lòng đợi giây lát...' });
+      updateProgress('Đang hoàn tất đóng gói file ZIP...');
+      setFeedbackMessage({
+        type: 'success',
+        text: `Đang đóng gói file ZIP chứa ${successCount} file (${(totalBytes / (1024 * 1024)).toFixed(1)} MB)...`,
+      });
 
+      // SỬ DỤNG STORE: PDF vốn đã nén, nén STORE chỉ mất 0.2s thay vì 3-5 phút và không đơ CPU!
       const zipBlob = await zip.generateAsync(
         {
           type: 'blob',
-          compression: 'DEFLATE',
-          compressionOptions: { level: 6 },
+          compression: 'STORE',
+        },
+        (metadata: any) => {
+          if (metadata?.percent) {
+            updateProgress(`Đang tạo file ZIP: ${Math.round(metadata.percent)}%`);
+          }
         }
       );
 
@@ -119,12 +228,19 @@ export default function ScanFileManagerTab({
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(downloadUrl), 3000);
+      setTimeout(() => URL.revokeObjectURL(downloadUrl), 5000);
 
-      setFeedbackMessage({
-        type: 'success',
-        text: `Đã nén và tải về thành công file ZIP chứa ${successCount}/${files.length} file scan!`,
-      });
+      if (failedItems.length > 0) {
+        setFeedbackMessage({
+          type: 'error',
+          text: `Đã tải về ${successCount}/${targetFiles.length} file scan! Sót ${failedItems.length} file: ${failedItems.map(f => f.filename).slice(0, 5).join(', ')}${failedItems.length > 5 ? '...' : ''}`,
+        });
+      } else {
+        setFeedbackMessage({
+          type: 'success',
+          text: `Tuyệt vời! Đã nén và tải về trọn vẹn 100% (${successCount}/${targetFiles.length} file scan, ${(totalBytes / (1024 * 1024)).toFixed(1)} MB)!`,
+        });
+      }
     } catch (err: any) {
       console.error('Lỗi tạo file zip:', err);
       setFeedbackMessage({
@@ -137,6 +253,7 @@ export default function ScanFileManagerTab({
     }
   };
 
+  const handleDownloadAllZip = () => handleDownloadZip(files);
   // Tải danh sách file scan từ R2
   const loadScanFiles = useCallback(async () => {
     setIsLoading(true);
@@ -317,6 +434,19 @@ export default function ScanFileManagerTab({
 
         {/* Nút tác vụ */}
         <div className="flex flex-wrap items-center gap-2">
+          {searchQuery.trim() && filteredFiles.length < files.length && (
+            <button
+              type="button"
+              onClick={() => handleDownloadZip(filteredFiles)}
+              disabled={isLoading || isZipping || filteredFiles.length === 0}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white shadow-md shadow-teal-600/25 transition cursor-pointer"
+              title="Chỉ tải về các file scan khớp với kết quả tìm kiếm hiện tại"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Tải ZIP Đang Lọc ({filteredFiles.length})</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleDownloadAllZip}
@@ -328,7 +458,7 @@ export default function ScanFileManagerTab({
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 <span>
-                  Đang Nén ZIP ({zipProgress ? `${zipProgress.current}/${zipProgress.total}` : '...'})
+                  Đang Tải ZIP ({zipProgress ? `${zipProgress.current}/${zipProgress.total}` : '...'})
                 </span>
               </>
             ) : (
@@ -367,6 +497,40 @@ export default function ScanFileManagerTab({
           </button>
         </div>
       </div>
+
+      {/* Thanh tiến trình tải ZIP trực quan tốc độ cao */}
+      {isZipping && zipProgress && (
+        <div className={`p-4 rounded-2xl border shadow-md transition-all animate-in fade-in slide-in-from-top-2 duration-200 ${
+          isLight ? 'bg-emerald-50/90 border-emerald-300 text-slate-800' : 'bg-emerald-950/40 border-emerald-700/60 text-slate-100'
+        }`}>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold mb-2">
+            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+              <span className="truncate max-w-[280px] sm:max-w-md">{zipProgress.statusText || 'Đang tải file...'}</span>
+            </div>
+            <div className="text-slate-600 dark:text-slate-300 font-mono text-[11px] sm:text-xs">
+              <span className="font-black text-emerald-600 dark:text-emerald-400">{zipProgress.current}</span> / {zipProgress.total} file ({zipProgress.percent}%) • <span className="font-semibold">{zipProgress.mb} MB</span>
+            </div>
+          </div>
+          <div className="w-full bg-emerald-200/60 dark:bg-emerald-900/50 rounded-full h-3 overflow-hidden p-0.5">
+            <div
+              className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full rounded-full transition-all duration-150 ease-out shadow-sm"
+              style={{ width: `${Math.min(100, Math.max(2, zipProgress.percent))}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 mt-2">
+            <span className="flex items-center gap-1 text-emerald-700 dark:text-emerald-300 font-semibold">
+              🚀 Tải song song 8 luồng • Không nén lại PDF (STORE) để tăng tốc tức thì
+            </span>
+            <span>
+              Đã nạp: <strong className="text-emerald-600 dark:text-emerald-400 font-bold">{zipProgress.success}</strong>
+              {zipProgress.failed > 0 && (
+                <span className="text-rose-500 ml-2 font-bold">Chờ thử lại: {zipProgress.failed}</span>
+              )}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Thông báo Feedback */}
       {feedbackMessage && (
