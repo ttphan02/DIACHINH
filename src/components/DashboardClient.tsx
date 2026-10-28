@@ -1988,21 +1988,52 @@ export default function DashboardPage() {
     );
   };
 
-  // 9c. XUẤT FILE 57 CỘT CHUẨN NHẬP GOOGLE SHEETS TRỰC TIẾP TỪ WEB (EXCEL-MAUNHAP_57COT.xlsx)
+  // 9c. XUẤT FILE EXCEL 57 CỘT CHUẨN ĐỊA CHÍNH (EXCEL-MAUNHAP_57COT.xlsx)
   const handleExport57Cot = async (customRows?: any[]) => {
-    const headers_57 = [
-      'Mã Xã', 'Mã GCN', 'Số seri', 'Số vào sổ', 'Ngày cấp', 'Người ký',
-      'Chủ sử dụng', 'Ngày sinh', 'Giới tính', 'Số CCCD', 'Địa chỉ thường trú', 'Đối tượng', 'Chủ hộ',
-      'Vợ/Chồng', 'Ngày sinh vợ/chồng', 'CCCD vợ/chồng', 'Địa chỉ vợ/chồng', 'Năm sinh', 'Quốc tịch', 'Ghi chú pháp lý',
-      'Tờ BĐ', 'Thửa đất', 'Địa chỉ thửa đất', 'Diện tích', 'Loại đất', 'Diện tích giao', 'Nguồn gốc',
-      'Mục đích sử dụng', 'Thời hạn', 'Nguồn gốc SD', 'Hình thức SD', 'Thời điểm SD', 'Số nhà', 'Tên đường', 'Khu dân cư',
-      'Tọa độ X', 'Tọa độ Y', 'Giới hạn Đông', 'Giới hạn Tây', 'Giới hạn Nam', 'Giới hạn Bắc',
-      'Loại biến động', 'Ngày biến động', 'Nội dung biến động', 'Hồ sơ số', 'Cơ quan cấp', 'Cán bộ lập', 'Ngày lập',
-      'Tên file đính kèm', 'Mã hồ sơ tiếp nhận', 'Người nộp', 'SĐT người nộp', 'Trạng thái', 'Ghi chú quy hoạch',
-      'Tranh chấp', 'Quyền hạn chế', 'Ghi chú nội bộ'
-    ];
-
     const rows: any[][] = [];
+
+    // Helper chuẩn hóa ngày sinh chuẩn D/M/YYYY (hoặc 1/1/YYYY nếu chỉ có năm)
+    const formatDob57 = (dobVal: any) => {
+      if (!dobVal) return '';
+      const s = String(dobVal).trim();
+      const mIso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if (mIso) {
+        return `${parseInt(mIso[3], 10)}/${parseInt(mIso[2], 10)}/${mIso[1]}`;
+      }
+      const clean = s.replace(/-/g, '/').replace(/[^\d/]/g, '');
+      const parts = clean.split('/');
+      if (parts.length === 3) {
+        try {
+          return `${parseInt(parts[0], 10)}/${parseInt(parts[1], 10)}/${parts[2]}`;
+        } catch {
+          return clean;
+        }
+      }
+      if (parts.length === 1 && parts[0].length === 4) {
+        return `1/1/${parts[0]}`;
+      }
+      return s;
+    };
+
+    // Helper chuẩn hóa diện tích định dạng phẩy (ví dụ 595,57)
+    const formatArea57 = (areaVal: any) => {
+      if (areaVal === null || areaVal === undefined || String(areaVal).trim() === '') return '';
+      const s = String(areaVal).replace(/\s+/g, '').replace(',', '.');
+      const num = parseFloat(s);
+      if (isNaN(num)) return String(areaVal).trim();
+      return num.toFixed(2).replace('.', ',');
+    };
+
+    // Helper chuẩn hóa nguồn gốc sử dụng đất
+    const formatOrigin57 = (val: any) => {
+      if (!val) return 'Khai hoang';
+      const s = String(val).toLowerCase();
+      if (s.includes('thừa kế') || s.includes('thua ke')) return 'Nhận thừa kế';
+      if (s.includes('chuyển nhượng') || s.includes('chuyen nhuong')) return 'Nhận chuyển nhượng';
+      if (s.includes('tặng cho') || s.includes('tang cho')) return 'Tặng cho';
+      if (s.includes('khai hoang')) return 'Khai hoang';
+      return String(val).trim();
+    };
 
     if (customRows && Array.isArray(customRows) && customRows.length > 0) {
       customRows.forEach((r) => {
@@ -2021,7 +2052,7 @@ export default function DashboardPage() {
         const cleanCccdVal = cleanCccd(rawCccd);
         const dtM = String(edits[9] ?? r[9] ?? decl.dien_tich ?? '0').trim();
         const loaiDatM = String(edits[10] ?? r[10] ?? decl.loai_dat ?? 'ONT').trim().toUpperCase();
-        const originM = normalizeNguonGoc(String(edits[11] ?? r[11] ?? decl.nguon_goc_su_dung ?? decl.nguon_goc ?? 'Khai hoang').trim());
+        const originM = String(edits[11] ?? r[11] ?? decl.nguon_goc_su_dung ?? decl.nguon_goc ?? 'Khai hoang').trim();
 
         const scanCell = String(r[12] || '');
         const mFile = scanCell.match(/;\s*"([^"]+)"\)/) || scanCell.match(/"([^"]+\.pdf)"/i);
@@ -2030,18 +2061,28 @@ export default function DashboardPage() {
           fileName = `CHUACOGIAY_24478_${toM}_${thuaM}_DDK.pdf`;
         }
 
-        const isHo = /^(hộ ông|hộ bà|hộ)/i.test(nameM);
-        const cleanTen = nameM.replace(/^(hộ ông\s*:?|hộ bà\s*:?|hộ\s+|ông\s*:?|bà\s*:?)/i, '').trim();
+        const isHo = /^(hộ\s+ông|hộ\s+bà|hộ)/i.test(nameM);
         const subjType = isHo ? 'Hộ gia đình' : 'Cá nhân';
-        const addr = thonM ? (thonM.toLowerCase().includes('cư pui') ? thonM : `${thonM}, xã Cư Pui`) : 'xã Cư Pui';
+        const chuSuDung = cleanName(nameM);
+        const dob = formatDob57(dobM);
+        const gender = genderM.toLowerCase().includes('nữ') ? 'Nữ' : 'Nam';
+        const area = formatArea57(dtM);
+        const origin = formatOrigin57(originM);
+
+        let addr = thonM;
+        if (addr && !addr.toLowerCase().includes('cư pui')) {
+          addr = `${addr}, xã Cư Pui`;
+        } else if (!addr) {
+          addr = 'xã Cư Pui';
+        }
         const maGcn = `CHUACOGIAY_24478_${toM}_${thuaM}`;
 
         const colArray = new Array(57).fill('');
         colArray[0] = '24478';
         colArray[1] = maGcn;
-        colArray[6] = cleanName;
-        colArray[7] = dobM;
-        colArray[8] = genderM;
+        colArray[6] = chuSuDung;
+        colArray[7] = dob;
+        colArray[8] = gender;
         colArray[9] = cleanCccdVal;
         colArray[10] = addr;
         colArray[11] = subjType;
@@ -2049,10 +2090,10 @@ export default function DashboardPage() {
         colArray[20] = toM;
         colArray[21] = thuaM;
         colArray[22] = addr;
-        colArray[23] = Number(dtM) || dtM;
+        colArray[23] = area;
         colArray[24] = loaiDatM;
-        colArray[25] = Number(dtM) || dtM;
-        colArray[26] = originM;
+        colArray[25] = area;
+        colArray[26] = origin;
         colArray[48] = fileName;
 
         rows.push(colArray);
@@ -2063,15 +2104,15 @@ export default function DashboardPage() {
             const apThua = String(ap.so_thua || '');
             const apDt = String(ap.dien_tich || '0');
             const apLoai = String(ap.loai_dat || 'CLN').toUpperCase();
-            const apNguonGoc = normalizeNguonGoc(String(ap.nguon_goc || originM));
+            const apNguonGoc = formatOrigin57(ap.nguon_goc || originM);
             const apMaGcn = `CHUACOGIAY_24478_${apTo}_${apThua}`;
 
             const apCol = new Array(57).fill('');
             apCol[0] = '24478';
             apCol[1] = apMaGcn;
-            apCol[6] = cleanName;
-            apCol[7] = dobM;
-            apCol[8] = genderM;
+            apCol[6] = chuSuDung;
+            apCol[7] = dob;
+            apCol[8] = gender;
             apCol[9] = cleanCccdVal;
             apCol[10] = addr;
             apCol[11] = subjType;
@@ -2079,9 +2120,9 @@ export default function DashboardPage() {
             apCol[20] = apTo;
             apCol[21] = apThua;
             apCol[22] = addr;
-            apCol[23] = Number(apDt) || apDt;
+            apCol[23] = formatArea57(apDt);
             apCol[24] = apLoai;
-            apCol[25] = Number(apDt) || apDt;
+            apCol[25] = formatArea57(apDt);
             apCol[26] = apNguonGoc;
             apCol[48] = fileName;
 
@@ -2102,25 +2143,25 @@ export default function DashboardPage() {
       }
 
       if (targetParcels.length === 0) {
-        alert('Chưa có thửa đất nào được chọn hoặc đã kê khai để xuất 57 cột nhập GGS.');
+        alert('Chưa có thửa đất nào được chọn hoặc đã kê khai để xuất 57 cột.');
         return;
       }
 
       targetParcels.forEach((p) => {
         const decl = declarationsMap[p.ma_thua] || {};
-        const toM = p.to_ban_do || '';
-        const thuaM = p.so_thua || '';
+        const toM = String(p.to_ban_do || '');
+        const thuaM = String(p.so_thua || '');
         let addr = decl.chu_dat_dia_chi || (p.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'xã Cư Pui');
         let name = decl.chu_dat_ten || p.chu_ho || '';
         let cccd = cleanCccd(decl.chu_dat_cccd || p.cccd || '');
-        let dob = decl.chu_dat_ngay_sinh || (p as any).ngay_sinh || decl.chu_dat_nam_sinh || '';
-        let gender = decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam';
+        let dob = formatDob57(decl.chu_dat_ngay_sinh || (p as any).ngay_sinh || decl.chu_dat_nam_sinh || '');
+        let gender = (decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam').toLowerCase().includes('nữ') ? 'Nữ' : 'Nam';
         let loaiDat = (decl.loai_dat || p.loai_dat || 'ONT').toUpperCase();
-        let dt = p.dien_tich || '0';
-        let origin = decl.nguon_goc || 'Khai hoang';
+        let area = formatArea57(p.dien_tich || '0');
+        let origin = formatOrigin57(decl.nguon_goc || 'Khai hoang');
 
-        const isHo = /^(hộ ông|hộ bà|hộ)/i.test(name);
-        const cleanName = name.replace(/^(hộ ông\s*:?|hộ bà\s*:?|hộ\s+|ông\s*:?|bà\s*:?)/i, '').trim();
+        const isHo = /^(hộ\s+ông|hộ\s+bà|hộ)/i.test(name);
+        const cleanChuSuDung = cleanName(name);
         const subjType = isHo ? 'Hộ gia đình' : 'Cá nhân';
         const maGcn = `CHUACOGIAY_24478_${toM}_${thuaM}`;
         const fileName = `CHUACOGIAY_24478_${toM}_${thuaM}_DDK.pdf`;
@@ -2128,7 +2169,7 @@ export default function DashboardPage() {
         const colArray = new Array(57).fill('');
         colArray[0] = '24478';
         colArray[1] = maGcn;
-        colArray[6] = cleanName;
+        colArray[6] = cleanChuSuDung;
         colArray[7] = dob;
         colArray[8] = gender;
         colArray[9] = cccd;
@@ -2138,9 +2179,9 @@ export default function DashboardPage() {
         colArray[20] = toM;
         colArray[21] = thuaM;
         colArray[22] = addr;
-        colArray[23] = Number(dt) || dt;
+        colArray[23] = area;
         colArray[24] = loaiDat;
-        colArray[25] = Number(dt) || dt;
+        colArray[25] = area;
         colArray[26] = origin;
         colArray[48] = fileName;
 
@@ -2152,13 +2193,13 @@ export default function DashboardPage() {
             const apThua = String(ap.so_thua || '');
             const apDt = String(ap.dien_tich || '0');
             const apLoai = String(ap.loai_dat || 'CLN').toUpperCase();
-            const apNguonGoc = normalizeNguonGoc(String(ap.nguon_goc || origin));
+            const apNguonGoc = formatOrigin57(ap.nguon_goc || origin);
             const apMaGcn = `CHUACOGIAY_24478_${apTo}_${apThua}`;
 
             const apCol = new Array(57).fill('');
             apCol[0] = '24478';
             apCol[1] = apMaGcn;
-            apCol[6] = cleanName;
+            apCol[6] = cleanChuSuDung;
             apCol[7] = dob;
             apCol[8] = gender;
             apCol[9] = cccd;
@@ -2168,9 +2209,9 @@ export default function DashboardPage() {
             apCol[20] = apTo;
             apCol[21] = apThua;
             apCol[22] = addr;
-            apCol[23] = Number(apDt) || apDt;
+            apCol[23] = formatArea57(apDt);
             apCol[24] = apLoai;
-            apCol[25] = Number(apDt) || apDt;
+            apCol[25] = formatArea57(apDt);
             apCol[26] = apNguonGoc;
             apCol[48] = fileName;
 
@@ -2185,11 +2226,40 @@ export default function DashboardPage() {
       return;
     }
 
-    await exportToExcelXlsx(
-      [headers_57, ...rows],
-      `EXCEL-MAUNHAP_57COT_${new Date().toISOString().slice(0, 10)}.xlsx`,
-      '57COT'
-    );
+    try {
+      const XLSX = await import('xlsx');
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+
+      // Đặt định dạng ô chuẩn TEXT (@) cho các cột mã xã, mã GCN, CCCD, tờ, thửa
+      for (let R = 0; R < rows.length; ++R) {
+        const c0 = XLSX.utils.encode_cell({ r: R, c: 0 });
+        if (ws[c0]) { ws[c0].t = 's'; ws[c0].z = '@'; }
+        const c1 = XLSX.utils.encode_cell({ r: R, c: 1 });
+        if (ws[c1]) { ws[c1].t = 's'; ws[c1].z = '@'; }
+        const c9 = XLSX.utils.encode_cell({ r: R, c: 9 });
+        if (ws[c9]) { ws[c9].t = 's'; ws[c9].z = '@'; }
+        const c20 = XLSX.utils.encode_cell({ r: R, c: 20 });
+        if (ws[c20]) { ws[c20].t = 's'; ws[c20].z = '@'; }
+        const c21 = XLSX.utils.encode_cell({ r: R, c: 21 });
+        if (ws[c21]) { ws[c21].t = 's'; ws[c21].z = '@'; }
+      }
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'DuLieuDiaChinh');
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'EXCEL-MAUNHAP_57COT.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('Lỗi khi xuất file EXCEL-MAUNHAP_57COT.xlsx:', err);
+      alert('Có lỗi khi tạo file Excel: ' + (err?.message || err));
+    }
   };
 
   // Xuất file Excel (.xlsx) cho bảng báo cáo đang xem
