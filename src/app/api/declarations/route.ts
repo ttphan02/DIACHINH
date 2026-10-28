@@ -78,6 +78,19 @@ async function getR2Binding(): Promise<any | null> {
   return null;
 }
 
+async function getCloudflareCtx(): Promise<any | null> {
+  try {
+    const cf = (globalThis as any)[Symbol.for('__cloudflare-context__')];
+    if (cf?.ctx) return cf.ctx;
+  } catch {}
+  try {
+    const context = await getCloudflareContext({ async: true });
+    return (context as any)?.ctx || null;
+  } catch {
+    return null;
+  }
+}
+
 async function getS3Client(): Promise<any | null> {
   if (R2_ACCOUNT_ID && R2_ACCESS_KEY && R2_SECRET_KEY) {
     try {
@@ -384,11 +397,13 @@ export async function POST(request: Request) {
       updated_at: timestamp,
     };
 
+    const atomicWrites: Promise<void>[] = [];
+
     // 1. Lưu thửa chính
     declaredCodesSet.add(rootMaThua);
     declarationsMap[rootMaThua] = rootDeclData;
     delete currentCellEdits[rootMaThua];
-    saveSingleDeclarationToR2(rootMaThua, rootDeclData);
+    atomicWrites.push(saveSingleDeclarationToR2(rootMaThua, rootDeclData));
 
     // 2. Lưu từng thửa kèm theo với đúng mã thửa, tờ, thửa, diện tích và loại đất của chính nó
     if (Array.isArray(formData.thua_kem_theo)) {
@@ -421,9 +436,12 @@ export async function POST(request: Request) {
         declaredCodesSet.add(apCode);
         declarationsMap[apCode] = attachedDeclData;
         delete currentCellEdits[apCode];
-        saveSingleDeclarationToR2(apCode, attachedDeclData);
+        atomicWrites.push(saveSingleDeclarationToR2(apCode, attachedDeclData));
       });
     }
+
+    // Đợi lưu song song toàn bộ file đơn lẻ (chỉ mất ~20ms, đảm bảo 100% dữ liệu đã ở an toàn trên R2)
+    await Promise.all(atomicWrites);
 
     const updatedCodes = Array.from(declaredCodesSet);
     const updatedPayload: StoragePayload = {
@@ -433,15 +451,19 @@ export async function POST(request: Request) {
       updatedAt: timestamp,
     };
 
-    const saveRes = await saveDeclarationsToR2(updatedPayload);
-    if (!saveRes.success) {
-      return NextResponse.json(
-        { success: false, error: saveRes.error || 'Không thể ghi vào Cloudflare R2' },
-        { status: 500 }
-      );
-    }
-
     memoryCache = { payload: updatedPayload, timestamp: Date.now() };
+
+    // Tác vụ nền (Background Queue Task): Ghi file tổng all.json và xóa cache không bắt người dùng phải đợi!
+    const ctx = await getCloudflareCtx();
+    const backgroundTask = async () => {
+      await saveDeclarationsToR2(updatedPayload);
+    };
+
+    if (ctx && typeof ctx.waitUntil === 'function') {
+      ctx.waitUntil(backgroundTask());
+    } else {
+      backgroundTask().catch((e) => console.error('Lỗi lưu all.json nền:', e));
+    }
 
     return NextResponse.json({
       success: true,

@@ -50,7 +50,7 @@ async function getDeclarationsMap(): Promise<Record<string, any>> {
 const KEY_SYNC_CACHE = 'cache/sync_sheets.json';
 let cachedSyncResult: any = null;
 let lastSyncTime = 0;
-const SYNC_CACHE_TTL = 10 * 60 * 1000; // 10 phút (tránh quá tải CPU Worker gây lỗi 1102 khi F5/chuyển tab)
+const SYNC_CACHE_TTL = 15 * 1000; // 15 giây (cho phép dữ liệu kê khai phản ánh realtime nhanh chóng)
 
 export async function GET(req: Request) {
   const url = new URL(req.url);

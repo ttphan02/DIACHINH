@@ -41,6 +41,9 @@ import {
   Users,
   UserCheck,
   Headphones,
+  Cloud,
+  CloudOff,
+  CheckCircle2,
 } from 'lucide-react';
 
 // Dynamic import Leaflet Map (SSR disabled)
@@ -170,6 +173,7 @@ export default function Home() {
   const [isGgsLoaded, setIsGgsLoaded] = useState(false);
   const [isSyncingGgs, setIsSyncingGgs] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [pendingCount, setPendingCount] = useState<number>(0);
 
   // Danh sách các thửa đã kê khai trên hệ thống (lưu trong localStorage để bền vững)
   const [declaredParcelCodes, setDeclaredParcelCodes] = useState<Set<string>>(new Set());
@@ -296,11 +300,13 @@ export default function Home() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ batch: pendingItems }),
+        keepalive: true,
       });
       if (res.ok) {
         const result = (await res.json()) as any;
         if (result && result.success) {
           clearPendingDeclarations(pendingItems.map((item) => item.ma_thua));
+          setPendingCount(Object.keys(getPendingDeclarations()).length);
           setPickToast(`✓ Đã tự động đồng bộ ${pendingItems.length} thửa lên máy chủ thành công`);
           setTimeout(() => setPickToast(null), 3000);
           console.log(`✓ Đã tự động đồng bộ ngầm ${pendingItems.length} thửa lên Cloudflare R2.`);
@@ -310,6 +316,7 @@ export default function Home() {
       console.warn('Lỗi đồng bộ ngầm pending declarations:', err);
     } finally {
       isFlushingPendingRef.current = false;
+      setPendingCount(Object.keys(getPendingDeclarations()).length);
     }
   }, []);
 
@@ -467,10 +474,26 @@ export default function Home() {
     const declInterval = setInterval(() => {
       fetchCloudDeclarations();
       flushPendingDeclarations();
+      setPendingCount(Object.keys(getPendingDeclarations()).length);
     }, 12000);
 
+    // Cảnh báo người dùng nếu còn phiếu pending chưa gửi lên mây mà định đóng trình duyệt
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      const pendingMap = getPendingDeclarations();
+      const count = Object.keys(pendingMap).length;
+      if (count > 0) {
+        e.preventDefault();
+        e.returnValue = `Còn ${count} phiếu kê khai đang chờ đồng bộ lên máy chủ. Bạn có chắc chắn muốn đóng trình duyệt?`;
+        return e.returnValue;
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+
     // Đồng bộ ngay lập tức khi người dùng chuyển tab hoặc mở màn hình điện thoại lên
-    const onInstantSync = () => fetchCloudDeclarations();
+    const onInstantSync = () => {
+      fetchCloudDeclarations();
+      setPendingCount(Object.keys(getPendingDeclarations()).length);
+    };
     window.addEventListener('focus', onInstantSync);
     document.addEventListener('visibilitychange', onInstantSync);
 
@@ -548,6 +571,7 @@ export default function Home() {
       window.removeEventListener('focus', onInstantSync);
       document.removeEventListener('visibilitychange', onInstantSync);
       window.removeEventListener('online', onOnlineReconnect);
+      window.removeEventListener('beforeunload', onBeforeUnload);
     };
   }, [fetchGgsCodes, fetchCloudDeclarations]);
 
@@ -1034,6 +1058,7 @@ export default function Home() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(formData),
+            keepalive: true,
           });
 
           if (res.ok) {
@@ -1044,6 +1069,7 @@ export default function Home() {
                 if (ap?.ma_thua) removePendingDeclaration(ap.ma_thua);
               });
             }
+            setPendingCount(Object.keys(getPendingDeclarations()).length);
 
             if (result.success && Array.isArray(result.declaredCodes)) {
               setDeclaredParcelCodes((prev) => {
@@ -1374,6 +1400,35 @@ export default function Home() {
                   />
                   <span className="hidden sm:inline">GGS Live</span>
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                </button>
+
+                {/* Nút chỉ báo hàng đợi Cloudflare Queues / Trạng thái đồng bộ máy chủ */}
+                <button
+                  type="button"
+                  onClick={() => flushPendingDeclarations()}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold transition text-xs shrink-0 cursor-pointer ${
+                    pendingCount > 0
+                      ? 'bg-amber-600/90 hover:bg-amber-500 text-white border border-amber-300 shadow-md animate-pulse'
+                      : 'bg-slate-900/90 hover:bg-slate-800 text-emerald-300 border border-emerald-500/30'
+                  }`}
+                  title={
+                    pendingCount > 0
+                      ? `Có ${pendingCount} phiếu trong hàng đợi chờ gửi lên Cloud. Bấm để gửi ngay!`
+                      : 'Toàn bộ phiếu kê khai đã đồng bộ an toàn 100% lên Cloudflare R2'
+                  }
+                >
+                  {pendingCount > 0 ? (
+                    <>
+                      <CloudOff className="w-3.5 h-3.5 text-amber-200" />
+                      <span>{pendingCount} chờ gửi</span>
+                    </>
+                  ) : (
+                    <>
+                      <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="hidden sm:inline">Cloud OK</span>
+                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                    </>
+                  )}
                 </button>
               </div>
 

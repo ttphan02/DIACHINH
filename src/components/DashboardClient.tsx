@@ -524,6 +524,10 @@ export default function DashboardPage() {
         } else {
           setDeclaredParcelCodes((prev) => new Set([...prev, targetMaThua]));
         }
+        if (realtimeReloadTimeoutRef.current) clearTimeout(realtimeReloadTimeoutRef.current);
+        realtimeReloadTimeoutRef.current = setTimeout(() => {
+          fetchSyncSheetsReportRef.current?.(true);
+        }, 350);
       } else if (event.type === 'DECLARATION_DELETED' && event.maThua) {
         const targetMaThua = event.maThua;
         setDeclarationsMap((prev) => {
@@ -603,6 +607,8 @@ export default function DashboardPage() {
   };
 
   const cellEditsSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const realtimeReloadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const fetchSyncSheetsReportRef = useRef<((force?: boolean) => Promise<void>) | null>(null);
 
   const syncCellEditsToCloud = useCallback((edits: Record<string, Record<number, string>>, immediate = false) => {
     if (cellEditsSyncTimeoutRef.current) {
@@ -614,6 +620,7 @@ export default function DashboardPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: 'cell_edits', cellEdits: edits }),
+          keepalive: true,
         });
       } catch (err) {
         console.warn('Lỗi đồng bộ cellEdits lên R2:', err);
@@ -821,6 +828,7 @@ export default function DashboardPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(updatedDecl),
+          keepalive: true,
         });
         if (res.ok) {
           return true;
@@ -935,6 +943,7 @@ export default function DashboardPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(newDecl),
+          keepalive: true,
         });
         if (res.ok) {
           broadcastRealtimeEvent({
@@ -1159,6 +1168,7 @@ export default function DashboardPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
+      keepalive: true,
     })
       .then(async (res) => {
         if (res.ok) {
@@ -1225,6 +1235,10 @@ export default function DashboardPage() {
       setIsLoadingSyncSheets(false);
     }
   }, []);
+
+  useEffect(() => {
+    fetchSyncSheetsReportRef.current = fetchSyncSheetsReport;
+  }, [fetchSyncSheetsReport]);
 
   // 3. Đồng bộ Google Sheets Realtime
   const fetchGgsCodes = useCallback(async (force = false) => {
