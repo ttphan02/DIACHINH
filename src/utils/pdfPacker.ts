@@ -562,17 +562,6 @@ export async function generateReadyToPackPdf(
         const yStart = 235 + 16.44; // 235 + pt(0.58) = 251.44
         const rowSpace = 27.637; // pt(0.975)
 
-        // Mặc định luôn che phủ sạch sẽ toàn bộ 15 dòng ở Cột 4 (Địa chỉ thửa đất) của template để trống hoàn toàn
-        for (let r = 0; r < 15; r++) {
-          const rY = yStart + r * rowSpace;
-          pTable.drawRectangle({
-            x: 202,
-            y: pageH - rY - 4,
-            width: 73,
-            height: 16,
-            color: rgb(1, 1, 1),
-          });
-        }
 
         const drawCenter = (text: string, xCenter: number, yFit: number, maxW = 0) => {
           if (!text) return;
@@ -601,14 +590,7 @@ export async function generateReadyToPackPdf(
           drawCenter(String(row.so_thua || ''), 131.16, curY);
           drawCenter(String(row.to_ban_do || ''), 180.86, curY);
 
-          // CỘT 4: ĐỊA CHỈ THỬA ĐẤT - Mặc định luôn để trống hoàn toàn (che phủ chữ in sẵn của template)
-          pTable.drawRectangle({
-            x: 202,
-            y: pageH - curY - 4,
-            width: 73,
-            height: 16,
-            color: rgb(1, 1, 1),
-          });
+          // CỘT 4: ĐỊA CHỈ THỬA ĐẤT - Trên template đã có in sẵn chữ nên bỏ qua cột này hoàn toàn (không ghi chữ hay chèn khoảng trắng)
 
           drawCenter(dt, 300.92, curY);
           drawCenter(String(row.loai_dat || ''), 369.78, curY);
