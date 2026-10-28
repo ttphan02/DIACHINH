@@ -1868,27 +1868,54 @@ export default function DashboardPage() {
   };
 
   // 9b. XUẤT FILE EXCEL CHUẨN MẪU ĐÓNG TẬP (EXCEL-MAUNHAP.xlsx)
-  const handleExportExcelMauNhap = async (customRows?: any[]) => {
+  const handleExportExcelMauNhap = async (customRows?: any[], customHeaders?: string[]) => {
     const rows: any[][] = [];
+    const exportedCodes = new Set<string>();
 
     if (customRows && Array.isArray(customRows) && customRows.length > 0) {
-      customRows.forEach((r) => {
-        const maThua = String(r[1] || '').trim();
-        if (!maThua) return;
-        const edits = cellEdits[maThua] || {};
-        const decl = declarationsMap[maThua] || {};
+      const getIdx = (re: RegExp) => {
+        if (!customHeaders) return -1;
+        return customHeaders.findIndex((h) => re.test(h));
+      };
 
-        const toThua = `${String(edits[2] ?? r[2] ?? decl.to_ban_do ?? maThua.split('_')[0] ?? '').trim()}_${String(edits[3] ?? r[3] ?? decl.so_thua ?? maThua.split('_')[1] ?? '').trim()}`;
-        const thonM = String(edits[4] ?? r[4] ?? decl.thon_xa ?? '').trim();
+      const maThuaIdx = getIdx(/^mã\s+thửa$/i);
+      const toBdIdx = getIdx(/^(tờ|tờ\s+bđ|tờ\s+bản\s+đồ)$/i);
+      const soThuaIdx = getIdx(/^(số\s+thửa|thửa\s+đất)$/i);
+      const thonIdx = getIdx(/thôn|buôn/i);
+      const nameIdx = getIdx(/họ và tên|chủ đất|chủ sử dụng|chủ hộ/i);
+      const dobIdx = getIdx(/năm sinh|ngày sinh/i);
+      const genderIdx = getIdx(/giới tính/i);
+      const cccdIdx = getIdx(/cccd|cmnd/i);
+      const dtIdx = getIdx(/diện tích/i);
+      const loaiDatIdx = getIdx(/loại đất/i);
+      const originIdx = getIdx(/nguồn gốc/i);
+
+      customRows.forEach((r) => {
+        const maThua = String(maThuaIdx >= 0 ? r[maThuaIdx] : r[1] || '').trim();
+        if (!maThua || exportedCodes.has(maThua)) return;
+        exportedCodes.add(maThua);
+
+        const getVal = (idx: number) => (idx >= 0 ? String(cellEdits[maThua]?.[idx] ?? r[idx] ?? '').trim() : '');
+
+        let toM = getVal(toBdIdx);
+        let thuaM = getVal(soThuaIdx);
+        if ((!toM || !thuaM) && maThua.includes('_')) {
+          const parts = maThua.split('_');
+          if (!toM) toM = parts[0] || '';
+          if (!thuaM) thuaM = parts[1] || '';
+        }
+
+        const toThua = `${toM}_${thuaM}`;
+        const thonM = getVal(thonIdx);
         const diaChi = thonM ? (thonM.toLowerCase().includes('cư pui') ? thonM : `${thonM}, Cư Pui`) : 'Xã Cư Pui';
-        const chuHo = String(edits[5] ?? r[5] ?? decl.chu_dat_ten ?? decl.chu_ho ?? '').trim();
-        const dob = String(edits[6] ?? r[6] ?? decl.chu_dat_nam_sinh ?? decl.chu_dat_ngay_sinh ?? '').trim();
-        const gender = String(edits[7] ?? r[7] ?? decl.chu_dat_gioi_tinh ?? 'Nam').trim();
-        const rawCccd = String(edits[8] ?? r[8] ?? decl.chu_dat_cccd ?? decl.cccd ?? '').replace(/^="|"$/g, '').trim();
+        const chuHo = cleanName(getVal(nameIdx));
+        const dob = getVal(dobIdx);
+        const gender = getVal(genderIdx) || 'Nam';
+        const rawCccd = getVal(cccdIdx);
         const cccd = cleanCccd(rawCccd);
-        const dt = String(edits[9] ?? r[9] ?? decl.dien_tich ?? '0').trim();
-        const loaiDat = String(edits[10] ?? r[10] ?? decl.loai_dat ?? 'ONT').trim().toUpperCase();
-        const ghiChu = String(edits[11] ?? r[11] ?? decl.ghi_chu ?? decl.nguon_goc_su_dung ?? 'Khai hoang').trim();
+        const dt = Number(getVal(dtIdx)) || getVal(dtIdx) || 0;
+        const loaiDat = (getVal(loaiDatIdx) || 'ONT').toUpperCase();
+        const ghiChu = getVal(originIdx) || 'Khai hoang';
 
         rows.push([
           toThua,
@@ -1896,30 +1923,14 @@ export default function DashboardPage() {
           chuHo,
           dob,
           gender,
-          cccd,
+          cccd ? `'${cccd}` : '',
           loaiDat,
-          Number(dt) || dt,
+          dt,
           ghiChu,
         ]);
-
-        if (decl.thua_kem_theo && Array.isArray(decl.thua_kem_theo)) {
-          decl.thua_kem_theo.forEach((ap: any) => {
-            const apToThua = `${ap.to_ban_do}_${ap.so_thua}`;
-            rows.push([
-              apToThua,
-              diaChi,
-              chuHo,
-              dob,
-              gender,
-              cccd,
-              ap.loai_dat || 'CLN',
-              Number(ap.dien_tich) || ap.dien_tich || 0,
-              ap.nguon_goc || 'Khai hoang',
-            ]);
-          });
-        }
       });
     } else {
+      // Thu thập tất cả các thửa đã kê khai hoặc các thửa đang được tích chọn
       let targetParcels = computedParcels.filter(
         (p) =>
           declaredParcelCodes.has(p.ma_thua) ||
@@ -1938,41 +1949,24 @@ export default function DashboardPage() {
 
       targetParcels.forEach((p) => {
         const decl = declarationsMap[p.ma_thua] || {};
-        const chuHo = decl.chu_dat_ten || p.chu_ho || '';
+        const chuHo = cleanName(decl.chu_dat_ten || p.chu_ho || '');
         const cccd = cleanCccd(decl.chu_dat_cccd || p.cccd || '');
         const diaChi = decl.chu_dat_dia_chi || (p.thon_xa ? `${p.thon_xa}, Cư Pui` : 'Xã Cư Pui');
+        const toThua = `${p.to_ban_do}_${p.so_thua}`;
         const dob = decl.chu_dat_ngay_sinh || (p as any).ngay_sinh || decl.chu_dat_nam_sinh || '';
         const gender = decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam';
 
-        const toThua = `${p.to_ban_do}_${p.so_thua}`;
         rows.push([
           toThua,
           diaChi,
           chuHo,
           dob,
           gender,
-          cccd,
+          cccd ? `'${cccd}` : '',
           p.loai_dat || 'ONT',
           Number(p.dien_tich) || p.dien_tich || 0,
           decl.ghi_chu || 'Khai hoang',
         ]);
-
-        if (decl.thua_kem_theo && Array.isArray(decl.thua_kem_theo)) {
-          decl.thua_kem_theo.forEach((ap: any) => {
-            const apToThua = `${ap.to_ban_do}_${ap.so_thua}`;
-            rows.push([
-              apToThua,
-              diaChi,
-              chuHo,
-              dob,
-              gender,
-              cccd,
-              ap.loai_dat || 'CLN',
-              Number(ap.dien_tich) || ap.dien_tich || 0,
-              ap.nguon_goc || 'Khai hoang',
-            ]);
-          });
-        }
       });
     }
 
@@ -1989,8 +1983,9 @@ export default function DashboardPage() {
   };
 
   // 9c. XUẤT FILE EXCEL 57 CỘT CHUẨN ĐỊA CHÍNH (EXCEL-MAUNHAP_57COT.xlsx)
-  const handleExport57Cot = async (customRows?: any[]) => {
+  const handleExport57Cot = async (customRows?: any[], customHeaders?: string[]) => {
     const rows: any[][] = [];
+    const exportedCodes = new Set<string>();
 
     // Helper chuẩn hóa ngày sinh chuẩn D/M/YYYY (hoặc 1/1/YYYY nếu chỉ có năm)
     const formatDob57 = (dobVal: any) => {
@@ -2036,36 +2031,64 @@ export default function DashboardPage() {
     };
 
     if (customRows && Array.isArray(customRows) && customRows.length > 0) {
+      const getIdx = (re: RegExp) => {
+        if (!customHeaders) return -1;
+        return customHeaders.findIndex((h) => re.test(h));
+      };
+
+      const maThuaIdx = getIdx(/^mã\s+thửa$/i);
+      const toBdIdx = getIdx(/^(tờ|tờ\s+bđ|tờ\s+bản\s+đồ)$/i);
+      const soThuaIdx = getIdx(/^(số\s+thửa|thửa\s+đất)$/i);
+      const thonIdx = getIdx(/thôn|buôn/i);
+      const nameIdx = getIdx(/họ và tên|chủ đất|chủ sử dụng|chủ hộ/i);
+      const dobIdx = getIdx(/năm sinh|ngày sinh/i);
+      const genderIdx = getIdx(/giới tính/i);
+      const cccdIdx = getIdx(/cccd|cmnd/i);
+      const dtIdx = getIdx(/diện tích/i);
+      const loaiDatIdx = getIdx(/loại đất/i);
+      const originIdx = getIdx(/nguồn gốc/i);
+      const scanIdx = getIdx(/scan|tải|xem|tệp|file/i);
+
       customRows.forEach((r) => {
-        const maThua = String(r[1] || '').trim();
-        if (!maThua) return;
-        const edits = cellEdits[maThua] || {};
-        const decl = declarationsMap[maThua] || {};
+        const maThua = String(maThuaIdx >= 0 ? r[maThuaIdx] : r[1] || '').trim();
+        if (!maThua || exportedCodes.has(maThua)) return;
+        exportedCodes.add(maThua);
 
-        const toM = String(edits[2] ?? r[2] ?? decl.to_ban_do ?? maThua.split('_')[0] ?? '').trim();
-        const thuaM = String(edits[3] ?? r[3] ?? decl.so_thua ?? maThua.split('_')[1] ?? '').trim();
-        const thonM = String(edits[4] ?? r[4] ?? decl.thon_xa ?? '').trim();
-        const nameM = String(edits[5] ?? r[5] ?? decl.chu_dat_ten ?? decl.chu_ho ?? '').trim();
-        const dobM = String(edits[6] ?? r[6] ?? decl.chu_dat_nam_sinh ?? decl.chu_dat_ngay_sinh ?? '').trim();
-        const genderM = String(edits[7] ?? r[7] ?? decl.chu_dat_gioi_tinh ?? 'Nam').trim();
-        const rawCccd = String(edits[8] ?? r[8] ?? decl.chu_dat_cccd ?? decl.cccd ?? '').replace(/^="|"$/g, '').trim();
-        const cleanCccdVal = cleanCccd(rawCccd);
-        const dtM = String(edits[9] ?? r[9] ?? decl.dien_tich ?? '0').trim();
-        const loaiDatM = String(edits[10] ?? r[10] ?? decl.loai_dat ?? 'ONT').trim().toUpperCase();
-        const originM = String(edits[11] ?? r[11] ?? decl.nguon_goc_su_dung ?? decl.nguon_goc ?? 'Khai hoang').trim();
+        const getVal = (idx: number) => (idx >= 0 ? String(cellEdits[maThua]?.[idx] ?? r[idx] ?? '').trim() : '');
 
-        const scanCell = String(r[12] || '');
-        const mFile = scanCell.match(/;\s*"([^"]+)"\)/) || scanCell.match(/"([^"]+\.pdf)"/i);
-        let fileName = mFile ? mFile[1] : '';
+        let toM = getVal(toBdIdx);
+        let thuaM = getVal(soThuaIdx);
+        if ((!toM || !thuaM) && maThua.includes('_')) {
+          const parts = maThua.split('_');
+          if (!toM) toM = parts[0] || '';
+          if (!thuaM) thuaM = parts[1] || '';
+        }
+
+        const thonM = getVal(thonIdx);
+        const nameM = getVal(nameIdx);
+        const dobM = getVal(dobIdx);
+        const genderM = getVal(genderIdx) || 'Nam';
+        const rawCccd = getVal(cccdIdx);
+        const dtM = getVal(dtIdx) || '0';
+        const loaiDatM = (getVal(loaiDatIdx) || 'ONT').toUpperCase();
+        const originM = getVal(originIdx) || 'Khai hoang';
+        const scanCell = getVal(scanIdx);
+
+        let fileName = '';
+        const mFile = scanCell.match(/;\s*"([^"]+)"\)/) || scanCell.match(/"([^"]+\.pdf)"/i) || scanCell.match(/([a-zA-Z0-9_\-]+\.pdf)/i);
+        if (mFile) {
+          fileName = mFile[1];
+        }
         if (!fileName) {
           fileName = `CHUACOGIAY_24478_${toM}_${thuaM}_DDK.pdf`;
         }
 
         const isHo = /^(hộ\s+ông|hộ\s+bà|hộ)/i.test(nameM);
         const subjType = isHo ? 'Hộ gia đình' : 'Cá nhân';
-        const chuSuDung = cleanName(nameM);
+        const cleanChuSuDung = cleanName(nameM);
         const dob = formatDob57(dobM);
         const gender = genderM.toLowerCase().includes('nữ') ? 'Nữ' : 'Nam';
+        const cccd = cleanCccd(rawCccd);
         const area = formatArea57(dtM);
         const origin = formatOrigin57(originM);
 
@@ -2080,10 +2103,10 @@ export default function DashboardPage() {
         const colArray = new Array(57).fill('');
         colArray[0] = '24478';
         colArray[1] = maGcn;
-        colArray[6] = chuSuDung;
+        colArray[6] = cleanChuSuDung;
         colArray[7] = dob;
         colArray[8] = gender;
-        colArray[9] = cleanCccdVal;
+        colArray[9] = cccd;
         colArray[10] = addr;
         colArray[11] = subjType;
         colArray[12] = subjType;
@@ -2097,38 +2120,6 @@ export default function DashboardPage() {
         colArray[48] = fileName;
 
         rows.push(colArray);
-
-        if (decl.thua_kem_theo && Array.isArray(decl.thua_kem_theo)) {
-          decl.thua_kem_theo.forEach((ap: any) => {
-            const apTo = String(ap.to_ban_do || '');
-            const apThua = String(ap.so_thua || '');
-            const apDt = String(ap.dien_tich || '0');
-            const apLoai = String(ap.loai_dat || 'CLN').toUpperCase();
-            const apNguonGoc = formatOrigin57(ap.nguon_goc || originM);
-            const apMaGcn = `CHUACOGIAY_24478_${apTo}_${apThua}`;
-
-            const apCol = new Array(57).fill('');
-            apCol[0] = '24478';
-            apCol[1] = apMaGcn;
-            apCol[6] = chuSuDung;
-            apCol[7] = dob;
-            apCol[8] = gender;
-            apCol[9] = cleanCccdVal;
-            apCol[10] = addr;
-            apCol[11] = subjType;
-            apCol[12] = subjType;
-            apCol[20] = apTo;
-            apCol[21] = apThua;
-            apCol[22] = addr;
-            apCol[23] = formatArea57(apDt);
-            apCol[24] = apLoai;
-            apCol[25] = formatArea57(apDt);
-            apCol[26] = apNguonGoc;
-            apCol[48] = fileName;
-
-            rows.push(apCol);
-          });
-        }
       });
     } else {
       let targetParcels = computedParcels.filter(
@@ -2148,9 +2139,13 @@ export default function DashboardPage() {
       }
 
       targetParcels.forEach((p) => {
+        const maThua = p.ma_thua;
+        if (!maThua || exportedCodes.has(maThua)) return;
+        exportedCodes.add(maThua);
+
         const decl = declarationsMap[p.ma_thua] || {};
-        const toM = String(p.to_ban_do || '');
-        const thuaM = String(p.so_thua || '');
+        const toM = String(p.to_ban_do || maThua.split('_')[0] || '');
+        const thuaM = String(p.so_thua || maThua.split('_')[1] || '');
         let addr = decl.chu_dat_dia_chi || (p.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'xã Cư Pui');
         let name = decl.chu_dat_ten || p.chu_ho || '';
         let cccd = cleanCccd(decl.chu_dat_cccd || p.cccd || '');
@@ -2186,38 +2181,6 @@ export default function DashboardPage() {
         colArray[48] = fileName;
 
         rows.push(colArray);
-
-        if (decl.thua_kem_theo && Array.isArray(decl.thua_kem_theo)) {
-          decl.thua_kem_theo.forEach((ap: any) => {
-            const apTo = String(ap.to_ban_do || '');
-            const apThua = String(ap.so_thua || '');
-            const apDt = String(ap.dien_tich || '0');
-            const apLoai = String(ap.loai_dat || 'CLN').toUpperCase();
-            const apNguonGoc = formatOrigin57(ap.nguon_goc || origin);
-            const apMaGcn = `CHUACOGIAY_24478_${apTo}_${apThua}`;
-
-            const apCol = new Array(57).fill('');
-            apCol[0] = '24478';
-            apCol[1] = apMaGcn;
-            apCol[6] = cleanChuSuDung;
-            apCol[7] = dob;
-            apCol[8] = gender;
-            apCol[9] = cccd;
-            apCol[10] = addr;
-            apCol[11] = subjType;
-            apCol[12] = subjType;
-            apCol[20] = apTo;
-            apCol[21] = apThua;
-            apCol[22] = addr;
-            apCol[23] = formatArea57(apDt);
-            apCol[24] = apLoai;
-            apCol[25] = formatArea57(apDt);
-            apCol[26] = apNguonGoc;
-            apCol[48] = fileName;
-
-            rows.push(apCol);
-          });
-        }
       });
     }
 
@@ -2261,7 +2224,6 @@ export default function DashboardPage() {
       alert('Có lỗi khi tạo file Excel: ' + (err?.message || err));
     }
   };
-
   // Xuất file Excel (.xlsx) cho bảng báo cáo đang xem
   const handleExportReportSheet = async (sheetName: string) => {
     const rows = syncSheetsData?.[sheetName] || (sheetName === 'CHỜ NHẬP' ? syncSheetsData?.['NHẬP GGS'] : undefined);
@@ -3876,7 +3838,7 @@ export default function DashboardPage() {
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => handleExport57Cot(filtered)}
+                                onClick={() => handleExport57Cot(filtered, headers)}
                                 className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer bg-gradient-to-r from-emerald-600 via-teal-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white shadow-emerald-600/30 active:scale-95"
                                 title="Xuất file EXCEL-MAUNHAP_57COT chuẩn 57 cột để nhập / đồng bộ trực tiếp vào Google Sheets"
                               >
@@ -3885,7 +3847,7 @@ export default function DashboardPage() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleExportExcelMauNhap(filtered)}
+                                onClick={() => handleExportExcelMauNhap(filtered, headers)}
                                 className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
                                   isLight
                                     ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
