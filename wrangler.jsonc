@@ -16,6 +16,13 @@
       "bucket_name": "diachinh-storage"
     }
   ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "diachinh-db",
+      "database_id": "52f4cb9a-a133-458a-834d-1cf2e738b5d0"
+    }
+  ],
   "observability": {
     "enabled": true
   }

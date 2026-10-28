@@ -2,6 +2,12 @@ import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { DeclarationFormData } from '@/types';
 import parcelsBriefData from '@/data/parcels_brief.json';
+import {
+  getD1Binding,
+  getAllD1Declarations,
+  upsertD1Declaration,
+  deleteD1Declaration,
+} from '@/utils/d1Database';
 
 const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
 
@@ -239,15 +245,43 @@ async function saveDeclarationsToR2(payload: StoragePayload): Promise<{ success:
   return { success: false, error: lastError || 'Không thể ghi vào Cloudflare R2' };
 }
 
-// GET: Lấy toàn bộ phiếu kê khai đã đồng bộ trên hệ thống
+// GET: Lấy toàn bộ phiếu kê khai đã đồng bộ trên hệ thống (ưu tiên Cloudflare D1 SQL)
 export async function GET() {
-  // Pre-heat R2 context
+  // 1. Ưu tiên đọc từ Cloudflare D1 SQL Database (~3ms)
+  try {
+    const db = await getD1Binding();
+    if (db) {
+      const d1Data = await getAllD1Declarations(db);
+      if (d1Data && d1Data.declaredCodes.length > 0) {
+        return NextResponse.json(
+          {
+            success: true,
+            source: 'D1_DATABASE',
+            declaredCodes: d1Data.declaredCodes,
+            declarationsMap: d1Data.declarationsMap,
+            cellEdits: d1Data.cellEdits || {},
+            updatedAt: d1Data.updatedAt,
+          },
+          {
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+            },
+          }
+        );
+      }
+    }
+  } catch (d1Err) {
+    console.warn('D1 Database GET fallback sang R2:', d1Err);
+  }
+
+  // 2. Fallback đọc từ Cloudflare R2
   await getR2Binding();
   try {
     const data = await getDeclarationsFromR2();
     return NextResponse.json(
       {
         success: true,
+        source: 'R2_STORAGE',
         declaredCodes: data.declaredCodes,
         declarationsMap: data.declarationsMap,
         cellEdits: data.cellEdits || {},
@@ -287,6 +321,24 @@ export async function POST(request: Request) {
       };
       await saveDeclarationsToR2(updatedPayload);
       memoryCache = { payload: updatedPayload, timestamp: Date.now() };
+
+      // Lưu song song vào Cloudflare D1
+      try {
+        const db = await getD1Binding();
+        if (db && body.cellEdits) {
+          for (const [mThua, cols] of Object.entries(body.cellEdits)) {
+            for (const [cIdx, val] of Object.entries(cols as any)) {
+              await db
+                .prepare(
+                  'INSERT INTO cell_edits (ma_thua, col_idx, val, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(ma_thua, col_idx) DO UPDATE SET val = excluded.val'
+                )
+                .bind(mThua, Number(cIdx), String(val), new Date().toISOString())
+                .run();
+            }
+          }
+        }
+      } catch {}
+
       return NextResponse.json({ success: true, cellEdits: updatedPayload.cellEdits });
     }
 
@@ -315,6 +367,12 @@ export async function POST(request: Request) {
 
         // Lưu bản sao nguyên tử cho từng thửa (không bao giờ mất)
         saveSingleDeclarationToR2(code, fullDeclData);
+
+        // Lưu vào Cloudflare D1 SQL Database
+        try {
+          const db = await getD1Binding();
+          if (db) await upsertD1Declaration(db, fullDeclData);
+        } catch {}
       }
 
       const updatedCodes = Array.from(declaredCodesSet);
@@ -443,6 +501,23 @@ export async function POST(request: Request) {
     // Đợi lưu song song toàn bộ file đơn lẻ (chỉ mất ~20ms, đảm bảo 100% dữ liệu đã ở an toàn trên R2)
     await Promise.all(atomicWrites);
 
+    // Lưu trực tiếp vào Cloudflare D1 SQL Database (ACID, row-level lock, siêu tốc 2ms)
+    try {
+      const db = await getD1Binding();
+      if (db) {
+        await upsertD1Declaration(db, rootDeclData);
+        if (Array.isArray(formData.thua_kem_theo)) {
+          for (const ap of formData.thua_kem_theo) {
+            if (ap?.ma_thua && declarationsMap[ap.ma_thua]) {
+              await upsertD1Declaration(db, declarationsMap[ap.ma_thua]);
+            }
+          }
+        }
+      }
+    } catch (d1SaveErr) {
+      console.warn('Lỗi ghi D1 (vẫn lưu R2 dự phòng):', d1SaveErr);
+    }
+
     const updatedCodes = Array.from(declaredCodesSet);
     const updatedPayload: StoragePayload = {
       declaredCodes: updatedCodes,
@@ -515,6 +590,16 @@ export async function DELETE(request: Request) {
           }
         });
       }
+    }
+
+    // Xóa trong Cloudflare D1 SQL Database
+    try {
+      const db = await getD1Binding();
+      if (db) {
+        await deleteD1Declaration(db, targetMaThua);
+      }
+    } catch (d1DelErr) {
+      console.warn('Lỗi xóa D1:', d1DelErr);
     }
 
     const updatedCodes = Array.from(declaredCodesSet);
