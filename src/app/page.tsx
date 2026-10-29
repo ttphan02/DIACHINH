@@ -1315,7 +1315,7 @@ export default function Home() {
                       : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700/80'
                   }`}
                 >
-                  Tất cả ({stats.total.toLocaleString('vi-VN')})
+                  <span className="hidden md:inline">Tất cả (</span><span>{stats.total.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
                 </button>
 
                 {/* Đã số hóa (Xanh lá - Có trên GGS) */}
@@ -1331,7 +1331,7 @@ export default function Home() {
                   title="Thửa đã số hóa (có trên Google Sheets)"
                 >
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-emerald-300"></span>
-                  Đã số hóa ({stats.green.toLocaleString('vi-VN')})
+                  <span className="hidden md:inline">Đã số hóa (</span><span>{stats.green.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
                 </button>
 
                 {/* Đã kê khai (Xanh lam - Chưa có trên GGS) */}
@@ -1347,7 +1347,7 @@ export default function Home() {
                   title="Thửa đã được kê khai nhưng chưa số hóa lên Google Sheets"
                 >
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-500 border border-blue-300"></span>
-                  Đã kê khai ({stats.blue.toLocaleString('vi-VN')})
+                  <span className="hidden md:inline">Đã kê khai (</span><span>{stats.blue.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
                 </button>
 
                 {/* Có tên (Màu vàng) */}
@@ -1363,7 +1363,7 @@ export default function Home() {
                   title="Thửa chưa kê khai có tên người (màu vàng trên bản đồ)"
                 >
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-amber-200"></span>
-                  Có tên ({stats.yellow.toLocaleString('vi-VN')})
+                  <span className="hidden md:inline">Có tên (</span><span>{stats.yellow.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
                 </button>
 
                 {/* Không có tên (Màu trắng) */}
@@ -1379,14 +1379,14 @@ export default function Home() {
                   title="Thửa chưa kê khai không có tên người, địa danh (màu trắng trên bản đồ)"
                 >
                   <span className="w-2.5 h-2.5 rounded-full bg-white ring-1 ring-slate-400 shadow-sm"></span>
-                  Không tên ({stats.gray.toLocaleString('vi-VN')})
+                  <span className="hidden md:inline">Không tên (</span><span>{stats.gray.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
                 </button>
 
                 {/* Nút bấm & Chỉ báo Realtime Google Sheets */}
                 <button
                   onClick={() => fetchGgsCodes(true)}
                   disabled={isSyncingGgs}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold transition text-xs shrink-0 bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-cyan-500/30 disabled:opacity-60"
+                  className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold transition text-xs shrink-0 bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-cyan-500/30 disabled:opacity-60"
                   title={
                     lastSyncTime
                       ? `Đồng bộ lúc: ${lastSyncTime}. Bấm để cập nhật lại từ Google Sheets ngay.`
@@ -1406,7 +1406,7 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => flushPendingDeclarations()}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold transition text-xs shrink-0 cursor-pointer ${
+                  className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold transition text-xs shrink-0 cursor-pointer ${
                     pendingCount > 0
                       ? 'bg-amber-600/90 hover:bg-amber-500 text-white border border-amber-300 shadow-md animate-pulse'
                       : 'bg-slate-900/90 hover:bg-slate-800 text-emerald-300 border border-emerald-500/30'
@@ -1514,10 +1514,11 @@ export default function Home() {
                   <span className="hidden xs:inline">Cần Thu CCCD</span>
                 </button>
 
-                {/* Nút Chế độ Đút Túi Quần (Khóa màn hình vẫn theo dõi qua Audio Keep-Alive) */}
+                {/* Nút Chế độ Đút Túi Quần (Ẩn trên map theo yêu cầu) */}
                 <button
                   type="button"
                   onClick={togglePocketMode}
+                  style={{ display: 'none' }}
                   className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold rounded-xl transition shrink-0 border shadow-xs cursor-pointer ${
                     isPocketMode
                       ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400 shadow-emerald-900/50'
@@ -1535,10 +1536,11 @@ export default function Home() {
                   </span>
                 </button>
 
-                {/* Nút Hiển Thị / Đổi Tên Người Kê Khai */}
+                {/* Nút Hiển Thị / Đổi Tên Người Kê Khai (Ẩn trên map theo yêu cầu) */}
                 <button
                   type="button"
                   onClick={() => setIsCadreModalOpen(true)}
+                  style={{ display: 'none' }}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 font-bold rounded-xl transition shrink-0 border border-emerald-500/40 shadow-xs cursor-pointer"
                   title="Bấm để đổi tên người kê khai (Đang kết nối GPS trực tuyến)"
                 >

@@ -209,8 +209,10 @@ export async function GET(request: Request) {
       }
 
       const cccdSet = new Set<string>();
+      const filenames: string[] = [];
       for (const o of objects) {
         const fn = o.key.replace(/^cccd\//, '').replace(/\.pdf$/i, '').trim();
+        filenames.push(fn);
         const m = fn.match(/\b\d{9,12}\b/);
         const clean = m ? cleanCccd(m[0]) : cleanCccd(fn);
         if (clean && clean.length === 12) {
@@ -223,6 +225,7 @@ export async function GET(request: Request) {
         success: true,
         count: cccdNumbers.length,
         cccdList: cccdNumbers,
+        filenames,
       };
       listOnlyCache = { data: payload, timestamp: now };
 

@@ -1,21 +1,23 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   X,
-  Download,
-  Filter,
-  Users,
   Search,
-  ChevronLeft,
-  ChevronRight,
-  Edit2,
-  UserCheck,
+  Filter,
+  Check,
+  Users,
+  RefreshCw,
+  MapPin,
+  ArrowRightLeft,
+  CheckCircle2,
+  FileSpreadsheet,
+  AlertCircle,
 } from 'lucide-react';
 import { Parcel, DeclarationFormData } from '@/types';
-import { getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
-import CadreNameModal from '@/components/CadreNameModal';
-import { cleanCccd } from '@/utils/textHelpers';
+import { getOrCreateDeviceId, getSavedCadreName, saveOrUpdateDeclaration } from '@/utils/declaration';
+import { broadcastRealtimeEvent } from '@/utils/realtimeSync';
+import { cleanCccd, stripAccents, CANONICAL_VILLAGES, getCanonicalVillage } from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
 
 const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
@@ -26,6 +28,7 @@ interface ExportMissingCccdModalProps {
   parcels: Parcel[];
   declarationsMap: Record<string, DeclarationFormData | any>;
   theme?: 'dark' | 'light';
+  onDeclarationUpdated?: (updatedDecl: any) => void;
 }
 
 interface MissingCccdPerson {
@@ -37,57 +40,6 @@ interface MissingCccdPerson {
   thonXa: string;
   cccdNumber?: string;
   deviceId?: string;
-  createdAt?: string;
-}
-
-interface VillageImagePage {
-  village: string;
-  villagePageIndex: number;
-  villageTotalPages: number;
-  items: MissingCccdPerson[];
-}
-
-// Chuẩn hóa tên Thôn / Buôn theo đúng các sheet trên Google Sheets:
-// https://docs.google.com/spreadsheets/d/1tRbIwKolgB6kcEsQoOOkI_uYtxc50AJA0I2VMP_u34w
-export function getCanonicalVillageName(raw: string): string {
-  if (!raw) return 'Chưa xác định';
-  const a = raw
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd');
-
-  if (a.includes('noh prong')) return 'Thôn Noh Prông';
-  if (a.includes('cu phiang') || a.includes('cu piang')) return 'Buôn Cư Phiang';
-  if (a.includes('ngo')) return 'Buôn Ngô';
-  if (a.includes('tlier') || a.includes('tlia')) return 'Buôn Tliêr';
-  if (a.includes('ba phuong') || a.includes('3 phuong')) return 'Thôn Ba Phường';
-  if (a.includes('cam phong')) return 'Thôn Cẩm Phong';
-  if (a.includes('ea uol')) return 'Thôn Ea Uôl';
-  if (a.includes('ea khiem')) return 'Thôn Ea Khiêm';
-  if (a.includes('cu te')) return 'Thôn Cư Tê';
-  if (a.includes('cu rang')) return 'Thôn Cư Rang';
-  if (a.includes('ea lang')) return 'Thôn Ea Lang';
-  if (a.includes('ea bar') || a.includes('ea ba')) return 'Thôn Ea Bar';
-  if (a.includes('rot')) return 'Thôn Ea Rớt';
-  if (a.includes('dak tuor') || a.includes('dak tua')) return 'Buôn Đăk Tuôr';
-  if (a.includes('khanh')) return 'Buôn Khanh';
-  if (a.includes('khoa')) return 'Buôn Khóa';
-  if (a.includes('bhung')) return 'Buôn Bhung';
-  if (a.includes('blak')) return 'Buôn Blăk';
-  if (a.includes('hoa phong') || a.includes('ho phong')) return 'Thôn Hòa Phong';
-  return 'Chưa xác định';
-}
-
-function slugify(text: string): string {
-  return text
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
-    .replace(/[^a-zA-Z0-9]/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_|_$/g, '');
 }
 
 export default function ExportMissingCccdModal({
@@ -96,100 +48,171 @@ export default function ExportMissingCccdModal({
   parcels,
   declarationsMap,
   theme = 'dark',
+  onDeclarationUpdated,
 }: ExportMissingCccdModalProps) {
   const isLight = theme === 'light';
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Thiết bị & Tên cán bộ
-  const [deviceId, setDeviceId] = useState<string>('MAY_DEF');
-  const [cadreName, setCadreName] = useState<string>('');
-  const [isCadreModalOpen, setIsCadreModalOpen] = useState(false);
-
-  // Lọc: "Tôi kê khai" vs "Tất cả"
-  const [filterDeviceMode, setFilterDeviceMode] = useState<'THIS_DEVICE' | 'ALL_DEVICES'>('THIS_DEVICE');
+  // Lọc tìm kiếm & Thôn / Buôn
   const [selectedVillage, setSelectedVillage] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Danh sách CCCD đã có trên Cloudflare R2
+  // Danh sách CCCD & Tên file đã có trên Cloudflare R2
   const [existingCccdSet, setExistingCccdSet] = useState<Set<string>>(new Set());
+  const [r2Filenames, setR2Filenames] = useState<string[]>([]);
+  const [isLoadingR2, setIsLoadingR2] = useState(false);
 
-  // Phân trang ảnh: tối đa 24 cái tên / ảnh (chia làm 2 cột, mỗi cột 12 tên)
-  const ITEMS_PER_PAGE = 24;
-  const [currentPage, setCurrentPage] = useState(1);
+  // Trạng thái đã tích chọn (lưu bền vững vào localStorage)
+  const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set());
 
+  // Sub-modal di chuyển thôn / buôn
+  const [movingPerson, setMovingPerson] = useState<MissingCccdPerson | null>(null);
+  const [targetVillage, setTargetVillage] = useState<string>('');
+  const [isSavingMove, setIsSavingMove] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // 1. Phục hồi trạng thái đã chọn từ localStorage khi mở modal
   useEffect(() => {
-    if (isOpen) {
-      const saved = getSavedCadreName();
-      const id = saved || getOrCreateDeviceId();
-      setDeviceId(id);
-      setCadreName(saved);
-      fetchExistingCccdList();
-    }
+    if (!isOpen) return;
+
+    try {
+      const savedVillage = localStorage.getItem('cccd_collect_selected_village');
+      if (savedVilageValid(savedVillage)) {
+        setSelectedVillage(savedVillage!);
+      }
+
+      const savedChecked = localStorage.getItem('cccd_collect_checked_keys');
+      if (savedChecked) {
+        const parsed = JSON.parse(savedChecked);
+        if (Array.isArray(parsed)) {
+          setCheckedKeys(new Set(parsed));
+        }
+      }
+    } catch {}
+
+    fetchExistingCccdList();
   }, [isOpen]);
 
+  function savedVilageValid(v: string | null): boolean {
+    if (!v) return false;
+    return v === 'ALL' || CANONICAL_VILLAGES.includes(v);
+  }
+
+  // Tải danh sách CCCD đã có trên Cloudflare R2
   const fetchExistingCccdList = async () => {
+    setIsLoadingR2(true);
     try {
       const res = await fetch(`/api/cccd?list_only=1&t=${Date.now()}`);
       if (res.ok) {
-        const data = (await res.json()) as { success?: boolean; cccdList?: string[] };
+        const data = (await res.json()) as {
+          success?: boolean;
+          cccdList?: string[];
+          filenames?: string[];
+        };
         if (Array.isArray(data.cccdList)) {
           setExistingCccdSet(new Set(data.cccdList));
         }
+        if (Array.isArray(data.filenames)) {
+          setR2Filenames(data.filenames);
+        }
       }
     } catch (e) {
-      console.warn('Lỗi fetch danh sách CCCD:', e);
+      console.warn('Lỗi fetch danh sách CCCD R2:', e);
+    } finally {
+      setIsLoadingR2(false);
     }
   };
 
-  // Lập danh sách công dân ĐÃ KÊ KHAI nhưng CHƯA CÓ FILE ẢNH CCCD trên R2
-  const missingCccdList = useMemo(() => {
-    const mapByCitizen = new Map<string, MissingCccdPerson>();
+  // Lưu trạng thái Thôn được chọn vào localStorage
+  const handleSelectVillage = (village: string) => {
+    setSelectedVillage(village);
+    try {
+      localStorage.setItem('cccd_collect_selected_village', village);
+    } catch {}
+  };
 
-    // Duyệt qua tất cả các bản ghi kê khai
-    Object.entries(declarationsMap).forEach(([parcelCode, decl]) => {
-      if (!decl) return;
+  // Toggle trạng thái Đã thu thập (checkbox) và lưu vào localStorage
+  const toggleCheck = (personKey: string) => {
+    setCheckedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(personKey)) {
+        next.delete(personKey);
+      } else {
+        next.add(personKey);
+      }
+      try {
+        localStorage.setItem('cccd_collect_checked_keys', JSON.stringify(Array.from(next)));
+      } catch {}
+      return next;
+    });
+  };
 
-      const declDeviceId = decl.device_id ? String(decl.device_id).trim() : '';
+  // Kiểm tra 1 người đã có CCCD trên R2 hay chưa
+  const hasCccdInR2 = useCallback(
+    (decl: any, personName: string): boolean => {
+      // 1. Nếu phiếu kê khai đã có liên kết file CCCD R2
+      if (decl.cccd_url || decl.file_cccd_pdf || decl.cccd_file) {
+        return true;
+      }
 
-      // Lọc theo chế độ: "Tôi kê khai" vs "Tất cả"
-      if (filterDeviceMode === 'THIS_DEVICE') {
-        const isMatch =
-          declDeviceId === deviceId ||
-          (deviceId === 'PHANTHANHTRUC' && (!declDeviceId || declDeviceId === 'MAY_DEF' || declDeviceId === 'MAY_T6P4'));
-        if (!isMatch) {
-          return;
+      // 2. Nếu số CCCD đã có trong R2 Set
+      const rawCccd = decl.chu_dat_cccd || decl.cccd_chu_ho || decl.cccd || '';
+      const cccdClean = cleanCccd(rawCccd);
+      if (cccdClean.length === 12 && existingCccdSet.has(cccdClean)) {
+        return true;
+      }
+      if (cccdClean.length === 9 && existingCccdSet.has(cccdClean)) {
+        return true;
+      }
+
+      // 3. Khớp tên file trên R2
+      if (personName && r2Filenames.length > 0) {
+        const normName = stripAccents(personName).toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (normName.length >= 4) {
+          const matched = r2Filenames.some((fn) => {
+            const normFn = stripAccents(fn).toLowerCase().replace(/[^a-z0-9]/g, '');
+            return normFn.includes(normName);
+          });
+          if (matched) return true;
         }
       }
 
-      // Lấy số CCCD (nếu đã nhập trong kê khai)
-      const cccdRaw = decl.chu_dat_cccd || '';
-      const cccdClean = cleanCccd(cccdRaw);
+      return false;
+    },
+    [existingCccdSet, r2Filenames]
+  );
 
-      // Nếu đã có file PDF trên R2 cho số CCCD này => KHÔNG THIẾU
-      if (cccdClean.length === 12 && existingCccdSet.has(cccdClean)) {
-        return;
-      }
+  // Lập danh sách công dân ĐÃ KÊ KHAI nhưng CHƯA CÓ CCCD TRÊN R2
+  // (Nếu đã có CCCD trên R2 thì tự động LOẠI BỎ khỏi danh sách này)
+  const missingCccdList = useMemo(() => {
+    const mapByCitizen = new Map<string, MissingCccdPerson>();
 
-      // Lấy họ tên chủ đất
+    Object.entries(declarationsMap).forEach(([parcelCode, decl]) => {
+      if (!decl) return;
+
       const name = String(decl.chu_dat_ten || decl.chu_ho || '').trim();
       if (!name || name === 'Chưa có tên') return;
 
-      // Lấy thông tin mã thửa, số thửa, tờ bản đồ
+      // NẾU TÊN NÀO ĐÃ CÓ CCCD TRONG R2 THÌ BỎ TÊN ĐÓ KHỎI DANH SÁCH
+      if (hasCccdInR2(decl, name)) {
+        return;
+      }
+
       const maThua = String(decl.ma_thua || parcelCode || '').trim();
       const soThua = String(decl.so_thua || '').trim();
       const toBanDo = String(decl.to_ban_do || '').trim();
 
-      // Xác định địa chỉ Thôn / Buôn dựa vào Google Sheets
-      // Nếu thửa a ở sheet b thì địa chỉ thửa a là sheet b
+      // Xác định Thôn / Buôn
       let rawVillage = '';
-      if (maThua && parcelsBrief[maThua]) {
-        rawVillage = parcelsBrief[maThua][2];
+      if (decl.thon_xa) {
+        rawVillage = decl.thon_xa;
       } else if (decl.dia_chi_thua_dat || decl.chu_dat_dia_chi) {
         rawVillage = decl.dia_chi_thua_dat || decl.chu_dat_dia_chi;
+      } else if (maThua && parcelsBrief[maThua]) {
+        rawVillage = parcelsBrief[maThua][2];
       }
-      const thonXa = getCanonicalVillageName(rawVillage);
+      const thonXa = getCanonicalVillage(rawVillage);
 
-      // Gom nhóm theo Họ tên + Thôn (tránh trùng lặp 1 người có nhiều thửa trong 1 thôn)
+      // Nhóm theo Tên + Thôn
       const groupKey = `${name.toLowerCase()}___${thonXa.toLowerCase()}`;
       if (mapByCitizen.has(groupKey)) {
         const existing = mapByCitizen.get(groupKey)!;
@@ -197,6 +220,7 @@ export default function ExportMissingCccdModal({
         if (soThua && !existing.soThuaList.includes(soThua)) existing.soThuaList.push(soThua);
         if (toBanDo && !existing.toBanDoList.includes(toBanDo)) existing.toBanDoList.push(toBanDo);
       } else {
+        const cccdClean = cleanCccd(decl.chu_dat_cccd || decl.cccd || '');
         mapByCitizen.set(groupKey, {
           key: groupKey,
           name,
@@ -205,36 +229,36 @@ export default function ExportMissingCccdModal({
           toBanDoList: toBanDo ? [toBanDo] : [],
           thonXa,
           cccdNumber: cccdClean.length === 12 ? cccdClean : undefined,
-          deviceId: declDeviceId,
-          createdAt: decl.created_at,
+          deviceId: decl.device_id,
         });
       }
     });
 
-    return Array.from(mapByCitizen.values());
-  }, [declarationsMap, existingCccdSet, filterDeviceMode, deviceId]);
+    return Array.from(mapByCitizen.values()).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  }, [declarationsMap, hasCccdInR2]);
 
-  // Danh sách các thôn có trong danh sách cần thu thập kèm số lượng
+  // Danh sách các thôn có trong danh sách kèm số lượng
   const availableVillages = useMemo(() => {
     const counts: Record<string, number> = {};
     missingCccdList.forEach((i) => {
       if (i.thonXa) counts[i.thonXa] = (counts[i.thonXa] || 0) + 1;
     });
-    return Object.keys(counts)
-      .sort((a, b) => a.localeCompare(b, 'vi'))
-      .map((v) => ({ village: v, count: counts[v] }));
+
+    // Liệt kê theo đúng thứ tự các thôn buôn chuẩn của xã Cư Pui
+    return CANONICAL_VILLAGES.filter((v) => counts[v] && counts[v] > 0).map((v) => ({
+      village: v,
+      count: counts[v] || 0,
+    }));
   }, [missingCccdList]);
 
-  // Danh sách sau khi lọc tìm kiếm và dropdown thôn
+  // Lọc theo Thôn được chọn và từ khóa tìm kiếm
   const filteredCitizens = useMemo(() => {
     let list = missingCccdList;
 
-    // Lọc theo dropdown Thôn/Buôn
     if (selectedVillage !== 'ALL') {
       list = list.filter((item) => item.thonXa === selectedVillage);
     }
 
-    // Lọc theo tìm kiếm (tên hoặc mã thửa)
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       list = list.filter(
@@ -249,243 +273,160 @@ export default function ExportMissingCccdModal({
     return list;
   }, [missingCccdList, selectedVillage, searchQuery]);
 
-  // PHÂN TÁCH ẢNH THEO TỪNG THÔN BUÔN:
-  // Kể cả khi chọn "Tất cả Thôn / Buôn", mỗi ảnh chỉ thuộc 1 thôn buôn duy nhất!
-  const pageChunks = useMemo(() => {
-    const chunks: VillageImagePage[] = [];
-
-    // Gom nhóm người theo Thôn / Buôn
-    const villageGroups: Record<string, MissingCccdPerson[]> = {};
-    filteredCitizens.forEach((person) => {
-      const v = person.thonXa || 'Chưa xác định';
-      if (!villageGroups[v]) villageGroups[v] = [];
-      villageGroups[v].push(person);
-    });
-
-    const sortedVillages = Object.keys(villageGroups).sort((a, b) => a.localeCompare(b, 'vi'));
-
-    sortedVillages.forEach((village) => {
-      const people = villageGroups[village].sort((a, b) => a.name.localeCompare(b.name, 'vi'));
-      const totalVillagePages = Math.max(1, Math.ceil(people.length / ITEMS_PER_PAGE));
-      for (let p = 0; p < totalVillagePages; p++) {
-        chunks.push({
-          village,
-          villagePageIndex: p + 1,
-          villageTotalPages: totalVillagePages,
-          items: people.slice(p * ITEMS_PER_PAGE, (p + 1) * ITEMS_PER_PAGE),
-        });
-      }
-    });
-
-    return chunks;
+  // Chia danh sách thành các cặp 2 người để tạo ra TỐI THIỂU 4 Ô TRÊN 1 HÀNG
+  // (Ô 1: Tên người 1 | Ô 2: Checkbox 1 | Ô 3: Tên người 2 | Ô 4: Checkbox 2)
+  const pairedRows = useMemo(() => {
+    const pairs: [MissingCccdPerson, MissingCccdPerson | null][] = [];
+    for (let i = 0; i < filteredCitizens.length; i += 2) {
+      pairs.push([filteredCitizens[i], filteredCitizens[i + 1] || null]);
+    }
+    return pairs;
   }, [filteredCitizens]);
 
-  const totalPages = Math.max(1, pageChunks.length);
-  const activeChunk: VillageImagePage | undefined = pageChunks[currentPage - 1] || pageChunks[0];
+  // Đếm thống kê
+  const totalInView = filteredCitizens.length;
+  const checkedInView = filteredCitizens.filter((p) => checkedKeys.has(p.key)).length;
 
-  // Tự động điều chỉnh trang nếu vượt quá
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(1);
-    }
-  }, [totalPages, currentPage]);
-
-  // Vẽ Canvas Poster (1080 x 1920) tối ưu cho điện thoại
-  useEffect(() => {
-    if (!isOpen || !canvasRef.current || !activeChunk) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    renderCanvasImage(ctx, activeChunk);
-  }, [isOpen, activeChunk, currentPage]);
-
-  // Hàm vẽ poster chuẩn tỷ lệ 9:16 (1080x1920)
-  // Tối giản tối đa: Chữ to rõ, không số thứ tự, chỉ có Tên & Mã thửa, không cơ quan/máy móc rườm rà
-  const renderCanvasImage = (ctx: CanvasRenderingContext2D, chunk: VillageImagePage) => {
-    const W = 1080;
-    const H = 1920;
-
-    // 1. Nền Gradient Sang trọng
-    const bgGrad = ctx.createLinearGradient(0, 0, W, H);
-    bgGrad.addColorStop(0, '#090d16');
-    bgGrad.addColorStop(0.5, '#0f172a');
-    bgGrad.addColorStop(1, '#020617');
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, W, H);
-
-    // Hoa văn lưới mờ
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.012)';
-    for (let i = 0; i < W; i += 40) ctx.fillRect(i, 0, 1, H);
-    for (let j = 0; j < H; j += 40) ctx.fillRect(0, j, W, 1);
-
-    // Khung viền ngoài
-    ctx.strokeStyle = 'rgba(99, 102, 241, 0.35)';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(20, 20, W - 40, H - 40);
-
-    // 2. HEADER - Tinh giản, chữ to
-    // Dải băng màu nhỏ trên cùng
-    const bannerGrad = ctx.createLinearGradient(0, 30, W, 30);
-    bannerGrad.addColorStop(0, '#4338ca');
-    bannerGrad.addColorStop(0.5, '#6366f1');
-    bannerGrad.addColorStop(1, '#ec4899');
-    ctx.fillStyle = bannerGrad;
-    ctx.fillRect(30, 30, W - 60, 5);
-
-    // Tiêu đề to nổi bật ở trên cùng
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = "900 58px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-    ctx.textAlign = 'center';
-    ctx.fillText('CẦN THU THẬP CCCD', W / 2, 115);
-
-    // Thanh tag Thôn / Buôn và Trang ảnh
-    const tagY = 145;
-    const tagW = 860;
-    const tagH = 58;
-    const tagX = (W - tagW) / 2;
-    ctx.fillStyle = 'rgba(239, 68, 68, 0.18)';
-    ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.roundRect(tagX, tagY, tagW, tagH, 29);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = '#fca5a5';
-    ctx.font = "bold 23px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-    ctx.textAlign = 'center';
-    const nowStr = new Date().toLocaleDateString('vi-VN');
-    const villageUpper = chunk.village.toUpperCase();
-    const pageStr = chunk.villageTotalPages > 1 ? `ẢNH ${chunk.villagePageIndex}/${chunk.villageTotalPages}` : 'ẢNH 1/1';
-    ctx.fillText(`${villageUpper} • ${pageStr} • NGÀY ${nowStr}`, W / 2, tagY + 38);
-
-    // 3. NỘI DUNG 2 CỘT TÊN CÔNG DÂN (TỐI ĐA 12 HÀNG / CỘT)
-    const colY = 230;
-    const colBottom = 1835;
-    const colH = colBottom - colY;
-    const colW = 485;
-    const col1X = 40;
-    const col2X = 555;
-
-    const items = chunk.items;
-    const half = Math.ceil(items.length / 2);
-    const col1Items = items.slice(0, half);
-    const col2Items = items.slice(half);
-
-    const renderColumn = (colItems: MissingCccdPerson[], startX: number) => {
-      const maxRows = 12;
-      const rowH = colH / maxRows;
-      const cardH = rowH - 10;
-
-      colItems.forEach((item, rIdx) => {
-        const itemY = colY + rIdx * rowH;
-
-        // Nền hàng (xen kẽ)
-        if (rIdx % 2 === 0) {
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
-        } else {
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.02)';
-        }
-        ctx.beginPath();
-        ctx.roundRect(startX, itemY, colW, cardH, 14);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        const textX = startX + 22;
-
-        // 1. Tên công dân (Chữ in hoa, cỡ chữ 32px cực kỳ to, đậm và rõ)
-        ctx.fillStyle = '#ffffff';
-        ctx.font = "bold 32px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-        ctx.textAlign = 'left';
-        const nameY = itemY + 46;
-
-        let displayName = item.name.toUpperCase();
-        if (ctx.measureText(displayName).width > 440) {
-          while (displayName.length > 3 && ctx.measureText(displayName + '...').width > 440) {
-            displayName = displayName.slice(0, -1);
-          }
-          displayName += '...';
-        }
-        ctx.fillText(displayName, textX, nameY);
-
-        // 2. Mã thửa (Cỡ chữ 24px đậm, màu xanh cyan nổi bật)
-        ctx.fillStyle = '#38bdf8';
-        ctx.font = "bold 24px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-        const subY = itemY + 90;
-
-        const maThuaDisplay =
-          item.maThuaList.length > 0
-            ? `Mã thửa: ${item.maThuaList.slice(0, 3).join(', ')}`
-            : item.soThuaList.length > 0
-            ? `Thửa: ${item.soThuaList.slice(0, 4).join(', ')}`
-            : 'Chưa có mã thửa';
-
-        let displaySub = maThuaDisplay;
-        if (ctx.measureText(displaySub).width > 440) {
-          while (displaySub.length > 3 && ctx.measureText(displaySub + '...').width > 440) {
-            displaySub = displaySub.slice(0, -1);
-          }
-          displaySub += '...';
-        }
-        ctx.fillText(displaySub, textX, subY);
-      });
-    };
-
-    renderColumn(col1Items, col1X);
-    renderColumn(col2Items, col2X);
-
-    // 4. FOOTER - 1 dòng ghi chú mảnh ở dưới cùng
-    const footY = 1855;
-    ctx.fillStyle = '#fca5a5';
-    ctx.font = "bold 20px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-    ctx.textAlign = 'center';
-    ctx.fillText(
-      '⚠ LƯU Ý: Vui lòng chụp rõ nét 2 mặt CCCD gửi Cán bộ để hoàn tất hồ sơ',
-      W / 2,
-      footY + 28
-    );
+  // Mở popup di chuyển thôn / buôn
+  const handleOpenMoveModal = (person: MissingCccdPerson) => {
+    setMovingPerson(person);
+    setTargetVillage(person.thonXa);
   };
 
-  // Tải ảnh trang hiện tại về máy
-  const handleDownloadImage = () => {
-    if (!canvasRef.current || !activeChunk) return;
-    const canvas = canvasRef.current;
-    canvas.toBlob((blob) => {
-      if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const vSlug = slugify(activeChunk.village);
-      a.download = `CAN_THU_THAP_CCCD_${vSlug}_Trang_${activeChunk.villagePageIndex}_tren_${activeChunk.villageTotalPages}.jpg`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 'image/jpeg', 0.95);
+  // Xác nhận di chuyển thôn / buôn và cập nhật vào Database
+  const handleConfirmMoveVillage = async () => {
+    if (!movingPerson || !targetVillage || targetVillage === movingPerson.thonXa) {
+      setMovingPerson(null);
+      return;
+    }
+
+    setIsSavingMove(true);
+    const updatedDecls: any[] = [];
+    const cellEditsToSync: Record<string, Record<number, string>> = {};
+
+    try {
+      const timestamp = new Date().toISOString();
+
+      // Cập nhật tất cả các thửa đất của công dân này
+      for (const maThua of movingPerson.maThuaList) {
+        const existing = declarationsMap[maThua];
+        let updated: any;
+        if (existing) {
+          updated = {
+            ...existing,
+            thon_xa: targetVillage,
+            dia_chi_thua_dat: targetVillage,
+            chu_dat_dia_chi: targetVillage,
+            updated_at: timestamp,
+          };
+        } else {
+          const [toP, thuaP] = maThua.split('_');
+          updated = {
+            ma_thua: maThua,
+            to_ban_do: toP || '',
+            so_thua: thuaP || '',
+            chu_dat_ten: movingPerson.name,
+            chu_ho: movingPerson.name,
+            thon_xa: targetVillage,
+            dia_chi_thua_dat: targetVillage,
+            chu_dat_dia_chi: targetVillage,
+            device_id: getSavedCadreName() || getOrCreateDeviceId(),
+            created_at: timestamp,
+            updated_at: timestamp,
+          };
+        }
+
+        saveOrUpdateDeclaration(updated);
+        updatedDecls.push(updated);
+        cellEditsToSync[maThua] = { 2: targetVillage };
+
+        // Báo cho các component khác biết qua callback và Realtime Broadcast
+        onDeclarationUpdated?.(updated);
+        broadcastRealtimeEvent({
+          type: 'DECLARATION_SAVED',
+          maThua,
+          declaration: updated,
+        });
+      }
+
+      // Lưu lên Cloudflare R2 & D1 Database qua API /api/declarations
+      if (updatedDecls.length > 0) {
+        await fetch('/api/declarations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ batch: updatedDecls }),
+        });
+
+        await fetch('/api/declarations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'cell_edits', cellEdits: cellEditsToSync }),
+        });
+      }
+
+      // Cập nhật trạng thái check key nếu key có chứa tên thôn
+      const oldKey = movingPerson.key;
+      const newKey = `${movingPerson.name.toLowerCase()}___${targetVillage.toLowerCase()}`;
+      if (checkedKeys.has(oldKey)) {
+        setCheckedKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(oldKey);
+          next.add(newKey);
+          try {
+            localStorage.setItem('cccd_collect_checked_keys', JSON.stringify(Array.from(next)));
+          } catch {}
+          return next;
+        });
+      }
+
+      // Cập nhật trực tiếp đối tượng người trong bộ nhớ
+      movingPerson.thonXa = targetVillage;
+      movingPerson.key = newKey;
+
+      setToastMessage(`✓ Đã di chuyển "${movingPerson.name}" sang ${targetVillage} thành công!`);
+      setTimeout(() => setToastMessage(null), 3500);
+    } catch (err: any) {
+      alert(`Lỗi khi cập nhật cơ sở dữ liệu: ${err.message || err}`);
+    } finally {
+      setIsSavingMove(false);
+      setMovingPerson(null);
+    }
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-sm animate-in fade-in">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-xs animate-in fade-in">
+      {/* Container: Trên Mobile trượt từ dưới lên như form kê khai đất đai; Trên Desktop là hộp thoại cân đối */}
       <div
-        className={`relative w-full max-w-4xl max-h-[94vh] flex flex-col rounded-3xl border shadow-2xl overflow-hidden ${
-          isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-800 text-slate-100'
+        className={`relative w-full sm:max-w-4xl max-h-[92vh] sm:h-[86vh] flex flex-col rounded-t-3xl sm:rounded-2xl border shadow-2xl overflow-hidden transition-all duration-300 ease-out animate-in slide-in-from-bottom sm:slide-in-from-bottom-4 ${
+          isLight
+            ? 'bg-white border-slate-200 text-slate-800'
+            : 'bg-slate-900 border-slate-700/80 text-slate-100'
         }`}
       >
-        {/* Header Modal - Tối giản */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 shrink-0">
+        {/* Nút kéo / pill handle trên màn hình điện thoại */}
+        <div className="w-full flex items-center justify-center pt-2.5 pb-1 sm:hidden shrink-0">
+          <div className="w-12 h-1.5 bg-slate-400/50 dark:bg-slate-600 rounded-full" />
+        </div>
+
+        {/* Header Modal */}
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/70 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-rose-600/10 text-rose-500">
+            <div className="p-2 rounded-xl bg-rose-600/15 text-rose-500 shrink-0">
               <Users className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm sm:text-base font-black">Xuất DS Cần Thu Thập CCCD</h2>
-              <p className="text-[11px] text-slate-500">
-                Ảnh 16:9 dọc tối ưu điện thoại • Phân chia theo từng Thôn/Buôn
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm sm:text-base font-black uppercase tracking-tight">
+                  Danh Sách Thu Thập CCCD
+                </h2>
+                {isLoadingR2 && (
+                  <RefreshCw className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Nhấn vào ô tên để di chuyển sang thôn khác • Tích xanh khi đã thu xong
               </p>
             </div>
           </div>
@@ -499,201 +440,361 @@ export default function ExportMissingCccdModal({
           </button>
         </div>
 
-        {/* Thanh công cụ: Chọn Thiết bị (Tôi kê khai / Tất cả), Thôn/Buôn & Tìm kiếm */}
-        <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            {/* Phân loại: "Tôi kê khai" vs "Tất cả" */}
-            <div className="flex items-center gap-1.5">
-              <div className="flex items-center p-0.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-950/80">
-                <button
-                  type="button"
-                  onClick={() => setFilterDeviceMode('THIS_DEVICE')}
-                  className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer flex items-center gap-1.5 ${
-                    filterDeviceMode === 'THIS_DEVICE'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <span>Tôi kê khai</span>
-                  {cadreName && (
-                    <span className="text-[10px] font-black px-1.5 py-0.2 rounded-md bg-white/20 text-white">
-                      {cadreName}
-                    </span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFilterDeviceMode('ALL_DEVICES')}
-                  className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${
-                    filterDeviceMode === 'ALL_DEVICES'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  Tất cả
-                </button>
+        {/* Thanh công cụ: Chọn Thôn / Buôn, Tìm kiếm & Thống kê */}
+        <div className="px-4 sm:px-6 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 sm:gap-3">
+            {/* Dropdown chọn Thôn/Buôn (Có lưu vào localStorage) */}
+            <div className="flex items-center gap-2 flex-1">
+              <div className="flex items-center gap-1.5 text-xs shrink-0 font-bold text-slate-600 dark:text-slate-300">
+                <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                <span>Thôn/Buôn:</span>
               </div>
-
-              <button
-                type="button"
-                onClick={() => setIsCadreModalOpen(true)}
-                className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-400 hover:text-cyan-400 hover:bg-slate-800 transition cursor-pointer"
-                title="Đổi tên cán bộ kê khai"
+              <select
+                value={selectedVillage}
+                onChange={(e) => handleSelectVillage(e.target.value)}
+                className={`flex-1 sm:max-w-xs px-3 py-1.5 rounded-xl border text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
+                  isLight
+                    ? 'bg-slate-50 border-slate-300 text-slate-800'
+                    : 'bg-slate-800 border-slate-700 text-slate-100'
+                }`}
               >
-                <Edit2 className="w-3.5 h-3.5" />
-              </button>
+                <option value="ALL">
+                  -- Tất cả 16 Thôn / Buôn ({missingCccdList.length} người) --
+                </option>
+                {availableVillages.map((v) => (
+                  <option key={v.village} value={v.village}>
+                    {v.village} ({v.count} người cần thu)
+                  </option>
+                ))}
+              </select>
             </div>
 
-            {/* Lọc Thôn & Tìm kiếm */}
-            <div className="flex items-center gap-2 flex-1 max-w-md justify-end">
-              <div className="flex items-center gap-1.5 text-xs">
-                <Filter className="w-3.5 h-3.5 text-slate-400" />
-                <select
-                  value={selectedVillage}
-                  onChange={(e) => {
-                    setSelectedVillage(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                    isLight ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-800 border-slate-700 text-slate-200'
-                  }`}
-                >
-                  <option value="ALL">Tất cả thôn / buôn ({missingCccdList.length})</option>
-                  {availableVillages.map((v) => (
-                    <option key={v.village} value={v.village}>
-                      {v.village} ({v.count})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="relative min-w-[140px] sm:min-w-[180px]">
+            {/* Ô tìm kiếm & Thống kê */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 sm:w-56">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
                   value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  placeholder="Tìm tên, mã thửa..."
-                  className={`w-full pl-8 pr-3 py-1.5 rounded-xl border text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                    isLight ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-800 border-slate-700 text-slate-200'
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Tìm họ tên, số thửa..."
+                  className={`w-full pl-8 pr-3 py-1.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                    isLight
+                      ? 'bg-slate-50 border-slate-300 text-slate-800'
+                      : 'bg-slate-800 border-slate-700 text-slate-100'
                   }`}
                 />
               </div>
+
+              {/* Huy hiệu tiến độ */}
+              <div className="px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-[11px] font-black shrink-0 border border-slate-200 dark:border-slate-700">
+                <span className="text-emerald-500 font-bold">{checkedInView}</span>
+                <span className="text-slate-400">/{totalInView}</span>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Thân Modal: Xem trước ảnh Canvas */}
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center justify-center bg-slate-950/40 min-h-[350px]">
-          {pageChunks.length === 0 ? (
-            <div className="py-12 text-center text-slate-400 space-y-2">
-              <Users className="w-12 h-12 mx-auto text-slate-600 stroke-[1.5]" />
-              <p className="text-sm font-semibold text-slate-300">Không tìm thấy công dân nào cần thu thập CCCD</p>
-              <p className="text-xs text-slate-500">
-                {filterDeviceMode === 'THIS_DEVICE'
-                  ? 'Máy này chưa kê khai thửa nào thiếu CCCD, hoặc tất cả đều đã có ảnh trên hệ thống.'
-                  : 'Tất cả các thửa đã kê khai đều đã có file ảnh CCCD trên Cloudflare R2.'}
+        {/* Thông báo Toast khi di chuyển thành công */}
+        {toastMessage && (
+          <div className="px-4 py-2 bg-emerald-600 text-white text-xs font-bold flex items-center justify-between shrink-0 shadow-sm animate-in fade-in">
+            <span>{toastMessage}</span>
+            <button
+              type="button"
+              onClick={() => setToastMessage(null)}
+              className="text-white hover:opacity-80"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Thân bảng: DANH SÁCH DẠNG EXCEL TỐI THIỂU 4 Ô TRÊN 1 HÀNG */}
+        <div className="flex-1 overflow-y-auto p-2 sm:p-4 bg-slate-100/60 dark:bg-slate-950/40">
+          {pairedRows.length === 0 ? (
+            <div className="py-16 text-center text-slate-400 space-y-2">
+              <CheckCircle2 className="w-12 h-12 mx-auto text-emerald-500 stroke-[1.5]" />
+              <p className="text-sm font-semibold text-slate-300">
+                Không có công dân nào cần thu thập CCCD
+              </p>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                {selectedVillage !== 'ALL'
+                  ? `Toàn bộ công dân đã kê khai ở ${selectedVillage} đều đã có file ảnh CCCD trên Cloudflare R2.`
+                  : 'Tất cả các thửa đã kê khai đều đã có file CCCD hợp lệ trên hệ thống.'}
               </p>
             </div>
           ) : (
-            <div className="relative flex flex-col items-center">
-              {/* Thẻ thông báo Thôn Buôn & Trang ảnh hiện tại */}
-              {activeChunk && (
-                <div className="mb-2.5 px-3 py-1 rounded-full bg-slate-800/80 border border-slate-700 text-xs font-bold text-slate-200 flex items-center gap-2">
-                  <span className="text-sky-400">{activeChunk.village}</span>
-                  <span className="text-slate-500">•</span>
-                  <span>Trang {activeChunk.villagePageIndex} / {activeChunk.villageTotalPages}</span>
-                  <span className="text-slate-500">•</span>
-                  <span className="text-rose-400">{activeChunk.items.length} công dân</span>
-                </div>
-              )}
+            <div className="w-full overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-700 shadow-xs bg-white dark:bg-slate-900">
+              <table className="w-full border-collapse border border-slate-300 dark:border-slate-700 text-xs sm:text-sm">
+                <thead>
+                  <tr className="bg-slate-100 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 font-black border-b border-slate-300 dark:border-slate-700 uppercase tracking-tight text-[11px] sm:text-xs">
+                    <th className="border border-slate-300 dark:border-slate-700 px-3 py-2 text-left w-[40%]">
+                      Họ và Tên (Bấm để chuyển thôn)
+                    </th>
+                    <th className="border border-slate-300 dark:border-slate-700 px-1 py-2 text-center w-12 sm:w-16">
+                      Thu xong
+                    </th>
+                    <th className="border border-slate-300 dark:border-slate-700 px-3 py-2 text-left w-[40%]">
+                      Họ và Tên (Bấm để chuyển thôn)
+                    </th>
+                    <th className="border border-slate-300 dark:border-slate-700 px-1 py-2 text-center w-12 sm:w-16">
+                      Thu xong
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pairedRows.map((pair, rIdx) => {
+                    const p1 = pair[0];
+                    const p2 = pair[1];
+                    const isChecked1 = checkedKeys.has(p1.key);
+                    const isChecked2 = p2 ? checkedKeys.has(p2.key) : false;
 
-              {/* Vùng hiển thị Canvas (thu nhỏ tỷ lệ responsive vừa vặn màn hình) */}
-              <div className="rounded-2xl overflow-hidden shadow-2xl border border-slate-800 bg-black flex items-center justify-center max-h-[58vh]">
-                <canvas
-                  ref={canvasRef}
-                  width={1080}
-                  height={1920}
-                  style={{
-                    maxHeight: '56vh',
-                    width: 'auto',
-                    aspectRatio: '9 / 16',
-                    display: 'block',
-                  }}
-                />
-              </div>
+                    return (
+                      <tr
+                        key={rIdx}
+                        className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                      >
+                        {/* Ô 1: Họ tên người 1 (Bấm vào để mở form chuyển Thôn / Buôn) */}
+                        <td
+                          onClick={() => handleOpenMoveModal(p1)}
+                          className={`border border-slate-300 dark:border-slate-700 px-2.5 sm:px-3 py-2 cursor-pointer transition select-none ${
+                            isChecked1
+                              ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-950 dark:text-emerald-100 font-semibold'
+                              : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100'
+                          }`}
+                          title="Bấm vào tên để chuyển công dân sang Thôn / Buôn khác"
+                        >
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="font-bold uppercase tracking-tight text-xs sm:text-sm">
+                              {p1.name}
+                            </span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {p1.soThuaList.length > 0 && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium">
+                                  T{p1.soThuaList.join(',')}
+                                </span>
+                              )}
+                              <ArrowRightLeft className="w-3 h-3 text-slate-400 hover:text-indigo-500" />
+                            </div>
+                          </div>
+                          {selectedVillage === 'ALL' && (
+                            <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                              {p1.thonXa}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Ô 2: Checkbox thu xong người 1 */}
+                        <td
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleCheck(p1.key);
+                          }}
+                          className={`border border-slate-300 dark:border-slate-700 text-center cursor-pointer select-none p-1 sm:p-2 transition ${
+                            isChecked1
+                              ? 'bg-emerald-100 dark:bg-emerald-950/70'
+                              : 'bg-white dark:bg-slate-900'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked1}
+                            onChange={() => toggleCheck(p1.key)}
+                            className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
+                          />
+                        </td>
+
+                        {/* Ô 3: Họ tên người 2 (hoặc ô trống nếu số người lẻ) */}
+                        {p2 ? (
+                          <>
+                            <td
+                              onClick={() => handleOpenMoveModal(p2)}
+                              className={`border border-slate-300 dark:border-slate-700 px-2.5 sm:px-3 py-2 cursor-pointer transition select-none ${
+                                isChecked2
+                                  ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-950 dark:text-emerald-100 font-semibold'
+                                  : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100'
+                              }`}
+                              title="Bấm vào tên để chuyển công dân sang Thôn / Buôn khác"
+                            >
+                              <div className="flex items-center justify-between gap-1.5">
+                                <span className="font-bold uppercase tracking-tight text-xs sm:text-sm">
+                                  {p2.name}
+                                </span>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {p2.soThuaList.length > 0 && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium">
+                                      T{p2.soThuaList.join(',')}
+                                    </span>
+                                  )}
+                                  <ArrowRightLeft className="w-3 h-3 text-slate-400 hover:text-indigo-500" />
+                                </div>
+                              </div>
+                              {selectedVillage === 'ALL' && (
+                                <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                                  {p2.thonXa}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Ô 4: Checkbox thu xong người 2 */}
+                            <td
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleCheck(p2.key);
+                              }}
+                              className={`border border-slate-300 dark:border-slate-700 text-center cursor-pointer select-none p-1 sm:p-2 transition ${
+                                isChecked2
+                                  ? 'bg-emerald-100 dark:bg-emerald-950/70'
+                                  : 'bg-white dark:bg-slate-900'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked2}
+                                onChange={() => toggleCheck(p2.key)}
+                                className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
+                              />
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="border border-slate-300 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/40"></td>
+                            <td className="border border-slate-300 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/40"></td>
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
 
-        {/* Footer Modal: Điều hướng ảnh & DUY NHẤT 1 NÚT "TẢI VỀ MÁY" */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/80 shrink-0">
-          {/* Thanh phân trang điều hướng nếu có nhiều ảnh */}
-          {totalPages > 1 ? (
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                disabled={currentPage <= 1}
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 disabled:opacity-40 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer disabled:cursor-not-allowed"
-                title="Ảnh trước"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-
-              <span className="text-xs font-black px-2.5 py-1 rounded-lg bg-slate-200 dark:bg-slate-800">
-                Ảnh {currentPage} / {totalPages}
-              </span>
-
-              <button
-                type="button"
-                disabled={currentPage >= totalPages}
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                className="p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 disabled:opacity-40 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer disabled:cursor-not-allowed"
-                title="Ảnh tiếp theo"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          ) : (
-            <div className="text-xs text-slate-500 font-semibold">
-              {pageChunks.length === 1 ? '1 ảnh duy nhất' : ''}
-            </div>
-          )}
-
-          {/* Nút hành động DUY NHẤT: Tải Về Máy */}
-          <div className="flex items-center gap-2 ml-auto">
-            <button
-              type="button"
-              disabled={pageChunks.length === 0}
-              onClick={handleDownloadImage}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black transition cursor-pointer bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-md shadow-rose-600/30 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Tải ảnh trang hiện tại về máy"
-            >
-              <Download className="w-4 h-4" />
-              <span>
-                {totalPages > 1 && activeChunk
-                  ? `Tải Về Máy (${activeChunk.village} - Ảnh ${activeChunk.villagePageIndex}/${activeChunk.villageTotalPages})`
-                  : 'Tải Về Máy'}
-              </span>
-            </button>
+        {/* Footer Modal */}
+        <div className="flex items-center justify-between px-4 sm:px-6 py-2.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/80 shrink-0 text-xs text-slate-500 dark:text-slate-400">
+          <div>
+            <span>Tổng số: </span>
+            <strong className="text-slate-800 dark:text-slate-200">{filteredCitizens.length}</strong> công dân
+            {' • '}
+            <span>Đã thu: </span>
+            <strong className="text-emerald-500 font-bold">{checkedInView}</strong>
           </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs transition cursor-pointer"
+          >
+            Đóng
+          </button>
         </div>
       </div>
 
-      {/* Modal Đổi Tên Cán Bộ */}
-      <CadreNameModal
-        isOpen={isCadreModalOpen}
-        onClose={() => setIsCadreModalOpen(false)}
-        onSaved={(newName) => {
-          setCadreName(newName);
-          setDeviceId(newName);
-        }}
-        theme={theme}
-      />
+      {/* SUB-MODAL: DI CHUYỂN TÊN ĐẾN THÔN BUÔN KHÁC */}
+      {movingPerson && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-in fade-in">
+          <div
+            className={`w-full max-w-md p-5 rounded-2xl border shadow-2xl space-y-4 animate-in zoom-in-95 ${
+              isLight
+                ? 'bg-white border-slate-200 text-slate-800'
+                : 'bg-slate-900 border-slate-700 text-slate-100'
+            }`}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-indigo-600/15 text-indigo-500">
+                  <ArrowRightLeft className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase">Chuyển Thôn / Buôn</h3>
+                  <p className="text-[11px] text-slate-500">
+                    Cập nhật thôn buôn người này vào cơ sở dữ liệu
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMovingPerson(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/80 space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Họ và tên:</span>
+                  <strong className="text-sm uppercase text-indigo-400">{movingPerson.name}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Thôn hiện tại:</span>
+                  <span className="font-semibold text-rose-400">{movingPerson.thonXa}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Các thửa đất:</span>
+                  <span className="font-semibold text-slate-300">
+                    {movingPerson.soThuaList.length > 0
+                      ? `Thửa ${movingPerson.soThuaList.join(', ')}`
+                      : movingPerson.maThuaList.join(', ')}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1.5 text-slate-300">
+                  Chọn Thôn / Buôn mới để di chuyển đến:
+                </label>
+                <select
+                  value={targetVillage}
+                  onChange={(e) => setTargetVillage(e.target.value)}
+                  className={`w-full px-3 py-2 rounded-xl border text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
+                    isLight
+                      ? 'bg-slate-50 border-slate-300 text-slate-800'
+                      : 'bg-slate-800 border-slate-700 text-slate-100'
+                  }`}
+                >
+                  {CANONICAL_VILLAGES.filter((v) => v !== 'Chưa xác định').map((v) => (
+                    <option key={v} value={v}>
+                      {v} {v === movingPerson.thonXa ? '(Hiện tại)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                disabled={isSavingMove}
+                onClick={() => setMovingPerson(null)}
+                className="px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={isSavingMove || targetVillage === movingPerson.thonXa}
+                onClick={handleConfirmMoveVillage}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-black shadow-md transition flex items-center gap-1.5 cursor-pointer"
+              >
+                {isSavingMove ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Đang lưu...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Xác nhận di chuyển</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

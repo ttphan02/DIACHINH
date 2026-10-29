@@ -2983,6 +2983,21 @@ export default function DashboardPage() {
                 <span className="hidden sm:inline">16 Thôn/Buôn</span>
               </button>
 
+              {/* Thu Thập CCCD - Danh sách theo từng thôn buôn */}
+              <button
+                type="button"
+                onClick={() => setIsExportMissingCccdOpen(true)}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  isLight
+                    ? 'text-amber-700 hover:bg-amber-50 bg-amber-50/80 border border-amber-200'
+                    : 'text-amber-300 hover:bg-amber-900/40 bg-amber-950/40 border border-amber-700/40'
+                }`}
+                title="Mở danh sách thu thập CCCD theo từng thôn buôn"
+              >
+                <Users className="w-3.5 h-3.5 text-amber-500" />
+                <span>Thu CCCD</span>
+              </button>
+
               {/* 2. Nút Kho CCCD (Quản Lý R2) */}
               <button
                 type="button"
