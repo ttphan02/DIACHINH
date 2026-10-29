@@ -557,19 +557,24 @@ export default function CccdCollectPanel({
                       {/* Ô 2: Checkbox thu xong người 1 */}
                       <td
                         onClick={(e) => {
+                          e.preventDefault();
                           e.stopPropagation();
                           toggleCheck(p1.key);
                         }}
-                        className={`border border-gray-200 text-center cursor-pointer select-none p-1 transition w-[28px] ${
+                        className={`border border-gray-200 text-center cursor-pointer select-none p-1 transition w-[28px] active:scale-90 ${
                           isChecked1 ? 'bg-emerald-50' : 'bg-white'
                         }`}
+                        title={isChecked1 ? 'Đã thu CCCD (bấm để hủy)' : 'Chưa thu CCCD (bấm để đánh dấu đã thu)'}
                       >
-                        <input
-                          type="checkbox"
-                          checked={isChecked1}
-                          onChange={() => toggleCheck(p1.key)}
-                          className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer accent-blue-600 mx-auto"
-                        />
+                        <div
+                          className={`w-4 h-4 mx-auto rounded flex items-center justify-center transition-all ${
+                            isChecked1
+                              ? 'bg-blue-600 text-white shadow-2xs'
+                              : 'border border-gray-300 bg-white hover:border-blue-400'
+                          }`}
+                        >
+                          {isChecked1 && <Check className="w-3 h-3 stroke-[3]" />}
+                        </div>
                       </td>
 
                       {/* Ô 3: Họ tên người 2 (hoặc ô trống) */}
@@ -598,19 +603,24 @@ export default function CccdCollectPanel({
                           {/* Ô 4: Checkbox thu xong người 2 */}
                           <td
                             onClick={(e) => {
+                              e.preventDefault();
                               e.stopPropagation();
                               toggleCheck(p2.key);
                             }}
-                            className={`border border-gray-200 text-center cursor-pointer select-none p-1 transition w-[28px] ${
+                            className={`border border-gray-200 text-center cursor-pointer select-none p-1 transition w-[28px] active:scale-90 ${
                               isChecked2 ? 'bg-emerald-50' : 'bg-white'
                             }`}
+                            title={isChecked2 ? 'Đã thu CCCD (bấm để hủy)' : 'Chưa thu CCCD (bấm để đánh dấu đã thu)'}
                           >
-                            <input
-                              type="checkbox"
-                              checked={isChecked2}
-                              onChange={() => toggleCheck(p2.key)}
-                              className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer accent-blue-600 mx-auto"
-                            />
+                            <div
+                              className={`w-4 h-4 mx-auto rounded flex items-center justify-center transition-all ${
+                                isChecked2
+                                  ? 'bg-blue-600 text-white shadow-2xs'
+                                  : 'border border-gray-300 bg-white hover:border-blue-400'
+                              }`}
+                            >
+                              {isChecked2 && <Check className="w-3 h-3 stroke-[3]" />}
+                            </div>
                           </td>
                         </>
                       ) : (
@@ -640,7 +650,7 @@ export default function CccdCollectPanel({
 
         <button
           type="button"
-          onClick={onClose}
+          onClick={onToggleCollapse || onClose}
           className="px-3 py-1.5 rounded-xl bg-white hover:bg-gray-100 text-gray-700 font-bold text-xs border border-gray-200 shadow-2xs transition cursor-pointer"
         >
           Thu gọn

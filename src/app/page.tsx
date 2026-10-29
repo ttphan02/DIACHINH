@@ -1249,29 +1249,55 @@ export default function Home() {
             </div>
 
             {/* Nút mở lại bảng chi tiết khi đang thu gọn trên Desktop (nằm ở mép trái bản đồ) */}
-            {isPanelOpen && selectedParcel && isPanelCollapsed && (
-              <button
-                type="button"
-                onClick={() => setIsPanelCollapsed(false)}
-                className="absolute top-20 left-0 z-30 hidden lg:flex items-center gap-1.5 bg-white/95 backdrop-blur-md text-slate-800 hover:text-blue-600 hover:bg-blue-50 px-3 py-2.5 rounded-r-2xl shadow-2xl border-y border-r border-gray-200 font-bold text-xs transition-all active:scale-95 cursor-pointer animate-in slide-in-from-left duration-200"
-                title="Mở lại bảng chi tiết thửa đất"
-              >
-                <ChevronRight className="w-4 h-4 text-blue-600" />
-                <span>Thửa {selectedParcel.so_thua} (Tờ {selectedParcel.to_ban_do})</span>
-              </button>
+            {isPanelCollapsed && (
+              selectedParcel ? (
+                <button
+                  type="button"
+                  onClick={() => setIsPanelCollapsed(false)}
+                  className="absolute top-20 left-0 z-30 hidden lg:flex items-center gap-1.5 bg-white/95 backdrop-blur-md text-slate-800 hover:text-blue-600 hover:bg-blue-50 px-3 py-2.5 rounded-r-2xl shadow-2xl border-y border-r border-gray-200 font-bold text-xs transition-all active:scale-95 cursor-pointer animate-in slide-in-from-left duration-200"
+                  title="Mở lại bảng chi tiết thửa đất"
+                >
+                  <ChevronRight className="w-4 h-4 text-blue-600" />
+                  <span>Thửa {selectedParcel.so_thua} (Tờ {selectedParcel.to_ban_do})</span>
+                </button>
+              ) : isExportMissingCccdOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setIsPanelCollapsed(false)}
+                  className="absolute top-20 left-0 z-30 hidden lg:flex items-center gap-1.5 bg-white/95 backdrop-blur-md text-slate-800 hover:text-blue-600 hover:bg-blue-50 px-3 py-2.5 rounded-r-2xl shadow-2xl border-y border-r border-gray-200 font-bold text-xs transition-all active:scale-95 cursor-pointer animate-in slide-in-from-left duration-200"
+                  title="Mở lại danh sách thu thập CCCD"
+                >
+                  <ChevronRight className="w-4 h-4 text-blue-600" />
+                  <Users className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Thu Thập CCCD</span>
+                </button>
+              ) : null
             )}
 
             {/* Nút mở lại bảng chi tiết khi đang thu gọn trên Điện thoại (nằm ở đáy màn hình) */}
-            {isPanelOpen && selectedParcel && isPanelCollapsed && (
-              <button
-                type="button"
-                onClick={() => setIsPanelCollapsed(false)}
-                className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 lg:hidden flex items-center gap-2 bg-white/95 backdrop-blur-md text-slate-800 px-4 py-2.5 rounded-full shadow-2xl border border-gray-200 font-extrabold text-xs transition-all active:scale-95 cursor-pointer animate-in slide-in-from-bottom duration-200"
-                title="Mở lại bảng chi tiết thửa đất"
-              >
-                <ChevronUp className="w-4 h-4 text-blue-600 animate-bounce" />
-                <span>Xem Thửa {selectedParcel.so_thua} • Tờ {selectedParcel.to_ban_do}</span>
-              </button>
+            {isPanelCollapsed && (
+              selectedParcel ? (
+                <button
+                  type="button"
+                  onClick={() => setIsPanelCollapsed(false)}
+                  className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 lg:hidden flex items-center gap-2 bg-white/95 backdrop-blur-md text-slate-800 px-4 py-2.5 rounded-full shadow-2xl border border-gray-200 font-extrabold text-xs transition-all active:scale-95 cursor-pointer animate-in slide-in-from-bottom duration-200"
+                  title="Mở lại bảng chi tiết thửa đất"
+                >
+                  <ChevronUp className="w-4 h-4 text-blue-600 animate-bounce" />
+                  <span>Xem Thửa {selectedParcel.so_thua} • Tờ {selectedParcel.to_ban_do}</span>
+                </button>
+              ) : isExportMissingCccdOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setIsPanelCollapsed(false)}
+                  className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 lg:hidden flex items-center gap-2 bg-white/95 backdrop-blur-md text-slate-800 px-4 py-2.5 rounded-full shadow-2xl border border-gray-200 font-extrabold text-xs transition-all active:scale-95 cursor-pointer animate-in slide-in-from-bottom duration-200"
+                  title="Mở lại danh sách thu thập CCCD"
+                >
+                  <ChevronUp className="w-4 h-4 text-blue-600 animate-bounce" />
+                  <Users className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Xem Danh Sách Thu Thập CCCD</span>
+                </button>
+              ) : null
             )}
 
             {/* Banner nổi khi đang trong chế độ chọn thêm thửa đất gộp */}
@@ -1307,7 +1333,7 @@ export default function Home() {
             {/* Cụm button điều khiển nổi: Trạng thái, Realtime GGS & Tìm kiếm (Tự động trượt lên ẩn khỏi khung hình khi chọn thửa) */}
             <div
               className={`absolute top-2.5 sm:top-3.5 z-20 flex flex-col gap-1.5 sm:gap-2 transition-all duration-300 ease-in-out left-2.5 right-2.5 lg:left-3.5 lg:right-auto ${
-                (isPanelOpen && selectedParcel) || isExportMissingCccdOpen
+                ((isPanelOpen && selectedParcel) || isExportMissingCccdOpen) && !isPanelCollapsed
                   ? '-translate-y-[170%] opacity-0 pointer-events-none'
                   : 'translate-y-0 opacity-100 pointer-events-auto'
               }`}
