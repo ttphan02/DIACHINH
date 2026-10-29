@@ -12,6 +12,9 @@ import {
   ArrowRightLeft,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ShieldCheck,
+  FileText,
 } from 'lucide-react';
 import { Parcel, DeclarationFormData } from '@/types';
 import { getOrCreateDeviceId, getSavedCadreName, saveOrUpdateDeclaration } from '@/utils/declaration';
@@ -49,8 +52,6 @@ export default function CccdCollectPanel({
   onDeclarationUpdated,
   onToggleCollapse,
 }: CccdCollectPanelProps) {
-  const isLight = theme === 'light';
-
   // Lọc tìm kiếm & Thôn / Buôn
   const [selectedVillage, setSelectedVillage] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -265,7 +266,7 @@ export default function CccdCollectPanel({
   }, [missingCccdList, selectedVillage, searchQuery]);
 
   // Chia danh sách thành các cặp 2 người (TỐI THIỂU 4 Ô TRÊN 1 HÀNG)
-  // Vừa khít 100% chiều rộng của form (420px / điện thoại), không bị tràn ngang
+  // Vừa khít 100% chiều rộng của form (420px / điện thoại), không tràn ngang
   const pairedRows = useMemo(() => {
     const pairs: [MissingCccdPerson, MissingCccdPerson | null][] = [];
     for (let i = 0; i < filteredCitizens.length; i += 2) {
@@ -298,7 +299,6 @@ export default function CccdCollectPanel({
     try {
       const timestamp = new Date().toISOString();
 
-      // Cập nhật tất cả các thửa đất của công dân này
       for (const maThua of movingPerson.maThuaList) {
         const existing = declarationsMap[maThua];
         let updated: any;
@@ -383,32 +383,52 @@ export default function CccdCollectPanel({
   };
 
   return (
-    <div className="h-full w-full flex flex-col bg-white dark:bg-slate-900 overflow-hidden select-none">
-      {/* Mobile Drag Handle */}
-      <div className="w-12 h-1.5 bg-gray-300 dark:bg-slate-700 rounded-full mx-auto mt-2 mb-0.5 lg:hidden shrink-0" />
+    <div className="h-full w-full flex flex-col bg-white overflow-hidden select-none">
+      {/* Mobile Drag Handle chuẩn phong cách form kê khai */}
+      <div className="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mt-2 mb-0.5 lg:hidden shrink-0" />
 
-      {/* Top Header của Panel - Giống hệt form kê khai thửa */}
-      <div className="p-3 border-b border-gray-100 dark:border-slate-800 bg-gray-50/90 dark:bg-slate-950/70 flex items-center justify-between gap-2 shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 shrink-0">
-            <Users className="w-4 h-4" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-sm font-black text-gray-900 dark:text-white uppercase truncate flex items-center gap-1.5">
-              <span>Thu Thập CCCD</span>
-              {isLoadingR2 && <RefreshCw className="w-3 h-3 text-cyan-500 animate-spin" />}
+      {/* Top Header của Panel - Sử dụng chính xác style màu của form thông tin thửa đất */}
+      <div className="p-3.5 border-b border-gray-100 bg-gray-50/90 flex items-start justify-between gap-2 shrink-0">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-base font-black text-gray-900">
+              Thu Thập <span className="text-blue-600 font-black">CCCD</span>
             </h2>
-            <p className="text-[10px] text-gray-500 dark:text-slate-400 truncate">
-              {selectedVillage === 'ALL' ? 'Toàn xã Cư Pui' : selectedVillage} • {checkedInView}/{totalInView} đã thu
-            </p>
+            <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200/60 inline-flex items-center gap-1 shadow-2xs">
+              <Users className="w-3 h-3 text-blue-600" />
+              <span>{filteredCitizens.length} người</span>
+            </span>
+            {isLoadingR2 && <RefreshCw className="w-3.5 h-3.5 text-blue-500 animate-spin" />}
           </div>
+          <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1 flex-wrap">
+            <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            <span className="capitalize font-medium text-gray-700">
+              {selectedVillage === 'ALL' ? 'Toàn xã Cư Pui' : selectedVillage}
+            </span>
+            <span className="text-gray-300">•</span>
+            <span className="text-[10px] font-bold bg-emerald-100/90 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200 inline-flex items-center gap-1">
+              <ShieldCheck className="w-3 h-3 text-emerald-600" />
+              Đã thu: {checkedInView}/{totalInView}
+            </span>
+          </p>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
+          {onToggleCollapse && (
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50/80 rounded-xl transition border border-gray-200/80 shadow-2xs cursor-pointer flex items-center justify-center"
+              title="Thu gọn bảng"
+            >
+              <ChevronLeft className="w-4 h-4 hidden lg:block" />
+              <ChevronDown className="w-4 h-4 block lg:hidden" />
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-slate-800 transition cursor-pointer"
+            className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 rounded-xl transition cursor-pointer"
             title="Đóng bảng"
           >
             <X className="w-4 h-4" />
@@ -416,14 +436,14 @@ export default function CccdCollectPanel({
         </div>
       </div>
 
-      {/* Thanh lọc Thôn / Buôn & Tìm kiếm - Vừa vặn 100% chiều rộng form */}
-      <div className="p-2 border-b border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-1.5 shrink-0">
-        {/* Dropdown Thôn/Buôn (Có lưu vào localStorage) */}
+      {/* Thanh lọc & tìm kiếm chuẩn phong cách input của form kê khai thửa */}
+      <div className="p-3 border-b border-gray-100 bg-white space-y-2 shrink-0">
+        {/* Dropdown Thôn/Buôn */}
         <div className="relative">
           <select
             value={selectedVillage}
             onChange={(e) => handleSelectVillage(e.target.value)}
-            className="w-full pl-2.5 pr-7 py-1.5 rounded-lg border border-gray-200 dark:border-slate-700 text-xs font-bold bg-gray-50 dark:bg-slate-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer appearance-none"
+            className="w-full pl-3 pr-8 py-2 rounded-xl border border-gray-200 text-xs font-bold bg-gray-50/70 text-gray-800 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition cursor-pointer appearance-none shadow-2xs"
           >
             <option value="ALL">-- Tất cả Thôn / Buôn ({missingCccdList.length} người) --</option>
             {availableVillages.map((v) => (
@@ -432,23 +452,23 @@ export default function CccdCollectPanel({
               </option>
             ))}
           </select>
-          <ChevronDown className="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
 
         {/* Ô tìm kiếm họ tên & số thửa */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
-            <Search className="w-3 h-3 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm tên, số thửa..."
-              className="w-full pl-6 pr-2 py-1 rounded-lg border border-gray-200 dark:border-slate-700 text-xs bg-gray-50 dark:bg-slate-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              placeholder="Tìm tên chủ đất, số thửa..."
+              className="w-full pl-7 pr-3 py-1.5 rounded-xl border border-gray-200 text-xs bg-gray-50/70 text-gray-800 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition"
             />
           </div>
 
-          <div className="px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-[10px] font-black text-emerald-700 dark:text-emerald-300 shrink-0">
+          <div className="px-2.5 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-[11px] font-black text-blue-700 shrink-0 shadow-2xs">
             {totalInView > 0 ? `${Math.round((checkedInView / totalInView) * 100)}%` : '0%'}
           </div>
         </div>
@@ -456,7 +476,7 @@ export default function CccdCollectPanel({
 
       {/* Thông báo Toast khi di chuyển thành công */}
       {toastMessage && (
-        <div className="px-3 py-1.5 bg-emerald-600 text-white text-[11px] font-bold flex items-center justify-between shrink-0 shadow-xs">
+        <div className="px-3.5 py-2 bg-emerald-600 text-white text-xs font-bold flex items-center justify-between shrink-0 shadow-xs animate-in fade-in">
           <span className="truncate">{toastMessage}</span>
           <button
             type="button"
@@ -468,35 +488,35 @@ export default function CccdCollectPanel({
         </div>
       )}
 
-      {/* THÂN BẢNG: DANH SÁCH 4 Ô / HÀNG - VỪA KHÍT 100% FORM KHÔNG TRÀN NGANG */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden p-1.5 bg-gray-50/50 dark:bg-slate-950/30">
+      {/* THÂN BẢNG: DANH SÁCH 4 Ô / HÀNG - VỪA KHÍT FORM VỚI STYLE MÀU FORM KÊ KHAI THỬA */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-2.5 bg-gray-50/70">
         {pairedRows.length === 0 ? (
-          <div className="py-12 text-center text-gray-400 dark:text-slate-500 space-y-1.5">
-            <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-500 stroke-[1.5]" />
-            <p className="text-xs font-bold text-gray-700 dark:text-slate-300">
+          <div className="py-12 text-center text-gray-400 space-y-2">
+            <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 stroke-[1.5]" />
+            <p className="text-xs font-bold text-gray-800">
               Không có công dân nào cần thu CCCD
             </p>
-            <p className="text-[10px] text-gray-500 dark:text-slate-500 max-w-xs mx-auto">
+            <p className="text-[11px] text-gray-500 max-w-xs mx-auto">
               {selectedVillage !== 'ALL'
                 ? `Toàn bộ công dân đã kê khai ở ${selectedVillage} đều đã có file CCCD trên R2.`
                 : 'Tất cả các thửa đã kê khai đều đã có file CCCD.'}
             </p>
           </div>
         ) : (
-          <div className="w-full border border-gray-200 dark:border-slate-800 rounded-lg overflow-hidden bg-white dark:bg-slate-900 shadow-2xs">
-            <table className="table-fixed w-full border-collapse border border-gray-200 dark:border-slate-800 text-xs">
+          <div className="w-full border border-gray-200 rounded-xl overflow-hidden bg-white shadow-xs">
+            <table className="table-fixed w-full border-collapse border border-gray-200 text-xs">
               <thead>
-                <tr className="bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 font-black border-b border-gray-200 dark:border-slate-800 text-[10px] uppercase">
-                  <th className="border border-gray-200 dark:border-slate-800 px-1.5 py-1 text-left w-[calc(50%-28px)] truncate">
+                <tr className="bg-gray-50/90 text-gray-600 font-black border-b border-gray-200 text-[10px] uppercase tracking-wide">
+                  <th className="border border-gray-200 px-2 py-1.5 text-left w-[calc(50%-28px)] truncate">
                     Họ và Tên
                   </th>
-                  <th className="border border-gray-200 dark:border-slate-800 px-0.5 py-1 text-center w-[28px]">
+                  <th className="border border-gray-200 px-0.5 py-1.5 text-center w-[28px]">
                     Thu
                   </th>
-                  <th className="border border-gray-200 dark:border-slate-800 px-1.5 py-1 text-left w-[calc(50%-28px)] truncate">
+                  <th className="border border-gray-200 px-2 py-1.5 text-left w-[calc(50%-28px)] truncate">
                     Họ và Tên
                   </th>
-                  <th className="border border-gray-200 dark:border-slate-800 px-0.5 py-1 text-center w-[28px]">
+                  <th className="border border-gray-200 px-0.5 py-1.5 text-center w-[28px]">
                     Thu
                   </th>
                 </tr>
@@ -511,26 +531,26 @@ export default function CccdCollectPanel({
                   return (
                     <tr
                       key={rIdx}
-                      className="transition-colors hover:bg-gray-50 dark:hover:bg-slate-800/40"
+                      className="transition-colors hover:bg-blue-50/30"
                     >
-                      {/* Ô 1: Họ tên người 1 (Bấm vào để mở form chuyển Thôn / Buôn) */}
+                      {/* Ô 1: Họ tên người 1 */}
                       <td
                         onClick={() => handleOpenMoveModal(p1)}
-                        className={`border border-gray-200 dark:border-slate-800 px-1.5 py-1.5 cursor-pointer transition select-none overflow-hidden ${
+                        className={`border border-gray-200 px-2 py-1.5 cursor-pointer transition select-none overflow-hidden ${
                           isChecked1
-                            ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-950 dark:text-emerald-100 font-bold'
-                            : 'bg-white dark:bg-slate-900 text-gray-800 dark:text-slate-100'
+                            ? 'bg-emerald-50 text-emerald-950 font-bold border-emerald-200'
+                            : 'bg-white text-gray-900'
                         }`}
                         title="Bấm để chuyển thôn / buôn khác"
                       >
-                        <div className="font-bold uppercase tracking-tight text-[11px] leading-tight truncate">
+                        <div className="font-black uppercase tracking-tight text-[11px] leading-tight truncate text-gray-900">
                           {p1.name}
                         </div>
-                        <div className="flex items-center justify-between text-[9px] text-gray-400 dark:text-slate-500 leading-none mt-0.5">
-                          <span className="truncate">
-                            {p1.soThuaList.length > 0 ? `T${p1.soThuaList.join(',')}` : p1.thonXa}
+                        <div className="flex items-center justify-between text-[9px] text-gray-500 leading-none mt-1">
+                          <span className="font-mono bg-gray-100 text-gray-700 px-1 py-0.5 rounded border border-gray-200 truncate">
+                            {p1.soThuaList.length > 0 ? `Thửa ${p1.soThuaList.join(',')}` : p1.thonXa}
                           </span>
-                          <ArrowRightLeft className="w-2.5 h-2.5 text-gray-400 shrink-0 ml-0.5" />
+                          <ArrowRightLeft className="w-2.5 h-2.5 text-blue-500 shrink-0 ml-1" />
                         </div>
                       </td>
 
@@ -540,17 +560,15 @@ export default function CccdCollectPanel({
                           e.stopPropagation();
                           toggleCheck(p1.key);
                         }}
-                        className={`border border-gray-200 dark:border-slate-800 text-center cursor-pointer select-none p-0.5 transition w-[28px] ${
-                          isChecked1
-                            ? 'bg-emerald-100 dark:bg-emerald-950/70'
-                            : 'bg-white dark:bg-slate-900'
+                        className={`border border-gray-200 text-center cursor-pointer select-none p-1 transition w-[28px] ${
+                          isChecked1 ? 'bg-emerald-50' : 'bg-white'
                         }`}
                       >
                         <input
                           type="checkbox"
                           checked={isChecked1}
                           onChange={() => toggleCheck(p1.key)}
-                          className="w-3.5 h-3.5 text-emerald-600 rounded border-gray-300 focus:ring-0 cursor-pointer accent-emerald-600 mx-auto"
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer accent-blue-600 mx-auto"
                         />
                       </td>
 
@@ -559,21 +577,21 @@ export default function CccdCollectPanel({
                         <>
                           <td
                             onClick={() => handleOpenMoveModal(p2)}
-                            className={`border border-gray-200 dark:border-slate-800 px-1.5 py-1.5 cursor-pointer transition select-none overflow-hidden ${
+                            className={`border border-gray-200 px-2 py-1.5 cursor-pointer transition select-none overflow-hidden ${
                               isChecked2
-                                ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-950 dark:text-emerald-100 font-bold'
-                                : 'bg-white dark:bg-slate-900 text-gray-800 dark:text-slate-100'
+                                ? 'bg-emerald-50 text-emerald-950 font-bold border-emerald-200'
+                                : 'bg-white text-gray-900'
                             }`}
                             title="Bấm để chuyển thôn / buôn khác"
                           >
-                            <div className="font-bold uppercase tracking-tight text-[11px] leading-tight truncate">
+                            <div className="font-black uppercase tracking-tight text-[11px] leading-tight truncate text-gray-900">
                               {p2.name}
                             </div>
-                            <div className="flex items-center justify-between text-[9px] text-gray-400 dark:text-slate-500 leading-none mt-0.5">
-                              <span className="truncate">
-                                {p2.soThuaList.length > 0 ? `T${p2.soThuaList.join(',')}` : p2.thonXa}
+                            <div className="flex items-center justify-between text-[9px] text-gray-500 leading-none mt-1">
+                              <span className="font-mono bg-gray-100 text-gray-700 px-1 py-0.5 rounded border border-gray-200 truncate">
+                                {p2.soThuaList.length > 0 ? `Thửa ${p2.soThuaList.join(',')}` : p2.thonXa}
                               </span>
-                              <ArrowRightLeft className="w-2.5 h-2.5 text-gray-400 shrink-0 ml-0.5" />
+                              <ArrowRightLeft className="w-2.5 h-2.5 text-blue-500 shrink-0 ml-1" />
                             </div>
                           </td>
 
@@ -583,24 +601,22 @@ export default function CccdCollectPanel({
                               e.stopPropagation();
                               toggleCheck(p2.key);
                             }}
-                            className={`border border-gray-200 dark:border-slate-800 text-center cursor-pointer select-none p-0.5 transition w-[28px] ${
-                              isChecked2
-                                ? 'bg-emerald-100 dark:bg-emerald-950/70'
-                                : 'bg-white dark:bg-slate-900'
+                            className={`border border-gray-200 text-center cursor-pointer select-none p-1 transition w-[28px] ${
+                              isChecked2 ? 'bg-emerald-50' : 'bg-white'
                             }`}
                           >
                             <input
                               type="checkbox"
                               checked={isChecked2}
                               onChange={() => toggleCheck(p2.key)}
-                              className="w-3.5 h-3.5 text-emerald-600 rounded border-gray-300 focus:ring-0 cursor-pointer accent-emerald-600 mx-auto"
+                              className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer accent-blue-600 mx-auto"
                             />
                           </td>
                         </>
                       ) : (
                         <>
-                          <td className="border border-gray-200 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/40"></td>
-                          <td className="border border-gray-200 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/40"></td>
+                          <td className="border border-gray-200 bg-gray-50/50"></td>
+                          <td className="border border-gray-200 bg-gray-50/50"></td>
                         </>
                       )}
                     </tr>
@@ -612,36 +628,36 @@ export default function CccdCollectPanel({
         )}
       </div>
 
-      {/* Footer mỏng dưới cùng */}
-      <div className="p-2 border-t border-gray-100 dark:border-slate-800 bg-gray-50/90 dark:bg-slate-950/70 flex items-center justify-between text-[11px] text-gray-500 dark:text-slate-400 shrink-0">
-        <div>
-          <span>Tổng: </span>
-          <strong className="text-gray-900 dark:text-white font-bold">{filteredCitizens.length}</strong>
-          {' • '}
+      {/* Footer mỏng dưới cùng với style màu chuẩn */}
+      <div className="p-3 border-t border-gray-100 bg-gray-50/90 flex items-center justify-between text-xs text-gray-600 shrink-0">
+        <div className="flex items-center gap-1.5">
+          <span>Tổng số: </span>
+          <strong className="text-gray-900 font-black">{filteredCitizens.length}</strong>
+          <span className="text-gray-300">•</span>
           <span>Đã thu: </span>
-          <strong className="text-emerald-600 dark:text-emerald-400 font-bold">{checkedInView}</strong>
+          <strong className="text-emerald-600 font-black">{checkedInView}</strong>
         </div>
 
         <button
           type="button"
           onClick={onClose}
-          className="px-2.5 py-1 rounded-md bg-gray-200 dark:bg-slate-800 hover:bg-gray-300 dark:hover:bg-slate-700 text-gray-800 dark:text-gray-200 font-bold text-[10px] transition cursor-pointer"
+          className="px-3 py-1.5 rounded-xl bg-white hover:bg-gray-100 text-gray-700 font-bold text-xs border border-gray-200 shadow-2xs transition cursor-pointer"
         >
           Thu gọn
         </button>
       </div>
 
-      {/* SUB-MODAL: DI CHUYỂN TÊN ĐẾN THÔN BUÔN KHÁC */}
+      {/* SUB-MODAL: DI CHUYỂN TÊN ĐẾN THÔN BUÔN KHÁC (Style màu chuẩn form kê khai) */}
       {movingPerson && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-2xs animate-in fade-in">
-          <div className="w-full max-w-sm p-4 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-2xl bg-white dark:bg-slate-900 space-y-3 animate-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-800 pb-2">
-              <div className="flex items-center gap-1.5">
-                <div className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs animate-in fade-in">
+          <div className="w-full max-w-sm p-4 rounded-2xl border border-gray-200 shadow-2xl bg-white space-y-3 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-200/60 shadow-2xs">
                   <ArrowRightLeft className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-xs font-black uppercase text-gray-900 dark:text-white">
+                  <h3 className="text-xs font-black uppercase text-gray-900">
                     Chuyển Thôn / Buôn
                   </h3>
                   <p className="text-[10px] text-gray-500">Cập nhật thôn vào database</p>
@@ -650,50 +666,61 @@ export default function CccdCollectPanel({
               <button
                 type="button"
                 onClick={() => setMovingPerson(null)}
-                className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-2 text-xs">
-              <div className="p-2 rounded-lg bg-gray-50 dark:bg-slate-800/80 space-y-1 text-[11px]">
+            <div className="space-y-2.5 text-xs">
+              <div className="p-2.5 rounded-xl bg-gray-50/90 border border-gray-100 space-y-1 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-gray-400">Họ và tên:</span>
-                  <strong className="uppercase text-indigo-600 dark:text-indigo-400">
+                  <span className="text-gray-500">Họ và tên:</span>
+                  <strong className="uppercase text-blue-600 font-black">
                     {movingPerson.name}
                   </strong>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400">Thôn hiện tại:</span>
-                  <span className="font-semibold text-rose-500">{movingPerson.thonXa}</span>
+                  <span className="text-gray-500">Thôn hiện tại:</span>
+                  <span className="font-bold text-rose-600">{movingPerson.thonXa}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Mã thửa:</span>
+                  <span className="font-mono text-gray-700 font-bold">
+                    {movingPerson.soThuaList.length > 0
+                      ? `Thửa ${movingPerson.soThuaList.join(', ')}`
+                      : movingPerson.maThuaList.join(', ')}
+                  </span>
                 </div>
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold mb-1 text-gray-700 dark:text-slate-300">
-                  Chọn Thôn / Buôn mới:
+                <label className="block text-[11px] font-bold mb-1 text-gray-700">
+                  Chọn Thôn / Buôn mới để chuyển:
                 </label>
-                <select
-                  value={targetVillage}
-                  onChange={(e) => setTargetVillage(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-700 text-xs font-bold bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                >
-                  {CANONICAL_VILLAGES.filter((v) => v !== 'Chưa xác định').map((v) => (
-                    <option key={v} value={v}>
-                      {v} {v === movingPerson.thonXa ? '(Hiện tại)' : ''}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <select
+                    value={targetVillage}
+                    onChange={(e) => setTargetVillage(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold bg-gray-50/70 text-gray-900 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition appearance-none cursor-pointer"
+                  >
+                    {CANONICAL_VILLAGES.filter((v) => v !== 'Chưa xác định').map((v) => (
+                      <option key={v} value={v}>
+                        {v} {v === movingPerson.thonXa ? '(Hiện tại)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100 dark:border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
               <button
                 type="button"
                 disabled={isSavingMove}
                 onClick={() => setMovingPerson(null)}
-                className="px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-700 text-xs font-bold hover:bg-gray-100 dark:hover:bg-slate-800 transition"
+                className="px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50 transition cursor-pointer"
               >
                 Hủy
               </button>
@@ -701,16 +728,16 @@ export default function CccdCollectPanel({
                 type="button"
                 disabled={isSavingMove || targetVillage === movingPerson.thonXa}
                 onClick={handleConfirmMoveVillage}
-                className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition flex items-center gap-1 cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-black shadow-xs transition flex items-center gap-1.5 cursor-pointer"
               >
                 {isSavingMove ? (
                   <>
-                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                     <span>Đang lưu...</span>
                   </>
                 ) : (
                   <>
-                    <Check className="w-3 h-3" />
+                    <Check className="w-3.5 h-3.5" />
                     <span>Xác nhận</span>
                   </>
                 )}

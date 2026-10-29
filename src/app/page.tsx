@@ -1522,11 +1522,11 @@ export default function Home() {
                     setIsPanelCollapsed(false);
                     setIsExportMissingCccdOpen((prev) => !prev);
                   }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-rose-950 hover:bg-rose-900 text-rose-300 font-bold rounded-xl transition shrink-0 border border-rose-500/40 shadow-xs cursor-pointer"
-                  title="Xuất ảnh danh sách cần thu thập CCCD (Tỷ lệ 16:9 dọc có 2 cột)"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-slate-900/90 hover:bg-slate-800 text-blue-300 font-bold rounded-xl transition shrink-0 border border-blue-500/30 shadow-xs cursor-pointer"
+                  title="Danh sách thu thập CCCD theo từng thôn buôn"
                 >
-                  <Users className="w-3.5 h-3.5 text-rose-400" />
-                  <span className="hidden xs:inline">Cần Thu CCCD</span>
+                  <Users className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="hidden xs:inline">Thu Thập CCCD</span>
                 </button>
 
                 {/* Nút Chế độ Đút Túi Quần (Ẩn trên map theo yêu cầu) */}
