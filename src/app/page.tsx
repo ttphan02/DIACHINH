@@ -8,7 +8,7 @@ import ParcelDetailPanel from '@/components/ParcelDetailPanel';
 import VectorViewerModal from '@/components/VectorViewerModal';
 import CccdSupplementModal from '@/components/CccdSupplementModal';
 import CccdUploadBottomSheet from '@/components/CccdUploadBottomSheet';
-import ExportMissingCccdModal from '@/components/ExportMissingCccdModal';
+import CccdCollectPanel from '@/components/CccdCollectPanel';
 import CadreNameModal from '@/components/CadreNameModal';
 import MapSheetMultiSelect from '@/components/MapSheetMultiSelect';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
@@ -892,6 +892,7 @@ export default function Home() {
     setSelectedParcel(latest);
     setIsPanelCollapsed(false);
     setIsCccdUploadOpen(false);
+    setIsExportMissingCccdOpen(false);
 
     // Kích hoạt animation trượt vào mượt mà
     requestAnimationFrame(() => {
@@ -907,6 +908,7 @@ export default function Home() {
 
   const handleClosePanel = () => {
     setIsPanelOpen(false);
+    setIsExportMissingCccdOpen(false);
     setIsPanelCollapsed(false);
     setIsPickingAdditional(false);
     // Đợi hiệu ứng trượt ra (300ms) kết thúc mới dọn dẹp dữ liệu
@@ -1199,11 +1201,11 @@ export default function Home() {
     <main className="h-screen w-screen overflow-hidden relative bg-slate-900 text-gray-900">
       {/* Main Content Area: Bản Đồ Vệ Tinh Toàn Màn Hình */}
       <div className="w-full h-full relative overflow-hidden">
-            {/* Form chi tiết: Trượt từ trái qua (Desktop) hoặc từ dưới lên (Mobile); Có thể thu gọn qua trái (Desktop) hoặc xuống dưới (Mobile) */}
+            {/* Form chi tiết (Kê khai thửa hoặc Thu thập CCCD): Trượt từ trái qua (Desktop) hoặc từ dưới lên (Mobile) */}
             <div
               ref={panelRef}
               className={`absolute z-30 bg-white transition-all duration-300 ease-in-out shadow-2xl overflow-hidden ${
-                isPanelOpen && selectedParcel
+                (isPanelOpen && selectedParcel) || isExportMissingCccdOpen
                   ? isPanelCollapsed
                     ? 'w-full lg:w-[420px] h-[65vh] max-h-[85vh] lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-0 translate-y-full lg:-translate-x-full border-0 pointer-events-none'
                     : 'w-full lg:w-[420px] h-[65vh] max-h-[85vh] lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-100 translate-y-0 lg:translate-x-0 rounded-t-3xl lg:rounded-none border-t lg:border-t-0 lg:border-r border-gray-200 pointer-events-auto'
@@ -1211,7 +1213,15 @@ export default function Home() {
               }`}
             >
               <div className="w-full lg:w-[420px] h-full flex flex-col">
-                {selectedParcel && (
+                {isExportMissingCccdOpen ? (
+                  <CccdCollectPanel
+                    onClose={() => setIsExportMissingCccdOpen(false)}
+                    parcels={parcels}
+                    declarationsMap={declarationsMap}
+                    onDeclarationUpdated={() => fetchCloudDeclarations()}
+                    onToggleCollapse={() => setIsPanelCollapsed((prev) => !prev)}
+                  />
+                ) : selectedParcel ? (
                   <ParcelDetailPanel
                     parcel={selectedParcel}
                     neighbors={neighborParcels}
@@ -1234,7 +1244,7 @@ export default function Home() {
                     onToggleLocation={handleToggleLocation}
                     onToggleCollapse={() => setIsPanelCollapsed((prev) => !prev)}
                   />
-                )}
+                ) : null}
               </div>
             </div>
 
@@ -1297,7 +1307,7 @@ export default function Home() {
             {/* Cụm button điều khiển nổi: Trạng thái, Realtime GGS & Tìm kiếm (Tự động trượt lên ẩn khỏi khung hình khi chọn thửa) */}
             <div
               className={`absolute top-2.5 sm:top-3.5 z-20 flex flex-col gap-1.5 sm:gap-2 transition-all duration-300 ease-in-out left-2.5 right-2.5 lg:left-3.5 lg:right-auto ${
-                isPanelOpen && selectedParcel
+                (isPanelOpen && selectedParcel) || isExportMissingCccdOpen
                   ? '-translate-y-[170%] opacity-0 pointer-events-none'
                   : 'translate-y-0 opacity-100 pointer-events-auto'
               }`}
@@ -1503,10 +1513,15 @@ export default function Home() {
                   <span className="hidden xs:inline">Tải Lên CCCD</span>
                 </button>
 
-                {/* Nút Xuất DS Cần Thu Thập CCCD (Dạng ảnh 16:9 Dọc) */}
+                {/* Nút DS Cần Thu Thập CCCD (Dạng Form Kê Khai Thửa Đất) */}
                 <button
                   type="button"
-                  onClick={() => setIsExportMissingCccdOpen(true)}
+                  onClick={() => {
+                    setSelectedParcel(null);
+                    setIsPanelOpen(false);
+                    setIsPanelCollapsed(false);
+                    setIsExportMissingCccdOpen((prev) => !prev);
+                  }}
                   className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-rose-950 hover:bg-rose-900 text-rose-300 font-bold rounded-xl transition shrink-0 border border-rose-500/40 shadow-xs cursor-pointer"
                   title="Xuất ảnh danh sách cần thu thập CCCD (Tỷ lệ 16:9 dọc có 2 cột)"
                 >
@@ -1608,14 +1623,7 @@ export default function Home() {
         }}
       />
 
-      {/* Modal Xuất Danh Sách Cần Thu Thập CCCD Dạng Ảnh 16:9 Dọc */}
-      <ExportMissingCccdModal
-        isOpen={isExportMissingCccdOpen}
-        onClose={() => setIsExportMissingCccdOpen(false)}
-        parcels={parcels}
-        declarationsMap={declarationsMap}
-        theme="dark"
-      />
+
 
       {/* Modal Nhập / Đổi Tên Cán Bộ Kê Khai */}
       <CadreNameModal
