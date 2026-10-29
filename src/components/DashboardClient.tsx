@@ -69,6 +69,8 @@ import {
   Sun,
   Moon,
   Copy,
+  UploadCloud,
+  Home,
 } from 'lucide-react';
 
 
@@ -160,6 +162,7 @@ export default function DashboardPage() {
     daDongTap: number;
     canTimCccd: number;
     khongCoCccd: number;
+    gcnOnt?: number;
   } | null>(null);
   const [isLoadingSyncSheets, setIsLoadingSyncSheets] = useState(false);
   const [selectedReportSheet, setSelectedReportSheet] = useState<string>('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
@@ -220,6 +223,19 @@ export default function DashboardPage() {
   const [inlineSaveToast, setInlineSaveToast] = useState<string | null>(null);
   const [isExportMissingCccdOpen, setIsExportMissingCccdOpen] = useState(false);
   const [isCommittingAllReady, setIsCommittingAllReady] = useState(false);
+
+  // Trạng thái nhập hồ sơ tự động lên web KH2959
+  const [kh2959ImportedCodes, setKh2959ImportedCodes] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('kh2959_imported_parcels');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const [isSubmittingWeb, setIsSubmittingWeb] = useState(false);
+  const [submittingRowCode, setSubmittingRowCode] = useState<string | null>(null);
+  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
 
   // Tên cán bộ kê khai
   const [cadreName, setCadreName] = useState<string>('');
@@ -1397,7 +1413,7 @@ export default function DashboardPage() {
     );
   }, [computedParcels, ggsCodes]);
 
-  // 1. THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD): Thửa đã kê khai + CCCD 12 số + có file trên R2
+  // 1. THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD): Thửa đã kê khai + CCCD 12 số + có file trên R2 (ĐÃ LỌC BỎ THỬA ONT ĐỂ BỔ SUNG SAU)
   const readyToPackParcels = useMemo(() => {
     return nonGgsParcels.filter((p) => {
       const isDeclared =
@@ -1408,11 +1424,31 @@ export default function DashboardPage() {
 
       const decl = declarationsMap[p.ma_thua] || {};
       const edits = cellEdits[p.ma_thua] || {};
+      const loaiDat = String(edits[8] ?? decl.loai_dat ?? p.loai_dat ?? '').trim();
+      // Nếu loại đất là ONT hoặc có ONT: Tự động chuyển qua danh sách "GCN - ONT" để bổ sung sau
+      if (/ont/i.test(loaiDat)) return false;
+
       const rawCccd = edits[6] ?? decl.chu_dat_cccd ?? decl.cccd_chu_ho ?? decl.cccd ?? p.cccd;
       const cccdUrl = decl.cccd_url || p.cccd_url;
       return hasCccdAndFile(rawCccd, cccdUrl, r2CccdSet);
     });
   }, [nonGgsParcels, declaredParcelCodes, declarationsMap, cellEdits, hasCccdAndFile, r2CccdSet]);
+
+  // Danh sách thửa đất ONT chờ bổ sung sau (GCN - ONT)
+  const gcnOntParcels = useMemo(() => {
+    return nonGgsParcels.filter((p) => {
+      const isDeclared =
+        declaredParcelCodes.has(p.ma_thua) ||
+        Boolean(declarationsMap[p.ma_thua]) ||
+        p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
+      if (!isDeclared) return false;
+
+      const decl = declarationsMap[p.ma_thua] || {};
+      const edits = cellEdits[p.ma_thua] || {};
+      const loaiDat = String(edits[8] ?? decl.loai_dat ?? p.loai_dat ?? '').trim();
+      return /ont/i.test(loaiDat);
+    });
+  }, [nonGgsParcels, declaredParcelCodes, declarationsMap, cellEdits]);
 
   // 2. THỬA ĐANG KÊ KHAI (CHƯA CÓ CCCD): Thửa đã kê khai NHƯNG chưa có CCCD hoặc chưa có file R2
   const dangKeKhaiChuaCccdParcels = useMemo(() => {
@@ -1466,6 +1502,17 @@ export default function DashboardPage() {
     }
     return 0;
   }, [syncSummary, syncSheetsData]);
+
+  const displayCountGcnOnt = useMemo(() => {
+    if (syncSummary?.gcnOnt !== undefined) {
+      return syncSummary.gcnOnt;
+    }
+    const rows = syncSheetsData?.['GCN - ONT'];
+    if (Array.isArray(rows) && rows.length > 1) {
+      return rows.length - 1;
+    }
+    return gcnOntParcels.length;
+  }, [syncSummary, syncSheetsData, gcnOntParcels.length]);
 
   // 3. THỬA CHƯA THỰC HIỆN: Các thửa chưa số hóa và chưa thực hiện kê khai
   const chuaThucHienParcels = useMemo(() => {
@@ -2887,6 +2934,29 @@ export default function DashboardPage() {
                 <span className="text-[10px] font-medium">Nhập dữ liệu:</span>
                 <strong className="font-black">{displayCountNhapDuLieu}</strong>
               </button>
+
+              {/* 5. GCN - ONT (Thửa đất có đất ONT chờ bổ sung sau) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedReportSheet('GCN - ONT');
+                  setActiveTab('progressReport');
+                  setReportPage(1);
+                  setReportSearchQuery('');
+                }}
+                className={`flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs transition cursor-pointer border ${
+                  selectedReportSheet === 'GCN - ONT' && activeTab === 'progressReport'
+                    ? 'bg-amber-600 text-white border-amber-600 font-black shadow-xs ring-1 ring-amber-400'
+                    : isLight
+                    ? 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-800'
+                    : 'bg-amber-950/50 hover:bg-amber-900/60 border-amber-800/60 text-amber-300'
+                }`}
+                title={`Danh sách thửa đất ONT chờ bổ sung sau: ${displayCountGcnOnt} thửa`}
+              >
+                <Home className="w-3 h-3 text-amber-500 shrink-0" />
+                <span className="text-[10px] font-medium">GCN - ONT:</span>
+                <strong className="font-black">{displayCountGcnOnt}</strong>
+              </button>
             </div>
           </div>
 
@@ -3297,6 +3367,39 @@ export default function DashboardPage() {
                     rawSheet = [headersDone, ...rowsDone];
                   }
 
+                  // Fallback 5: GCN - ONT (Thửa đất ONT từ Nhập dữ liệu & Đóng tập chuyển sang)
+                  if ((!rawSheet || rawSheet.length <= 1) && selectedReportSheet === 'GCN - ONT') {
+                    const headersGcnOnt = [
+                      'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
+                      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
+                      'Nguồn chuyển', 'File scan / CCCD'
+                    ];
+                    const rowsGcnOnt = gcnOntParcels.map((p, idx) => {
+                      const decl = declarationsMap[p.ma_thua] || {};
+                      const cccdVal = cleanCccd(decl.chu_dat_cccd || decl.cccd_chu_ho || p.cccd || '');
+                      const cccdFileName = `${cccdVal}.pdf`;
+                      const cccdLink = `/api/image/cccd/${encodeURIComponent(cccdFileName)}`;
+                      const cccdFormula = cccdVal ? `=HYPERLINK("${cccdLink}"; "${cccdFileName}")` : 'Chưa có file';
+                      return [
+                        String(idx + 1),
+                        p.ma_thua,
+                        p.to_ban_do || p.ma_thua.split('_')[0] || '',
+                        p.so_thua || p.ma_thua.split('_')[1] || '',
+                        decl.dia_chi_thua_dat || p.thon_xa || 'Xã Cư Pui',
+                        cleanName(decl.chu_dat_ten || p.chu_ho || 'Chủ sử dụng'),
+                        decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '1980',
+                        decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam',
+                        cccdVal ? `="${cccdVal}"` : '',
+                        decl.dien_tich || p.dien_tich || '1000',
+                        decl.loai_dat || p.loai_dat || 'ONT',
+                        normalizeNguonGoc(decl.nguon_goc || decl.nguon_goc_su_dung || 'Khai Hoang'),
+                        'Từ Đơn kê khai có CCCD',
+                        cccdFormula
+                      ];
+                    });
+                    rawSheet = [headersGcnOnt, ...rowsGcnOnt];
+                  }
+
                   let headers = [...(rawSheet[0] || [])];
                   let allRows = (rawSheet.slice(1) || []).map((r) => [...r]);
 
@@ -3335,6 +3438,7 @@ export default function DashboardPage() {
                   const isReadyToPackSheet = selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)';
                   const isChuaCoCccdSheet = selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)';
                   const isNhapDuLieuSheet = selectedReportSheet === 'NHẬP DỮ LIỆU';
+                  const isGcnOntSheet = selectedReportSheet === 'GCN - ONT';
 
                   // Thống kê Thôn / Buôn và số lượng thửa
                   const villageCounts: Record<string, number> = {};
@@ -3807,6 +3911,158 @@ export default function DashboardPage() {
                     }
                   };
 
+                  // Trích xuất thông tin thửa đất từ dòng trong bảng
+                  const extractParcelFromRow = (r: any[]) => {
+                    const maThua = String(r[1] || '').trim();
+                    const parts = maThua.split('_');
+                    const toColIdx = headers.findIndex((h) => /tờ bđ|tờ bản đồ|số tờ/i.test(h));
+                    const thuaColIdx = headers.findIndex((h) => /số thửa|thửa số/i.test(h));
+                    const villageColIdx = headers.findIndex((h) => /thôn|buôn/i.test(h));
+                    const nameColIdx = headers.findIndex((h) => /họ và tên|chủ đất/i.test(h));
+                    const dobColIdx = headers.findIndex((h) => /năm sinh|ngày sinh/i.test(h));
+                    const genderColIdx = headers.findIndex((h) => /giới tính/i.test(h));
+                    const cccdColIdx = headers.findIndex((h) => /cccd|cmnd|định danh/i.test(h) && !/xem|file/i.test(h));
+                    const areaColIdx = headers.findIndex((h) => /diện tích/i.test(h));
+                    const landTypeColIdx = headers.findIndex((h) => /loại đất|mục đích/i.test(h));
+                    const originColIdx = headers.findIndex((h) => /nguồn gốc/i.test(h));
+                    const scanColIdx = headers.findIndex((h) => /scan|hồ sơ/i.test(h));
+
+                    const soTo = String(toColIdx !== -1 ? r[toColIdx] : parts[0] || '').trim();
+                    const soThua = String(thuaColIdx !== -1 ? r[thuaColIdx] : parts[1] || '').trim();
+                    const thonXa = String(villageColIdx !== -1 ? r[villageColIdx] : '').trim();
+                    const chuHo = cleanName(String(nameColIdx !== -1 ? r[nameColIdx] : '').trim());
+                    const namSinh = String(dobColIdx !== -1 ? r[dobColIdx] : '').trim();
+                    const gioiTinh = String(genderColIdx !== -1 ? r[genderColIdx] : 'Nam').trim();
+                    const rawCccd = String(cccdColIdx !== -1 ? r[cccdColIdx] : '').replace(/^="|"$/g, '').trim();
+                    const cccd = cleanCccd(rawCccd);
+                    const dienTich = String(areaColIdx !== -1 ? r[areaColIdx] : '').replace(',', '.').trim();
+                    const loaiDat = String(landTypeColIdx !== -1 ? r[landTypeColIdx] : '').trim().toUpperCase();
+                    const nguonGoc = String(originColIdx !== -1 ? r[originColIdx] : 'Khai hoang').trim();
+
+                    let scanFile = '';
+                    const scanCell = String(scanColIdx !== -1 ? r[scanColIdx] : '');
+                    const m = scanCell.match(/CHUACOGIAY_[^"';,)]+\.pdf/i) || scanCell.match(/[^"';,)\\]+\.pdf/i);
+                    if (m) {
+                      scanFile = m[0];
+                    } else {
+                      scanFile = `CHUACOGIAY_24478_${soTo}_${soThua}-DDK.pdf`;
+                    }
+
+                    return {
+                      ma_thua: maThua,
+                      so_to: soTo,
+                      so_thua: soThua,
+                      thon_xa: thonXa,
+                      chu_ho: chuHo,
+                      nam_sinh: namSinh,
+                      gioi_tinh: gioiTinh,
+                      cccd,
+                      dien_tich: dienTich,
+                      loai_dat: loaiDat,
+                      nguon_goc: nguonGoc,
+                      scan_file: scanFile,
+                    };
+                  };
+
+                  // Lọc các dòng hợp lệ có thể nhập lên web KH2959 trong sheet NHẬP DỮ LIỆU
+                  const validNonOntNhapDuLieuRows = isNhapDuLieuSheet
+                    ? allRows.filter((r) => {
+                        const maThua = String(r[1] || '').trim();
+                        if (!maThua || kh2959ImportedCodes.has(maThua)) return false;
+                        const p = extractParcelFromRow(r);
+                        return !/ont/i.test(p.loai_dat || '');
+                      })
+                    : [];
+
+                  // Nộp đơn lẻ 1 thửa lên web KH2959
+                  const handleSingleImportToKh2959 = async (r: any[]) => {
+                    const p = extractParcelFromRow(r);
+                    if (!p.ma_thua || isSubmittingWeb) return;
+                    if (/ont/i.test(p.loai_dat || '')) {
+                      alert(`Thửa ${p.so_thua} (Tờ ${p.so_to}) có loại đất ${p.loai_dat} (ONT) - Thuộc diện bổ sung sau, vui lòng xem tại tab 'GCN - ONT'!`);
+                      return;
+                    }
+                    setSubmittingRowCode(p.ma_thua);
+                    try {
+                      const res = await fetch('/api/kh2959/submit', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(p),
+                      });
+                      const data = (await res.json()) as any;
+                      const resItem = data?.results?.[0];
+                      if (resItem?.ok) {
+                        setKh2959ImportedCodes((prev) => {
+                          const next = new Set(prev);
+                          next.add(p.ma_thua);
+                          try {
+                            localStorage.setItem('kh2959_imported_parcels', JSON.stringify(Array.from(next)));
+                          } catch {}
+                          return next;
+                        });
+                        setInlineSaveToast(`✓ Đã nhập thành công Thửa ${p.so_thua} (Tờ ${p.so_to}) lên hệ thống máy chủ KH2959!`);
+                        setTimeout(() => setInlineSaveToast(null), 4000);
+                      } else {
+                        alert(`Lỗi khi nộp: ${resItem?.error || data?.error || 'Thao tác không thành công'}`);
+                      }
+                    } catch (err: any) {
+                      alert(`Lỗi kết nối: ${err.message}`);
+                    } finally {
+                      setSubmittingRowCode(null);
+                    }
+                  };
+
+                  // Nộp hàng loạt các thửa hợp lệ (không chứa ONT) lên KH2959
+                  const handleBatchImportToKh2959 = async () => {
+                    if (isSubmittingWeb || validNonOntNhapDuLieuRows.length === 0) return;
+                    const confirmMsg = `Bạn có chắc muốn tự động nhập ${validNonOntNhapDuLieuRows.length} thửa đất hợp lệ (không chứa đất ONT) lên web KH2959 không?`;
+                    if (!window.confirm(confirmMsg)) return;
+
+                    setIsSubmittingWeb(true);
+                    setBatchProgress({ current: 0, total: validNonOntNhapDuLieuRows.length });
+
+                    let successCount = 0;
+                    let failCount = 0;
+
+                    for (let i = 0; i < validNonOntNhapDuLieuRows.length; i++) {
+                      const r = validNonOntNhapDuLieuRows[i];
+                      const p = extractParcelFromRow(r);
+                      setBatchProgress({ current: i + 1, total: validNonOntNhapDuLieuRows.length });
+                      setSubmittingRowCode(p.ma_thua);
+
+                      try {
+                        const res = await fetch('/api/kh2959/submit', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(p),
+                        });
+                        const data = (await res.json()) as any;
+                        const resItem = data?.results?.[0];
+                        if (resItem?.ok) {
+                          successCount++;
+                          setKh2959ImportedCodes((prev) => {
+                            const next = new Set(prev);
+                            next.add(p.ma_thua);
+                            try {
+                              localStorage.setItem('kh2959_imported_parcels', JSON.stringify(Array.from(next)));
+                            } catch {}
+                            return next;
+                          });
+                        } else {
+                          failCount++;
+                        }
+                      } catch {
+                        failCount++;
+                      }
+                      await new Promise((resolve) => setTimeout(resolve, 250));
+                    }
+
+                    setIsSubmittingWeb(false);
+                    setSubmittingRowCode(null);
+                    setInlineSaveToast(`✓ Hoàn tất: Đã nhập ${successCount} thửa thành công, ${failCount} lỗi.`);
+                    setTimeout(() => setInlineSaveToast(null), 5000);
+                  };
+
                   const isAnyFilterActive =
                     Boolean(reportSearchQuery) ||
                     reportVillageFilter !== 'ALL' ||
@@ -4142,6 +4398,48 @@ export default function DashboardPage() {
                                 >
                                   <ShieldCheck className="w-3.5 h-3.5 opacity-50" />
                                   <span>CCCD trên R2: 0</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* NÚT TỰ ĐỘNG NHẬP LÊN HỆ THỐNG WEB KH2959 (NHẬP DỮ LIỆU) */}
+                          {isNhapDuLieuSheet && (
+                            <div className="flex items-center gap-1.5 ml-1">
+                              {validNonOntNhapDuLieuRows.length > 0 ? (
+                                <button
+                                  type="button"
+                                  disabled={isSubmittingWeb}
+                                  onClick={handleBatchImportToKh2959}
+                                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer text-white ${
+                                    isSubmittingWeb
+                                      ? 'bg-cyan-700 opacity-80 cursor-wait'
+                                      : 'bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 shadow-cyan-600/30 animate-pulse'
+                                  }`}
+                                  title="Bấm để tự động nộp hồ sơ các thửa hợp lệ (không chứa đất ONT) lên hệ thống web KH2959"
+                                >
+                                  {isSubmittingWeb ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+                                  ) : (
+                                    <UploadCloud className="w-3.5 h-3.5 text-white" />
+                                  )}
+                                  <span>
+                                    {isSubmittingWeb
+                                      ? `Đang nhập... (${batchProgress.current}/${batchProgress.total})`
+                                      : `⚡ Nhập Web KH2959 (${validNonOntNhapDuLieuRows.length} thửa)`}
+                                  </span>
+                                </button>
+                              ) : (
+                                <div
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border select-none ${
+                                    isLight
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60'
+                                  }`}
+                                  title="Tất cả các thửa hợp lệ đã được nhập lên web KH2959"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                                  <span>Đã nhập xong ({allRows.filter((r) => kh2959ImportedCodes.has(String(r[1] || '').trim())).length}/{allRows.length})</span>
                                 </div>
                               )}
                             </div>
@@ -4870,6 +5168,10 @@ export default function DashboardPage() {
                                 const isCanTimCccd = isChuaCoCccdSheet && getChuaCoCccdRowStatus(maThua, row) === 'CẦN TÌM CCCD';
                                 const isSaving = savingRowCodes.has(maThua);
                                 const hasEdited = Boolean(cellEdits[maThua]);
+                                const isImportedWeb = kh2959ImportedCodes.has(maThua);
+                                const landTypeIdx = headers.findIndex((h) => /loại đất|mục đích/i.test(h));
+                                const rowLoaiDat = String(landTypeIdx !== -1 ? row[landTypeIdx] : '').trim();
+                                const isOntRow = /ont/i.test(rowLoaiDat);
 
                                 return (
                                   <tr
@@ -4879,6 +5181,10 @@ export default function DashboardPage() {
                                         ? isLight
                                           ? 'bg-indigo-50/70'
                                           : 'bg-indigo-950/30'
+                                        : isImportedWeb
+                                        ? isLight
+                                          ? 'bg-emerald-100/95 hover:bg-emerald-200/90 text-emerald-950 border-emerald-400 font-medium shadow-2xs'
+                                          : 'bg-emerald-950/70 hover:bg-emerald-900/80 text-emerald-100 border-emerald-700 font-medium shadow-2xs'
                                         : isCanTimCccd
                                         ? isLight
                                           ? 'bg-amber-100/70 hover:bg-amber-200/80 text-amber-950 border-amber-300'

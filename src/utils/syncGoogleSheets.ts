@@ -287,6 +287,7 @@ export async function executeSyncToGoogleSheet(
     daDongTap: number;
     canTimCccd: number;
     khongCoCccd: number;
+    gcnOnt?: number;
   };
   sheetsData?: Record<string, string[][]>;
 }> {
@@ -402,6 +403,7 @@ export async function executeSyncToGoogleSheet(
     const stage4DaGiaiQuyet: any[] = [];
     const stage3ChoNhap: any[] = [];
     const stage2DaDongTap: any[] = [];
+    const stageGcnOnt: any[] = []; // Danh sách GCN - ONT (các thửa đất ở ONT chờ bổ sung sau)
     const stage1CanTimCccd: any[] = [];
     const stage1KhongCoCccd: any[] = [];
 
@@ -462,7 +464,23 @@ export async function executeSyncToGoogleSheet(
       const gender = (rawGender && ['nam', 'nữ', 'nu'].includes(rawGender.toLowerCase())) ? rawGender : 'Nam';
       const nguonGoc = normalizeNguonGoc(decl.nguon_goc_su_dung || decl.nguon_goc || 'Khai hoang');
 
-      const item = {
+      const item: {
+        ma_thua: string;
+        to_ban_do: any;
+        so_thua: any;
+        thon_xa: string;
+        chu_ho: string;
+        cccd: string;
+        cccd_source: string;
+        dien_tich: string;
+        loai_dat: any;
+        dob: any;
+        gender: any;
+        nguon_goc: "Khai Hoang" | "Thừa Kế" | "Tặng Cho" | "Chuyển Nhượng";
+        scan_file: string;
+        cccd_file: string;
+        nguon_chuyen?: string;
+      } = {
         ma_thua: maThua,
         to_ban_do: toMoi,
         so_thua: thuaMoi,
@@ -477,6 +495,7 @@ export async function executeSyncToGoogleSheet(
         nguon_goc: nguonGoc,
         scan_file: '',
         cccd_file: '',
+        nguon_chuyen: '',
       };
 
       // GIAI ĐOẠN 4: ĐÃ LÊN GGS CHÍNH (ĐÃ GIẢI QUYẾT)
@@ -506,7 +525,13 @@ export async function executeSyncToGoogleSheet(
 
       if (foundScan) {
         item.scan_file = foundScan;
-        stage3ChoNhap.push(item);
+        // Nếu loại đất là ONT hoặc có ONT: Tự động chuyển qua danh sách "GCN - ONT" để bổ sung sau
+        if (/ont/i.test(item.loai_dat || '')) {
+          item.nguon_chuyen = 'Từ Nhập dữ liệu (Đã có scan)';
+          stageGcnOnt.push(item);
+        } else {
+          stage3ChoNhap.push(item);
+        }
         continue;
       }
 
@@ -560,7 +585,13 @@ export async function executeSyncToGoogleSheet(
 
       if (hasCccdAndFile) {
         item.cccd_file = foundCccd;
-        stage2DaDongTap.push(item);
+        // Nếu loại đất là ONT hoặc có ONT: Tự động chuyển qua danh sách "GCN - ONT" để bổ sung sau
+        if (/ont/i.test(item.loai_dat || '')) {
+          item.nguon_chuyen = 'Từ Đơn kê khai có CCCD';
+          stageGcnOnt.push(item);
+        } else {
+          stage2DaDongTap.push(item);
+        }
         continue;
       }
 
@@ -660,6 +691,34 @@ export async function executeSyncToGoogleSheet(
     sheetsData['NHẬP DỮ LIỆU'] = rowsNhapDuLieu;
     sheetsData['CHỜ NHẬP'] = rowsNhapDuLieu;
     sheetsData['NHẬP GGS'] = rowsNhapDuLieu; // Hỗ trợ tương thích ngược
+
+    // SHEET MỚI: GCN - ONT (Toàn bộ các thửa đất có loại đất ONT từ Nhập dữ liệu và từ Đóng tập có CCCD chuyển sang)
+    const headersGcnOnt = [
+      'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
+      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
+      'Nguồn chuyển', 'File scan / CCCD'
+    ];
+    const rowsGcnOnt: string[][] = [headersGcnOnt];
+    stageGcnOnt.forEach((it, idx) => {
+      const cccdText = it.cccd ? `="${it.cccd}"` : '';
+      const fileRef = it.scan_file || it.cccd_file || '';
+      let link = '';
+      if (it.scan_file) {
+        const cleanFn = String(it.scan_file).replace(/^filescan\//, '').replace(/^scanhoso\//, '');
+        link = `/api/image/filescan/${encodeURIComponent(cleanFn)}`;
+      } else if (it.cccd_file) {
+        link = `/api/image/cccd/${encodeURIComponent(it.cccd_file)}`;
+      }
+      const formula = fileRef ? (link ? `=HYPERLINK("${link}"; "${fileRef}")` : fileRef) : 'Chưa có file';
+      rowsGcnOnt.push([
+        String(idx + 1), it.ma_thua, String(it.to_ban_do || ''), String(it.so_thua || ''), it.thon_xa,
+        cleanName(it.chu_ho), it.dob || '', it.gender || 'Nam', cccdText,
+        String(it.dien_tich || ''), it.loai_dat || 'ONT', normalizeNguonGoc(it.nguon_goc || 'Khai Hoang'),
+        it.nguon_chuyen || 'GCN - ONT (Bổ sung sau)',
+        formula
+      ]);
+    });
+    sheetsData['GCN - ONT'] = rowsGcnOnt;
 
     // SHEET 1: THỐNG KÊ (Bảng chỉ số tổng quan & Bảng 16 thôn buôn)
     const totalDeclared = processedParcels.size;
@@ -821,6 +880,7 @@ export async function executeSyncToGoogleSheet(
     sheetsData['NHẬP GGS'] = padRectangular(rowsNhapDuLieu);
     sheetsData['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] = padRectangular(rowsPack);
     sheetsData['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] = padRectangular(rowsUnpack);
+    sheetsData['GCN - ONT'] = padRectangular(rowsGcnOnt);
 
     // 4. Trả về cấu trúc dữ liệu nội bộ (Hoàn toàn đóng gói trên Web / R2, không gửi Webhook ra ngoài)
     console.log('>>> Thống kê & Phân loại nội bộ hoàn tất 100% trong Web/R2');
@@ -837,6 +897,7 @@ export async function executeSyncToGoogleSheet(
         daDongTap: stage2DaDongTap.length,
         canTimCccd: stage1CanTimCccd.length,
         khongCoCccd: stage1KhongCoCccd.length,
+        gcnOnt: stageGcnOnt.length,
       },
       sheetsData,
     };
