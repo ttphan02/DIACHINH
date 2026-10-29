@@ -10,7 +10,6 @@ import CccdSupplementModal from '@/components/CccdSupplementModal';
 import CccdUploadBottomSheet from '@/components/CccdUploadBottomSheet';
 import CccdCollectPanel from '@/components/CccdCollectPanel';
 import CadreNameModal from '@/components/CadreNameModal';
-import MapSheetMultiSelect from '@/components/MapSheetMultiSelect';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
 import { isPersonName } from '@/utils/textHelpers';
 import {
@@ -898,12 +897,6 @@ export default function Home() {
     requestAnimationFrame(() => {
       setIsPanelOpen(true);
     });
-
-    if (window.innerWidth < 1024 && panelRef.current) {
-      setTimeout(() => {
-        panelRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 150);
-    }
   };
 
   const handleClosePanel = () => {
@@ -911,6 +904,11 @@ export default function Home() {
     setIsExportMissingCccdOpen(false);
     setIsPanelCollapsed(false);
     setIsPickingAdditional(false);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      document.body.scrollTop = 0;
+      document.documentElement.scrollTop = 0;
+    }
     // Đợi hiệu ứng trượt ra (300ms) kết thúc mới dọn dẹp dữ liệu
     closeTimerRef.current = setTimeout(() => {
       setSelectedParcel(null);
@@ -1215,7 +1213,7 @@ export default function Home() {
               <div className="w-full lg:w-[420px] h-full flex flex-col">
                 {isExportMissingCccdOpen ? (
                   <CccdCollectPanel
-                    onClose={() => setIsExportMissingCccdOpen(false)}
+                    onClose={handleClosePanel}
                     parcels={parcels}
                     declarationsMap={declarationsMap}
                     onDeclarationUpdated={() => fetchCloudDeclarations()}
@@ -1330,147 +1328,150 @@ export default function Home() {
               </div>
             )}
 
-            {/* Cụm button điều khiển nổi: Trạng thái, Realtime GGS & Tìm kiếm (Tự động trượt lên ẩn khỏi khung hình khi chọn thửa) */}
+            {/* Cụm button điều khiển nổi: Trạng thái, Realtime GGS & Tìm kiếm (Luôn ghim cố định ở đỉnh, tự động trượt lên khi mở form) */}
             <div
-              className={`absolute top-2.5 sm:top-3.5 z-20 flex flex-col gap-1.5 sm:gap-2 transition-all duration-300 ease-in-out left-2.5 right-2.5 lg:left-3.5 lg:right-auto ${
+              className={`fixed top-2.5 sm:top-3.5 z-20 flex flex-col gap-1.5 sm:gap-2 transition-all duration-300 ease-in-out left-2.5 right-2.5 lg:left-3.5 lg:right-auto ${
                 ((isPanelOpen && selectedParcel) || isExportMissingCccdOpen) && !isPanelCollapsed
                   ? '-translate-y-[170%] opacity-0 pointer-events-none'
                   : 'translate-y-0 opacity-100 pointer-events-auto'
               }`}
             >
 
-              {/* Row 1: Các button trạng thái: Tất cả, Đã số hóa (Xanh lá), Đã kê khai (Xanh lam), Có tên (Vàng), Chưa có tên (Trắng) */}
-              <div className="flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md p-1 rounded-2xl border border-slate-700/60 shadow-xl overflow-x-auto no-scrollbar w-full sm:w-fit max-w-full">
-                <button
-                  onClick={() => {
-                    setStatusFilter('ALL');
-                  }}
-                  className={`px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs flex items-center gap-1 shrink-0 ${
-                    statusFilter === 'ALL'
-                      ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400'
-                      : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700/80'
-                  }`}
-                >
-                  <span className="hidden md:inline">Tất cả (</span><span>{stats.total.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
-                </button>
-
-                {/* Đã số hóa (Xanh lá - Có trên GGS) */}
-                <button
-                  onClick={() => {
-                    setStatusFilter('DA_SO_HOA_XANH');
-                  }}
-                  className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs shrink-0 ${
-                    statusFilter === 'DA_SO_HOA_XANH'
-                      ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400'
-                      : 'bg-slate-800/80 text-emerald-300 hover:bg-slate-700/80 border border-emerald-500/30'
-                  }`}
-                  title="Thửa đã số hóa (có trên Google Sheets)"
-                >
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-emerald-300"></span>
-                  <span className="hidden md:inline">Đã số hóa (</span><span>{stats.green.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
-                </button>
-
-                {/* Đã kê khai (Xanh lam - Chưa có trên GGS) */}
-                <button
-                  onClick={() => {
-                    setStatusFilter('DA_KE_KHAI_CHUA_SO_HOA_LAM');
-                  }}
-                  className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs shrink-0 ${
-                    statusFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
-                      ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400'
-                      : 'bg-slate-800/80 text-blue-300 hover:bg-slate-700/80 border border-blue-500/30'
-                  }`}
-                  title="Thửa đã được kê khai nhưng chưa số hóa lên Google Sheets"
-                >
-                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 border border-blue-300"></span>
-                  <span className="hidden md:inline">Đã kê khai (</span><span>{stats.blue.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
-                </button>
-
-                {/* Có tên (Màu vàng) */}
-                <button
-                  onClick={() => {
-                    setStatusFilter(statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG' ? 'ALL' : 'CO_TEN_CHUA_SO_HOA_VANG');
-                  }}
-                  className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs shrink-0 ${
-                    statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG'
-                      ? 'bg-amber-500 text-white shadow-sm ring-2 ring-amber-300'
-                      : 'bg-slate-800/80 text-amber-300 hover:bg-slate-700/80 border border-amber-500/30'
-                  }`}
-                  title="Thửa chưa kê khai có tên người (màu vàng trên bản đồ)"
-                >
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-amber-200"></span>
-                  <span className="hidden md:inline">Có tên (</span><span>{stats.yellow.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
-                </button>
-
-                {/* Không có tên (Màu trắng) */}
-                <button
-                  onClick={() => {
-                    setStatusFilter(statusFilter === 'CHUA_CO_TEN_XAM' ? 'ALL' : 'CHUA_CO_TEN_XAM');
-                  }}
-                  className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl font-bold transition text-xs shrink-0 ${
-                    statusFilter === 'CHUA_CO_TEN_XAM'
-                      ? 'bg-slate-200 text-slate-900 shadow-sm ring-2 ring-white'
-                      : 'bg-slate-800/80 text-white hover:bg-slate-700/80 border border-slate-600/50'
-                  }`}
-                  title="Thửa chưa kê khai không có tên người, địa danh (màu trắng trên bản đồ)"
-                >
-                  <span className="w-2.5 h-2.5 rounded-full bg-white ring-1 ring-slate-400 shadow-sm"></span>
-                  <span className="hidden md:inline">Không tên (</span><span>{stats.gray.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
-                </button>
-
-                {/* Nút bấm & Chỉ báo Realtime Google Sheets */}
-                <button
-                  onClick={() => fetchGgsCodes(true)}
-                  disabled={isSyncingGgs}
-                  className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold transition text-xs shrink-0 bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-cyan-500/30 disabled:opacity-60"
-                  title={
-                    lastSyncTime
-                      ? `Đồng bộ lúc: ${lastSyncTime}. Bấm để cập nhật lại từ Google Sheets ngay.`
-                      : 'Bấm để đồng bộ từ Google Sheets ngay'
-                  }
-                >
-                  <RefreshCw
-                    className={`w-3.5 h-3.5 ${
-                      isSyncingGgs ? 'animate-spin text-cyan-400' : 'text-cyan-400'
+              {/* Row 1: Các button trạng thái (Xóa bỏ background đen, căn chỉnh 5 cột đều tăm tắp vừa vặn mọi màn hình) */}
+              <div className="bg-white/95 backdrop-blur-md p-1 rounded-2xl border border-gray-200/90 shadow-xl w-full max-w-xl">
+                <div className="grid grid-cols-5 gap-1 w-full sm:flex sm:items-center sm:gap-1.5">
+                  {/* Tất cả */}
+                  <button
+                    onClick={() => {
+                      setStatusFilter('ALL');
+                    }}
+                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer ${
+                      statusFilter === 'ALL'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900'
                     }`}
-                  />
-                  <span className="hidden sm:inline">GGS Live</span>
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                </button>
+                  >
+                    <span className="hidden md:inline">Tất cả (</span><span>{stats.total.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
+                  </button>
 
-                {/* Nút chỉ báo hàng đợi Cloudflare Queues / Trạng thái đồng bộ máy chủ */}
-                <button
-                  type="button"
-                  onClick={() => flushPendingDeclarations()}
-                  className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold transition text-xs shrink-0 cursor-pointer ${
-                    pendingCount > 0
-                      ? 'bg-amber-600/90 hover:bg-amber-500 text-white border border-amber-300 shadow-md animate-pulse'
-                      : 'bg-slate-900/90 hover:bg-slate-800 text-emerald-300 border border-emerald-500/30'
-                  }`}
-                  title={
-                    pendingCount > 0
-                      ? `Có ${pendingCount} phiếu trong hàng đợi chờ gửi lên Cloud. Bấm để gửi ngay!`
-                      : 'Toàn bộ phiếu kê khai đã đồng bộ an toàn 100% lên Cloudflare R2'
-                  }
-                >
-                  {pendingCount > 0 ? (
-                    <>
-                      <CloudOff className="w-3.5 h-3.5 text-amber-200" />
-                      <span>{pendingCount} chờ gửi</span>
-                    </>
-                  ) : (
-                    <>
-                      <Cloud className="w-3.5 h-3.5 text-emerald-400" />
-                      <span className="hidden sm:inline">Cloud OK</span>
-                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                    </>
-                  )}
-                </button>
+                  {/* Đã số hóa (Xanh lá - Có trên GGS) */}
+                  <button
+                    onClick={() => {
+                      setStatusFilter('DA_SO_HOA_XANH');
+                    }}
+                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer ${
+                      statusFilter === 'DA_SO_HOA_XANH'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-transparent text-emerald-700 hover:bg-emerald-50'
+                    }`}
+                    title="Thửa đã số hóa (có trên Google Sheets)"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                    <span className="hidden md:inline">Đã số hóa (</span><span>{stats.green.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
+                  </button>
+
+                  {/* Đã kê khai (Xanh lam - Chưa có trên GGS) */}
+                  <button
+                    onClick={() => {
+                      setStatusFilter('DA_KE_KHAI_CHUA_SO_HOA_LAM');
+                    }}
+                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer ${
+                      statusFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-transparent text-blue-700 hover:bg-blue-50'
+                    }`}
+                    title="Thửa đã được kê khai nhưng chưa số hóa lên Google Sheets"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
+                    <span className="hidden md:inline">Đã kê khai (</span><span>{stats.blue.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
+                  </button>
+
+                  {/* Có tên (Màu vàng) */}
+                  <button
+                    onClick={() => {
+                      setStatusFilter(statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG' ? 'ALL' : 'CO_TEN_CHUA_SO_HOA_VANG');
+                    }}
+                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer ${
+                      statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG'
+                        ? 'bg-amber-500 text-white shadow-xs'
+                        : 'bg-transparent text-amber-700 hover:bg-amber-50'
+                    }`}
+                    title="Thửa chưa kê khai có tên người (màu vàng trên bản đồ)"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+                    <span className="hidden md:inline">Có tên (</span><span>{stats.yellow.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
+                  </button>
+
+                  {/* Không có tên (Màu trắng/xám) */}
+                  <button
+                    onClick={() => {
+                      setStatusFilter(statusFilter === 'CHUA_CO_TEN_XAM' ? 'ALL' : 'CHUA_CO_TEN_XAM');
+                    }}
+                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer ${
+                      statusFilter === 'CHUA_CO_TEN_XAM'
+                        ? 'bg-gray-700 text-white shadow-xs'
+                        : 'bg-transparent text-gray-700 hover:bg-gray-100'
+                    }`}
+                    title="Thửa chưa kê khai không có tên người, địa danh (màu trắng trên bản đồ)"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-gray-400 ring-1 ring-gray-300 shrink-0"></span>
+                    <span className="hidden md:inline">Không tên (</span><span>{stats.gray.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
+                  </button>
+
+                  {/* Nút bấm & Chỉ báo Realtime Google Sheets (Desktop) */}
+                  <button
+                    onClick={() => fetchGgsCodes(true)}
+                    disabled={isSyncingGgs}
+                    className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold transition text-xs shrink-0 bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 disabled:opacity-60 cursor-pointer ml-auto"
+                    title={
+                      lastSyncTime
+                        ? `Đồng bộ lúc: ${lastSyncTime}. Bấm để cập nhật lại từ Google Sheets ngay.`
+                        : 'Bấm để đồng bộ từ Google Sheets ngay'
+                    }
+                  >
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${
+                        isSyncingGgs ? 'animate-spin text-blue-500' : 'text-blue-500'
+                      }`}
+                    />
+                    <span className="hidden sm:inline">GGS Live</span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  </button>
+
+                  {/* Nút chỉ báo hàng đợi Cloudflare Queues / Trạng thái đồng bộ máy chủ (Desktop) */}
+                  <button
+                    type="button"
+                    onClick={() => flushPendingDeclarations()}
+                    className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold transition text-xs shrink-0 cursor-pointer ${
+                      pendingCount > 0
+                        ? 'bg-amber-500 hover:bg-amber-600 text-white border border-amber-300 shadow-md animate-pulse'
+                        : 'bg-gray-50 hover:bg-gray-100 text-emerald-700 border border-emerald-200'
+                    }`}
+                    title={
+                      pendingCount > 0
+                        ? `Có ${pendingCount} phiếu trong hàng đợi chờ gửi lên Cloud. Bấm để gửi ngay!`
+                        : 'Toàn bộ phiếu kê khai đã đồng bộ an toàn 100% lên Cloudflare R2'
+                    }
+                  >
+                    {pendingCount > 0 ? (
+                      <>
+                        <CloudOff className="w-3.5 h-3.5 text-white" />
+                        <span>{pendingCount} chờ gửi</span>
+                      </>
+                    ) : (
+                      <>
+                        <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="hidden sm:inline">Cloud OK</span>
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
-              {/* Row 2: Thanh tìm kiếm & lọc tờ bản đồ & Nút Danh sách trên mobile */}
+              {/* Row 2: Thanh tìm kiếm & Các nút chức năng (Đã bỏ bộ lọc tờ bản đồ để tối ưu diện tích màn hình) */}
               <div className="flex items-center gap-1.5 sm:gap-2 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl border border-gray-200/90 shadow-xl w-full max-w-xl">
-                <div className="relative flex-1 min-w-[110px] sm:min-w-[180px]">
+                <div className="relative flex-1 min-w-[120px]">
                   <Search className="w-4 h-4 text-gray-400 absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
@@ -1483,22 +1484,13 @@ export default function Home() {
                   />
                 </div>
 
-                <MapSheetMultiSelect
-                  sheetList={sheetList}
-                  selectedSheets={selectedSheets}
-                  onChange={(sheets) => {
-                    setSelectedSheets(sheets);
-                  }}
-                />
-
-                {(searchQuery || selectedSheets.length > 0 || statusFilter !== 'ALL') && (
+                {(searchQuery || statusFilter !== 'ALL') && (
                   <button
                     onClick={() => {
                       setSearchQuery('');
-                      setSelectedSheets([]);
                       setStatusFilter('ALL');
                     }}
-                    className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-xl transition font-medium shrink-0"
+                    className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-xl transition font-medium shrink-0 cursor-pointer"
                     title="Khôi phục mặc định"
                   >
                     Đặt lại
@@ -1508,20 +1500,20 @@ export default function Home() {
                 {/* Nút mở Dashboard quản trị & tiến độ (Ẩn trên điện thoại) */}
                 <Link
                   href="/dashboard"
-                  className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs bg-slate-900 hover:bg-slate-800 text-cyan-300 font-bold rounded-xl transition shrink-0 border border-cyan-500/40 shadow-xs"
+                  className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs bg-cyan-50 hover:bg-cyan-100 text-cyan-800 font-bold rounded-xl transition shrink-0 border border-cyan-200 shadow-2xs"
                   title="Mở Dashboard thống kê & tiến độ số hóa"
                 >
-                  <BarChart3 className="w-3.5 h-3.5 text-cyan-400" />
+                  <BarChart3 className="w-3.5 h-3.5 text-cyan-600" />
                   <span className="hidden xs:inline">Dashboard</span>
                 </Link>
 
                 {/* Nút mở công cụ Tách PDF & CCCD ScanName (Ẩn trên điện thoại) */}
                 <a
                   href="/scanname"
-                  className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs bg-indigo-950 hover:bg-indigo-900 text-indigo-300 font-bold rounded-xl transition shrink-0 border border-indigo-500/40 shadow-xs"
+                  className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-bold rounded-xl transition shrink-0 border border-indigo-200 shadow-2xs"
                   title="Mở công cụ Tách PDF & Quét CCCD ScanName"
                 >
-                  <FileText className="w-3.5 h-3.5 text-indigo-400" />
+                  <FileText className="w-3.5 h-3.5 text-indigo-600" />
                   <span className="hidden xs:inline">Tách PDF</span>
                 </a>
 
@@ -1532,10 +1524,10 @@ export default function Home() {
                     setIsPanelOpen(false);
                     setIsCccdUploadOpen(true);
                   }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-purple-950 hover:bg-purple-900 text-purple-300 font-bold rounded-xl transition shrink-0 border border-purple-500/40 shadow-xs cursor-pointer"
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold rounded-xl transition shrink-0 border border-purple-200 shadow-2xs cursor-pointer"
                   title="Tải lên ảnh CCCD từ máy (trượt form từ dưới lên)"
                 >
-                  <Camera className="w-3.5 h-3.5 text-purple-400" />
+                  <Camera className="w-3.5 h-3.5 text-purple-600" />
                   <span className="hidden xs:inline">Tải Lên CCCD</span>
                 </button>
 
@@ -1548,10 +1540,10 @@ export default function Home() {
                     setIsPanelCollapsed(false);
                     setIsExportMissingCccdOpen((prev) => !prev);
                   }}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-slate-900/90 hover:bg-slate-800 text-blue-300 font-bold rounded-xl transition shrink-0 border border-blue-500/30 shadow-xs cursor-pointer"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl transition shrink-0 border border-blue-200 shadow-2xs cursor-pointer"
                   title="Danh sách thu thập CCCD theo từng thôn buôn"
                 >
-                  <Users className="w-3.5 h-3.5 text-blue-400" />
+                  <Users className="w-3.5 h-3.5 text-blue-600" />
                   <span className="hidden xs:inline">Thu Thập CCCD</span>
                 </button>
 
