@@ -1329,10 +1329,12 @@ export default function DashboardPage() {
       const mergedCccd = savedDecl?.chu_dat_cccd || p.cccd;
 
       let finalStatus: ParcelStatus;
-      if (isOnGgs || p.trang_thai === 'DA_SO_HOA_XANH') {
+      if (isOnGgs) {
         finalStatus = 'DA_SO_HOA_XANH';
       } else if (isDeclared) {
         finalStatus = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
+      } else if (p.trang_thai === 'DA_SO_HOA_XANH') {
+        finalStatus = 'DA_SO_HOA_XANH';
       } else if (mergedChuHo && mergedChuHo !== 'Không có trong dữ liệu' && isPersonName(mergedChuHo)) {
         finalStatus = 'CO_TEN_CHUA_SO_HOA_VANG';
       } else {

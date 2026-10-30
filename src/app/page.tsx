@@ -390,7 +390,7 @@ export default function Home() {
           setSelectedParcel((curr) => {
             if (!curr) return null;
             if (mergedCodesSet.has(curr.ma_thua) || curr.is_declared) {
-              const isOnGgs = ggsCodes.has(curr.ma_thua) || curr.trang_thai === 'DA_SO_HOA_XANH';
+              const isOnGgs = ggsCodes.has(curr.ma_thua);
               const decl = mergedMap[curr.ma_thua];
               return {
                 ...curr,
@@ -641,10 +641,12 @@ export default function Home() {
       // 3. Thửa CHƯA KÊ KHAI CÓ TÊN (tên người thật) -> Vàng
       // 4. Thửa CHƯA KÊ KHAI CHƯA CÓ TÊN (không phải tên người, địa danh, công cộng...) -> Trắng
       let trang_thai: ParcelStatus;
-      if (isOnGgs || p.trang_thai === 'DA_SO_HOA_XANH') {
+      if (isOnGgs) {
         trang_thai = 'DA_SO_HOA_XANH';
       } else if (isLocallyDeclared) {
         trang_thai = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
+      } else if (p.trang_thai === 'DA_SO_HOA_XANH' && !isGgsLoaded) {
+        trang_thai = 'DA_SO_HOA_XANH';
       } else if (chu_ho && chu_ho !== 'Không có trong dữ liệu' && isPersonName(chu_ho)) {
         trang_thai = 'CO_TEN_CHUA_SO_HOA_VANG';
       } else {
@@ -678,7 +680,7 @@ export default function Home() {
         dien_tich,
         loai_dat,
         trang_thai,
-        is_on_ggs: isOnGgs || p.trang_thai === 'DA_SO_HOA_XANH',
+        is_on_ggs: isOnGgs,
         is_declared: isLocallyDeclared,
       };
     });
@@ -1047,7 +1049,7 @@ export default function Home() {
       setIsPickingAdditional(false);
 
       if (selectedParcel && selectedParcel.ma_thua === formData.ma_thua) {
-        const isOnGgs = ggsCodes.has(formData.ma_thua) || selectedParcel.trang_thai === 'DA_SO_HOA_XANH';
+        const isOnGgs = ggsCodes.has(formData.ma_thua);
         setSelectedParcel({
           ...selectedParcel,
           chu_ho: formData.chu_dat_ten || selectedParcel.chu_ho,
@@ -1165,7 +1167,7 @@ export default function Home() {
     if (selectedParcel && removedCodes.includes(selectedParcel.ma_thua)) {
       const original = parcels.find((p) => p.ma_thua === selectedParcel.ma_thua);
       if (original) {
-        const isOnGgs = ggsCodes.has(original.ma_thua) || original.trang_thai === 'DA_SO_HOA_XANH';
+        const isOnGgs = ggsCodes.has(original.ma_thua);
         setSelectedParcel({
           ...original,
           trang_thai: isOnGgs ? 'DA_SO_HOA_XANH' : (original.trang_thai as ParcelStatus),
