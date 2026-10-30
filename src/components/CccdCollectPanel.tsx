@@ -333,12 +333,12 @@ export default function CccdCollectPanel({
       targetParcel = parcels.find((p) => p.so_thua === maThua);
     }
 
-    if (targetParcel && onZoomToParcel) {
-      onZoomToParcel(targetParcel);
-      showToast(`📍 Đang xem Thửa ${targetParcel.so_thua} (${targetParcel.loai_dat || 'Đất'}) trên bản đồ`);
-      // Đóng modal sửa tên nếu đang mở để người dùng nhìn thấy bản đồ rõ ràng
-      setMovingPerson(null);
-    } else if (!targetParcel) {
+    if (targetParcel) {
+      if (onZoomToParcel) {
+        onZoomToParcel(targetParcel);
+      }
+      showToast(`📍 Đã định vị thửa đất (${targetParcel.loai_dat || targetParcel.so_thua}) trên bản đồ`);
+    } else {
       showToast(`Chưa có toạ độ của thửa ${maThua}`);
     }
   };

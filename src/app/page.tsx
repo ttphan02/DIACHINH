@@ -889,7 +889,7 @@ export default function Home() {
       clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
     }
-    setSelectedParcel(latest);
+    setSelectedParcel({ ...latest, _forceZoom: Date.now() } as any);
     setIsPanelCollapsed(false);
     setIsCccdUploadOpen(false);
     setIsExportMissingCccdOpen(false);
@@ -898,6 +898,17 @@ export default function Home() {
     requestAnimationFrame(() => {
       setIsPanelOpen(true);
     });
+  };
+
+  // Định vị zoom thửa đất trên bản đồ khi bấm loại đất từ danh sách thu thập CCCD, GIỮ NGUYÊN FORM
+  const handleZoomToParcelKeepCccd = (p: Parcel) => {
+    const latest = computedParcels.find((cp) => cp.ma_thua === p.ma_thua) || p;
+    const nbs = findNearbyParcels(latest, computedParcels, 450, 12);
+    setNeighborParcels(nbs);
+    setSelectedParcel({ ...latest, _forceZoom: Date.now() } as any);
+    setIsExportMissingCccdOpen(true);
+    setIsPanelOpen(true);
+    setIsPanelCollapsed(false);
   };
 
   const handleClosePanel = () => {
@@ -1219,9 +1230,7 @@ export default function Home() {
                     declarationsMap={declarationsMap}
                     onDeclarationUpdated={() => fetchCloudDeclarations()}
                     onToggleCollapse={() => setIsPanelCollapsed((prev) => !prev)}
-                    onZoomToParcel={(targetParcel: Parcel) => {
-                      setSelectedParcel({ ...targetParcel, _forceZoom: Date.now() } as any);
-                    }}
+                    onZoomToParcel={handleZoomToParcelKeepCccd}
                   />
                 ) : selectedParcel ? (
                   <ParcelDetailPanel
