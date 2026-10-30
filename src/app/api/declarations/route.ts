@@ -316,7 +316,7 @@ export async function POST(request: Request) {
       const updatedPayload: StoragePayload = {
         declaredCodes: currentData.declaredCodes,
         declarationsMap: currentData.declarationsMap,
-        cellEdits: body.cellEdits || {},
+        cellEdits: { ...(currentData.cellEdits || {}), ...(body.cellEdits || {}) },
         updatedAt: new Date().toISOString(),
       };
       await saveDeclarationsToR2(updatedPayload);

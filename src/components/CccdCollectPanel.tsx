@@ -174,13 +174,36 @@ export default function CccdCollectPanel({
         return true;
       }
 
-      // 3. Khớp tên file trên R2
+      // 3. Khớp tên file trên R2 (khớp chặt chẽ, chống false-positive cho tên ngắn/1 từ)
       if (personName && r2Filenames.length > 0) {
-        const normName = stripAccents(personName).toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (normName.length >= 4) {
+        const cleanedPName = cleanName(personName) || personName;
+        const normPerson = stripAccents(cleanedPName).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
+        const pWords = normPerson.split(/\s+/).filter(Boolean);
+
+        if (pWords.length >= 2) {
           const matched = r2Filenames.some((fn) => {
-            const normFn = stripAccents(fn).toLowerCase().replace(/[^a-z0-9]/g, '');
-            return normFn.includes(normName);
+            const baseName = fn.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
+            const nameInFile = baseName.replace(/^\d+[\-_\s]+/, '').trim();
+            const cleanedFName = cleanName(nameInFile) || nameInFile;
+            const normFn = stripAccents(cleanedFName).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
+            const fWords = normFn.split(/\s+/).filter(Boolean);
+
+            if (normPerson === normFn) return true;
+            if (fWords.length >= 2 && pWords.length === fWords.length && pWords.every((w) => fWords.includes(w))) {
+              return true;
+            }
+            return false;
+          });
+          if (matched) return true;
+        } else if (pWords.length === 1 && pWords[0].length >= 3) {
+          const targetWord = pWords[0];
+          const matched = r2Filenames.some((fn) => {
+            const baseName = fn.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
+            const nameInFile = baseName.replace(/^\d+[\-_\s]+/, '').trim();
+            const cleanedFName = cleanName(nameInFile) || nameInFile;
+            const normFn = stripAccents(cleanedFName).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
+            const fWords = normFn.split(/\s+/).filter(Boolean);
+            return fWords.length === 1 && fWords[0] === targetWord;
           });
           if (matched) return true;
         }
@@ -644,9 +667,7 @@ export default function CccdCollectPanel({
                         </div>
                         <div className="flex items-center justify-between text-[10px] leading-none mt-1 text-gray-500">
                           <span className="font-mono bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded border border-gray-200 truncate">
-                            {p1.soThuaList.length > 1
-                              ? `${p1.soThuaList.length} thửa`
-                              : (p1.soThuaList[0] ? `Thửa ${p1.soThuaList[0]}` : '1 thửa')}
+                            {`${Math.max(p1.maThuaList.length, p1.soThuaList.length, 1)} thửa`}
                           </span>
                           <ArrowRightLeft className="w-2.5 h-2.5 text-gray-400 shrink-0 ml-auto" />
                         </div>
@@ -692,9 +713,7 @@ export default function CccdCollectPanel({
                             </div>
                             <div className="flex items-center justify-between text-[10px] leading-none mt-1 text-gray-500">
                                 <span className="font-mono bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded border border-gray-200 truncate">
-                                  {p2.soThuaList.length > 1
-                                    ? `${p2.soThuaList.length} thửa`
-                                    : (p2.soThuaList[0] ? `Thửa ${p2.soThuaList[0]}` : '1 thửa')}
+                                  {`${Math.max(p2.maThuaList.length, p2.soThuaList.length, 1)} thửa`}
                                 </span>
                                 <ArrowRightLeft className="w-2.5 h-2.5 text-gray-400 shrink-0 ml-auto" />
                               </div>

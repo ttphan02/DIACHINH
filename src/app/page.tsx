@@ -583,7 +583,7 @@ export default function Home() {
   const computedParcels = useMemo<Parcel[]>(() => {
     return parcels
       .filter((p) => {
-        if (HIDDEN_PARCEL_SET.has(p.ma_thua)) return false;
+        if (HIDDEN_PARCEL_SET.has(p.ma_thua) && !declarationsMap[p.ma_thua] && !declaredParcelCodes.has(p.ma_thua) && !ggsCodes.has(p.ma_thua)) return false;
         const ld = (p.loai_dat || '').trim().toUpperCase();
         if (ld === 'BCS') {
           const dt = parseFloat(String(p.dien_tich || '').replace(',', '.'));

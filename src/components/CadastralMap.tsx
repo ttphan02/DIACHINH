@@ -492,7 +492,7 @@ export default function CadastralMap({
   // 3. CẬP NHẬT DỮ LIỆU THỬA ĐẤT CHO BATCH CANVAS (SIÊU NHANH < 1ms)
   useEffect(() => {
     const validParcels = parcels.filter((p) => {
-      if (!p.lat || !p.lng || HIDDEN_PARCEL_SET.has(p.ma_thua)) return false;
+      if (!p.lat || !p.lng || (HIDDEN_PARCEL_SET.has(p.ma_thua) && !p.is_declared && !p.is_on_ggs)) return false;
       const ld = (p.loai_dat || '').trim().toUpperCase();
       if (ld === 'BCS') {
         const dt = parseFloat(String(p.dien_tich || '').replace(',', '.'));
