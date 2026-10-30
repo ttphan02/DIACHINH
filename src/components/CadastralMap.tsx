@@ -456,10 +456,11 @@ export default function CadastralMap({
       return;
     }
 
-    if (lastCenteredParcelRef.current !== selectedParcel.ma_thua) {
+    const forceZoom = (selectedParcel as any)._forceZoom;
+    if (lastCenteredParcelRef.current !== selectedParcel.ma_thua || forceZoom) {
       lastCenteredParcelRef.current = selectedParcel.ma_thua;
       setIsFollowingUser(false); // Tắt bám GPS khi người dùng bấm chọn xem một thửa đất cụ thể
-      map.flyTo([selectedParcel.lat, selectedParcel.lng], Math.max(map.getZoom(), 18), {
+      map.flyTo([selectedParcel.lat, selectedParcel.lng], Math.max(map.getZoom(), 19), {
         animate: true,
         duration: 0.55,
       });

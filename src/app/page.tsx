@@ -1218,6 +1218,12 @@ export default function Home() {
                     declarationsMap={declarationsMap}
                     onDeclarationUpdated={() => fetchCloudDeclarations()}
                     onToggleCollapse={() => setIsPanelCollapsed((prev) => !prev)}
+                    onZoomToParcel={(targetParcel: Parcel) => {
+                      setSelectedParcel({ ...targetParcel, _forceZoom: Date.now() } as any);
+                      if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                        setIsPanelCollapsed(true);
+                      }
+                    }}
                   />
                 ) : selectedParcel ? (
                   <ParcelDetailPanel

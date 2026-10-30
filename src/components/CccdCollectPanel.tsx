@@ -31,6 +31,7 @@ export interface CccdCollectPanelProps {
   theme?: 'dark' | 'light';
   onDeclarationUpdated?: (updatedDecl: any) => void;
   onToggleCollapse?: () => void;
+  onZoomToParcel?: (parcel: Parcel) => void;
 }
 
 interface MissingCccdPerson {
@@ -39,6 +40,13 @@ interface MissingCccdPerson {
   maThuaList: string[];
   soThuaList: string[];
   toBanDoList: string[];
+  loaiDatList: string[];
+  parcelDetails: Array<{
+    maThua: string;
+    soThua: string;
+    toBanDo: string;
+    loaiDat: string;
+  }>;
   thonXa: string;
   cccdNumber?: string;
   deviceId?: string;
@@ -51,6 +59,7 @@ export default function CccdCollectPanel({
   theme = 'light',
   onDeclarationUpdated,
   onToggleCollapse,
+  onZoomToParcel,
 }: CccdCollectPanelProps) {
   // Lọc tìm kiếm & Thôn / Buôn
   const [selectedVillage, setSelectedVillage] = useState<string>('ALL');
@@ -72,6 +81,11 @@ export default function CccdCollectPanel({
   const [initialNguonGoc, setInitialNguonGoc] = useState<string>('Khai Hoang');
   const [isSavingMove, setIsSavingMove] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  }, []);
 
   // 1. Phục hồi trạng thái từ localStorage
   useEffect(() => {
@@ -208,6 +222,24 @@ export default function CccdCollectPanel({
       }
       const thonXa = getCanonicalVillage(rawVillage);
 
+      // Lấy loại đất chính xác từ kê khai, parcels_brief hoặc parcels
+      let loaiDat = String(decl.loai_dat || '').trim();
+      if (!loaiDat && maThua && parcelsBrief[maThua] && parcelsBrief[maThua][1]) {
+        loaiDat = parcelsBrief[maThua][1];
+      }
+      if (!loaiDat && maThua) {
+        const foundP = parcels.find((p) => p.ma_thua === maThua);
+        if (foundP?.loai_dat) loaiDat = foundP.loai_dat;
+      }
+      loaiDat = loaiDat.trim();
+
+      const detailItem = {
+        maThua,
+        soThua,
+        toBanDo,
+        loaiDat,
+      };
+
       // Nhóm theo Tên + Thôn
       const groupKey = `${name.toLowerCase()}___${thonXa.toLowerCase()}`;
       if (mapByCitizen.has(groupKey)) {
@@ -215,6 +247,10 @@ export default function CccdCollectPanel({
         if (maThua && !existing.maThuaList.includes(maThua)) existing.maThuaList.push(maThua);
         if (soThua && !existing.soThuaList.includes(soThua)) existing.soThuaList.push(soThua);
         if (toBanDo && !existing.toBanDoList.includes(toBanDo)) existing.toBanDoList.push(toBanDo);
+        if (loaiDat && !existing.loaiDatList.includes(loaiDat)) existing.loaiDatList.push(loaiDat);
+        if (maThua && !existing.parcelDetails.some((d) => d.maThua === maThua)) {
+          existing.parcelDetails.push(detailItem);
+        }
       } else {
         const cccdClean = cleanCccd(decl.chu_dat_cccd || decl.cccd || '');
         mapByCitizen.set(groupKey, {
@@ -223,6 +259,8 @@ export default function CccdCollectPanel({
           maThuaList: maThua ? [maThua] : [],
           soThuaList: soThua ? [soThua] : [],
           toBanDoList: toBanDo ? [toBanDo] : [],
+          loaiDatList: loaiDat ? [loaiDat] : [],
+          parcelDetails: maThua ? [detailItem] : [],
           thonXa,
           cccdNumber: cccdClean.length === 12 ? cccdClean : undefined,
           deviceId: decl.device_id,
@@ -281,6 +319,29 @@ export default function CccdCollectPanel({
   // Đếm thống kê
   const totalInView = filteredCitizens.length;
   const checkedInView = filteredCitizens.filter((p) => checkedKeys.has(p.key)).length;
+
+  // Phóng to và định vị thửa đất trên bản đồ
+  const handleZoomToParcel = (maThua: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    if (!maThua) return;
+
+    let targetParcel = parcels.find((p) => p.ma_thua === maThua);
+    if (!targetParcel) {
+      targetParcel = parcels.find((p) => p.so_thua === maThua);
+    }
+
+    if (targetParcel && onZoomToParcel) {
+      onZoomToParcel(targetParcel);
+      showToast(`📍 Đang xem Thửa ${targetParcel.so_thua} (${targetParcel.loai_dat || 'Đất'}) trên bản đồ`);
+      // Đóng modal sửa tên nếu đang mở để người dùng nhìn thấy bản đồ rõ ràng
+      setMovingPerson(null);
+    } else if (!targetParcel) {
+      showToast(`Chưa có toạ độ của thửa ${maThua}`);
+    }
+  };
 
   // Mở popup sửa tên đúng hoặc di chuyển thôn / buôn / nguồn gốc sử dụng
   const handleOpenMoveModal = (person: MissingCccdPerson) => {
@@ -581,11 +642,33 @@ export default function CccdCollectPanel({
                         <div className="font-black uppercase tracking-tight text-[11px] leading-tight truncate text-gray-900">
                           {p1.name}
                         </div>
-                        <div className="flex items-center justify-between text-[9px] text-gray-500 leading-none mt-1">
-                          <span className="font-mono bg-gray-100 text-gray-700 px-1 py-0.5 rounded border border-gray-200 truncate">
-                            {p1.soThuaList.length > 0 ? `Thửa ${p1.soThuaList.join(',')}` : p1.thonXa}
-                          </span>
-                          <ArrowRightLeft className="w-2.5 h-2.5 text-blue-500 shrink-0 ml-1" />
+                        <div className="flex items-center justify-between text-[10px] leading-none mt-1 gap-1">
+                          <div className="flex items-center gap-1 overflow-hidden flex-wrap max-w-[85%]">
+                            {p1.parcelDetails && p1.parcelDetails.length > 0 ? (
+                              p1.parcelDetails.map((pd, pdIdx) => {
+                                const label = pd.loaiDat
+                                  ? (p1.parcelDetails.length > 1 ? `${pd.loaiDat} (${pd.soThua})` : pd.loaiDat)
+                                  : (pd.soThua ? `Thửa ${pd.soThua}` : 'Đất');
+                                return (
+                                  <button
+                                    key={pdIdx}
+                                    type="button"
+                                    onClick={(e) => handleZoomToParcel(pd.maThua, e)}
+                                    className="inline-flex items-center gap-0.5 font-black bg-blue-50 hover:bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200 text-[10px] transition active:scale-95 cursor-pointer shadow-2xs"
+                                    title={`Bấm để phóng to Thửa ${pd.soThua} (${pd.loaiDat || 'Đất'}) trên bản đồ`}
+                                  >
+                                    <MapPin className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                    <span className="truncate">{label}</span>
+                                  </button>
+                                );
+                              })
+                            ) : (
+                              <span className="font-mono bg-gray-100 text-gray-700 px-1 py-0.5 rounded border border-gray-200 truncate text-[9px]">
+                                {p1.soThuaList.length > 0 ? `Thửa ${p1.soThuaList.join(',')}` : p1.thonXa}
+                              </span>
+                            )}
+                          </div>
+                          <ArrowRightLeft className="w-2.5 h-2.5 text-gray-400 shrink-0 ml-auto" />
                         </div>
                       </td>
 
@@ -627,11 +710,33 @@ export default function CccdCollectPanel({
                             <div className="font-black uppercase tracking-tight text-[11px] leading-tight truncate text-gray-900">
                               {p2.name}
                             </div>
-                            <div className="flex items-center justify-between text-[9px] text-gray-500 leading-none mt-1">
-                              <span className="font-mono bg-gray-100 text-gray-700 px-1 py-0.5 rounded border border-gray-200 truncate">
-                                {p2.soThuaList.length > 0 ? `Thửa ${p2.soThuaList.join(',')}` : p2.thonXa}
-                              </span>
-                              <ArrowRightLeft className="w-2.5 h-2.5 text-blue-500 shrink-0 ml-1" />
+                            <div className="flex items-center justify-between text-[10px] leading-none mt-1 gap-1">
+                              <div className="flex items-center gap-1 overflow-hidden flex-wrap max-w-[85%]">
+                                {p2.parcelDetails && p2.parcelDetails.length > 0 ? (
+                                  p2.parcelDetails.map((pd, pdIdx) => {
+                                    const label = pd.loaiDat
+                                      ? (p2.parcelDetails.length > 1 ? `${pd.loaiDat} (${pd.soThua})` : pd.loaiDat)
+                                      : (pd.soThua ? `Thửa ${pd.soThua}` : 'Đất');
+                                    return (
+                                      <button
+                                        key={pdIdx}
+                                        type="button"
+                                        onClick={(e) => handleZoomToParcel(pd.maThua, e)}
+                                        className="inline-flex items-center gap-0.5 font-black bg-blue-50 hover:bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200 text-[10px] transition active:scale-95 cursor-pointer shadow-2xs"
+                                        title={`Bấm để phóng to Thửa ${pd.soThua} (${pd.loaiDat || 'Đất'}) trên bản đồ`}
+                                      >
+                                        <MapPin className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                        <span className="truncate">{label}</span>
+                                      </button>
+                                    );
+                                  })
+                                ) : (
+                                  <span className="font-mono bg-gray-100 text-gray-700 px-1 py-0.5 rounded border border-gray-200 truncate text-[9px]">
+                                    {p2.soThuaList.length > 0 ? `Thửa ${p2.soThuaList.join(',')}` : p2.thonXa}
+                                  </span>
+                                )}
+                              </div>
+                              <ArrowRightLeft className="w-2.5 h-2.5 text-gray-400 shrink-0 ml-auto" />
                             </div>
                           </td>
 
@@ -737,13 +842,36 @@ export default function CccdCollectPanel({
                     <span className="text-gray-500">Thôn hiện tại:</span>
                     <span className="font-bold text-rose-600">{movingPerson.thonXa}</span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-500">Thửa đất:</span>
-                    <span className="font-mono text-gray-700 font-bold">
-                      {movingPerson.soThuaList.length > 0
-                        ? `Thửa ${movingPerson.soThuaList.join(', ')}`
-                        : movingPerson.maThuaList.join(', ')}
-                    </span>
+                  <div className="flex justify-between items-center py-0.5">
+                    <span className="text-gray-500 font-medium">Loại đất:</span>
+                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                      {movingPerson.parcelDetails && movingPerson.parcelDetails.length > 0 ? (
+                        movingPerson.parcelDetails.map((pd, pdIdx) => {
+                          const displayLabel = pd.loaiDat
+                            ? `${pd.loaiDat} (Thửa ${pd.soThua || pd.maThua})`
+                            : (pd.soThua ? `Thửa ${pd.soThua}` : pd.maThua);
+                          return (
+                            <button
+                              key={pdIdx}
+                              type="button"
+                              onClick={() => handleZoomToParcel(pd.maThua)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-black rounded-lg border border-blue-200 text-xs transition cursor-pointer shadow-2xs active:scale-95 group"
+                              title={`Bấm để phóng to Thửa ${pd.soThua} (${pd.loaiDat || 'Đất'}) trên bản đồ`}
+                            >
+                              <MapPin className="w-3.5 h-3.5 text-blue-600 group-hover:scale-110 transition shrink-0" />
+                              <span>{displayLabel}</span>
+                              <span className="text-[10px] text-blue-500 font-semibold underline ml-0.5">Xem map</span>
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <span className="font-mono text-gray-700 font-bold">
+                          {movingPerson.soThuaList.length > 0
+                            ? `Thửa ${movingPerson.soThuaList.join(', ')}`
+                            : movingPerson.maThuaList.join(', ') || 'Chưa rõ'}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
