@@ -19,7 +19,7 @@ import {
 import { Parcel, DeclarationFormData } from '@/types';
 import { getOrCreateDeviceId, getSavedCadreName, saveOrUpdateDeclaration } from '@/utils/declaration';
 import { broadcastRealtimeEvent } from '@/utils/realtimeSync';
-import { cleanCccd, stripAccents, CANONICAL_VILLAGES, getCanonicalVillage } from '@/utils/textHelpers';
+import { cleanCccd, cleanName, stripAccents, CANONICAL_VILLAGES, getCanonicalVillage } from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
 
 const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
@@ -64,8 +64,9 @@ export default function CccdCollectPanel({
   // Trạng thái đã tích chọn (lưu bền vững vào localStorage)
   const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set());
 
-  // Sub-modal di chuyển thôn / buôn
+  // Sub-modal sửa tên / di chuyển thôn / buôn
   const [movingPerson, setMovingPerson] = useState<MissingCccdPerson | null>(null);
+  const [correctedName, setCorrectedName] = useState<string>('');
   const [targetVillage, setTargetVillage] = useState<string>('');
   const [isSavingMove, setIsSavingMove] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -279,15 +280,24 @@ export default function CccdCollectPanel({
   const totalInView = filteredCitizens.length;
   const checkedInView = filteredCitizens.filter((p) => checkedKeys.has(p.key)).length;
 
-  // Mở popup di chuyển thôn / buôn
+  // Mở popup sửa tên đúng hoặc di chuyển thôn / buôn
   const handleOpenMoveModal = (person: MissingCccdPerson) => {
     setMovingPerson(person);
+    setCorrectedName(person.name);
     setTargetVillage(person.thonXa);
   };
 
-  // Xác nhận di chuyển thôn / buôn và cập nhật vào Database
-  const handleConfirmMoveVillage = async () => {
-    if (!movingPerson || !targetVillage || targetVillage === movingPerson.thonXa) {
+  // Xác nhận sửa tên đúng và/hoặc chuyển thôn / buôn vào Database
+  const handleConfirmUpdatePerson = async () => {
+    if (!movingPerson) return;
+
+    const cleanNewName = cleanName(correctedName) || movingPerson.name;
+    const finalVillage = targetVillage || movingPerson.thonXa;
+
+    const isNameChanged = cleanNewName.toLowerCase() !== movingPerson.name.toLowerCase();
+    const isVillageChanged = finalVillage !== movingPerson.thonXa;
+
+    if (!isNameChanged && !isVillageChanged) {
       setMovingPerson(null);
       return;
     }
@@ -305,9 +315,12 @@ export default function CccdCollectPanel({
         if (existing) {
           updated = {
             ...existing,
-            thon_xa: targetVillage,
-            dia_chi_thua_dat: targetVillage,
-            chu_dat_dia_chi: targetVillage,
+            chu_dat_ten: cleanNewName,
+            chu_ho: cleanNewName,
+            ho_va_ten_chu_ho: cleanNewName,
+            thon_xa: finalVillage,
+            dia_chi_thua_dat: finalVillage,
+            chu_dat_dia_chi: finalVillage,
             updated_at: timestamp,
           };
         } else {
@@ -316,11 +329,12 @@ export default function CccdCollectPanel({
             ma_thua: maThua,
             to_ban_do: toP || '',
             so_thua: thuaP || '',
-            chu_dat_ten: movingPerson.name,
-            chu_ho: movingPerson.name,
-            thon_xa: targetVillage,
-            dia_chi_thua_dat: targetVillage,
-            chu_dat_dia_chi: targetVillage,
+            chu_dat_ten: cleanNewName,
+            chu_ho: cleanNewName,
+            ho_va_ten_chu_ho: cleanNewName,
+            thon_xa: finalVillage,
+            dia_chi_thua_dat: finalVillage,
+            chu_dat_dia_chi: finalVillage,
             device_id: getSavedCadreName() || getOrCreateDeviceId(),
             created_at: timestamp,
             updated_at: timestamp,
@@ -329,7 +343,7 @@ export default function CccdCollectPanel({
 
         saveOrUpdateDeclaration(updated);
         updatedDecls.push(updated);
-        cellEditsToSync[maThua] = { 2: targetVillage };
+        cellEditsToSync[maThua] = { 0: cleanNewName, 2: finalVillage };
 
         onDeclarationUpdated?.(updated);
         broadcastRealtimeEvent({
@@ -356,7 +370,7 @@ export default function CccdCollectPanel({
 
       // Cập nhật trạng thái check key
       const oldKey = movingPerson.key;
-      const newKey = `${movingPerson.name.toLowerCase()}___${targetVillage.toLowerCase()}`;
+      const newKey = `${cleanNewName.toLowerCase()}___${finalVillage.toLowerCase()}`;
       if (checkedKeys.has(oldKey)) {
         setCheckedKeys((prev) => {
           const next = new Set(prev);
@@ -369,10 +383,13 @@ export default function CccdCollectPanel({
         });
       }
 
-      movingPerson.thonXa = targetVillage;
+      movingPerson.name = cleanNewName;
+      movingPerson.thonXa = finalVillage;
       movingPerson.key = newKey;
 
-      setToastMessage(`✓ Đã chuyển "${movingPerson.name}" sang ${targetVillage}!`);
+      let msg = `✓ Đã cập nhật thành công: "${cleanNewName}"`;
+      if (isVillageChanged) msg += ` sang ${finalVillage}`;
+      setToastMessage(msg);
       setTimeout(() => setToastMessage(null), 3000);
     } catch (err: any) {
       alert(`Lỗi khi cập nhật cơ sở dữ liệu: ${err.message || err}`);
@@ -541,7 +558,7 @@ export default function CccdCollectPanel({
                             ? 'bg-emerald-50 text-emerald-950 font-bold border-emerald-200'
                             : 'bg-white text-gray-900'
                         }`}
-                        title="Bấm để chuyển thôn / buôn khác"
+                        title="Bấm để sửa tên đúng hoặc chuyển thôn / buôn"
                       >
                         <div className="font-black uppercase tracking-tight text-[11px] leading-tight truncate text-gray-900">
                           {p1.name}
@@ -587,7 +604,7 @@ export default function CccdCollectPanel({
                                 ? 'bg-emerald-50 text-emerald-950 font-bold border-emerald-200'
                                 : 'bg-white text-gray-900'
                             }`}
-                            title="Bấm để chuyển thôn / buôn khác"
+                            title="Bấm để sửa tên đúng hoặc chuyển thôn / buôn"
                           >
                             <div className="font-black uppercase tracking-tight text-[11px] leading-tight truncate text-gray-900">
                               {p2.name}
@@ -657,105 +674,136 @@ export default function CccdCollectPanel({
         </button>
       </div>
 
-      {/* SUB-MODAL: DI CHUYỂN TÊN ĐẾN THÔN BUÔN KHÁC (Style màu chuẩn form kê khai) */}
-      {movingPerson && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs animate-in fade-in">
-          <div className="w-full max-w-sm p-4 rounded-2xl border border-gray-200 shadow-2xl bg-white space-y-3 animate-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-200/60 shadow-2xs">
-                  <ArrowRightLeft className="w-4 h-4" />
+      {/* SUB-MODAL: SỬA TÊN ĐÚNG & CHUYỂN THÔN BUÔN (Style màu chuẩn form kê khai) */}
+      {movingPerson && (() => {
+        const cleanNewName = cleanName(correctedName);
+        const isNameChanged = cleanNewName && cleanNewName.toLowerCase() !== movingPerson.name.toLowerCase();
+        const isVillageChanged = targetVillage && targetVillage !== movingPerson.thonXa;
+        const canSave = (isNameChanged || isVillageChanged) && cleanNewName.length >= 2;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs animate-in fade-in">
+            <div className="w-full max-w-sm p-4 rounded-2xl border border-gray-200 shadow-2xl bg-white space-y-3 animate-in zoom-in-95">
+              <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-200/60 shadow-2xs">
+                    <ArrowRightLeft className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-black uppercase text-gray-900">
+                      Sửa Tên & Chuyển Thôn
+                    </h3>
+                    <p className="text-[10px] text-gray-500">Cập nhật thông tin vào cơ sở dữ liệu</p>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setMovingPerson(null)}
+                  className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                {/* Thông tin hiện tại */}
+                <div className="p-2.5 rounded-xl bg-gray-50/90 border border-gray-100 space-y-1 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500">Tên hiện tại:</span>
+                    <strong className="uppercase text-gray-700 font-bold">
+                      {movingPerson.name}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500">Thôn hiện tại:</span>
+                    <span className="font-bold text-rose-600">{movingPerson.thonXa}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500">Thửa đất:</span>
+                    <span className="font-mono text-gray-700 font-bold">
+                      {movingPerson.soThuaList.length > 0
+                        ? `Thửa ${movingPerson.soThuaList.join(', ')}`
+                        : movingPerson.maThuaList.join(', ')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Trường 1: Nhập Họ và tên đúng */}
                 <div>
-                  <h3 className="text-xs font-black uppercase text-gray-900">
-                    Chuyển Thôn / Buôn
-                  </h3>
-                  <p className="text-[10px] text-gray-500">Cập nhật thôn vào database</p>
+                  <label className="block text-[11px] font-bold mb-1 text-gray-700">
+                    Họ và tên đúng (sửa lại nếu tên hiện tại sai):
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={correctedName}
+                      onChange={(e) => setCorrectedName(e.target.value)}
+                      placeholder="Nhập họ và tên đúng..."
+                      className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold uppercase bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition shadow-2xs"
+                    />
+                  </div>
+                  {isNameChanged && (
+                    <p className="text-[10px] text-blue-600 font-bold mt-1 flex items-center gap-1">
+                      <span>✓ Tên mới:</span>
+                      <strong className="uppercase">{cleanNewName}</strong>
+                    </p>
+                  )}
+                </div>
+
+                {/* Trường 2: Chọn Thôn / Buôn mới */}
+                <div>
+                  <label className="block text-[11px] font-bold mb-1 text-gray-700">
+                    Chọn Thôn / Buôn mới để chuyển:
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={targetVillage}
+                      onChange={(e) => setTargetVillage(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold bg-gray-50/70 text-gray-900 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition appearance-none cursor-pointer"
+                    >
+                      {CANONICAL_VILLAGES.filter((v) => v !== 'Chưa xác định').map((v) => (
+                        <option key={v} value={v}>
+                          {v} {v === movingPerson.thonXa ? '(Hiện tại)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setMovingPerson(null)}
-                className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <div className="space-y-2.5 text-xs">
-              <div className="p-2.5 rounded-xl bg-gray-50/90 border border-gray-100 space-y-1 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Họ và tên:</span>
-                  <strong className="uppercase text-blue-600 font-black">
-                    {movingPerson.name}
-                  </strong>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Thôn hiện tại:</span>
-                  <span className="font-bold text-rose-600">{movingPerson.thonXa}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Mã thửa:</span>
-                  <span className="font-mono text-gray-700 font-bold">
-                    {movingPerson.soThuaList.length > 0
-                      ? `Thửa ${movingPerson.soThuaList.join(', ')}`
-                      : movingPerson.maThuaList.join(', ')}
-                  </span>
-                </div>
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  disabled={isSavingMove}
+                  onClick={() => setMovingPerson(null)}
+                  className="px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50 transition cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  disabled={isSavingMove || !canSave}
+                  onClick={handleConfirmUpdatePerson}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-black shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isSavingMove ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Đang lưu...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Xác nhận</span>
+                    </>
+                  )}
+                </button>
               </div>
-
-              <div>
-                <label className="block text-[11px] font-bold mb-1 text-gray-700">
-                  Chọn Thôn / Buôn mới để chuyển:
-                </label>
-                <div className="relative">
-                  <select
-                    value={targetVillage}
-                    onChange={(e) => setTargetVillage(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold bg-gray-50/70 text-gray-900 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition appearance-none cursor-pointer"
-                  >
-                    {CANONICAL_VILLAGES.filter((v) => v !== 'Chưa xác định').map((v) => (
-                      <option key={v} value={v}>
-                        {v} {v === movingPerson.thonXa ? '(Hiện tại)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
-              <button
-                type="button"
-                disabled={isSavingMove}
-                onClick={() => setMovingPerson(null)}
-                className="px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50 transition cursor-pointer"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                disabled={isSavingMove || targetVillage === movingPerson.thonXa}
-                onClick={handleConfirmMoveVillage}
-                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-black shadow-xs transition flex items-center gap-1.5 cursor-pointer"
-              >
-                {isSavingMove ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Đang lưu...</span>
-                  </>
-                ) : (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Xác nhận</span>
-                  </>
-                )}
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
