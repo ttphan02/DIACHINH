@@ -642,32 +642,12 @@ export default function CccdCollectPanel({
                         <div className="font-black uppercase tracking-tight text-[11px] leading-tight truncate text-gray-900">
                           {p1.name}
                         </div>
-                        <div className="flex items-center justify-between text-[10px] leading-none mt-1 gap-1">
-                          <div className="flex items-center gap-1 overflow-hidden flex-wrap max-w-[85%]">
-                            {p1.parcelDetails && p1.parcelDetails.length > 0 ? (
-                              p1.parcelDetails.map((pd, pdIdx) => {
-                                const label = pd.loaiDat
-                                  ? (p1.parcelDetails.length > 1 ? `${pd.loaiDat} (${pd.soThua})` : pd.loaiDat)
-                                  : (pd.soThua ? `Thửa ${pd.soThua}` : 'Đất');
-                                return (
-                                  <button
-                                    key={pdIdx}
-                                    type="button"
-                                    onClick={(e) => handleZoomToParcel(pd.maThua, e)}
-                                    className="inline-flex items-center gap-0.5 font-black bg-blue-50 hover:bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200 text-[10px] transition active:scale-95 cursor-pointer shadow-2xs"
-                                    title={`Bấm để phóng to Thửa ${pd.soThua} (${pd.loaiDat || 'Đất'}) trên bản đồ`}
-                                  >
-                                    <MapPin className="w-2.5 h-2.5 text-blue-600 shrink-0" />
-                                    <span className="truncate">{label}</span>
-                                  </button>
-                                );
-                              })
-                            ) : (
-                              <span className="font-mono bg-gray-100 text-gray-700 px-1 py-0.5 rounded border border-gray-200 truncate text-[9px]">
-                                {p1.soThuaList.length > 0 ? `Thửa ${p1.soThuaList.join(',')}` : p1.thonXa}
-                              </span>
-                            )}
-                          </div>
+                        <div className="flex items-center justify-between text-[10px] leading-none mt-1 text-gray-500">
+                          <span className="font-mono bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded border border-gray-200 truncate">
+                            {p1.soThuaList.length > 1
+                              ? `${p1.soThuaList.length} thửa`
+                              : (p1.soThuaList[0] ? `Thửa ${p1.soThuaList[0]}` : '1 thửa')}
+                          </span>
                           <ArrowRightLeft className="w-2.5 h-2.5 text-gray-400 shrink-0 ml-auto" />
                         </div>
                       </td>
@@ -710,34 +690,14 @@ export default function CccdCollectPanel({
                             <div className="font-black uppercase tracking-tight text-[11px] leading-tight truncate text-gray-900">
                               {p2.name}
                             </div>
-                            <div className="flex items-center justify-between text-[10px] leading-none mt-1 gap-1">
-                              <div className="flex items-center gap-1 overflow-hidden flex-wrap max-w-[85%]">
-                                {p2.parcelDetails && p2.parcelDetails.length > 0 ? (
-                                  p2.parcelDetails.map((pd, pdIdx) => {
-                                    const label = pd.loaiDat
-                                      ? (p2.parcelDetails.length > 1 ? `${pd.loaiDat} (${pd.soThua})` : pd.loaiDat)
-                                      : (pd.soThua ? `Thửa ${pd.soThua}` : 'Đất');
-                                    return (
-                                      <button
-                                        key={pdIdx}
-                                        type="button"
-                                        onClick={(e) => handleZoomToParcel(pd.maThua, e)}
-                                        className="inline-flex items-center gap-0.5 font-black bg-blue-50 hover:bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200 text-[10px] transition active:scale-95 cursor-pointer shadow-2xs"
-                                        title={`Bấm để phóng to Thửa ${pd.soThua} (${pd.loaiDat || 'Đất'}) trên bản đồ`}
-                                      >
-                                        <MapPin className="w-2.5 h-2.5 text-blue-600 shrink-0" />
-                                        <span className="truncate">{label}</span>
-                                      </button>
-                                    );
-                                  })
-                                ) : (
-                                  <span className="font-mono bg-gray-100 text-gray-700 px-1 py-0.5 rounded border border-gray-200 truncate text-[9px]">
-                                    {p2.soThuaList.length > 0 ? `Thửa ${p2.soThuaList.join(',')}` : p2.thonXa}
-                                  </span>
-                                )}
+                            <div className="flex items-center justify-between text-[10px] leading-none mt-1 text-gray-500">
+                                <span className="font-mono bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded border border-gray-200 truncate">
+                                  {p2.soThuaList.length > 1
+                                    ? `${p2.soThuaList.length} thửa`
+                                    : (p2.soThuaList[0] ? `Thửa ${p2.soThuaList[0]}` : '1 thửa')}
+                                </span>
+                                <ArrowRightLeft className="w-2.5 h-2.5 text-gray-400 shrink-0 ml-auto" />
                               </div>
-                              <ArrowRightLeft className="w-2.5 h-2.5 text-gray-400 shrink-0 ml-auto" />
-                            </div>
                           </td>
 
                           {/* Ô 4: Checkbox thu xong người 2 */}
@@ -806,7 +766,7 @@ export default function CccdCollectPanel({
         const canSave = (isNameChanged || isVillageChanged || isNguonGocChanged) && cleanNewName.length >= 2;
 
         return (
-          <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs animate-in fade-in">
+          <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center p-3 pb-6 sm:p-4 bg-black/40 backdrop-blur-2xs animate-in fade-in">
             <div className="w-full max-w-sm p-4 rounded-2xl border border-gray-200 shadow-2xl bg-white space-y-3 animate-in zoom-in-95">
               <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
                 <div className="flex items-center gap-2">
@@ -847,28 +807,26 @@ export default function CccdCollectPanel({
                     <div className="flex items-center gap-1.5 flex-wrap justify-end">
                       {movingPerson.parcelDetails && movingPerson.parcelDetails.length > 0 ? (
                         movingPerson.parcelDetails.map((pd, pdIdx) => {
-                          const displayLabel = pd.loaiDat
-                            ? `${pd.loaiDat} (Thửa ${pd.soThua || pd.maThua})`
-                            : (pd.soThua ? `Thửa ${pd.soThua}` : pd.maThua);
+                          const loaiDatDisplay = pd.loaiDat
+                            ? `(${pd.loaiDat})`
+                            : (pd.soThua ? `(Thửa ${pd.soThua})` : '(Đất)');
                           return (
                             <button
                               key={pdIdx}
                               type="button"
                               onClick={() => handleZoomToParcel(pd.maThua)}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-black rounded-lg border border-blue-200 text-xs transition cursor-pointer shadow-2xs active:scale-95 group"
-                              title={`Bấm để phóng to Thửa ${pd.soThua} (${pd.loaiDat || 'Đất'}) trên bản đồ`}
+                              className="inline-flex items-center px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-black rounded-lg border border-blue-200 text-xs transition cursor-pointer shadow-2xs active:scale-95"
+                              title={`Bấm để xem vị trí thửa ${pd.soThua || pd.maThua} trên bản đồ`}
                             >
-                              <MapPin className="w-3.5 h-3.5 text-blue-600 group-hover:scale-110 transition shrink-0" />
-                              <span>{displayLabel}</span>
-                              <span className="text-[10px] text-blue-500 font-semibold underline ml-0.5">Xem map</span>
+                              {loaiDatDisplay}
                             </button>
                           );
                         })
                       ) : (
-                        <span className="font-mono text-gray-700 font-bold">
+                        <span className="font-mono text-gray-700 font-bold text-xs">
                           {movingPerson.soThuaList.length > 0
-                            ? `Thửa ${movingPerson.soThuaList.join(', ')}`
-                            : movingPerson.maThuaList.join(', ') || 'Chưa rõ'}
+                            ? `(${movingPerson.soThuaList.join(', ')})`
+                            : '(Đất)'}
                         </span>
                       )}
                     </div>
