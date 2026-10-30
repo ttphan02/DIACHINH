@@ -46,6 +46,7 @@ import {
   isValidCccd,
   isValidBirthYear,
   isValidFullName,
+  isPersonName,
 } from '@/utils/textHelpers';
 
 interface ParcelDetailPanelProps {
@@ -368,25 +369,8 @@ export default function ParcelDetailPanel({
     const isInvalidOwnerName = (name?: string) => {
       if (!name) return true;
       const s = name.trim().toLowerCase();
-      const placeholders = [
-        'chưa có tên',
-        'không có tên',
-        'không có dữ liệu',
-        'không có dữ liệu cập nhật',
-        'không có trong dữ liệu',
-        'không có trong smk',
-        'hồ ea rớt',
-        'ubnd xã',
-        'ông ..',
-        'bà ..',
-        '..',
-        'nam',
-        'nữ',
-        'nu',
-        'cá nhân',
-        'chung',
-      ];
-      return placeholders.some((ph) => s === ph || s.includes(ph));
+      if (s === 'nam' || s === 'nữ' || s === 'nu' || s === 'cá nhân' || s === 'chung' || s.startsWith('w6jp')) return true;
+      return !isPersonName(name);
     };
 
     const formatThonAddress = (addr?: string, thon?: string) => {

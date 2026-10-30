@@ -606,14 +606,15 @@ export default function Home() {
       const isInvalidName = (name?: string) => {
         if (!name) return true;
         const s = name.trim().toLowerCase();
-        return (
+        if (
           s === 'nam' ||
           s === 'nữ' ||
           s === 'nu' ||
           s === 'cá nhân' ||
           s === 'chung' ||
           s.startsWith('w6jp')
-        );
+        ) return true;
+        return !isPersonName(name);
       };
 
       // 1. Áp dụng thông tin từ Google Sheets (nếu có)
@@ -644,7 +645,7 @@ export default function Home() {
         trang_thai = 'DA_SO_HOA_XANH';
       } else if (isLocallyDeclared) {
         trang_thai = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
-      } else if (isPersonName(chu_ho)) {
+      } else if (chu_ho && chu_ho !== 'Không có trong dữ liệu' && isPersonName(chu_ho)) {
         trang_thai = 'CO_TEN_CHUA_SO_HOA_VANG';
       } else {
         trang_thai = 'CHUA_CO_TEN_XAM';
@@ -1336,7 +1337,7 @@ export default function Home() {
 
             {/* Cụm button điều khiển nổi: Trạng thái, Realtime GGS & Tìm kiếm (Luôn ghim cố định ở đỉnh, tự động trượt lên khi mở form) */}
             <div
-              className={`fixed top-2.5 sm:top-3.5 z-20 flex flex-col gap-1.5 sm:gap-2 transition-all duration-300 ease-in-out left-2.5 right-2.5 lg:left-3.5 lg:right-auto ${
+              className={`fixed top-2.5 sm:top-3.5 z-20 flex flex-col gap-1.5 sm:gap-2 transition-all duration-300 ease-in-out left-2.5 sm:left-3.5 right-auto max-w-[calc(100vw-1.25rem)] ${
                 ((isPanelOpen && selectedParcel) || isExportMissingCccdOpen) && !isPanelCollapsed
                   ? '-translate-y-[170%] opacity-0 pointer-events-none'
                   : 'translate-y-0 opacity-100 pointer-events-auto'
@@ -1344,8 +1345,8 @@ export default function Home() {
             >
 
               {/* Row 1: Các button trạng thái (Xóa bỏ background đen, căn chỉnh 5 cột đều tăm tắp vừa vặn mọi màn hình) */}
-              <div className="bg-white/95 backdrop-blur-md p-1 rounded-2xl border border-gray-200/90 shadow-xl w-full max-w-xl sm:w-fit sm:max-w-none">
-                <div className="grid grid-cols-5 gap-1 w-full sm:flex sm:items-center sm:gap-1.5">
+              <div className="bg-white/95 backdrop-blur-md p-1 rounded-2xl border border-gray-200/90 shadow-xl w-fit max-w-[calc(100vw-1.5rem)] overflow-x-auto no-scrollbar">
+                <div className="flex items-center gap-1 sm:gap-1.5 w-max">
                   {/* Tất cả */}
                   <button
                     onClick={() => {
@@ -1357,7 +1358,7 @@ export default function Home() {
                         : 'bg-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900'
                     }`}
                   >
-                    <span className="hidden md:inline">Tất cả (</span><span>{stats.total.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
+                    <span className="hidden md:inline whitespace-nowrap">Tất cả</span><span className="whitespace-nowrap tabular-nums">({stats.total.toLocaleString('vi-VN')})</span>
                   </button>
 
                   {/* Đã số hóa (Xanh lá - Có trên GGS) */}
@@ -1373,7 +1374,7 @@ export default function Home() {
                     title="Thửa đã số hóa (có trên Google Sheets)"
                   >
                     <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-                    <span className="hidden md:inline">Đã số hóa (</span><span>{stats.green.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
+                    <span className="hidden md:inline whitespace-nowrap">Đã số hóa</span><span className="whitespace-nowrap tabular-nums">({stats.green.toLocaleString('vi-VN')})</span>
                   </button>
 
                   {/* Đã kê khai (Xanh lam - Chưa có trên GGS) */}
@@ -1389,7 +1390,7 @@ export default function Home() {
                     title="Thửa đã được kê khai nhưng chưa số hóa lên Google Sheets"
                   >
                     <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
-                    <span className="hidden md:inline">Đã kê khai (</span><span>{stats.blue.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
+                    <span className="hidden md:inline whitespace-nowrap">Đã kê khai</span><span className="whitespace-nowrap tabular-nums">({stats.blue.toLocaleString('vi-VN')})</span>
                   </button>
 
                   {/* Có tên (Màu vàng) */}
@@ -1405,7 +1406,7 @@ export default function Home() {
                     title="Thửa chưa kê khai có tên người (màu vàng trên bản đồ)"
                   >
                     <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
-                    <span className="hidden md:inline">Có tên (</span><span>{stats.yellow.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
+                    <span className="hidden md:inline whitespace-nowrap">Có tên</span><span className="whitespace-nowrap tabular-nums">({stats.yellow.toLocaleString('vi-VN')})</span>
                   </button>
 
                   {/* Không có tên (Màu trắng/xám) */}
@@ -1421,7 +1422,7 @@ export default function Home() {
                     title="Thửa chưa kê khai không có tên người, địa danh (màu trắng trên bản đồ)"
                   >
                     <span className="w-2 h-2 rounded-full bg-gray-400 ring-1 ring-gray-300 shrink-0"></span>
-                    <span className="hidden md:inline">Không tên (</span><span>{stats.gray.toLocaleString('vi-VN')}</span><span className="hidden md:inline">)</span>
+                    <span className="hidden md:inline whitespace-nowrap">Không tên</span><span className="whitespace-nowrap tabular-nums">({stats.gray.toLocaleString('vi-VN')})</span>
                   </button>
 
                   {/* Nút bấm & Chỉ báo Realtime Google Sheets (Desktop) */}

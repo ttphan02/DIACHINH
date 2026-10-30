@@ -1333,7 +1333,7 @@ export default function DashboardPage() {
         finalStatus = 'DA_SO_HOA_XANH';
       } else if (isDeclared) {
         finalStatus = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
-      } else if (isPersonName(mergedChuHo)) {
+      } else if (mergedChuHo && mergedChuHo !== 'Không có trong dữ liệu' && isPersonName(mergedChuHo)) {
         finalStatus = 'CO_TEN_CHUA_SO_HOA_VANG';
       } else {
         finalStatus = 'CHUA_CO_TEN_XAM';

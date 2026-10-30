@@ -162,22 +162,42 @@ export function isPersonName(rawName?: string | null): boolean {
 
   // 2. Các cụm từ placeholder / không có tên / rác dữ liệu
   const placeholderPhrases = [
+    'không có trong dữ liệu',
+    'khong co trong du lieu',
+    'không có dữ liệu',
+    'khong co du lieu',
+    'không có trong smk',
+    'chưa có dữ liệu',
+    'chua co du lieu',
     'chưa có tên',
     'chua co ten',
     'không có tên',
     'khong co ten',
     'chưa rõ',
+    'chua ro',
     'không rõ',
+    'khong ro',
     'vô chủ',
+    'vo chu',
     'vắng chủ',
-    'không có trong smk',
-    'không có dữ liệu',
+    'vang chu',
     'chưa xác định',
+    'chua xac dinh',
     'không xác định',
+    'khong xac dinh',
     'không tồn tại',
+    'khong ton tai',
     'đã thu hồi',
     'thu hồi',
     'giáp thửa đất',
+    'địa điểm',
+    'dia diem',
+    'vô danh',
+    'vo danh',
+    'không có',
+    'khong co',
+    'chưa có',
+    'chua co',
   ];
   if (placeholderPhrases.some((p) => lower.includes(p))) return false;
 
@@ -256,7 +276,19 @@ export function isPersonName(rawName?: string | null): boolean {
     }
   }
 
-  if (['suối', 'đường', 'sông', 'núi', 'đồi', 'kênh', 'mương'].includes(lower)) {
+  // Từ địa danh, địa điểm hoặc loại đất đơn thuần
+  const locationPureWords = [
+    'suối', 'suoi', 'đường', 'duong', 'sông', 'song', 'núi', 'nui',
+    'đồi', 'doi', 'kênh', 'kenh', 'mương', 'muong', 'đất', 'dat',
+    'hồ', 'ho', 'thôn', 'thon', 'buôn', 'buon', 'địa điểm', 'dia diem',
+    'khu vực', 'khu vuc', 'đập', 'dap', 'rừng', 'rung'
+  ];
+  if (locationPureWords.includes(lower)) {
+    return false;
+  }
+
+  // Bắt đầu bằng tiền tố địa danh thuần túy
+  if (/^(suối|sông|kênh|mương|núi|đập|đồi|đường|khu vực)\s+/i.test(s)) {
     return false;
   }
 
@@ -271,6 +303,13 @@ export function isPersonName(rawName?: string | null): boolean {
       ''
     )
     .trim();
+
+  const lowerWithoutHonorific = withoutHonorific.toLowerCase();
+  const genericNonNames = [
+    'nam', 'nữ', 'nu', 'cá nhân', 'ca nhan', 'chung', 'vô danh', 'vo danh',
+    'chưa', 'chua', 'không', 'khong', 'vô chủ', 'vo chu', 'địa điểm', 'dia diem'
+  ];
+  if (genericNonNames.includes(lowerWithoutHonorific)) return false;
 
   const cleanWithoutHonorific = withoutHonorific.replace(/[^a-zA-Z\u00C0-\u024F\u1E00-\u1EFF]/g, '');
   // Nếu sau khi bỏ danh xưng mà không còn chữ cái nào (ví dụ "Ông ..", "Ông 0", "Bà -") -> KHÔNG PHẢI TÊN NGƯỜI

@@ -806,7 +806,7 @@ export default function CccdCollectPanel({
         const canSave = (isNameChanged || isVillageChanged || isNguonGocChanged) && cleanNewName.length >= 2;
 
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs animate-in fade-in">
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs animate-in fade-in">
             <div className="w-full max-w-sm p-4 rounded-2xl border border-gray-200 shadow-2xl bg-white space-y-3 animate-in zoom-in-95">
               <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
                 <div className="flex items-center gap-2">
