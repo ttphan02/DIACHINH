@@ -19,7 +19,7 @@ import {
 import { Parcel, DeclarationFormData } from '@/types';
 import { getOrCreateDeviceId, getSavedCadreName, saveOrUpdateDeclaration } from '@/utils/declaration';
 import { broadcastRealtimeEvent } from '@/utils/realtimeSync';
-import { cleanCccd, cleanName, stripAccents, CANONICAL_VILLAGES, getCanonicalVillage } from '@/utils/textHelpers';
+import { cleanCccd, cleanName, stripAccents, CANONICAL_VILLAGES, getCanonicalVillage, NGUON_GOC_OPTIONS, normalizeNguonGoc } from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
 
 const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
@@ -64,10 +64,12 @@ export default function CccdCollectPanel({
   // Trạng thái đã tích chọn (lưu bền vững vào localStorage)
   const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set());
 
-  // Sub-modal sửa tên / di chuyển thôn / buôn
+  // Sub-modal sửa tên / nguồn gốc / di chuyển thôn / buôn
   const [movingPerson, setMovingPerson] = useState<MissingCccdPerson | null>(null);
   const [correctedName, setCorrectedName] = useState<string>('');
   const [targetVillage, setTargetVillage] = useState<string>('');
+  const [selectedNguonGoc, setSelectedNguonGoc] = useState<string>('Khai Hoang');
+  const [initialNguonGoc, setInitialNguonGoc] = useState<string>('Khai Hoang');
   const [isSavingMove, setIsSavingMove] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -280,14 +282,26 @@ export default function CccdCollectPanel({
   const totalInView = filteredCitizens.length;
   const checkedInView = filteredCitizens.filter((p) => checkedKeys.has(p.key)).length;
 
-  // Mở popup sửa tên đúng hoặc di chuyển thôn / buôn
+  // Mở popup sửa tên đúng hoặc di chuyển thôn / buôn / nguồn gốc sử dụng
   const handleOpenMoveModal = (person: MissingCccdPerson) => {
     setMovingPerson(person);
     setCorrectedName(person.name);
     setTargetVillage(person.thonXa);
+
+    // Mặc định lấy nguồn gốc sử dụng từ đơn kê khai của công dân này
+    let currentNguonGoc = 'Khai Hoang';
+    for (const maThua of person.maThuaList) {
+      const decl = declarationsMap[maThua];
+      if (decl?.nguon_goc_su_dung) {
+        currentNguonGoc = normalizeNguonGoc(decl.nguon_goc_su_dung);
+        break;
+      }
+    }
+    setSelectedNguonGoc(currentNguonGoc);
+    setInitialNguonGoc(currentNguonGoc);
   };
 
-  // Xác nhận sửa tên đúng và/hoặc chuyển thôn / buôn vào Database
+  // Xác nhận sửa tên đúng, nguồn gốc sử dụng và/hoặc chuyển thôn / buôn vào Database
   const handleConfirmUpdatePerson = async () => {
     if (!movingPerson) return;
 
@@ -296,8 +310,9 @@ export default function CccdCollectPanel({
 
     const isNameChanged = cleanNewName.toLowerCase() !== movingPerson.name.toLowerCase();
     const isVillageChanged = finalVillage !== movingPerson.thonXa;
+    const isNguonGocChanged = selectedNguonGoc !== initialNguonGoc;
 
-    if (!isNameChanged && !isVillageChanged) {
+    if (!isNameChanged && !isVillageChanged && !isNguonGocChanged) {
       setMovingPerson(null);
       return;
     }
@@ -321,6 +336,7 @@ export default function CccdCollectPanel({
             thon_xa: finalVillage,
             dia_chi_thua_dat: finalVillage,
             chu_dat_dia_chi: finalVillage,
+            nguon_goc_su_dung: selectedNguonGoc,
             updated_at: timestamp,
           };
         } else {
@@ -335,6 +351,7 @@ export default function CccdCollectPanel({
             thon_xa: finalVillage,
             dia_chi_thua_dat: finalVillage,
             chu_dat_dia_chi: finalVillage,
+            nguon_goc_su_dung: selectedNguonGoc,
             device_id: getSavedCadreName() || getOrCreateDeviceId(),
             created_at: timestamp,
             updated_at: timestamp,
@@ -388,6 +405,7 @@ export default function CccdCollectPanel({
       movingPerson.key = newKey;
 
       let msg = `✓ Đã cập nhật thành công: "${cleanNewName}"`;
+      if (isNguonGocChanged) msg += ` [${selectedNguonGoc}]`;
       if (isVillageChanged) msg += ` sang ${finalVillage}`;
       setToastMessage(msg);
       setTimeout(() => setToastMessage(null), 3000);
@@ -674,12 +692,13 @@ export default function CccdCollectPanel({
         </button>
       </div>
 
-      {/* SUB-MODAL: SỬA TÊN ĐÚNG & CHUYỂN THÔN BUÔN (Style màu chuẩn form kê khai) */}
+      {/* SUB-MODAL: SỬA TÊN ĐÚNG, NGUỒN GỐC & CHUYỂN THÔN BUÔN (Style màu chuẩn form kê khai) */}
       {movingPerson && (() => {
         const cleanNewName = cleanName(correctedName);
         const isNameChanged = cleanNewName && cleanNewName.toLowerCase() !== movingPerson.name.toLowerCase();
         const isVillageChanged = targetVillage && targetVillage !== movingPerson.thonXa;
-        const canSave = (isNameChanged || isVillageChanged) && cleanNewName.length >= 2;
+        const isNguonGocChanged = selectedNguonGoc !== initialNguonGoc;
+        const canSave = (isNameChanged || isVillageChanged || isNguonGocChanged) && cleanNewName.length >= 2;
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs animate-in fade-in">
@@ -691,9 +710,9 @@ export default function CccdCollectPanel({
                   </div>
                   <div>
                     <h3 className="text-xs font-black uppercase text-gray-900">
-                      Sửa Tên & Chuyển Thôn
+                      Cập Nhật Thông Tin Thửa
                     </h3>
-                    <p className="text-[10px] text-gray-500">Cập nhật thông tin vào cơ sở dữ liệu</p>
+                    <p className="text-[10px] text-gray-500">Sửa tên, nguồn gốc & thôn buôn</p>
                   </div>
                 </div>
                 <button
@@ -750,7 +769,33 @@ export default function CccdCollectPanel({
                   )}
                 </div>
 
-                {/* Trường 2: Chọn Thôn / Buôn mới */}
+                {/* Trường 2: Chọn kiểu Nguồn gốc sử dụng (Mặc định từ đơn, 4 options) */}
+                <div>
+                  <label className="block text-[11px] font-bold mb-1 text-gray-700 flex items-center justify-between">
+                    <span>Nguồn gốc sử dụng đất:</span>
+                    <span className="text-[10px] text-blue-600 font-bold">
+                      {selectedNguonGoc} {selectedNguonGoc === initialNguonGoc ? '(Trong đơn)' : '(Đã đổi)'}
+                    </span>
+                  </label>
+                  <div className="grid grid-cols-4 gap-1">
+                    {NGUON_GOC_OPTIONS.map((opt) => (
+                      <button
+                        type="button"
+                        key={opt}
+                        onClick={() => setSelectedNguonGoc(opt)}
+                        className={`py-1.5 px-0.5 rounded-xl border text-[11px] font-bold transition text-center cursor-pointer ${
+                          selectedNguonGoc === opt
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                            : 'bg-gray-50/80 text-gray-700 border-gray-200 hover:bg-gray-100'
+                        }`}
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Trường 3: Chọn Thôn / Buôn mới */}
                 <div>
                   <label className="block text-[11px] font-bold mb-1 text-gray-700">
                     Chọn Thôn / Buôn mới để chuyển:
