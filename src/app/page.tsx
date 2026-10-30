@@ -25,9 +25,9 @@ import { reportCadreLocation } from '@/utils/cadreTracker';
 import { backgroundKeeper } from '@/utils/backgroundLocationKeeper';
 import { broadcastRealtimeEvent, onRealtimeEvent } from '@/utils/realtimeSync';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
-import digitizedBlueParcelsData from '@/data/digitized_blue_parcels.json';
+import digitizedParcelsData from '@/data/digitized_parcels.json';
 const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
-const DIGITIZED_BLUE_SET = new Set(digitizedBlueParcelsData as string[]);
+const DIGITIZED_SET = new Set(digitizedParcelsData as string[]);
 import {
   Search,
   Layers,
@@ -391,8 +391,8 @@ export default function Home() {
           // TUYỆT ĐỐI KHÔNG BAO GIỜ TỰ ĐỘNG CHUYỂN VỀ MÀU VÀNG KHI ĐÃ ĐƯỢC KÊ KHAI!
           setSelectedParcel((curr) => {
             if (!curr) return null;
-            if (mergedCodesSet.has(curr.ma_thua) || curr.is_declared || DIGITIZED_BLUE_SET.has(curr.ma_thua)) {
-              const isOnGgs = ggsCodes.has(curr.ma_thua);
+            if (mergedCodesSet.has(curr.ma_thua) || curr.is_declared || DIGITIZED_SET.has(curr.ma_thua)) {
+              const isOnGgs = ggsCodes.has(curr.ma_thua) || DIGITIZED_SET.has(curr.ma_thua);
               const decl = mergedMap[curr.ma_thua];
               return {
                 ...curr,
@@ -585,7 +585,7 @@ export default function Home() {
   const computedParcels = useMemo<Parcel[]>(() => {
     return parcels
       .filter((p) => {
-        if (HIDDEN_PARCEL_SET.has(p.ma_thua) && !declarationsMap[p.ma_thua] && !declaredParcelCodes.has(p.ma_thua) && !ggsCodes.has(p.ma_thua) && !DIGITIZED_BLUE_SET.has(p.ma_thua)) return false;
+        if (HIDDEN_PARCEL_SET.has(p.ma_thua) && !declarationsMap[p.ma_thua] && !declaredParcelCodes.has(p.ma_thua) && !ggsCodes.has(p.ma_thua) && !DIGITIZED_SET.has(p.ma_thua)) return false;
         const ld = (p.loai_dat || '').trim().toUpperCase();
         if (ld === 'BCS') {
           const dt = parseFloat(String(p.dien_tich || '').replace(',', '.'));
@@ -595,7 +595,7 @@ export default function Home() {
       })
       .map((p) => {
       const isOnGgs = isGgsLoaded ? ggsCodes.has(p.ma_thua) : false;
-      const isDigitizedBlue = DIGITIZED_BLUE_SET.has(p.ma_thua);
+      const isDigitizedBlue = DIGITIZED_SET.has(p.ma_thua);
       const isLocallyDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(declarationsMap[p.ma_thua]) || isDigitizedBlue;
 
       // ĐỐI VỚI THỬA ĐÃ CÓ TRÊN GOOGLE SHEETS HOẶC ĐÃ KÊ KHAI:
@@ -646,7 +646,7 @@ export default function Home() {
       let trang_thai: ParcelStatus;
       if (isOnGgs) {
         trang_thai = 'DA_SO_HOA_XANH';
-      } else if (isLocallyDeclared || isDigitizedBlue) {
+      } else if (isLocallyDeclared) {
         trang_thai = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
       } else if (p.trang_thai === 'DA_SO_HOA_XANH' && !isGgsLoaded) {
         trang_thai = 'DA_SO_HOA_XANH';
@@ -1052,7 +1052,7 @@ export default function Home() {
       setIsPickingAdditional(false);
 
       if (selectedParcel && selectedParcel.ma_thua === formData.ma_thua) {
-        const isOnGgs = ggsCodes.has(formData.ma_thua);
+        const isOnGgs = ggsCodes.has(formData.ma_thua) || DIGITIZED_SET.has(formData.ma_thua);
         setSelectedParcel({
           ...selectedParcel,
           chu_ho: formData.chu_dat_ten || selectedParcel.chu_ho,
@@ -1170,7 +1170,7 @@ export default function Home() {
     if (selectedParcel && removedCodes.includes(selectedParcel.ma_thua)) {
       const original = parcels.find((p) => p.ma_thua === selectedParcel.ma_thua);
       if (original) {
-        const isOnGgs = ggsCodes.has(original.ma_thua);
+        const isOnGgs = ggsCodes.has(original.ma_thua) || DIGITIZED_SET.has(original.ma_thua);
         setSelectedParcel({
           ...original,
           trang_thai: isOnGgs ? 'DA_SO_HOA_XANH' : (original.trang_thai as ParcelStatus),

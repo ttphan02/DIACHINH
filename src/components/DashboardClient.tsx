@@ -22,8 +22,8 @@ import ScanFileManagerTab from '@/components/ScanFileManagerTab';
 import CadreNameModal from '@/components/CadreNameModal';
 const CadreTrackingTab = dynamic(() => import('@/components/CadreTrackingTab'), { ssr: false });
 import type { ReadyToPackItem } from '@/utils/pdfPacker';
-import digitizedBlueParcelsData from '@/data/digitized_blue_parcels.json';
-const DIGITIZED_BLUE_SET = new Set(digitizedBlueParcelsData as string[]);
+import digitizedParcelsData from '@/data/digitized_parcels.json';
+const DIGITIZED_SET = new Set(digitizedParcelsData as string[]);
 import {
   Radio,
   FileBarChart2,
@@ -1323,7 +1323,7 @@ export default function DashboardPage() {
   const computedParcels = useMemo(() => {
     return parcels.map((p) => {
       const isOnGgs = ggsCodes.has(p.ma_thua);
-      const isDigitizedBlue = DIGITIZED_BLUE_SET.has(p.ma_thua);
+      const isDigitizedBlue = DIGITIZED_SET.has(p.ma_thua);
       const isDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(declarationsMap[p.ma_thua]) || isDigitizedBlue;
 
       // Gộp thêm dữ liệu kê khai mới nhất từ LocalStorage (nếu có)
@@ -1334,7 +1334,7 @@ export default function DashboardPage() {
       let finalStatus: ParcelStatus;
       if (isOnGgs) {
         finalStatus = 'DA_SO_HOA_XANH';
-      } else if (isDeclared || isDigitizedBlue) {
+      } else if (isDeclared) {
         finalStatus = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
       } else if (p.trang_thai === 'DA_SO_HOA_XANH') {
         finalStatus = 'DA_SO_HOA_XANH';
@@ -1522,7 +1522,7 @@ export default function DashboardPage() {
   // 3. THỬA CHƯA THỰC HIỆN: Các thửa chưa số hóa và chưa thực hiện kê khai
   const chuaThucHienParcels = useMemo(() => {
     return nonGgsParcels.filter((p) => {
-      if (DIGITIZED_BLUE_SET.has(p.ma_thua)) return false;
+      if (DIGITIZED_SET.has(p.ma_thua)) return false;
       const isDeclared =
         declaredParcelCodes.has(p.ma_thua) ||
         Boolean(declarationsMap[p.ma_thua]) ||
