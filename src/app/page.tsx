@@ -1619,6 +1619,7 @@ export default function Home() {
               isTracking={isTracking}
               isLocating={isLocating}
               onToggleLocation={handleToggleLocation}
+              isBottomPanelActive={((isPanelOpen && !!selectedParcel) || isExportMissingCccdOpen) && !isPanelCollapsed}
             />
           </div>
 

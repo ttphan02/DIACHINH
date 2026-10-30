@@ -18,6 +18,7 @@ interface CadastralMapProps {
   isTracking?: boolean;
   isLocating?: boolean;
   onToggleLocation?: () => void;
+  isBottomPanelActive?: boolean;
 }
 
 interface RenderedPoint {
@@ -36,6 +37,7 @@ export default function CadastralMap({
   isTracking = false,
   isLocating = false,
   onToggleLocation,
+  isBottomPanelActive = true,
 }: CadastralMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<LeafletMap | null>(null);
@@ -456,16 +458,36 @@ export default function CadastralMap({
       return;
     }
 
-    const forceZoom = (selectedParcel as any)._forceZoom;
+        const forceZoom = (selectedParcel as any)._forceZoom;
     if (lastCenteredParcelRef.current !== selectedParcel.ma_thua || forceZoom) {
       lastCenteredParcelRef.current = selectedParcel.ma_thua;
       setIsFollowingUser(false); // Tắt bám GPS khi người dùng bấm chọn xem một thửa đất cụ thể
-      map.flyTo([selectedParcel.lat, selectedParcel.lng], Math.max(map.getZoom(), 19), {
+
+      const targetZoom = Math.max(map.getZoom(), 19);
+      let centerLatLng: [number, number] = [selectedParcel.lat, selectedParcel.lng];
+
+      // Trên điện thoại khi form kê khai hoặc ds thu thập CCCD đang mở (chiếm nửa dưới):
+      // Dịch tâm bản đồ xuống dưới để thửa đất nằm ở trung tâm 2/5 phía trên màn hình (vùng map hiển thị)
+      const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
+      if (isMobile && isBottomPanelActive) {
+        try {
+          const mapSize = map.getSize();
+          const mapHeight = mapSize.y || (typeof window !== 'undefined' ? window.innerHeight : 800);
+          const dy = mapHeight * 0.3; // Dịch tâm xuống 30% để thửa nằm ở ~20% từ trên xuống (giữa 2/5 phía trên)
+          const targetPoint = map.project([selectedParcel.lat, selectedParcel.lng], targetZoom);
+          const offsetLatLng = map.unproject([targetPoint.x, targetPoint.y + dy], targetZoom);
+          centerLatLng = [offsetLatLng.lat, offsetLatLng.lng];
+        } catch {
+          centerLatLng = [selectedParcel.lat, selectedParcel.lng];
+        }
+      }
+
+      map.flyTo(centerLatLng, targetZoom, {
         animate: true,
         duration: 0.55,
       });
     }
-  }, [map, selectedParcel]);
+  }, [map, selectedParcel, isBottomPanelActive]);
 
   // 3. CẬP NHẬT DỮ LIỆU THỬA ĐẤT CHO BATCH CANVAS (SIÊU NHANH < 1ms)
   useEffect(() => {
