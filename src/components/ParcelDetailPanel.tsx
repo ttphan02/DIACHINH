@@ -167,6 +167,31 @@ export default function ParcelDetailPanel({
   const [chuDatDiaChi, setChuDatDiaChi] = useState('');
   const [formSubmitted, setFormSubmitted] = useState(false);
 
+  // Xử lý tự động điền Năm sinh & Giới tính chuẩn từ 12 số CCCD khi người dùng nhập/sửa
+  const handleCccdInputChange = (val: string) => {
+    const clean = val.replace(/\D/g, '').slice(0, 12);
+    setChuDatCccd(clean);
+    if (clean.length === 12) {
+      const code = clean.charAt(3);
+      const yr = clean.substring(4, 6);
+      let century = 1900;
+      let gender: 'Nam' | 'Nữ' = 'Nam';
+      if (code === '0') { century = 1900; gender = 'Nam'; }
+      else if (code === '1') { century = 1900; gender = 'Nữ'; }
+      else if (code === '2') { century = 2000; gender = 'Nam'; }
+      else if (code === '3') { century = 2000; gender = 'Nữ'; }
+      else if (code === '4') { century = 2100; gender = 'Nam'; }
+      else if (code === '5') { century = 2100; gender = 'Nữ'; }
+      else if (code === '6') { century = 2200; gender = 'Nam'; }
+      else if (code === '7') { century = 2200; gender = 'Nữ'; }
+      else if (code === '8') { century = 1800; gender = 'Nam'; }
+      else if (code === '9') { century = 1800; gender = 'Nữ'; }
+      const computedYear = String(century + parseInt(yr, 10));
+      setChuDatNamSinh((prev) => (prev ? prev : computedYear));
+      setChuDatGioiTinh(gender);
+    }
+  };
+
   // Tra cứu tự động công dân trên Google Sheet theo tên
   const [isLookingUpGgs, setIsLookingUpGgs] = useState(false);
   const [ggsLookupStatus, setGgsLookupStatus] = useState<{
@@ -1438,7 +1463,7 @@ export default function ParcelDetailPanel({
                   <input
                     type="text"
                     value={chuDatCccd}
-                    onChange={(e) => setChuDatCccd(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                    onChange={(e) => handleCccdInputChange(e.target.value)}
                     placeholder="Số CCCD chuẩn (12 số)"
                     className={`w-full text-xs px-2.5 py-1.5 border rounded-lg bg-white focus:outline-none transition font-mono font-bold tracking-wider ${
                       chuDatCccd.length > 0 && !isValidCccd(chuDatCccd)
@@ -1865,7 +1890,7 @@ export default function ParcelDetailPanel({
                       type="text"
                       required
                       value={chuDatCccd}
-                      onChange={(e) => setChuDatCccd(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                      onChange={(e) => handleCccdInputChange(e.target.value)}
                       placeholder="Nhập 12 chữ số CCCD..."
                       className={`w-full text-xs px-2.5 py-1.5 border rounded-lg focus:outline-none font-mono font-bold tracking-wider transition ${
                         (formSubmitted && !chuDatCccd.trim()) || (chuDatCccd.length > 0 && !isValidCccd(chuDatCccd))

@@ -25,6 +25,32 @@ import {
 } from 'lucide-react';
 import geminiKeys from '@/data/gemini_keys.json';
 
+export function decodeCccd12(cccd: string): { nam_sinh?: string; gioi_tinh?: 'Nam' | 'Nữ' } {
+  const clean = String(cccd || '').replace(/\D/g, '');
+  if (clean.length === 12) {
+    const code = clean.charAt(3);
+    const yr = clean.substring(4, 6);
+    let century = 1900;
+    let gender: 'Nam' | 'Nữ' = 'Nam';
+    if (code === '0') { century = 1900; gender = 'Nam'; }
+    else if (code === '1') { century = 1900; gender = 'Nữ'; }
+    else if (code === '2') { century = 2000; gender = 'Nam'; }
+    else if (code === '3') { century = 2000; gender = 'Nữ'; }
+    else if (code === '4') { century = 2100; gender = 'Nam'; }
+    else if (code === '5') { century = 2100; gender = 'Nữ'; }
+    else if (code === '6') { century = 2200; gender = 'Nam'; }
+    else if (code === '7') { century = 2200; gender = 'Nữ'; }
+    else if (code === '8') { century = 1800; gender = 'Nam'; }
+    else if (code === '9') { century = 1800; gender = 'Nữ'; }
+    else return {};
+    return {
+      nam_sinh: String(century + parseInt(yr, 10)),
+      gioi_tinh: gender,
+    };
+  }
+  return {};
+}
+
 interface SelectedCccdImage {
   id: string;
   file?: File;
@@ -35,6 +61,8 @@ interface SelectedCccdImage {
   size: number;
   soCccd?: string;
   hoVaTen?: string;
+  namSinh?: string;
+  gioiTinh?: 'Nam' | 'Nữ' | string;
   maThua?: string;
   isScanning?: boolean;
   scanError?: string;
@@ -248,7 +276,7 @@ export default function CccdUploadBottomSheet({
 let currentClientKeyIdx = 0;
 
   // Hàm gọi trực tiếp Gemini từ trình duyệt của người dùng (tránh lỗi IP Cloudflare Data Center)
-  const doDirectGeminiOcr = async (rawB64: string): Promise<{ so_cccd: string; ho_va_ten: string } | null> => {
+  const doDirectGeminiOcr = async (rawB64: string): Promise<{ so_cccd: string; ho_va_ten: string; nam_sinh?: string; gioi_tinh?: string } | null> => {
     try {
       let cleanB64 = rawB64;
       let mimeType = 'image/jpeg';
@@ -276,7 +304,9 @@ let currentClientKeyIdx = 0;
 Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JSON:
 {
   "so_cccd": "12 chữ số viết liền hoặc 9 chữ số",
-  "ho_va_ten": "Họ và tên đầy đủ viết hoa có dấu (Ví dụ: ĐẶNG THỊ HỒNG)"
+  "ho_va_ten": "Họ và tên đầy đủ viết hoa có dấu (Ví dụ: ĐẶNG THỊ HỒNG)",
+  "nam_sinh": "4 chữ số năm sinh (Ví dụ: 1985 hoặc trích năm từ ngày sinh)",
+  "gioi_tinh": "Nam hoặc Nữ"
 }`;
 
       // Thử key xuất phát của ảnh, nếu lỗi quay vòng thử tiếp các key còn lại
@@ -327,9 +357,20 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
 
             let soCccd = '';
             let hoVaTen = '';
+            let namSinh = '';
+            let gioiTinh = '';
             if (parsed) {
               soCccd = String(parsed.so_cccd || parsed.cccd || parsed.id || '').replace(/\D/g, '');
               hoVaTen = String(parsed.ho_va_ten || parsed.ho_ten || parsed.name || '').replace(/["']/g, '').trim().toUpperCase();
+
+              const ns = String(parsed.nam_sinh || parsed.namsinh || parsed.ngay_sinh || parsed.dob || parsed.birth_year || '').trim();
+              const yearMatch = ns.match(/\b(19\d{2}|20\d{2})\b/);
+              if (yearMatch) namSinh = yearMatch[1];
+              else if (/^\d{4}$/.test(ns)) namSinh = ns;
+
+              const gt = String(parsed.gioi_tinh || parsed.gioitinh || parsed.gender || parsed.sex || '').trim().toLowerCase();
+              if (gt.includes('nữ') || gt.includes('nu') || gt === 'female' || gt === 'f') gioiTinh = 'Nữ';
+              else if (gt.includes('nam') || gt === 'male' || gt === 'm') gioiTinh = 'Nam';
             }
 
             if (!soCccd || soCccd.length < 9) {
@@ -342,8 +383,32 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
               if (nameMatch) hoVaTen = nameMatch[1].trim().toUpperCase();
             }
 
+            if (!namSinh) {
+              const jsonYearMatch = rawText.match(/"nam_sinh"\s*:\s*"([^"\\]+)"/i);
+              if (jsonYearMatch) {
+                const ym = jsonYearMatch[1].match(/\b(19\d{2}|20\d{2})\b/);
+                if (ym) namSinh = ym[1];
+              }
+            }
+
+            if (!gioiTinh) {
+              const jsonGenderMatch = rawText.match(/"gioi_tinh"\s*:\s*"([^"\\]+)"/i);
+              if (jsonGenderMatch) {
+                const gVal = jsonGenderMatch[1].toLowerCase();
+                if (gVal.includes('nữ') || gVal.includes('nu')) gioiTinh = 'Nữ';
+                else if (gVal.includes('nam')) gioiTinh = 'Nam';
+              }
+            }
+
+            // Fallback decode từ 12 số CCCD theo quy chuẩn Bộ Công An
+            if (soCccd && soCccd.length === 12) {
+              const decoded = decodeCccd12(soCccd);
+              if (!namSinh && decoded.nam_sinh) namSinh = decoded.nam_sinh;
+              if (!gioiTinh && decoded.gioi_tinh) gioiTinh = decoded.gioi_tinh;
+            }
+
             if (soCccd || hoVaTen) {
-              return { so_cccd: soCccd, ho_va_ten: hoVaTen };
+              return { so_cccd: soCccd, ho_va_ten: hoVaTen, nam_sinh: namSinh, gioi_tinh: gioiTinh };
             }
           } catch {
             // tiếp tục model khác
@@ -390,6 +455,8 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
                   ...img,
                   soCccd: ocrResult!.so_cccd || img.soCccd || '',
                   hoVaTen: ocrResult!.ho_va_ten || img.hoVaTen || '',
+                  namSinh: ocrResult!.nam_sinh || img.namSinh || '',
+                  gioiTinh: ocrResult!.gioi_tinh || img.gioiTinh || 'Nam',
                   isScanning: false,
                   scanError: undefined,
                   errorMessage: undefined,
@@ -397,7 +464,13 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
               : img
           )
         );
-        showToast(`✓ Đã nhận diện: ${ocrResult.so_cccd || ''} ${ocrResult.ho_va_ten ? '• ' + ocrResult.ho_va_ten : ''}`);
+        const detailParts = [
+          ocrResult.so_cccd,
+          ocrResult.ho_va_ten,
+          ocrResult.nam_sinh ? `Năm sinh: ${ocrResult.nam_sinh}` : '',
+          ocrResult.gioi_tinh ? `Giới tính: ${ocrResult.gioi_tinh}` : '',
+        ].filter(Boolean);
+        showToast(`✓ Đã nhận diện: ${detailParts.join(' • ')}`);
       } else {
         setImages((prev) =>
           prev.map((img) =>
@@ -437,12 +510,19 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
         // Trích xuất gợi ý số CCCD / Tên từ tên file ảnh gốc nếu có sẵn
         let guessCccd = '';
         let guessName = '';
+        let guessNamSinh = '';
+        let guessGioiTinh = 'Nam';
         const cleanBase = file.name.replace(/\.[^/.]+$/, '');
         const digitsMatch = cleanBase.match(/\b\d{9,12}\b/);
         if (digitsMatch) {
           guessCccd = digitsMatch[0];
           const rest = cleanBase.replace(guessCccd, '').replace(/^[-_]+|[-_]+$/g, '').trim();
           if (rest && rest.length > 2) guessName = rest.replace(/_/g, ' ');
+          if (guessCccd.length === 12) {
+            const dec = decodeCccd12(guessCccd);
+            if (dec.nam_sinh) guessNamSinh = dec.nam_sinh;
+            if (dec.gioi_tinh) guessGioiTinh = dec.gioi_tinh;
+          }
         }
 
         const newId = `${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`;
@@ -456,6 +536,8 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
           size,
           soCccd: guessCccd,
           hoVaTen: guessName,
+          namSinh: guessNamSinh,
+          gioiTinh: guessGioiTinh,
           isScanning: true,
         });
 
@@ -817,6 +899,8 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
             frontBase64: b64,
             so_cccd: item.soCccd?.trim() || '',
             ho_va_ten: item.hoVaTen?.trim() || '',
+            nam_sinh: item.namSinh?.trim() || '',
+            gioi_tinh: item.gioiTinh || '',
             ma_thua: item.maThua?.trim() || '',
             skipSync: true,
           }),
@@ -1163,7 +1247,7 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div>
                   <label className="text-[10px] text-slate-400 font-semibold block mb-0.5">Số CCCD</label>
                   <input
@@ -1171,8 +1255,18 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
                     value={editingImage.soCccd || ''}
                     onChange={(e) => {
                       const val = e.target.value.replace(/\D/g, '').slice(0, 12);
+                      const dec = val.length === 12 ? decodeCccd12(val) : {};
                       setImages((prev) =>
-                        prev.map((img) => (img.id === editingImage.id ? { ...img, soCccd: val } : img))
+                        prev.map((img) =>
+                          img.id === editingImage.id
+                            ? {
+                                ...img,
+                                soCccd: val,
+                                namSinh: img.namSinh || dec.nam_sinh || '',
+                                gioiTinh: img.gioiTinh || dec.gioi_tinh || 'Nam',
+                              }
+                            : img
+                        )
                       );
                     }}
                     placeholder="VD: 066069000926"
@@ -1193,6 +1287,52 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
                     placeholder="VD: PHAN THANH TRÚC"
                     className="w-full px-2.5 py-1.5 bg-slate-800 text-white rounded-lg border border-slate-700 text-xs focus:ring-1 focus:ring-purple-500 outline-none uppercase font-semibold"
                   />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 font-semibold block mb-0.5">Năm sinh</label>
+                  <input
+                    type="text"
+                    value={editingImage.namSinh || ''}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+                      setImages((prev) =>
+                        prev.map((img) => (img.id === editingImage.id ? { ...img, namSinh: val } : img))
+                      );
+                    }}
+                    placeholder="VD: 1985"
+                    className="w-full px-2.5 py-1.5 bg-slate-800 text-white rounded-lg border border-slate-700 text-xs font-semibold focus:ring-1 focus:ring-purple-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 font-semibold block mb-0.5">Giới tính</label>
+                  <div className="flex rounded-lg overflow-hidden border border-slate-700 bg-slate-800 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setImages((prev) =>
+                          prev.map((img) => (img.id === editingImage.id ? { ...img, gioiTinh: 'Nam' } : img))
+                        )
+                      }
+                      className={`flex-1 py-1 text-xs font-semibold rounded transition ${
+                        editingImage.gioiTinh !== 'Nữ' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Nam
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setImages((prev) =>
+                          prev.map((img) => (img.id === editingImage.id ? { ...img, gioiTinh: 'Nữ' } : img))
+                        )
+                      }
+                      className={`flex-1 py-1 text-xs font-semibold rounded transition ${
+                        editingImage.gioiTinh === 'Nữ' ? 'bg-pink-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Nữ
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1415,19 +1555,30 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
                                 </div>
                               </div>
 
-                              {/* Form Điền / Sửa Số CCCD & Họ Tên Ngay Tại Thẻ */}
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs">
+                              {/* Form Điền / Sửa Số CCCD, Họ Tên, Năm Sinh, Giới Tính Ngay Tại Thẻ */}
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-xs">
                                 <div>
                                   <input
                                     type="text"
                                     value={item.soCccd || ''}
                                     onChange={(e) => {
                                       const val = e.target.value.replace(/\D/g, '').slice(0, 12);
+                                      const dec = val.length === 12 ? decodeCccd12(val) : {};
                                       setImages((prev) =>
-                                        prev.map((img) => (img.id === item.id ? { ...img, soCccd: val, errorMessage: undefined } : img))
+                                        prev.map((img) =>
+                                          img.id === item.id
+                                            ? {
+                                                ...img,
+                                                soCccd: val,
+                                                namSinh: img.namSinh || dec.nam_sinh || '',
+                                                gioiTinh: img.gioiTinh || dec.gioi_tinh || 'Nam',
+                                                errorMessage: undefined,
+                                              }
+                                            : img
+                                        )
                                       );
                                     }}
-                                    placeholder="Số CCCD (12 số)..."
+                                    placeholder="Số CCCD..."
                                     className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-mono text-[11px] font-semibold text-slate-800 focus:bg-white focus:ring-1 focus:ring-purple-500 outline-none"
                                   />
                                 </div>
@@ -1445,6 +1596,42 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
                                     placeholder="Họ và tên..."
                                     className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800 uppercase focus:bg-white focus:ring-1 focus:ring-purple-500 outline-none"
                                   />
+                                </div>
+
+                                <div>
+                                  <input
+                                    type="text"
+                                    value={item.namSinh || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+                                      setImages((prev) =>
+                                        prev.map((img) => (img.id === item.id ? { ...img, namSinh: val, errorMessage: undefined } : img))
+                                      );
+                                    }}
+                                    placeholder="Năm sinh..."
+                                    className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-semibold text-slate-800 focus:bg-white focus:ring-1 focus:ring-purple-500 outline-none"
+                                  />
+                                </div>
+
+                                <div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setImages((prev) =>
+                                        prev.map((img) =>
+                                          img.id === item.id ? { ...img, gioiTinh: img.gioiTinh === 'Nữ' ? 'Nam' : 'Nữ' } : img
+                                        )
+                                      )
+                                    }
+                                    className={`w-full py-1 px-1.5 rounded-lg text-[11px] font-bold transition flex items-center justify-center gap-1 border ${
+                                      item.gioiTinh === 'Nữ'
+                                        ? 'bg-pink-50 border-pink-200 text-pink-700 hover:bg-pink-100'
+                                        : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'
+                                    }`}
+                                    title="Nhấn để đổi giới tính Nam / Nữ"
+                                  >
+                                    <span>{item.gioiTinh === 'Nữ' ? '♀ Nữ' : '♂ Nam'}</span>
+                                  </button>
                                 </div>
                               </div>
 

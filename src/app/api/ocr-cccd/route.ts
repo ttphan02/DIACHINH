@@ -3,6 +3,32 @@ import geminiKeys from '@/data/gemini_keys.json';
 
 export const dynamic = 'force-dynamic';
 
+export function decodeCccd12(cccd: string): { nam_sinh?: string; gioi_tinh?: 'Nam' | 'Nữ' } {
+  const clean = String(cccd || '').replace(/\D/g, '');
+  if (clean.length === 12) {
+    const code = clean.charAt(3);
+    const yr = clean.substring(4, 6);
+    let century = 1900;
+    let gender: 'Nam' | 'Nữ' = 'Nam';
+    if (code === '0') { century = 1900; gender = 'Nam'; }
+    else if (code === '1') { century = 1900; gender = 'Nữ'; }
+    else if (code === '2') { century = 2000; gender = 'Nam'; }
+    else if (code === '3') { century = 2000; gender = 'Nữ'; }
+    else if (code === '4') { century = 2100; gender = 'Nam'; }
+    else if (code === '5') { century = 2100; gender = 'Nữ'; }
+    else if (code === '6') { century = 2200; gender = 'Nam'; }
+    else if (code === '7') { century = 2200; gender = 'Nữ'; }
+    else if (code === '8') { century = 1800; gender = 'Nam'; }
+    else if (code === '9') { century = 1800; gender = 'Nữ'; }
+    else return {};
+    return {
+      nam_sinh: String(century + parseInt(yr, 10)),
+      gioi_tinh: gender,
+    };
+  }
+  return {};
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as any;
@@ -53,7 +79,9 @@ export async function POST(request: Request) {
 Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JSON:
 {
   "so_cccd": "12 chữ số viết liền hoặc 9 chữ số",
-  "ho_va_ten": "Họ và tên đầy đủ viết hoa có dấu (Ví dụ: ĐẶNG THỊ HỒNG)"
+  "ho_va_ten": "Họ và tên đầy đủ viết hoa có dấu (Ví dụ: ĐẶNG THỊ HỒNG)",
+  "nam_sinh": "4 chữ số năm sinh (Ví dụ: 1985 hoặc trích năm từ ngày tháng năm sinh)",
+  "gioi_tinh": "Nam hoặc Nữ"
 }`;
 
     // Sử dụng các model Flash có quota lớn và tốc độ cao nhất
@@ -137,6 +165,8 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
 
           let rawCccd = '';
           let rawName = '';
+          let rawNamSinh = '';
+          let rawGioiTinh = '';
 
           if (parsed) {
             rawCccd = String(
@@ -157,6 +187,36 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
               parsed.full_name ||
               ''
             ).replace(/["']/g, '').trim().toUpperCase();
+
+            // Trích xuất năm sinh
+            const ns = String(
+              parsed.nam_sinh ||
+              parsed.namsinh ||
+              parsed.ngay_sinh ||
+              parsed.dob ||
+              parsed.birth_year ||
+              ''
+            ).trim();
+            const yearMatch = ns.match(/\b(19\d{2}|20\d{2})\b/);
+            if (yearMatch) {
+              rawNamSinh = yearMatch[1];
+            } else if (/^\d{4}$/.test(ns)) {
+              rawNamSinh = ns;
+            }
+
+            // Trích xuất giới tính
+            const gt = String(
+              parsed.gioi_tinh ||
+              parsed.gioitinh ||
+              parsed.gender ||
+              parsed.sex ||
+              ''
+            ).trim().toLowerCase();
+            if (gt.includes('nữ') || gt.includes('nu') || gt === 'female' || gt === 'f') {
+              rawGioiTinh = 'Nữ';
+            } else if (gt.includes('nam') || gt === 'male' || gt === 'm') {
+              rawGioiTinh = 'Nam';
+            }
           }
 
           // Dự phòng trích xuất trực tiếp bằng regex từ toàn bộ chuỗi
@@ -177,12 +237,38 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
             }
           }
 
+          if (!rawNamSinh) {
+            const jsonYearMatch = rawText.match(/"nam_sinh"\s*:\s*"([^"\\]+)"/i);
+            if (jsonYearMatch) {
+              const ym = jsonYearMatch[1].match(/\b(19\d{2}|20\d{2})\b/);
+              if (ym) rawNamSinh = ym[1];
+            }
+          }
+
+          if (!rawGioiTinh) {
+            const jsonGenderMatch = rawText.match(/"gioi_tinh"\s*:\s*"([^"\\]+)"/i);
+            if (jsonGenderMatch) {
+              const gVal = jsonGenderMatch[1].toLowerCase();
+              if (gVal.includes('nữ') || gVal.includes('nu')) rawGioiTinh = 'Nữ';
+              else if (gVal.includes('nam')) rawGioiTinh = 'Nam';
+            }
+          }
+
+          // Fallback giải mã chính xác 100% từ quy tắc 12 số CCCD của Bộ Công An
+          if (rawCccd && rawCccd.length === 12) {
+            const decoded = decodeCccd12(rawCccd);
+            if (!rawNamSinh && decoded.nam_sinh) rawNamSinh = decoded.nam_sinh;
+            if (!rawGioiTinh && decoded.gioi_tinh) rawGioiTinh = decoded.gioi_tinh;
+          }
+
           if (rawCccd || rawName) {
             return NextResponse.json({
               success: true,
               data: {
                 so_cccd: rawCccd,
                 ho_va_ten: rawName,
+                nam_sinh: rawNamSinh,
+                gioi_tinh: rawGioiTinh,
               },
             });
           }

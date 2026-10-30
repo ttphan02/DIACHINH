@@ -54,10 +54,36 @@ function base64ToUint8Array(base64: string): Uint8Array {
   return bytes;
 }
 
+function decodeCccd12(cccd: string): { nam_sinh?: string; gioi_tinh?: 'Nam' | 'Nữ' } {
+  const clean = String(cccd || '').replace(/\D/g, '');
+  if (clean.length === 12) {
+    const code = clean.charAt(3);
+    const yr = clean.substring(4, 6);
+    let century = 1900;
+    let gender: 'Nam' | 'Nữ' = 'Nam';
+    if (code === '0') { century = 1900; gender = 'Nam'; }
+    else if (code === '1') { century = 1900; gender = 'Nữ'; }
+    else if (code === '2') { century = 2000; gender = 'Nam'; }
+    else if (code === '3') { century = 2000; gender = 'Nữ'; }
+    else if (code === '4') { century = 2100; gender = 'Nam'; }
+    else if (code === '5') { century = 2100; gender = 'Nữ'; }
+    else if (code === '6') { century = 2200; gender = 'Nam'; }
+    else if (code === '7') { century = 2200; gender = 'Nữ'; }
+    else if (code === '8') { century = 1800; gender = 'Nam'; }
+    else if (code === '9') { century = 1800; gender = 'Nữ'; }
+    else return {};
+    return {
+      nam_sinh: String(century + parseInt(yr, 10)),
+      gioi_tinh: gender,
+    };
+  }
+  return {};
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as any;
-    const { frontBase64, backBase64, imageBase64, so_cccd, ho_va_ten, ma_thua, skipSync } = body;
+    const { frontBase64, backBase64, imageBase64, so_cccd, ho_va_ten, nam_sinh, gioi_tinh, ma_thua, skipSync } = body;
     const imgPrimary = imageBase64 || frontBase64;
 
     if (!imgPrimary && !backBase64) {
@@ -206,6 +232,18 @@ export async function POST(request: Request) {
 
     const r2PublicUrl = `https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/${r2Key}`;
 
+    // Xác định Năm sinh & Giới tính (từ tham số gửi lên hoặc tự động giải mã từ 12 số CCCD)
+    let finalNamSinh = nam_sinh ? String(nam_sinh).trim() : '';
+    let finalGioiTinh = gioi_tinh
+      ? (String(gioi_tinh).toLowerCase().includes('nữ') || String(gioi_tinh).toLowerCase().includes('nu') ? 'Nữ' : 'Nam')
+      : '';
+
+    if (cccdClean && (!finalNamSinh || !finalGioiTinh)) {
+      const decoded = decodeCccd12(cccdClean);
+      if (!finalNamSinh && decoded.nam_sinh) finalNamSinh = decoded.nam_sinh;
+      if (!finalGioiTinh && decoded.gioi_tinh) finalGioiTinh = decoded.gioi_tinh;
+    }
+
     // Cập nhật thông tin phiếu kê khai nếu có liên kết thửa hoặc trùng số CCCD
     let updatedDeclarations: Record<string, any> = {};
     if (bucket) {
@@ -230,6 +268,14 @@ export async function POST(request: Request) {
               if (nameClean) {
                 decl.chu_ho = nameClean;
                 decl.chu_dat_ten = nameClean;
+              }
+              if (finalNamSinh) {
+                decl.chu_dat_nam_sinh = finalNamSinh;
+                decl.nam_sinh_chu_ho = finalNamSinh;
+              }
+              if (finalGioiTinh) {
+                decl.chu_dat_gioi_tinh = finalGioiTinh;
+                decl.gioi_tinh_chu_ho = finalGioiTinh;
               }
               decl.anh_cccd_pdf = r2PublicUrl;
               changed = true;

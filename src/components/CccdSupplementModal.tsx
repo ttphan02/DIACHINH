@@ -36,6 +36,8 @@ interface BatchItem {
   originalName: string;
   soCccd: string;
   hoVaTen: string;
+  namSinh?: string;
+  gioiTinh?: string;
   status: 'pending' | 'scanning' | 'converting' | 'success' | 'error';
   destFileName: string;
   r2Url?: string;
@@ -55,6 +57,8 @@ export default function CccdSupplementModal({
   const [imageFile, setImageFile] = useState<string | null>(null);
   const [soCccd, setSoCccd] = useState('');
   const [hoVaTen, setHoVaTen] = useState('');
+  const [namSinh, setNamSinh] = useState('');
+  const [gioiTinh, setGioiTinh] = useState('Nam');
   const [maThua, setMaThua] = useState(initialParcelCode);
   const [isScanningAi, setIsScanningAi] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -114,7 +118,7 @@ export default function CccdSupplementModal({
     });
   };
 
-  const ocrImageWithAi = async (b64: string): Promise<{ so_cccd?: string; ho_va_ten?: string }> => {
+  const ocrImageWithAi = async (b64: string): Promise<{ so_cccd?: string; ho_va_ten?: string; nam_sinh?: string; gioi_tinh?: string }> => {
     try {
       const res = await fetch('/api/ocr-cccd', {
         method: 'POST',
@@ -126,6 +130,8 @@ export default function CccdSupplementModal({
         return {
           so_cccd: data.data.so_cccd || '',
           ho_va_ten: data.data.ho_va_ten || '',
+          nam_sinh: data.data.nam_sinh || '',
+          gioi_tinh: data.data.gioi_tinh || '',
         };
       }
     } catch (e) {
@@ -155,6 +161,8 @@ export default function CccdSupplementModal({
     const ocrRes = await ocrImageWithAi(b64);
     if (ocrRes.so_cccd) setSoCccd(ocrRes.so_cccd);
     if (ocrRes.ho_va_ten) setHoVaTen(ocrRes.ho_va_ten);
+    if (ocrRes.nam_sinh) setNamSinh(ocrRes.nam_sinh);
+    if (ocrRes.gioi_tinh) setGioiTinh(ocrRes.gioi_tinh);
     if (!ocrRes.so_cccd && !ocrRes.ho_va_ten) {
       setErrorMessage('AI không nhận diện được chữ trên ảnh, bạn vui lòng điền tay số CCCD hoặc Họ tên.');
     }
@@ -181,6 +189,8 @@ export default function CccdSupplementModal({
           frontBase64: imageFile,
           so_cccd: soCccd,
           ho_va_ten: hoVaTen,
+          nam_sinh: namSinh,
+          gioi_tinh: gioiTinh,
           ma_thua: maThua,
         }),
       });
@@ -274,6 +284,8 @@ export default function CccdSupplementModal({
           const ocr = await ocrImageWithAi(b64);
           if (ocr.so_cccd && !curCccd) curCccd = ocr.so_cccd;
           if (ocr.ho_va_ten && !curName) curName = ocr.ho_va_ten;
+          if (ocr.nam_sinh) item.namSinh = ocr.nam_sinh;
+          if (ocr.gioi_tinh) item.gioiTinh = ocr.gioi_tinh;
         }
 
         item.soCccd = curCccd;
@@ -301,6 +313,8 @@ export default function CccdSupplementModal({
             frontBase64: b64,
             so_cccd: curCccd,
             ho_va_ten: curName,
+            nam_sinh: item.namSinh,
+            gioi_tinh: item.gioiTinh,
             skipSync: true, // Tạm thời bỏ qua sync cho từng file
           }),
         });
