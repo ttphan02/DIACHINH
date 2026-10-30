@@ -374,7 +374,7 @@ export default function CadastralMap({
               const ownerDisplay = p.chu_ho || 'Không có trong dữ liệu';
               const statusBadgeHtml =
                 p.trang_thai === 'DA_SO_HOA_XANH'
-                  ? '<span style="color:#10b981;font-weight:700;">🟢 Đã số hóa (GGS)</span>'
+                  ? '<span style="color:#10b981;font-weight:700;">🟢 Đã số hóa</span>'
                   : p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
                   ? '<span style="color:#60a5fa;font-weight:700;">🔵 Đã kê khai (Web)</span>'
                   : p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG'

@@ -134,7 +134,7 @@ export default function ParcelDetailModal({
       case 'DA_SO_HOA_XANH':
         return (
           <span className="px-2.5 py-1 text-xs font-semibold bg-emerald-100 text-emerald-800 rounded-full border border-emerald-200 flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-500"></span> 🟢 Đã số hóa (GGS)
+            <span className="w-2 h-2 rounded-full bg-emerald-500"></span> 🟢 Đã số hóa
           </span>
         );
       case 'DA_KE_KHAI_CHUA_SO_HOA_LAM':

@@ -544,7 +544,7 @@ export default function ParcelDetailPanel({
       case 'DA_SO_HOA_XANH':
         return (
           <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 rounded-full border border-emerald-200 inline-flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 🟢 Đã số hóa (GGS)
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 🟢 Đã số hóa
           </span>
         );
       case 'DA_KE_KHAI_CHUA_SO_HOA_LAM':

@@ -1322,9 +1322,8 @@ export default function DashboardPage() {
   // 3. Tính toán trạng thái thực tế của từng thửa
   const computedParcels = useMemo(() => {
     return parcels.map((p) => {
-      const isOnGgs = ggsCodes.has(p.ma_thua);
-      const isDigitizedBlue = DIGITIZED_SET.has(p.ma_thua);
-      const isDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(declarationsMap[p.ma_thua]) || isDigitizedBlue;
+      const isOnGgs = ggsCodes.has(p.ma_thua) || DIGITIZED_SET.has(p.ma_thua);
+      const isDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(declarationsMap[p.ma_thua]);
 
       // Gộp thêm dữ liệu kê khai mới nhất từ LocalStorage (nếu có)
       const savedDecl = declarationsMap[p.ma_thua];
@@ -1414,7 +1413,7 @@ export default function DashboardPage() {
   // Danh sách các thửa chưa số hóa trên GGS
   const nonGgsParcels = useMemo(() => {
     return computedParcels.filter(
-      (p) => p.trang_thai !== 'DA_SO_HOA_XANH' && !ggsCodes.has(p.ma_thua)
+      (p) => p.trang_thai !== 'DA_SO_HOA_XANH' && !ggsCodes.has(p.ma_thua) && !DIGITIZED_SET.has(p.ma_thua)
     );
   }, [computedParcels, ggsCodes]);
 

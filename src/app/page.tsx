@@ -594,9 +594,9 @@ export default function Home() {
         return true;
       })
       .map((p) => {
-      const isOnGgs = isGgsLoaded ? ggsCodes.has(p.ma_thua) : false;
-      const isDigitizedBlue = DIGITIZED_SET.has(p.ma_thua);
-      const isLocallyDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(declarationsMap[p.ma_thua]) || isDigitizedBlue;
+      const isDigitized = (isGgsLoaded ? ggsCodes.has(p.ma_thua) : false) || DIGITIZED_SET.has(p.ma_thua);
+      const isOnGgs = isDigitized;
+      const isLocallyDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(declarationsMap[p.ma_thua]);
 
       // ĐỐI VỚI THỬA ĐÃ CÓ TRÊN GOOGLE SHEETS HOẶC ĐÃ KÊ KHAI:
       // ƯU TIÊN LẤY TÊN CHỦ THỬA VÀ CCCD TỪ GOOGLE SHEETS (loại bỏ hoàn toàn mã geohash rác w6jp...)
@@ -644,7 +644,7 @@ export default function Home() {
       // 3. Thửa CHƯA KÊ KHAI CÓ TÊN (tên người thật) -> Vàng
       // 4. Thửa CHƯA KÊ KHAI CHƯA CÓ TÊN (không phải tên người, địa danh, công cộng...) -> Trắng
       let trang_thai: ParcelStatus;
-      if (isOnGgs) {
+      if (isOnGgs || DIGITIZED_SET.has(p.ma_thua)) {
         trang_thai = 'DA_SO_HOA_XANH';
       } else if (isLocallyDeclared) {
         trang_thai = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
