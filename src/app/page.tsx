@@ -1338,14 +1338,14 @@ export default function Home() {
             >
 
               {/* Row 1: Các button trạng thái (Xóa bỏ background đen, căn chỉnh 5 cột đều tăm tắp vừa vặn mọi màn hình) */}
-              <div className="bg-white/95 backdrop-blur-md p-1 rounded-2xl border border-gray-200/90 shadow-xl w-full max-w-xl">
+              <div className="bg-white/95 backdrop-blur-md p-1 rounded-2xl border border-gray-200/90 shadow-xl w-full max-w-xl sm:w-fit sm:max-w-none">
                 <div className="grid grid-cols-5 gap-1 w-full sm:flex sm:items-center sm:gap-1.5">
                   {/* Tất cả */}
                   <button
                     onClick={() => {
                       setStatusFilter('ALL');
                     }}
-                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer ${
+                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer whitespace-nowrap shrink-0 ${
                       statusFilter === 'ALL'
                         ? 'bg-blue-600 text-white shadow-xs'
                         : 'bg-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900'
@@ -1359,7 +1359,7 @@ export default function Home() {
                     onClick={() => {
                       setStatusFilter('DA_SO_HOA_XANH');
                     }}
-                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer ${
+                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer whitespace-nowrap shrink-0 ${
                       statusFilter === 'DA_SO_HOA_XANH'
                         ? 'bg-emerald-600 text-white shadow-xs'
                         : 'bg-transparent text-emerald-700 hover:bg-emerald-50'
@@ -1375,7 +1375,7 @@ export default function Home() {
                     onClick={() => {
                       setStatusFilter('DA_KE_KHAI_CHUA_SO_HOA_LAM');
                     }}
-                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer ${
+                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer whitespace-nowrap shrink-0 ${
                       statusFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
                         ? 'bg-blue-600 text-white shadow-xs'
                         : 'bg-transparent text-blue-700 hover:bg-blue-50'
@@ -1391,7 +1391,7 @@ export default function Home() {
                     onClick={() => {
                       setStatusFilter(statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG' ? 'ALL' : 'CO_TEN_CHUA_SO_HOA_VANG');
                     }}
-                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer ${
+                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer whitespace-nowrap shrink-0 ${
                       statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG'
                         ? 'bg-amber-500 text-white shadow-xs'
                         : 'bg-transparent text-amber-700 hover:bg-amber-50'
@@ -1407,7 +1407,7 @@ export default function Home() {
                     onClick={() => {
                       setStatusFilter(statusFilter === 'CHUA_CO_TEN_XAM' ? 'ALL' : 'CHUA_CO_TEN_XAM');
                     }}
-                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer ${
+                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer whitespace-nowrap shrink-0 ${
                       statusFilter === 'CHUA_CO_TEN_XAM'
                         ? 'bg-gray-700 text-white shadow-xs'
                         : 'bg-transparent text-gray-700 hover:bg-gray-100'
@@ -1470,7 +1470,7 @@ export default function Home() {
               </div>
 
               {/* Row 2: Thanh tìm kiếm & Các nút chức năng (Đã bỏ bộ lọc tờ bản đồ để tối ưu diện tích màn hình) */}
-              <div className="flex items-center gap-1.5 sm:gap-2 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl border border-gray-200/90 shadow-xl w-full max-w-xl">
+              <div className="flex items-center gap-1.5 sm:gap-2 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl border border-gray-200/90 shadow-xl w-full max-w-xl sm:max-w-2xl">
                 <div className="relative flex-1 min-w-[120px]">
                   <Search className="w-4 h-4 text-gray-400 absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2" />
                   <input
