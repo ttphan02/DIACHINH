@@ -3,7 +3,7 @@ import geminiKeys from '@/data/gemini_keys.json';
 
 export const dynamic = 'force-dynamic';
 
-export function decodeCccd12(cccd: string): { nam_sinh?: string; gioi_tinh?: 'Nam' | 'Nữ' } {
+function decodeCccd12(cccd: string): { nam_sinh?: string; gioi_tinh?: 'Nam' | 'Nữ' } {
   const clean = String(cccd || '').replace(/\D/g, '');
   if (clean.length === 12) {
     const code = clean.charAt(3);
