@@ -9,10 +9,10 @@ import {
   Loader2,
   Compass,
   Box,
-  Layers,
   RotateCcw,
   RotateCw,
   Globe,
+  Mountain,
 } from 'lucide-react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -48,6 +48,60 @@ const GOOGLE_EARTH_SATELLITE = [
   'https://mt3.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
 ];
 
+// Nguồn dữ liệu độ cao địa hình toàn cầu DEM (Digital Elevation Model)
+const TERRAIN_DEM_TILES = [
+  'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+];
+
+// Helper lọc và tạo GeoJSON chuẩn
+function buildParcelsGeoJson(rawList: Parcel[]): {
+  geojson: GeoJSON.FeatureCollection<GeoJSON.Point>;
+  mapStore: Map<string, Parcel>;
+  validList: Parcel[];
+} {
+  const mapStore = new Map<string, Parcel>();
+  const validList: Parcel[] = [];
+  const features: GeoJSON.Feature<GeoJSON.Point>[] = [];
+
+  for (let i = 0; i < rawList.length; i++) {
+    const p = rawList[i];
+    if (!p.lat || !p.lng || HIDDEN_PARCEL_SET.has(p.ma_thua)) continue;
+
+    const ld = (p.loai_dat || '').trim().toUpperCase();
+    if (ld === 'BCS') {
+      const dt = parseFloat(String(p.dien_tich || '').replace(',', '.'));
+      if (!isNaN(dt) && dt < 100) continue;
+    }
+
+    mapStore.set(p.ma_thua, p);
+    validList.push(p);
+
+    features.push({
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [p.lng as number, p.lat as number],
+      },
+      properties: {
+        ma_thua: p.ma_thua,
+        so_thua: p.so_thua,
+        to_ban_do: p.to_ban_do,
+        chu_ho: p.chu_ho || '',
+        loai_dat: p.loai_dat || '',
+        dien_tich: p.dien_tich || '',
+        thon_xa: p.thon_xa || '',
+        trang_thai: p.trang_thai,
+      },
+    });
+  }
+
+  return {
+    geojson: { type: 'FeatureCollection', features },
+    mapStore,
+    validList,
+  };
+}
+
 export default function CadastralMap({
   parcels,
   onSelectParcel,
@@ -63,8 +117,8 @@ export default function CadastralMap({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
 
-  // Chế độ xem: 2D (phẳng) hoặc 3D (Google Earth nghiêng phối cảnh)
-  const [viewMode, setViewMode] = useState<'2D' | '3D'>('2D');
+  // Mặc định khởi tạo chế độ 3D Earth với địa hình đồi núi rõ rệt
+  const [viewMode, setViewMode] = useState<'2D' | '3D'>('3D');
   // Góc xoay hiện tại (độ) để hiển thị la bàn
   const [bearing, setBearing] = useState<number>(0);
   // Loại lớp vệ tinh Google Earth: Hybrid (có đường/nhãn) hoặc Pure (ảnh thuần túy)
@@ -78,18 +132,21 @@ export default function CadastralMap({
   // Tọa độ điểm neo xoay 3D (hiển thị tâm neo trên màn hình)
   const [orbitPivotScreen, setOrbitPivotScreen] = useState<{ x: number; y: number } | null>(null);
 
-  // Markers tham chiếu để không tạo lại DOM không cần thiết
+  // Markers tham chiếu
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
   const additionalMarkersRef = useRef<maplibregl.Marker[]>([]);
   const neighborMarkersRef = useRef<maplibregl.Marker[]>([]);
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const pivotMarkerRef = useRef<maplibregl.Marker | null>(null);
 
   const hoverTooltipRef = useRef<HTMLDivElement>(null);
   const lastCenteredParcelRef = useRef<string | null>(null);
 
   // Danh sách thửa đất hợp lệ được cache
   const validParcelsMapRef = useRef<Map<string, Parcel>>(new Map());
+  const geojsonCacheRef = useRef<GeoJSON.FeatureCollection<GeoJSON.Point>>({
+    type: 'FeatureCollection',
+    features: [],
+  });
 
   // Giữ tham chiếu hàm chọn thửa
   const onSelectParcelRef = useRef(onSelectParcel);
@@ -105,12 +162,16 @@ export default function CadastralMap({
       (window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window);
   }, []);
 
-  // 1. Khởi tạo Bản đồ Google Earth với MapLibre GL
+  // 1. Khởi tạo Bản đồ Google Earth với Địa hình 3D thực thụ (Digital Elevation Model)
   useEffect(() => {
     if (!mapContainerRef.current) return;
     if (mapRef.current) return;
 
     const initialTiles = satelliteType === 'hybrid' ? GOOGLE_EARTH_HYBRID : GOOGLE_EARTH_SATELLITE;
+    const initialParsed = buildParcelsGeoJson(parcels);
+    validParcelsMapRef.current = initialParsed.mapStore;
+    geojsonCacheRef.current = initialParsed.geojson;
+    setDotsCount(initialParsed.validList.length);
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
@@ -124,8 +185,29 @@ export default function CadastralMap({
             maxzoom: 21,
             attribution: '&copy; Google Earth',
           },
+          'terrain-dem': {
+            type: 'raster-dem',
+            tiles: TERRAIN_DEM_TILES,
+            encoding: 'terrarium',
+            tileSize: 256,
+            maxzoom: 15,
+          },
+          'parcels-source': {
+            type: 'geojson',
+            data: initialParsed.geojson,
+            tolerance: 0,
+            buffer: 0,
+          },
+          'connections-source': {
+            type: 'geojson',
+            data: {
+              type: 'FeatureCollection',
+              features: [],
+            },
+          },
         },
         layers: [
+          // Lớp ảnh vệ tinh Google Earth
           {
             id: 'google-earth-layer',
             type: 'raster',
@@ -133,13 +215,92 @@ export default function CadastralMap({
             minzoom: 0,
             maxzoom: 22,
           },
+          // Lớp đường nối thửa lân cận & thửa gộp
+          {
+            id: 'connections-line',
+            type: 'line',
+            source: 'connections-source',
+            paint: {
+              'line-color': ['get', 'color'],
+              'line-width': ['get', 'width'],
+              'line-dasharray': [2, 2],
+              'line-opacity': 0.9,
+            },
+          },
+          // Lớp hiển thị ~9.800 thửa đất WebGL nổi bật trên nền vệ tinh
+          {
+            id: 'parcels-layer',
+            type: 'circle',
+            source: 'parcels-source',
+            paint: {
+              'circle-radius': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                9,
+                3.0,
+                11,
+                4.2,
+                13,
+                6.0,
+                15,
+                8.5,
+                17,
+                12.0,
+                19,
+                16.0,
+                21,
+                22.0,
+              ],
+              'circle-color': [
+                'match',
+                ['get', 'trang_thai'],
+                'DA_SO_HOA_XANH',
+                '#10b981', // Xanh lá: Đã số hóa
+                'DA_KE_KHAI_CHUA_SO_HOA_LAM',
+                '#2563eb', // Xanh lam: Đã kê khai
+                'CO_TEN_CHUA_SO_HOA_VANG',
+                '#f59e0b', // Vàng: Có tên chưa làm
+                /* default */ '#ffffff', // Trắng: Không tên
+              ],
+              'circle-stroke-width': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                10,
+                1.2,
+                14,
+                2.0,
+                17,
+                2.8,
+              ],
+              'circle-stroke-color': [
+                'match',
+                ['get', 'trang_thai'],
+                'DA_SO_HOA_XANH',
+                '#ffffff',
+                'DA_KE_KHAI_CHUA_SO_HOA_LAM',
+                '#ffffff',
+                'CO_TEN_CHUA_SO_HOA_VANG',
+                '#78350f',
+                /* default */ '#1e293b',
+              ],
+              'circle-opacity': 1,
+              'circle-pitch-alignment': 'viewport',
+            },
+          },
         ],
+        // Địa hình 3D thực tế với độ lồi lõm (exaggeration) 2.0x giúp thấy rõ từng đỉnh đồi, khe suối
+        terrain: {
+          source: 'terrain-dem',
+          exaggeration: 2.0,
+        },
       },
       center: [108.493, 12.527],
       zoom: 13,
-      pitch: 0,
+      pitch: 62, // Bắt đầu ở góc nghiêng 3D 62 độ sống động
       bearing: 0,
-      maxPitch: 80,
+      maxPitch: 85,
       attributionControl: false,
       trackResize: true,
       dragRotate: true,
@@ -172,100 +333,26 @@ export default function CadastralMap({
     });
 
     map.on('load', () => {
-      // 1. Thêm nguồn GeoJSON cho toàn bộ các thửa đất
-      map.addSource('parcels-source', {
-        type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: [],
-        },
-        tolerance: 0,
-        buffer: 0,
-      });
+      // Thiết lập bầu khí quyển chân trời Google Earth
+      try {
+        map.setSky({
+          'sky-color': '#0284c7',
+          'sky-horizon-blend': 0.5,
+          'horizon-color': '#bae6fd',
+          'fog-color': '#e0f2fe',
+          'fog-ground-blend': 0.5,
+        });
+      } catch {
+        // Fallback an toàn nếu trình duyệt không hỗ trợ sky
+      }
 
-      // 2. Thêm layer vòng tròn hiển thị thửa đất tối ưu phần cứng WebGL
-      map.addLayer({
-        id: 'parcels-layer',
-        type: 'circle',
-        source: 'parcels-source',
-        paint: {
-          'circle-radius': [
-            'interpolate',
-            ['linear'],
-            ['zoom'],
-            10,
-            2.5,
-            13,
-            4.2,
-            15,
-            6.2,
-            17,
-            8.8,
-            19,
-            12.5,
-            21,
-            16,
-          ],
-          'circle-color': [
-            'match',
-            ['get', 'trang_thai'],
-            'DA_SO_HOA_XANH',
-            '#10b981', // Xanh lá: Đã số hóa
-            'DA_KE_KHAI_CHUA_SO_HOA_LAM',
-            '#2563eb', // Xanh lam: Đã kê khai
-            'CO_TEN_CHUA_SO_HOA_VANG',
-            '#eab308', // Vàng: Có tên chưa làm
-            /* default */ '#ffffff', // Trắng: Không tên
-          ],
-          'circle-stroke-width': [
-            'interpolate',
-            ['linear'],
-            ['zoom'],
-            10,
-            0.8,
-            14,
-            1.5,
-            17,
-            2.2,
-          ],
-          'circle-stroke-color': [
-            'match',
-            ['get', 'trang_thai'],
-            'DA_SO_HOA_XANH',
-            '#064e3b',
-            'DA_KE_KHAI_CHUA_SO_HOA_LAM',
-            '#1e3a8a',
-            'CO_TEN_CHUA_SO_HOA_VANG',
-            '#713f12',
-            /* default */ '#475569',
-          ],
-          'circle-opacity': 0.95,
-          'circle-pitch-alignment': 'viewport',
-        },
-      });
+      // Đảm bảo dữ liệu thửa đất luôn được đồng bộ ngay khi load xong
+      const src = map.getSource('parcels-source') as maplibregl.GeoJSONSource;
+      if (src && geojsonCacheRef.current) {
+        src.setData(geojsonCacheRef.current);
+      }
 
-      // 3. Nguồn và Layer vẽ đường nối thửa lân cận & thửa gộp
-      map.addSource('connections-source', {
-        type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: [],
-        },
-      });
-
-      map.addLayer({
-        id: 'connections-line',
-        type: 'line',
-        source: 'connections-source',
-        paint: {
-          'line-color': ['get', 'color'],
-          'line-width': ['get', 'width'],
-          'line-dasharray': [2, 2],
-          'line-opacity': 0.85,
-        },
-      });
-
-      // 4. Xử lý click chọn thửa đất siêu nhạy qua WebGL Raycast
+      // Xử lý click chọn thửa đất siêu nhạy qua WebGL Raycast
       map.on('click', (e) => {
         if (didOrbitRef.current) {
           didOrbitRef.current = false;
@@ -273,8 +360,8 @@ export default function CadastralMap({
         }
 
         const bbox: [maplibregl.PointLike, maplibregl.PointLike] = [
-          [e.point.x - 14, e.point.y - 14],
-          [e.point.x + 14, e.point.y + 14],
+          [e.point.x - 16, e.point.y - 16],
+          [e.point.x + 16, e.point.y + 16],
         ];
         const features = map.queryRenderedFeatures(bbox, { layers: ['parcels-layer'] });
 
@@ -289,7 +376,7 @@ export default function CadastralMap({
         }
       });
 
-      // 5. Xử lý rê chuột (hover) trên Desktop
+      // Xử lý rê chuột (hover) trên Desktop
       map.on('mousemove', 'parcels-layer', (e) => {
         if (isTouchDeviceRef.current) return;
         map.getCanvas().style.cursor = 'pointer';
@@ -373,7 +460,6 @@ export default function CadastralMap({
     if (!container || !map) return;
 
     const handlePointerDown = (e: PointerEvent) => {
-      // Chỉ kích hoạt chế độ xoay quanh điểm khi dùng chuột trái hoặc ngón tay cảm ứng
       if (e.button !== 0 && e.pointerType === 'mouse') return;
 
       const rect = container.getBoundingClientRect();
@@ -408,9 +494,10 @@ export default function CadastralMap({
         setIsOrbiting(true);
         didOrbitRef.current = true;
 
-        // Nếu đang ở 2D, tự động nghiêng lên 55° góc nhìn 3D Google Earth
+        // Tự động bật địa hình 3D và góc nghiêng nếu đang ở 2D
+        map.setTerrain({ source: 'terrain-dem', exaggeration: 2.0 });
         if (map.getPitch() < 15) {
-          map.easeTo({ pitch: 55, duration: 400 });
+          map.easeTo({ pitch: 60, duration: 400 });
         }
 
         // Khóa chức năng kéo bản đồ mặc định để xoay tự do quanh điểm
@@ -447,7 +534,7 @@ export default function CadastralMap({
 
         // Di ngang -> Xoay góc la bàn (bearing); Di dọc -> Thay đổi độ nghiêng phối cảnh 3D (pitch)
         const newBearing = (initialBearing + dx * 0.45) % 360;
-        const newPitch = Math.max(0, Math.min(78, initialPitch - dy * 0.35));
+        const newPitch = Math.max(0, Math.min(80, initialPitch - dy * 0.35));
 
         // Xoay camera tự nhiên quanh chính tọa độ mặt đất được nhấn giữ
         map.easeTo({
@@ -468,7 +555,6 @@ export default function CadastralMap({
         setOrbitPivotScreen(null);
         map.dragPan.enable();
 
-        // Giữ cờ didOrbit một chút để ngăn sự kiện click chọn nhầm thửa khi vừa nhấc ngón tay
         setTimeout(() => {
           didOrbitRef.current = false;
         }, 80);
@@ -490,58 +576,29 @@ export default function CadastralMap({
     };
   }, []);
 
-  // 3. Cập nhật dữ liệu GeoJSON cho tất cả các thửa đất lên WebGL GPU
+  // 3. Cập nhật dữ liệu GeoJSON cho tất cả các thửa đất lên WebGL GPU khi parcels thay đổi
   useEffect(() => {
     const map = mapRef.current;
+    const parsed = buildParcelsGeoJson(parcels);
+
+    validParcelsMapRef.current = parsed.mapStore;
+    geojsonCacheRef.current = parsed.geojson;
+    setDotsCount(parsed.validList.length);
+
     if (!map) return;
 
-    const validParcels = parcels.filter((p) => {
-      if (!p.lat || !p.lng || HIDDEN_PARCEL_SET.has(p.ma_thua)) return false;
-      const ld = (p.loai_dat || '').trim().toUpperCase();
-      if (ld === 'BCS') {
-        const dt = parseFloat(String(p.dien_tich || '').replace(',', '.'));
-        if (!isNaN(dt) && dt < 100) return false;
-      }
-      return true;
-    });
-
-    const mapStore = new Map<string, Parcel>();
-    validParcels.forEach((p) => mapStore.set(p.ma_thua, p));
-    validParcelsMapRef.current = mapStore;
-    setDotsCount(validParcels.length);
-
-    const geojson: GeoJSON.FeatureCollection<GeoJSON.Point> = {
-      type: 'FeatureCollection',
-      features: validParcels.map((p) => ({
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [p.lng as number, p.lat as number],
-        },
-        properties: {
-          ma_thua: p.ma_thua,
-          so_thua: p.so_thua,
-          to_ban_do: p.to_ban_do,
-          chu_ho: p.chu_ho || '',
-          loai_dat: p.loai_dat || '',
-          dien_tich: p.dien_tich || '',
-          thon_xa: p.thon_xa || '',
-          trang_thai: p.trang_thai,
-        },
-      })),
-    };
-
-    const updateSource = () => {
+    const syncData = () => {
       const src = map.getSource('parcels-source') as maplibregl.GeoJSONSource;
       if (src) {
-        src.setData(geojson);
+        src.setData(parsed.geojson);
       }
     };
 
-    if (map.isStyleLoaded()) {
-      updateSource();
+    if (map.getSource('parcels-source')) {
+      syncData();
     } else {
-      map.once('load', updateSource);
+      map.once('styledata', syncData);
+      map.once('load', syncData);
     }
   }, [parcels]);
 
@@ -591,7 +648,6 @@ export default function CadastralMap({
     const map = mapRef.current;
     if (!map) return;
 
-    // Xóa marker cũ
     if (selectedMarkerRef.current) {
       selectedMarkerRef.current.remove();
       selectedMarkerRef.current = null;
@@ -606,7 +662,7 @@ export default function CadastralMap({
     pulseEl.className = 'parcel-selected-pulse-wrapper';
     pulseEl.innerHTML = `
       <div class="parcel-selected-pulse"></div>
-      <div style="position: absolute; top: 0; left: 0; width: 22px; height: 22px; margin: -11px 0 0 -11px; background: #dc2626; border: 2.5px solid #ffffff; border-radius: 50%; box-shadow: 0 0 12px rgba(220, 38, 38, 0.9);"></div>
+      <div style="position: absolute; top: 0; left: 0; width: 22px; height: 22px; margin: -11px 0 0 -11px; background: #dc2626; border: 2.5px solid #ffffff; border-radius: 50%; box-shadow: 0 0 14px rgba(220, 38, 38, 0.9);"></div>
     `;
 
     const marker = new maplibregl.Marker({
@@ -662,7 +718,6 @@ export default function CadastralMap({
       });
     }
 
-    // Vẽ đường nối lên map
     const connSrc = map.getSource('connections-source') as maplibregl.GeoJSONSource;
     if (connSrc) {
       connSrc.setData({
@@ -723,7 +778,6 @@ export default function CadastralMap({
       neighborMarkersRef.current.push(nbMarker);
     });
 
-    // Cập nhật đường nối lân cận vào connection source
     const connSrc = map.getSource('connections-source') as maplibregl.GeoJSONSource;
     if (connSrc) {
       const existing = (connSrc as any)._data?.features || [];
@@ -780,19 +834,23 @@ export default function CadastralMap({
     }
   }, [userLocation, isFollowingUser]);
 
-  // Chuyển đổi giữa Chế độ 2D và 3D
+  // Chuyển đổi giữa Chế độ 2D (phẳng) và 3D (Địa hình đồi núi thực thụ)
   const handleToggle2D3D = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
 
     if (viewMode === '2D') {
       setViewMode('3D');
+      // Kích hoạt địa hình 3D thực tế với độ cao gấp đôi (2.0x) để thấy rõ đỉnh núi, khe đồi
+      map.setTerrain({ source: 'terrain-dem', exaggeration: 2.0 });
       map.easeTo({
-        pitch: 60,
+        pitch: 62,
         duration: 900,
       });
     } else {
       setViewMode('2D');
+      // Tắt địa hình 3D để trở về bản đồ phẳng 2D chuẩn xác
+      map.setTerrain(null);
       map.easeTo({
         pitch: 0,
         bearing: 0,
@@ -878,9 +936,7 @@ export default function CadastralMap({
           className="pointer-events-none absolute z-[1200] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center animate-in fade-in zoom-in-75 duration-150"
         >
           <div className="relative flex items-center justify-center">
-            {/* Vòng quay xung quanh điểm neo */}
             <div className="w-16 h-16 rounded-full border-2 border-cyan-400 border-dashed animate-spin duration-7000"></div>
-            {/* Vòng tâm phát sáng */}
             <div className="absolute w-6 h-6 rounded-full bg-cyan-500/40 border-2 border-white shadow-[0_0_16px_rgba(6,182,212,1)] animate-ping"></div>
             <div className="absolute w-3.5 h-3.5 rounded-full bg-cyan-400 border-2 border-white shadow-md"></div>
           </div>
@@ -899,19 +955,23 @@ export default function CadastralMap({
 
       {/* BỘ ĐIỀU KHIỂN GOOGLE EARTH 2D / 3D & LA BÀN XOAY (GÓC TRÊN BÊN PHẢI) */}
       <div className="absolute top-[56px] right-3.5 z-[1000] flex items-center gap-2">
-        {/* Nút bật/tắt Chế độ 2D & 3D */}
+        {/* Nút bật/tắt Chế độ 2D & 3D Địa hình */}
         <button
           onClick={handleToggle2D3D}
           type="button"
           className={`px-3 py-1.5 rounded-2xl font-extrabold text-xs shadow-2xl border flex items-center gap-1.5 transition-all cursor-pointer backdrop-blur-md ${
             viewMode === '3D'
-              ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white border-cyan-300 ring-2 ring-cyan-400/40 shadow-cyan-500/20'
+              ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white border-cyan-300 ring-2 ring-cyan-400/50 shadow-cyan-500/25'
               : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
           }`}
-          title={viewMode === '3D' ? 'Đang ở chế độ 3D Earth (Bấm để về 2D phẳng)' : 'Bấm để bật chế độ xem phối cảnh 3D Earth'}
+          title={viewMode === '3D' ? 'Đang ở chế độ 3D Địa hình Google Earth (Bấm để về 2D phẳng)' : 'Bấm để bật chế độ 3D Địa hình thực tế'}
         >
-          <Box className={`w-3.5 h-3.5 ${viewMode === '3D' ? 'text-cyan-200 animate-pulse' : 'text-slate-400'}`} />
-          <span>{viewMode === '3D' ? '3D Earth' : '2D Map'}</span>
+          {viewMode === '3D' ? (
+            <Mountain className="w-3.5 h-3.5 text-cyan-200 animate-pulse" />
+          ) : (
+            <Box className="w-3.5 h-3.5 text-slate-400" />
+          )}
+          <span>{viewMode === '3D' ? '3D Địa hình' : '2D Phẳng'}</span>
         </button>
 
         {/* Nút La bàn (Compass) - Xoay tự động theo góc nhìn, bấm để về Bắc */}
@@ -970,9 +1030,9 @@ export default function CadastralMap({
 
       {/* GỢI Ý THAO TÁC 3D (NHẤN GIỮ ĐỂ XOAY) */}
       {viewMode === '3D' && !isOrbiting && (
-        <div className="absolute top-[98px] right-3.5 z-[1000] hidden sm:flex items-center gap-1.5 bg-slate-950/80 border border-cyan-500/30 text-cyan-200 text-[11px] px-3 py-1 rounded-full shadow-lg backdrop-blur-md pointer-events-none animate-in fade-in slide-in-from-top-1">
+        <div className="absolute top-[98px] right-3.5 z-[1000] hidden sm:flex items-center gap-1.5 bg-slate-950/85 border border-cyan-500/40 text-cyan-200 text-[11px] px-3 py-1 rounded-full shadow-lg backdrop-blur-md pointer-events-none animate-in fade-in slide-in-from-top-1">
           <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
-          <span>Nhấn giữ 1 điểm trên bản đồ rồi di tay để xoay 3D</span>
+          <span>Nhấn giữ 1 điểm trên bản đồ rồi di tay để xoay 3D quanh điểm đó</span>
         </div>
       )}
 
@@ -987,16 +1047,16 @@ export default function CadastralMap({
           </span>
         )}
         <span className="flex items-center gap-1 text-emerald-300">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Đã số hóa
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-1 ring-white" /> Đã số hóa
         </span>
         <span className="flex items-center gap-1 text-blue-300">
-          <span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Đã kê khai
+          <span className="w-2.5 h-2.5 rounded-full bg-blue-500 ring-1 ring-white" /> Đã kê khai
         </span>
         <span className="flex items-center gap-1 text-amber-300 font-semibold">
-          <span className="w-2.5 h-2.5 rounded-full bg-amber-400 ring-1 ring-amber-600 shadow-sm" /> Có tên (chưa làm)
+          <span className="w-2.5 h-2.5 rounded-full bg-amber-400 ring-1 ring-amber-700 shadow-sm" /> Có tên (chưa làm)
         </span>
         <span className="flex items-center gap-1 text-white font-semibold">
-          <span className="w-2.5 h-2.5 rounded-full bg-white ring-1 ring-slate-400 shadow-sm" /> Không tên (chưa làm)
+          <span className="w-2.5 h-2.5 rounded-full bg-white ring-1 ring-slate-700 shadow-sm" /> Không tên (chưa làm)
         </span>
       </div>
 
@@ -1053,7 +1113,7 @@ export default function CadastralMap({
           </span>
         ) : (
           <span className="flex items-center gap-1.5">
-            <Globe className="w-3.5 h-3.5 text-cyan-400" />
+            <Mountain className="w-3.5 h-3.5 text-cyan-400" />
             <span>{dotsCount.toLocaleString('vi-VN')} thửa</span>
             <span className="text-slate-500">•</span>
             <span className={viewMode === '3D' ? 'text-cyan-400 font-extrabold' : 'text-slate-400'}>
