@@ -138,6 +138,23 @@ export default function CadastralMap({
   // Tọa độ điểm neo xoay 3D (hiển thị tâm neo trên màn hình)
   const [orbitPivotScreen, setOrbitPivotScreen] = useState<{ x: number; y: number } | null>(null);
 
+  // Chế độ xoay chuyên dụng (chạm hoặc nhấp chuột ở bất kỳ điểm nào để xoay quanh điểm đó)
+  const [isRotateMode, setIsRotateMode] = useState<boolean>(false);
+  const isRotateModeRef = useRef(isRotateMode);
+  useEffect(() => {
+    isRotateModeRef.current = isRotateMode;
+    const map = mapRef.current;
+    if (map) {
+      if (isRotateMode) {
+        map.dragPan.disable();
+        map.getCanvas().style.cursor = 'crosshair';
+      } else {
+        map.dragPan.enable();
+        map.getCanvas().style.cursor = '';
+      }
+    }
+  }, [isRotateMode]);
+
   // Markers tham chiếu
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
   const additionalMarkersRef = useRef<maplibregl.Marker[]>([]);
@@ -467,7 +484,12 @@ export default function CadastralMap({
   }, [satelliteType]);
 
   // ============================================================================
-  // TÍNH NĂNG ĐỘC QUYỀN GOOGLE EARTH: NHẤN GIỮ 1 ĐIỂM RỒI DI CHUỘT / NGÓN TAY ĐỂ XOAY 3D (PIVOT ORBIT)
+  // TÍNH NĂNG XOAY BẢN ĐỒ: GIỮ 1 ĐIỂM RỒI DI CHUỘT / NGÓN TAY ĐỂ XOAY QUANH ĐIỂM (PIVOT ORBIT)
+  // Hỗ trợ:
+  // 1. Chế độ Xoay (Rotate Mode ON): Chạm / click bất kỳ điểm nào lập tức xoay quanh điểm đó
+  // 2. Chuột phải (Right-click drag) hoặc Shift/Ctrl + Drag trên PC: Xoay lập tức quanh điểm đó
+  // 3. Nhấn giữ 1 điểm (~180ms) trên Mobile / Desktop: Kích hoạt tâm xoay quanh điểm
+  // 4. Cử chỉ 2 ngón tay xoay (Two-finger rotate) trên màn hình cảm ứng
   // ============================================================================
   const holdTimerRef = useRef<any>(null);
   const startPointerRef = useRef<{ x: number; y: number; lng: number; lat: number } | null>(null);
@@ -480,8 +502,57 @@ export default function CadastralMap({
     const map = mapRef.current;
     if (!container || !map) return;
 
+    // Ngăn chặn menu ngữ cảnh chuột phải mặc định của trình duyệt để hỗ trợ kéo chuột phải xoay mượt mà
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+    container.addEventListener('contextmenu', handleContextMenu);
+
+    const activateOrbit = (pointX: number, pointY: number, clientX: number, clientY: number) => {
+      let geoPivot: maplibregl.LngLat;
+      try {
+        geoPivot = map.unproject([pointX, pointY]);
+      } catch {
+        return;
+      }
+
+      startPointerRef.current = {
+        x: clientX,
+        y: clientY,
+        lng: geoPivot.lng,
+        lat: geoPivot.lat,
+      };
+
+      startCameraRef.current = {
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+      };
+
+      isOrbitingRef.current = true;
+      setIsOrbiting(true);
+      didOrbitRef.current = true;
+
+      // Khóa chức năng kéo bản đồ mặc định để xoay tự do quanh điểm
+      map.dragPan.disable();
+
+      // Rung nhẹ phản hồi xúc giác trên thiết bị di động
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(25);
+      }
+
+      // Đặt điểm neo trực quan
+      setOrbitPivotScreen({ x: pointX, y: pointY });
+    };
+
     const handlePointerDown = (e: PointerEvent) => {
-      if (e.button !== 0 && e.pointerType === 'mouse') return;
+      // Bỏ qua nếu có ngón thứ 2 chạm vào (để MapLibre xử lý cử chỉ 2 ngón tay thu phóng / xoay tự nhiên)
+      if (e.pointerType === 'touch' && !e.isPrimary) {
+        clearTimeout(holdTimerRef.current);
+        return;
+      }
+
+      // Chỉ chấp nhận chuột trái (0) hoặc chuột phải (2)
+      if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 2) return;
 
       const rect = container.getBoundingClientRect();
       const pointX = e.clientX - rect.left;
@@ -508,30 +579,26 @@ export default function CadastralMap({
 
       didOrbitRef.current = false;
 
-      // Nhấn giữ 200ms -> Kích hoạt chế độ Tâm xoay 3D (Pivot Orbit)
+      // 1. KÍCH HOẠT XOAY NGAY LẬP TỨC nếu:
+      // - Đang bật Chế độ Xoay (Rotate Mode ON)
+      // - Dùng Chuột phải (e.button === 2)
+      // - Hoặc giữ phím Shift / Ctrl
+      const isInstantRotate =
+        isRotateModeRef.current ||
+        (e.pointerType === 'mouse' && e.button === 2) ||
+        e.shiftKey ||
+        e.ctrlKey;
+
+      if (isInstantRotate) {
+        activateOrbit(pointX, pointY, e.clientX, e.clientY);
+        return;
+      }
+
+      // 2. Chế độ thường: Nhấn giữ ~180ms tại 1 điểm -> Kích hoạt chế độ Tâm xoay quanh điểm
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = setTimeout(() => {
-        isOrbitingRef.current = true;
-        setIsOrbiting(true);
-        didOrbitRef.current = true;
-
-        // Tự động bật địa hình 3D và góc nghiêng nếu đang ở 2D
-        map.setTerrain({ source: 'terrain-dem', exaggeration: elevationLevelRef.current });
-        if (map.getPitch() < 15) {
-          map.easeTo({ pitch: 60, duration: 400 });
-        }
-
-        // Khóa chức năng kéo bản đồ mặc định để xoay tự do quanh điểm
-        map.dragPan.disable();
-
-        // Rung nhẹ phản hồi xúc giác trên thiết bị di động
-        if (typeof navigator !== 'undefined' && navigator.vibrate) {
-          navigator.vibrate(25);
-        }
-
-        // Đặt điểm neo trực quan
-        setOrbitPivotScreen({ x: pointX, y: pointY });
-      }, 200);
+        activateOrbit(pointX, pointY, e.clientX, e.clientY);
+      }, 180);
     };
 
     const handlePointerMove = (e: PointerEvent) => {
@@ -541,20 +608,21 @@ export default function CadastralMap({
       const dy = e.clientY - startPointerRef.current.y;
       const dist = Math.hypot(dx, dy);
 
-      // Nếu di chuyển nhanh trước 200ms -> Người dùng muốn kéo map bình thường, hủy hẹn giờ nhấn giữ
-      if (!isOrbitingRef.current && dist > 8) {
+      // Nếu di chuyển quá xa trước khi kích hoạt -> Người dùng muốn kéo map bình thường, hủy hẹn giờ nhấn giữ
+      const maxJitter = e.pointerType === 'touch' ? 24 : 14;
+      if (!isOrbitingRef.current && dist > maxJitter) {
         clearTimeout(holdTimerRef.current);
         return;
       }
 
-      // Đang trong chế độ xoay 3D quanh điểm (Pivot Orbit)
+      // Đang trong chế độ xoay quanh điểm (Pivot Orbit)
       if (isOrbitingRef.current) {
         const { lng, lat } = startPointerRef.current;
         const initialBearing = startCameraRef.current.bearing;
         const initialPitch = startCameraRef.current.pitch;
 
         // Di ngang -> Xoay góc la bàn (bearing); Di dọc -> Thay đổi độ nghiêng phối cảnh 3D (pitch)
-        const newBearing = (initialBearing + dx * 0.45) % 360;
+        const newBearing = initialBearing + dx * 0.45;
         const newPitch = Math.max(0, Math.min(80, initialPitch - dy * 0.35));
 
         // Xoay camera tự nhiên quanh chính tọa độ mặt đất được nhấn giữ
@@ -574,7 +642,10 @@ export default function CadastralMap({
         isOrbitingRef.current = false;
         setIsOrbiting(false);
         setOrbitPivotScreen(null);
-        map.dragPan.enable();
+
+        if (!isRotateModeRef.current) {
+          map.dragPan.enable();
+        }
 
         setTimeout(() => {
           didOrbitRef.current = false;
@@ -590,6 +661,7 @@ export default function CadastralMap({
 
     return () => {
       clearTimeout(holdTimerRef.current);
+      container.removeEventListener('contextmenu', handleContextMenu);
       container.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
@@ -1006,6 +1078,25 @@ export default function CadastralMap({
           <span>{viewMode === '3D' ? '3D Địa hình' : '2D Phẳng'}</span>
         </button>
 
+        {/* Nút bật/tắt Chế độ Xoay quanh điểm */}
+        <button
+          onClick={() => setIsRotateMode((prev) => !prev)}
+          type="button"
+          className={`px-3 py-1.5 rounded-2xl font-extrabold text-xs shadow-2xl border flex items-center gap-1.5 transition-all cursor-pointer backdrop-blur-md ${
+            isRotateMode
+              ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white border-amber-300 ring-2 ring-amber-400/50 shadow-amber-500/30'
+              : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
+          }`}
+          title={
+            isRotateMode
+              ? 'Đang bật Chế độ xoay quanh điểm (Bấm để tắt)'
+              : 'Bật Chế độ xoay: Giữ 1 điểm rồi di chuột hoặc di ngón tay để xoay quanh điểm'
+          }
+        >
+          <RotateCw className={`w-3.5 h-3.5 ${isRotateMode ? 'animate-spin duration-3000 text-white' : 'text-amber-400'}`} />
+          <span>{isRotateMode ? 'Đang bật Xoay ⚓' : 'Xoay bản đồ'}</span>
+        </button>
+
         {/* Nút tăng giảm độ nhấp nhô đồi núi 3D (2.5x -> 3.5x -> 5.0x) */}
         {viewMode === '3D' && (
           <button
@@ -1073,11 +1164,25 @@ export default function CadastralMap({
         </button>
       </div>
 
-      {/* GỢI Ý THAO TÁC 3D (NHẤN GIỮ ĐỂ XOAY) */}
-      {viewMode === '3D' && !isOrbiting && (
+      {/* THÔNG BÁO HƯỚNG DẪN KHI BẬT CHẾ ĐỘ XOAY */}
+      {isRotateMode && (
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-[1100] bg-gradient-to-r from-amber-600/95 to-orange-600/95 border border-amber-300/60 text-white text-xs font-bold px-4 py-1.5 rounded-full shadow-2xl backdrop-blur-md flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+          <RotateCw className="w-4 h-4 animate-spin duration-3000" />
+          <span>Chạm giữ 1 điểm trên bản đồ rồi di ngón tay / chuột để xoay</span>
+          <button
+            onClick={() => setIsRotateMode(false)}
+            className="ml-2 bg-black/30 hover:bg-black/50 text-white px-2 py-0.5 rounded-full text-[11px] font-black cursor-pointer"
+          >
+            Tắt
+          </button>
+        </div>
+      )}
+
+      {/* GỢI Ý THAO TÁC XOAY */}
+      {!isRotateMode && !isOrbiting && (
         <div className="absolute top-[98px] right-3.5 z-[1000] hidden sm:flex items-center gap-1.5 bg-slate-950/85 border border-cyan-500/40 text-cyan-200 text-[11px] px-3 py-1 rounded-full shadow-lg backdrop-blur-md pointer-events-none animate-in fade-in slide-in-from-top-1">
           <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
-          <span>Nhấn giữ 1 điểm trên bản đồ rồi di tay để xoay 3D quanh điểm đó</span>
+          <span>Giữ 1 điểm rồi di chuột / ngón tay để xoay (hoặc bật nút Xoay bản đồ)</span>
         </div>
       )}
 
@@ -1105,8 +1210,26 @@ export default function CadastralMap({
         </span>
       </div>
 
-      {/* NÚT TRÒN ĐỊNH VỊ GPS VỊ TRÍ ĐANG ĐỨNG (GOOGLE EARTH STYLE - BÁM BƯỚC CHÂN) */}
-      <div className="absolute bottom-20 right-3.5 sm:bottom-24 sm:right-4 z-[1000] flex flex-col items-end gap-1.5">
+      {/* NÚT TRÒN TIỆN ÍCH XOAY & ĐỊNH VỊ GPS VỊ TRÍ ĐANG ĐỨNG (GOOGLE EARTH STYLE) */}
+      <div className="absolute bottom-20 right-3.5 sm:bottom-24 sm:right-4 z-[1000] flex flex-col items-end gap-2">
+        {/* Nút tròn Chế độ Xoay quanh điểm */}
+        <button
+          type="button"
+          onClick={() => setIsRotateMode((prev) => !prev)}
+          className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full shadow-2xl border flex items-center justify-center active:scale-90 transition-all cursor-pointer ${
+            isRotateMode
+              ? 'bg-gradient-to-tr from-amber-500 to-orange-500 text-white border-amber-300 ring-4 ring-amber-500/40 shadow-amber-500/40'
+              : 'bg-slate-900/90 text-amber-400 border-slate-700 hover:bg-slate-800'
+          }`}
+          title={
+            isRotateMode
+              ? 'Chế độ xoay quanh điểm đang BẬT: Chạm 1 điểm rồi di tay để xoay (Bấm để tắt)'
+              : 'Bật Chế độ xoay: Giữ 1 điểm rồi di chuột / ngón tay để xoay quanh điểm'
+          }
+        >
+          <RotateCw className={`w-5 h-5 ${isRotateMode ? 'animate-spin duration-3000 text-white' : 'text-amber-400'}`} />
+        </button>
+
         {!userLocation && (
           <div
             onClick={handleFlyToUserLocation}
