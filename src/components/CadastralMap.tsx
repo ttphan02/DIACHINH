@@ -119,6 +119,12 @@ export default function CadastralMap({
 
   // Mặc định khởi tạo chế độ 3D Earth với địa hình đồi núi rõ rệt
   const [viewMode, setViewMode] = useState<'2D' | '3D'>('3D');
+  // Hệ số khuếch đại độ cao 3D (3.5x mặc định để thấy rõ đồi dốc ở quy mô thửa đất)
+  const [elevationLevel, setElevationLevel] = useState<number>(3.5);
+  const elevationLevelRef = useRef(elevationLevel);
+  useEffect(() => {
+    elevationLevelRef.current = elevationLevel;
+  }, [elevationLevel]);
   // Góc xoay hiện tại (độ) để hiển thị la bàn
   const [bearing, setBearing] = useState<number>(0);
   // Loại lớp vệ tinh Google Earth: Hybrid (có đường/nhãn) hoặc Pure (ảnh thuần túy)
@@ -215,6 +221,21 @@ export default function CadastralMap({
             minzoom: 0,
             maxzoom: 22,
           },
+          // Lớp đổ bóng địa hình quang học (Hillshade) làm nổi rõ mồn một các gờ núi, dốc cao và thung lũng thấp
+          {
+            id: 'terrain-hillshade',
+            type: 'hillshade',
+            source: 'terrain-dem',
+            minzoom: 0,
+            maxzoom: 22,
+            paint: {
+              'hillshade-exaggeration': 0.85,
+              'hillshade-illumination-direction': 315,
+              'hillshade-shadow-color': '#020617',
+              'hillshade-highlight-color': '#ffffff',
+              'hillshade-accent-color': '#0369a1',
+            },
+          },
           // Lớp đường nối thửa lân cận & thửa gộp
           {
             id: 'connections-line',
@@ -290,10 +311,10 @@ export default function CadastralMap({
             },
           },
         ],
-        // Địa hình 3D thực tế với độ lồi lõm (exaggeration) 2.0x giúp thấy rõ từng đỉnh đồi, khe suối
+        // Địa hình 3D thực tế với độ lồi lõm (exaggeration) 3.5x giúp thấy rõ từng đỉnh đồi, khe suối
         terrain: {
           source: 'terrain-dem',
-          exaggeration: 2.0,
+          exaggeration: 3.5,
         },
       },
       center: [108.493, 12.527],
@@ -495,7 +516,7 @@ export default function CadastralMap({
         didOrbitRef.current = true;
 
         // Tự động bật địa hình 3D và góc nghiêng nếu đang ở 2D
-        map.setTerrain({ source: 'terrain-dem', exaggeration: 2.0 });
+        map.setTerrain({ source: 'terrain-dem', exaggeration: elevationLevelRef.current });
         if (map.getPitch() < 15) {
           map.easeTo({ pitch: 60, duration: 400 });
         }
@@ -841,8 +862,8 @@ export default function CadastralMap({
 
     if (viewMode === '2D') {
       setViewMode('3D');
-      // Kích hoạt địa hình 3D thực tế với độ cao gấp đôi (2.0x) để thấy rõ đỉnh núi, khe đồi
-      map.setTerrain({ source: 'terrain-dem', exaggeration: 2.0 });
+      // Kích hoạt địa hình 3D thực tế với độ cao khuếch đại để thấy rõ đỉnh núi, khe đồi
+      map.setTerrain({ source: 'terrain-dem', exaggeration: elevationLevel });
       map.easeTo({
         pitch: 62,
         duration: 900,
@@ -857,7 +878,18 @@ export default function CadastralMap({
         duration: 800,
       });
     }
-  }, [viewMode]);
+  }, [viewMode, elevationLevel]);
+
+  // Tùy chỉnh mức độ nhấp nhô 3D (2.5x -> 3.5x -> 5.0x)
+  const handleCycleElevation = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const next = elevationLevel === 2.5 ? 3.5 : elevationLevel === 3.5 ? 5.0 : 2.5;
+    setElevationLevel(next);
+    if (viewMode === '3D') {
+      map.setTerrain({ source: 'terrain-dem', exaggeration: next });
+    }
+  }, [elevationLevel, viewMode]);
 
   // Bấm vào la bàn: Reset góc xoay về hướng Bắc (0 độ)
   const handleResetNorth = useCallback(() => {
@@ -973,6 +1005,19 @@ export default function CadastralMap({
           )}
           <span>{viewMode === '3D' ? '3D Địa hình' : '2D Phẳng'}</span>
         </button>
+
+        {/* Nút tăng giảm độ nhấp nhô đồi núi 3D (2.5x -> 3.5x -> 5.0x) */}
+        {viewMode === '3D' && (
+          <button
+            onClick={handleCycleElevation}
+            type="button"
+            className="hidden xs:flex items-center gap-1 px-2.5 py-1.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-cyan-500/40 text-cyan-200 text-xs font-bold shadow-xl cursor-pointer transition backdrop-blur-md"
+            title="Bấm để tăng độ cao nhấp nhô đồi núi (2.5x -> 3.5x -> 5.0x)"
+          >
+            <Mountain className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Độ nổi {elevationLevel}x</span>
+          </button>
+        )}
 
         {/* Nút La bàn (Compass) - Xoay tự động theo góc nhìn, bấm để về Bắc */}
         <button
