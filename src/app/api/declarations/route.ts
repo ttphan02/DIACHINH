@@ -245,47 +245,50 @@ async function saveDeclarationsToR2(payload: StoragePayload): Promise<{ success:
   return { success: false, error: lastError || 'Không thể ghi vào Cloudflare R2' };
 }
 
-// GET: Lấy toàn bộ phiếu kê khai đã đồng bộ trên hệ thống (ưu tiên Cloudflare D1 SQL)
+// GET: Lấy toàn bộ phiếu kê khai đã đồng bộ trên hệ thống (đồng bộ chặt chẽ giữa D1 và R2)
 export async function GET() {
-  // 1. Ưu tiên đọc từ Cloudflare D1 SQL Database (~3ms)
-  try {
-    const db = await getD1Binding();
-    if (db) {
-      const d1Data = await getAllD1Declarations(db);
-      if (d1Data && d1Data.declaredCodes.length > 0) {
-        return NextResponse.json(
-          {
-            success: true,
-            source: 'D1_DATABASE',
-            declaredCodes: d1Data.declaredCodes,
-            declarationsMap: d1Data.declarationsMap,
-            cellEdits: d1Data.cellEdits || {},
-            updatedAt: d1Data.updatedAt,
-          },
-          {
-            headers: {
-              'Cache-Control': 'no-cache, no-store, must-revalidate',
-            },
-          }
-        );
-      }
-    }
-  } catch (d1Err) {
-    console.warn('D1 Database GET fallback sang R2:', d1Err);
-  }
-
-  // 2. Fallback đọc từ Cloudflare R2
   await getR2Binding();
   try {
-    const data = await getDeclarationsFromR2();
+    const r2Data = await getDeclarationsFromR2();
+    const db = await getD1Binding();
+
+    if (db) {
+      try {
+        const d1Data = await getAllD1Declarations(db);
+        const r2Time = r2Data.updatedAt ? new Date(r2Data.updatedAt).getTime() : 0;
+        const d1Time = d1Data?.updatedAt ? new Date(d1Data.updatedAt).getTime() : 0;
+
+        // Nếu D1 có dữ liệu và mới hơn hoặc bằng R2 thì trả về từ D1 siêu tốc
+        if (d1Data && d1Data.declaredCodes.length > 0 && d1Time >= r2Time) {
+          return NextResponse.json(
+            {
+              success: true,
+              source: 'D1_DATABASE',
+              declaredCodes: d1Data.declaredCodes,
+              declarationsMap: d1Data.declarationsMap,
+              cellEdits: d1Data.cellEdits || {},
+              updatedAt: d1Data.updatedAt,
+            },
+            {
+              headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+              },
+            }
+          );
+        }
+      } catch (d1Err) {
+        console.warn('D1 Database check lỗi, dùng R2:', d1Err);
+      }
+    }
+
     return NextResponse.json(
       {
         success: true,
         source: 'R2_STORAGE',
-        declaredCodes: data.declaredCodes,
-        declarationsMap: data.declarationsMap,
-        cellEdits: data.cellEdits || {},
-        updatedAt: data.updatedAt,
+        declaredCodes: r2Data.declaredCodes,
+        declarationsMap: r2Data.declarationsMap,
+        cellEdits: r2Data.cellEdits || {},
+        updatedAt: r2Data.updatedAt,
       },
       {
         headers: {
