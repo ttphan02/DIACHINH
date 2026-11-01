@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredVa
 import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
-import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, normalizeNguonGoc, NGUON_GOC_OPTIONS, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName } from '@/utils/textHelpers';
+import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, normalizeNguonGoc, NGUON_GOC_OPTIONS, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName } from '@/utils/textHelpers';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
 import { broadcastRealtimeEvent, onRealtimeEvent } from '@/utils/realtimeSync';
 import dynamic from 'next/dynamic';
@@ -110,6 +110,7 @@ export default function DashboardPage() {
 
   // Google Sheets & Realtime state
   const [ggsCodes, setGgsCodes] = useState<Set<string>>(new Set());
+  const [ggsParcelsMap, setGgsParcelsMap] = useState<Record<string, any>>({});
   const [isSyncingGgs, setIsSyncingGgs] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [declaredParcelCodes, setDeclaredParcelCodes] = useState<Set<string>>(new Set());
@@ -1322,11 +1323,26 @@ export default function DashboardPage() {
   // 3. Tính toán trạng thái thực tế của từng thửa
   const computedParcels = useMemo(() => {
     return parcels.map((p) => {
-      const isOnGgs = ggsCodes.has(p.ma_thua) || DIGITIZED_SET.has(p.ma_thua);
-      const isDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(declarationsMap[p.ma_thua]);
+      const savedDecl = declarationsMap[p.ma_thua];
+      const ggsInfo = ggsParcelsMap[p.ma_thua];
+
+      let isGgsMatched = false;
+      if (ggsCodes.has(p.ma_thua)) {
+        if (!savedDecl) {
+          isGgsMatched = true;
+        } else {
+          const dName = cleanStrictName(savedDecl.chu_dat_ten || savedDecl.chu_ho);
+          const gName = cleanStrictName(ggsInfo?.chu_ho);
+          const hasSameName = Boolean(dName && gName && dName === gName);
+          isGgsMatched = hasSameName;
+        }
+      }
+
+      const isDigitized = DIGITIZED_SET.has(p.ma_thua) || isGgsMatched;
+      const isOnGgs = isDigitized;
+      const isDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(savedDecl);
 
       // Gộp thêm dữ liệu kê khai mới nhất từ LocalStorage (nếu có)
-      const savedDecl = declarationsMap[p.ma_thua];
       const mergedChuHo = savedDecl?.chu_dat_ten || p.chu_ho;
       const mergedCccd = savedDecl?.chu_dat_cccd || p.cccd;
 
@@ -1352,7 +1368,7 @@ export default function DashboardPage() {
         is_declared: isDeclared,
       };
     });
-  }, [parcels, ggsCodes, declaredParcelCodes, declarationsMap]);
+  }, [parcels, ggsCodes, ggsParcelsMap, declaredParcelCodes, declarationsMap]);
 
   // Kiểm tra một thửa đất có đầy đủ và hợp lệ toàn bộ thông tin kê khai hay chưa
   const isParcelInfoCompleteAndValid = useCallback((info: {
@@ -1413,7 +1429,7 @@ export default function DashboardPage() {
   // Danh sách các thửa chưa số hóa trên GGS
   const nonGgsParcels = useMemo(() => {
     return computedParcels.filter(
-      (p) => p.trang_thai !== 'DA_SO_HOA_XANH' && !ggsCodes.has(p.ma_thua) && !DIGITIZED_SET.has(p.ma_thua)
+      (p) => p.trang_thai !== 'DA_SO_HOA_XANH' && !DIGITIZED_SET.has(p.ma_thua)
     );
   }, [computedParcels, ggsCodes]);
 

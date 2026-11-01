@@ -439,7 +439,7 @@ export async function executeSyncToGoogleSheet(
       if (!cccd && declNvKey && nameAndVillageToCccd.has(declNvKey)) {
         cccd = nameAndVillageToCccd.get(declNvKey)!;
         cccdSource = 'Khớp tên GGS cùng thôn buôn';
-      } else if (!cccd && ggsP && ggsP.cccd) {
+      } else if (!cccd && ggsP && ggsP.cccd && chuHoStrict && chuHoStrict === cleanStrictName(ggsP.chu_ho)) {
         cccd = cleanCccd(ggsP.cccd);
         if (cccd) cccdSource = 'Khớp thửa GGS';
       }
@@ -499,8 +499,14 @@ export async function executeSyncToGoogleSheet(
       };
 
       // GIAI ĐOẠN 4: ĐÃ LÊN GGS CHÍNH (ĐÃ GIẢI QUYẾT)
-      // NGUYÊN TẮC: Thửa có trên Trangtinh1 là 100% ĐÃ GIẢI QUYẾT!
-      if (ggsCodes.has(maThua)) {
+      // NGUYÊN TẮC: Thửa có trên Trangtinh1 CHỈ ĐƯỢC COI LÀ ĐÃ GIẢI QUYẾT NẾU CÙNG CHỦ SỞ HỮU!
+      // Nếu tên chủ đất khác với trên GGS -> Đây là thửa chuyển nhượng / kê khai mới thực địa, tiếp tục quy trình kê khai!
+      const gCccd = cleanCccd(ggsP?.cccd);
+      const isSameCccd = Boolean(cccd && gCccd && cleanCccd(cccd) === gCccd);
+      const gName = cleanStrictName(ggsP?.chu_ho);
+      const isSameName = Boolean(chuHoStrict && gName && chuHoStrict === gName);
+
+      if (ggsCodes.has(maThua) && isSameName) {
         if (ggsP) {
           if (ggsP.chu_ho) item.chu_ho = ggsP.chu_ho;
           if (ggsP.cccd) item.cccd = cleanCccd(ggsP.cccd);

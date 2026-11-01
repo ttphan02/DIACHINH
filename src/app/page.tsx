@@ -11,7 +11,7 @@ import CccdUploadBottomSheet from '@/components/CccdUploadBottomSheet';
 import CccdCollectPanel from '@/components/CccdCollectPanel';
 import CadreNameModal from '@/components/CadreNameModal';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
-import { isPersonName } from '@/utils/textHelpers';
+import { isPersonName, cleanStrictName } from '@/utils/textHelpers';
 import {
   getStoredDeclarations,
   saveOrUpdateDeclaration,
@@ -392,8 +392,23 @@ export default function Home() {
           setSelectedParcel((curr) => {
             if (!curr) return null;
             if (mergedCodesSet.has(curr.ma_thua) || curr.is_declared || DIGITIZED_SET.has(curr.ma_thua)) {
-              const isOnGgs = ggsCodes.has(curr.ma_thua) || DIGITIZED_SET.has(curr.ma_thua);
               const decl = mergedMap[curr.ma_thua];
+              const ggsInfo = ggsParcelsMap[curr.ma_thua];
+              let isGgsMatched = false;
+              if (ggsCodes.has(curr.ma_thua)) {
+                if (!decl) {
+                  isGgsMatched = true;
+                } else {
+                  const dCccd = (decl.chu_dat_cccd || decl.cccd || '').replace(/\D/g, '');
+                  const gCccd = (ggsInfo?.cccd || '').replace(/\D/g, '');
+                  const hasSameCccd = Boolean(dCccd.length >= 9 && gCccd.length >= 9 && dCccd === gCccd);
+                  const dName = cleanStrictName(decl.chu_dat_ten || decl.chu_ho);
+                  const gName = cleanStrictName(ggsInfo?.chu_ho);
+                  const hasSameName = Boolean(dName && gName && dName === gName);
+                  isGgsMatched = hasSameCccd || hasSameName;
+                }
+              }
+              const isOnGgs = DIGITIZED_SET.has(curr.ma_thua) || isGgsMatched;
               return {
                 ...curr,
                 chu_ho: decl?.chu_dat_ten || curr.chu_ho,
@@ -594,14 +609,30 @@ export default function Home() {
         return true;
       })
       .map((p) => {
-      const isDigitized = (isGgsLoaded ? ggsCodes.has(p.ma_thua) : false) || DIGITIZED_SET.has(p.ma_thua);
+      const savedDecl = declarationsMap[p.ma_thua];
+      const ggsInfo = ggsParcelsMap[p.ma_thua];
+
+      let isGgsMatched = false;
+      if (isGgsLoaded && ggsCodes.has(p.ma_thua)) {
+        if (!savedDecl) {
+          isGgsMatched = true;
+        } else {
+          const dCccd = (savedDecl.chu_dat_cccd || savedDecl.cccd || '').replace(/\D/g, '');
+          const gCccd = (ggsInfo?.cccd || '').replace(/\D/g, '');
+          const hasSameCccd = Boolean(dCccd.length >= 9 && gCccd.length >= 9 && dCccd === gCccd);
+          const dName = cleanStrictName(savedDecl.chu_dat_ten || savedDecl.chu_ho);
+          const gName = cleanStrictName(ggsInfo?.chu_ho);
+          const hasSameName = Boolean(dName && gName && dName === gName);
+          isGgsMatched = hasSameCccd || hasSameName;
+        }
+      }
+
+      const isDigitized = DIGITIZED_SET.has(p.ma_thua) || isGgsMatched;
       const isOnGgs = isDigitized;
-      const isLocallyDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(declarationsMap[p.ma_thua]);
+      const isLocallyDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(savedDecl);
 
       // ĐỐI VỚI THỬA ĐÃ CÓ TRÊN GOOGLE SHEETS HOẶC ĐÃ KÊ KHAI:
       // ƯU TIÊN LẤY TÊN CHỦ THỬA VÀ CCCD TỪ GOOGLE SHEETS (loại bỏ hoàn toàn mã geohash rác w6jp...)
-      const ggsInfo = ggsParcelsMap[p.ma_thua];
-      const savedDecl = declarationsMap[p.ma_thua];
 
       let chu_ho = p.chu_ho;
       let cccd = p.cccd;
@@ -1052,7 +1083,18 @@ export default function Home() {
       setIsPickingAdditional(false);
 
       if (selectedParcel && selectedParcel.ma_thua === formData.ma_thua) {
-        const isOnGgs = ggsCodes.has(formData.ma_thua) || DIGITIZED_SET.has(formData.ma_thua);
+        const ggsInfo = ggsParcelsMap[formData.ma_thua];
+        let isGgsMatched = false;
+        if (ggsCodes.has(formData.ma_thua)) {
+          const dCccd = (formData.chu_dat_cccd || '').replace(/\D/g, '');
+          const gCccd = (ggsInfo?.cccd || '').replace(/\D/g, '');
+          const hasSameCccd = Boolean(dCccd.length >= 9 && gCccd.length >= 9 && dCccd === gCccd);
+          const dName = cleanStrictName(formData.chu_dat_ten);
+          const gName = cleanStrictName(ggsInfo?.chu_ho);
+          const hasSameName = Boolean(dName && gName && dName === gName);
+          isGgsMatched = hasSameCccd || hasSameName;
+        }
+        const isOnGgs = DIGITIZED_SET.has(formData.ma_thua) || isGgsMatched;
         setSelectedParcel({
           ...selectedParcel,
           chu_ho: formData.chu_dat_ten || selectedParcel.chu_ho,
