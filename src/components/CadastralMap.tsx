@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Parcel, NeighborParcel, AdditionalParcel } from '@/types';
 import { extractShortOwnerName } from '@/utils/geo';
-import { Maximize2, LocateFixed, Loader2, Compass } from 'lucide-react';
+import { Maximize2, LocateFixed, Loader2 } from 'lucide-react';
 import type { Map as LeafletMap, LayerGroup } from 'leaflet';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
 const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
@@ -39,7 +39,6 @@ export default function CadastralMap({
   onToggleLocation,
   isBottomPanelActive = true,
 }: CadastralMapProps) {
-  const outerContainerRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<LeafletMap | null>(null);
   const leafletRef = useRef<any>(null);
@@ -50,37 +49,10 @@ export default function CadastralMap({
   const userMarkerRef = useRef<any>(null);
   const lastCenteredParcelRef = useRef<string | null>(null);
   const [dotsCount, setDotsCount] = useState(0);
-
-  // Kích thước khung chứa để bao phủ 100% màn hình khi xoay (Đường kính đường tròn ngoại tiếp D x D)
-  const [containerDim, setContainerDim] = useState<{ w: number; h: number; d: number }>({
-    w: typeof window !== 'undefined' ? window.innerWidth : 1920,
-    h: typeof window !== 'undefined' ? window.innerHeight : 1080,
-    d: typeof window !== 'undefined' ? Math.ceil(Math.hypot(window.innerWidth, window.innerHeight)) + 60 : 2260,
-  });
-
   // Chế độ tự động di chuyển màn hình bám theo bước chân người dùng (giống Google Maps)
   const [isFollowingUser, setIsFollowingUser] = useState(false);
 
-  // Góc xoay bản đồ (độ)
-  const [bearing, setBearing] = useState<number>(0);
-  const bearingRef = useRef<number>(0);
-  useEffect(() => {
-    bearingRef.current = bearing;
-  }, [bearing]);
-
-  // Trạng thái đang xoay quanh điểm
-  const [isOrbiting, setIsOrbiting] = useState<boolean>(false);
-  const isOrbitingRef = useRef<boolean>(false);
-
-  // Tọa độ tâm neo xoay (screen pixel x, y)
-  const [pivotScreen, setPivotScreen] = useState<{ x: number; y: number } | null>(null);
-  const pivotScreenRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-
-  const holdTimerRef = useRef<any>(null);
-  const startPointerRef = useRef<{ x: number; y: number; startBearing: number; startAngle: number } | null>(null);
-  const didOrbitRef = useRef<boolean>(false);
-
-  // Batch Canvas Layer refs (Vẽ hàng loạt 11.280 điểm chỉ trong 4 lệnh GPU thay vì 11.000 layer)
+  // Batch Canvas Layer refs (Vẽ hàng loạt 18.000 điểm chỉ trong 4 lệnh GPU thay vì 18.000 layer)
   const validParcelsRef = useRef<Parcel[]>([]);
   const renderedPointsRef = useRef<RenderedPoint[]>([]);
   const redrawBatchCanvasRef = useRef<(() => void) | null>(null);
@@ -91,28 +63,6 @@ export default function CadastralMap({
   useEffect(() => {
     onSelectParcelRef.current = onSelectParcel;
   }, [onSelectParcel]);
-
-  // Đo và cập nhật kích thước khung bao D x D tự động khi co giãn trình duyệt
-  useEffect(() => {
-    const updateDim = () => {
-      if (!outerContainerRef.current) return;
-      const rect = outerContainerRef.current.getBoundingClientRect();
-      const w = rect.width || window.innerWidth;
-      const h = rect.height || window.innerHeight;
-      const d = Math.ceil(Math.hypot(w, h)) + 60;
-      setContainerDim({ w, h, d });
-      if (map) {
-        map.invalidateSize();
-        if (redrawBatchCanvasRef.current) {
-          redrawBatchCanvasRef.current();
-        }
-      }
-    };
-
-    updateDim();
-    window.addEventListener('resize', updateDim);
-    return () => window.removeEventListener('resize', updateDim);
-  }, [map]);
 
   // 1. Khởi tạo Leaflet Map với lớp ảnh vệ tinh Google Hybrid & Batch Canvas 60FPS
   useEffect(() => {
@@ -127,66 +77,78 @@ export default function CadastralMap({
       }
 
       leafletRef.current = L;
+      const canvasRenderer = L.canvas({ padding: 0.3 });
+      canvasRendererRef.current = canvasRenderer;
 
-      // Leaflet map instance tối ưu phần cứng
       const leafletMap = L.map(mapContainerRef.current, {
         center: [12.527, 108.493],
-        zoom: 14,
+        zoom: 13,
         zoomControl: false,
-        attributionControl: false,
         preferCanvas: true,
-        fadeAnimation: false,
+        renderer: canvasRenderer,
         zoomAnimation: true,
+        fadeAnimation: true,
         markerZoomAnimation: true,
         inertia: true,
         inertiaDeceleration: 3000,
+        inertiaMaxSpeed: 2500,
+        worldCopyJump: false,
       });
 
-      // Lớp ảnh vệ tinh Google Maps Hybrid (Trình duyệt tự động lưu cache vĩnh viễn trên RAM & ổ đĩa)
-      const googleHybrid = L.tileLayer(
-        'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-        {
-          subdomains: ['0', '1', '2', '3'],
-          maxZoom: 22,
-          maxNativeZoom: 20,
-          updateWhenIdle: false,
-          updateWhenZooming: true,
-          keepBuffer: 16, // Giữ sẵn nhiều tile trong RAM trình duyệt để di chuyển không bị tải lại
+      // Khi người dùng chủ động lấy tay kéo bản đồ -> tắt tự động khóa tâm GPS để tự do xem thửa khác
+      leafletMap.on('dragstart', () => {
+        setIsFollowingUser(false);
+        if (hoverTooltipRef.current) {
+          hoverTooltipRef.current.style.display = 'none';
         }
-      );
-      googleHybrid.addTo(leafletMap);
+      });
 
-      // Tạo một thẻ <canvas> độc quyền duy nhất phủ lên bản đồ để vẽ hàng vạn thửa đất
-      const PADDING = 0.5;
-      const batchCanvas = document.createElement('canvas');
-      batchCanvas.className = 'leaflet-zoom-animated pointer-events-none';
+      // Điều khiển thu phóng góc dưới bên phải
+      L.control.zoom({ position: 'bottomright' }).addTo(leafletMap);
+
+      // Ảnh vệ tinh kèm đường & địa danh Google Hybrid (Tối ưu bộ nhớ đệm tile mượt như Google Maps)
+      L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        maxZoom: 21,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps',
+        updateWhenIdle: false,
+        updateWhenZooming: false,
+        keepBuffer: 4,
+      }).addTo(leafletMap);
+
+      // ============================================================================
+      // LỚP BATCH CANVAS TÙY CHỈNH SIÊU MƯỢT (60 FPS TRÊN MỌI ĐIỆN THOẠI YẾU)
+      // Thay vì tạo 9.350 đối tượng L.circleMarker gây nghẽn CPU khi kéo/zoom,
+      // ta dùng 1 thẻ <canvas> duy nhất với Viewport Culling + 4 lệnh vẽ gộp theo màu.
+      // ============================================================================
+      const PADDING = 0.25;
+      const batchCanvas = L.DomUtil.create('canvas', 'leaflet-zoom-animated') as HTMLCanvasElement;
+      batchCanvas.style.pointerEvents = 'none';
       batchCanvas.style.position = 'absolute';
-      batchCanvas.style.left = '0px';
-      batchCanvas.style.top = '0px';
-      batchCanvas.style.zIndex = '400';
-      batchCanvas.style.transformOrigin = '0 0';
+      batchCanvas.style.top = '0';
+      batchCanvas.style.left = '0';
+      batchCanvas.style.zIndex = '250';
 
-      const mapPanes = leafletMap.getPanes();
-      const overlayPane = mapPanes.overlayPane;
+      const overlayPane = leafletMap.getPanes().overlayPane;
       overlayPane.appendChild(batchCanvas);
 
-      const ctx = batchCanvas.getContext('2d', { alpha: true });
-
-      let currentTopLeft = L.point(0, 0);
+      let canvasCenter = leafletMap.getCenter();
+      let canvasZoom = leafletMap.getZoom();
 
       const updateTransform = (center: any, zoom: number) => {
-        const scale = leafletMap.getZoomScale(zoom, leafletMap.getZoom());
-        const viewHalf = leafletMap.getSize().divideBy(2);
-        const currentCenterPoint = leafletMap.project(leafletMap.getCenter(), zoom);
-        const targetCenterPoint = leafletMap.project(center, zoom);
-        const offset = targetCenterPoint.subtract(currentCenterPoint);
+        const scale = leafletMap.getZoomScale(zoom, canvasZoom);
+        const position = L.DomUtil.getPosition(batchCanvas);
+        const viewHalf = leafletMap.getSize().multiplyBy(0.5 + PADDING);
+        const currentCenterPoint = leafletMap.project(canvasCenter, zoom);
+        const destCenterPoint = leafletMap.project(center, zoom);
+        const centerOffset = destCenterPoint.subtract(currentCenterPoint);
+        const topLeftOffset = viewHalf
+          .multiplyBy(-scale)
+          .add(position)
+          .add(viewHalf)
+          .subtract(centerOffset);
 
-        const pos = currentTopLeft
-          .multiplyBy(scale)
-          .add(viewHalf.multiplyBy(1 - scale))
-          .subtract(offset);
-
-        L.DomUtil.setTransform(batchCanvas, pos, scale);
+        L.DomUtil.setTransform(batchCanvas, topLeftOffset, scale);
       };
 
       const onZoomAnim = (ev: any) => {
@@ -194,7 +156,7 @@ export default function CadastralMap({
       };
 
       const redrawBatchCanvas = () => {
-        if (!leafletMap || !(leafletMap as any)._loaded || !ctx) return;
+        if (!leafletMap || !(leafletMap as any)._loaded) return;
 
         const size = leafletMap.getSize();
         if (size.x <= 0 || size.y <= 0) return;
@@ -214,81 +176,99 @@ export default function CadastralMap({
         }
 
         const topLeftLayerPt = leafletMap.containerPointToLayerPoint([-padX, -padY]);
-        currentTopLeft = topLeftLayerPt;
         L.DomUtil.setPosition(batchCanvas, topLeftLayerPt);
-        L.DomUtil.setTransform(batchCanvas, topLeftLayerPt, 1);
+        canvasCenter = leafletMap.getCenter();
+        canvasZoom = leafletMap.getZoom();
+
+        const ctx = batchCanvas.getContext('2d');
+        if (!ctx) return;
 
         ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.clearRect(0, 0, batchCanvas.width, batchCanvas.height);
-        ctx.scale(dpr, dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, width, height);
 
-        const zoom = leafletMap.getZoom();
+        const list = validParcelsRef.current;
+        if (list.length === 0) {
+          renderedPointsRef.current = [];
+          ctx.restore();
+          return;
+        }
+
+        // 1. Viewport Culling: Chỉ xét những thửa nằm trong vùng nhìn thấy (+25% lề)
         const bounds = leafletMap.getBounds().pad(PADDING);
-        const allParcels = validParcelsRef.current;
-        const rendered: RenderedPoint[] = [];
+        const south = bounds.getSouth();
+        const north = bounds.getNorth();
+        const west = bounds.getWest();
+        const east = bounds.getEast();
 
-        const greenPts: number[] = [];
-        const bluePts: number[] = [];
-        const yellowPts: number[] = [];
-        const whitePts: number[] = [];
-
-        const useGridCull = zoom < 14;
-        const cellSize = 3;
+        // 2. Pixel Grid Deduplication ở mức zoom nhỏ để tránh vẽ chồng hàng nghìn điểm lên cùng 1 pixel
+        const zoom = canvasZoom;
+        const useGridCull = zoom <= 15;
+        const cellSize = zoom <= 12 ? 6 : zoom <= 14 ? 4 : 3;
         const gridCols = useGridCull ? Math.ceil(width / cellSize) + 1 : 0;
         const gridRows = useGridCull ? Math.ceil(height / cellSize) + 1 : 0;
         const grid = useGridCull ? new Uint8Array(gridCols * gridRows) : null;
 
-        for (let i = 0; i < allParcels.length; i++) {
-          const p = allParcels[i];
-          const lat = p.lat!;
-          const lng = p.lng!;
+        // Gom nhóm tọa độ để vẽ hàng loạt:
+        // Gom nhóm tọa độ để vẽ hàng loạt:
+        // - Xanh lá: Đã số hóa (Google Sheets)
+        // - Xanh lam: Đã kê khai (Web)
+        // - Vàng: Chưa kê khai CÓ TÊN (Tên người)
+        // - Trắng: Chưa kê khai CHƯA CÓ TÊN (Không phải tên người, địa danh...)
+        const greenPts: number[] = [];
+        const bluePts: number[] = [];
+        const yellowPts: number[] = [];
+        const whitePts: number[] = [];
+        const visibleScreenPts: RenderedPoint[] = [];
 
-          if (
-            lat < bounds.getSouth() ||
-            lat > bounds.getNorth() ||
-            lng < bounds.getWest() ||
-            lng > bounds.getEast()
-          ) {
-            continue;
+        for (let i = 0; i < list.length; i++) {
+          const p = list[i];
+          const lat = p.lat as number;
+          const lng = p.lng as number;
+
+          if (lat < south || lat > north || lng < west || lng > east) continue;
+
+          const containerPt = leafletMap.latLngToContainerPoint([lat, lng]);
+          const cx = containerPt.x + padX;
+          const cy = containerPt.y + padY;
+
+          if (cx < -10 || cx > width + 10 || cy < -10 || cy > height + 10) continue;
+
+          // Ưu tiên giữ các chấm Đã kê khai (Xanh lam) hoặc Đã số hóa (Xanh lá) không bị lọc lưới ở zoom xa
+          const isHighPriority =
+            p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM' || p.trang_thai === 'DA_SO_HOA_XANH';
+
+          if (grid && !isHighPriority) {
+            const gx = (cx / cellSize) | 0;
+            const gy = (cy / cellSize) | 0;
+            if (gx >= 0 && gx < gridCols && gy >= 0 && gy < gridRows) {
+              const idx = gy * gridCols + gx;
+              if (grid[idx] !== 0) continue;
+              grid[idx] = 1;
+            }
           }
 
-          const cp = leafletMap.latLngToContainerPoint([lat, lng]);
-          const screenX = cp.x + padX;
-          const screenY = cp.y + padY;
-
-          if (screenX < 0 || screenX > width || screenY < 0 || screenY > height) {
-            continue;
-          }
-
-          if (useGridCull && grid) {
-            const gx = (screenX / cellSize) | 0;
-            const gy = (screenY / cellSize) | 0;
-            const gIdx = gy * gridCols + gx;
-            if (grid[gIdx]) continue;
-            grid[gIdx] = 1;
-          }
-
-          rendered.push({
-            x: cp.x,
-            y: cp.y,
+          visibleScreenPts.push({
+            x: containerPt.x,
+            y: containerPt.y,
             parcel: p,
           });
 
-          const tt = p.trang_thai;
-          if (tt === 'DA_SO_HOA_XANH') {
-            greenPts.push(screenX, screenY);
-          } else if (tt === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') {
-            bluePts.push(screenX, screenY);
-          } else if (tt === 'CO_TEN_CHUA_SO_HOA_VANG') {
-            yellowPts.push(screenX, screenY);
+          if (p.trang_thai === 'DA_SO_HOA_XANH') {
+            greenPts.push(cx, cy);
+          } else if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') {
+            bluePts.push(cx, cy);
+          } else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') {
+            yellowPts.push(cx, cy);
           } else {
-            whitePts.push(screenX, screenY);
+            // Thửa chưa kê khai & chưa có tên / địa danh -> màu trắng sáng
+            whitePts.push(cx, cy);
           }
         }
 
-        renderedPointsRef.current = rendered;
+        renderedPointsRef.current = visibleScreenPts;
 
+        // Kích thước chấm tự động thích ứng theo độ thu phóng để nhìn thoáng như Google Maps
         const baseRadius = zoom <= 13 ? 4.2 : zoom <= 15 ? 5.2 : 6.2;
         const twoPi = Math.PI * 2;
 
@@ -314,13 +294,16 @@ export default function CadastralMap({
           ctx.stroke();
         };
 
-        // Vẽ theo thứ tự ưu tiên:
-        // 1. Trắng sáng: Chưa có tên
+        // Vẽ theo thứ tự lớp ưu tiên từ dưới lên:
+        // 1. Trắng sáng: Chưa kê khai & Chưa có tên (Không phải tên người, địa danh...)
         drawBatch(whitePts, '#ffffff', '#475569', baseRadius * 0.95, 1.4);
-        // 2. Vàng nổi bật: Có tên chưa làm
+
+        // 2. Vàng nổi bật: Chưa kê khai & Có tên người
         drawBatch(yellowPts, '#eab308', '#713f12', baseRadius * 0.95, 1.4);
+
         // 3. Xanh lá: Đã số hóa (Google Sheets)
         drawBatch(greenPts, '#10b981', '#064e3b', baseRadius, 1.4);
+
         // 4. Xanh lam: Đã kê khai (Web)
         drawBatch(bluePts, '#2563eb', '#1e3a8a', baseRadius * 1.08, 1.6);
 
@@ -334,50 +317,21 @@ export default function CadastralMap({
 
       // Xử lý Click siêu nhạy trên bản đồ (Tìm điểm gần nhất trong bán kính 22px chỉ mất < 0.05ms)
       leafletMap.on('click', (e: any) => {
-        if (didOrbitRef.current) {
-          didOrbitRef.current = false;
-          return;
-        }
-
-        const outer = outerContainerRef.current;
-        if (!outer) return;
-        const outerRect = outer.getBoundingClientRect();
-        const cx = outerRect.width / 2;
-        const cy = outerRect.height / 2;
-
-        let clickX = e.containerPoint.x;
-        let clickY = e.containerPoint.y;
-
-        // Nếu bản đồ đang xoay: giải mã ngược tọa độ click theo góc xoay quanh tâm
-        const b = bearingRef.current;
-        if (b !== 0 && e.originalEvent) {
-          const screenX = e.originalEvent.clientX - outerRect.left;
-          const screenY = e.originalEvent.clientY - outerRect.top;
-          const rad = (-b * Math.PI) / 180;
-          const cos = Math.cos(rad);
-          const sin = Math.sin(rad);
-          const dx = screenX - cx;
-          const dy = screenY - cy;
-          const unrotScreenX = cx + (dx * cos - dy * sin);
-          const unrotScreenY = cy + (dx * sin + dy * cos);
-
-          const curD = Math.ceil(Math.hypot(outerRect.width, outerRect.height)) + 60;
-          clickX = unrotScreenX - (cx - curD / 2);
-          clickY = unrotScreenY - (cy - curD / 2);
-        }
-
+        const clickX = e.containerPoint.x;
+        const clickY = e.containerPoint.y;
         const pts = renderedPointsRef.current;
-        let bestParcel: Parcel | null = null;
-        let minDistSq = 24 * 24; // Bán kính chạm 24px (dễ bấm trên màn hình điện thoại)
 
-        for (let i = 0; i < pts.length; i++) {
-          const pt = pts[i];
-          const dx = pt.x - clickX;
-          const dy = pt.y - clickY;
-          const dSq = dx * dx + dy * dy;
-          if (dSq < minDistSq) {
-            minDistSq = dSq;
-            bestParcel = pt.parcel;
+        let bestParcel: Parcel | null = null;
+        let minDistSq = 22 * 22; // Bán kính chạm 22px (dễ bấm trên màn hình cảm ứng điện thoại)
+
+        for (let i = pts.length - 1; i >= 0; i--) {
+          const item = pts[i];
+          const dx = item.x - clickX;
+          const dy = item.y - clickY;
+          const distSq = dx * dx + dy * dy;
+          if (distSq <= minDistSq) {
+            minDistSq = distSq;
+            bestParcel = item.parcel;
           }
         }
 
@@ -386,13 +340,89 @@ export default function CadastralMap({
         }
       });
 
-      // LayerGroup cho đường nối thửa lân cận & thửa gộp
+      // Xử lý Hover nhẹ nhàng trên máy tính (Không chạy trên điện thoại cảm ứng)
+      const isTouchDevice =
+        typeof window !== 'undefined' &&
+        (window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window);
+
+      if (!isTouchDevice) {
+        leafletMap.on('mousemove', (e: any) => {
+          const tip = hoverTooltipRef.current;
+          const mx = e.containerPoint.x;
+          const my = e.containerPoint.y;
+          const pts = renderedPointsRef.current;
+
+          let hovered: RenderedPoint | null = null;
+          let minDistSq = 10 * 10;
+
+          for (let i = pts.length - 1; i >= 0; i--) {
+            const item = pts[i];
+            const dx = item.x - mx;
+            const dy = item.y - my;
+            const d2 = dx * dx + dy * dy;
+            if (d2 <= minDistSq) {
+              minDistSq = d2;
+              hovered = item;
+            }
+          }
+
+          const container = leafletMap.getContainer();
+          if (hovered) {
+            container.style.cursor = 'pointer';
+            if (tip) {
+              const p = hovered.parcel;
+              const ownerDisplay = p.chu_ho || 'Không có trong dữ liệu';
+              const statusBadgeHtml =
+                p.trang_thai === 'DA_SO_HOA_XANH'
+                  ? '<span style="color:#10b981;font-weight:700;">🟢 Đã số hóa</span>'
+                  : p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
+                  ? '<span style="color:#60a5fa;font-weight:700;">🔵 Đã kê khai (Web)</span>'
+                  : p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG'
+                  ? '<span style="color:#eab308;font-weight:700;">🟡 Có tên (Chưa làm)</span>'
+                  : '<span style="color:#ffffff;font-weight:700;display:inline-flex;align-items:center;gap:4px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ffffff;border:1px solid #94a3b8;"></span>⚪ Không tên / Địa danh</span>';
+
+              tip.innerHTML = `
+                <div style="font-weight: 800; font-size: 13px; color: #fff; margin-bottom: 2px;">
+                  Thửa ${p.so_thua} • Tờ ${p.to_ban_do}
+                </div>
+                <div style="font-size: 11px; margin-bottom: 2px;">
+                  ${statusBadgeHtml}
+                </div>
+                <div style="color: #94a3b8; font-size: 11px;">
+                  ${p.thon_xa || 'xã Cư Pui'}
+                </div>
+                <div style="color: #e2e8f0; font-size: 11px; margin-top: 3px;">
+                  Chủ: <strong style="color: #38bdf8;">${ownerDisplay}</strong>
+                </div>
+                <div style="color: #4ade80; font-size: 11px; margin-top: 1px;">
+                  ${p.loai_dat || '---'} • ${p.dien_tich ? p.dien_tich + ' m²' : '---'}
+                </div>
+              `;
+              tip.style.display = 'block';
+              tip.style.transform = `translate3d(${Math.round(hovered.x)}px, ${Math.round(hovered.y - 12)}px, 0) translate(-50%, -100%)`;
+            }
+          } else {
+            container.style.cursor = '';
+            if (tip) {
+              tip.style.display = 'none';
+            }
+          }
+        });
+
+        leafletMap.on('mouseout', () => {
+          if (hoverTooltipRef.current) {
+            hoverTooltipRef.current.style.display = 'none';
+          }
+        });
+      }
+
+      // LayerGroup cho mạng lưới thửa lân cận
       const neighborsLayer = L.layerGroup().addTo(leafletMap);
       neighborsLayerRef.current = neighborsLayer;
 
-      // LayerGroup cho vòng xung tròn thửa được chọn
-      const pulseLayer = L.layerGroup().addTo(leafletMap);
-      selectionPulseLayerRef.current = pulseLayer;
+      // LayerGroup cho hiệu ứng thửa đang chọn kê khai (thửa chính + thửa gộp)
+      const selectionPulseLayer = L.layerGroup().addTo(leafletMap);
+      selectionPulseLayerRef.current = selectionPulseLayer;
 
       // LayerGroup cho vị trí GPS người dùng (Google Maps style)
       const userLocationLayer = L.layerGroup().addTo(leafletMap);
@@ -407,136 +437,6 @@ export default function CadastralMap({
     };
   }, []);
 
-  // ============================================================================
-  // TÍNH NĂNG XOAY BẢN ĐỒ QUANH TÂM: GIỮ 1 ĐIỂM RỒI DI CHUỘT / NGÓN TAY ĐỂ XOAY
-  // BẢN ĐỒ LUÔN TRÀN 100% TOÀN MÀN HÌNH - KHÔNG HỞ VIỀN ĐEN Ở MỌI GÓC XOAY
-  // ============================================================================
-  useEffect(() => {
-    const outer = outerContainerRef.current;
-    if (!outer) return;
-
-    const activateOrbit = (clientX: number, clientY: number) => {
-      const rect = outer.getBoundingClientRect();
-      const px = clientX - rect.left;
-      const py = clientY - rect.top;
-      const cx = rect.width / 2;
-      const cy = rect.height / 2;
-
-      setPivotScreen({ x: px, y: py });
-      pivotScreenRef.current = { x: px, y: py };
-
-      isOrbitingRef.current = true;
-      setIsOrbiting(true);
-      didOrbitRef.current = true;
-
-      if (map) {
-        map.dragging.disable();
-      }
-
-      const startAngle = (Math.atan2(py - cy, px - cx) * 180) / Math.PI;
-
-      startPointerRef.current = {
-        x: clientX,
-        y: clientY,
-        startBearing: bearingRef.current,
-        startAngle,
-      };
-
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate(25);
-      }
-    };
-
-    const handlePointerDown = (e: PointerEvent) => {
-      const isRightClick = e.button === 2;
-      const isLeftClick = e.button === 0;
-
-      if (!isRightClick && !isLeftClick && e.pointerType === 'mouse') return;
-
-      if (isRightClick || e.shiftKey) {
-        e.preventDefault();
-        activateOrbit(e.clientX, e.clientY);
-        return;
-      }
-
-      startPointerRef.current = {
-        x: e.clientX,
-        y: e.clientY,
-        startBearing: bearingRef.current,
-        startAngle: 0,
-      };
-      didOrbitRef.current = false;
-
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = setTimeout(() => {
-        activateOrbit(e.clientX, e.clientY);
-      }, 180);
-    };
-
-    const handlePointerMove = (e: PointerEvent) => {
-      if (!startPointerRef.current) return;
-
-      const rect = outer.getBoundingClientRect();
-      const cx = rect.width / 2;
-      const cy = rect.height / 2;
-      const px = e.clientX - rect.left;
-      const py = e.clientY - rect.top;
-
-      const dx = e.clientX - startPointerRef.current.x;
-      const dy = e.clientY - startPointerRef.current.y;
-      const dist = Math.hypot(dx, dy);
-
-      if (!isOrbitingRef.current && dist > 8) {
-        clearTimeout(holdTimerRef.current);
-        return;
-      }
-
-      if (isOrbitingRef.current) {
-        // Tính góc xoay quanh tâm màn hình
-        const currentAngle = (Math.atan2(py - cy, px - cx) * 180) / Math.PI;
-        const delta = currentAngle - startPointerRef.current.startAngle;
-        const newBearing = (startPointerRef.current.startBearing + delta) % 360;
-        setBearing(newBearing);
-
-        if (hoverTooltipRef.current) {
-          hoverTooltipRef.current.style.display = 'none';
-        }
-      }
-    };
-
-    const handlePointerUp = () => {
-      clearTimeout(holdTimerRef.current);
-
-      if (isOrbitingRef.current) {
-        isOrbitingRef.current = false;
-        setIsOrbiting(false);
-        setPivotScreen(null);
-
-        if (map) {
-          map.dragging.enable();
-        }
-
-        setTimeout(() => {
-          didOrbitRef.current = false;
-        }, 120);
-      }
-      startPointerRef.current = null;
-    };
-
-    outer.addEventListener('pointerdown', handlePointerDown);
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    window.addEventListener('pointercancel', handlePointerUp);
-
-    return () => {
-      clearTimeout(holdTimerRef.current);
-      outer.removeEventListener('pointerdown', handlePointerDown);
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
-    };
-  }, [map]);
-
   // Tự động thích ứng kích thước bản đồ
   useEffect(() => {
     if (!map || !mapContainerRef.current) return;
@@ -550,337 +450,379 @@ export default function CadastralMap({
     return () => observer.disconnect();
   }, [map]);
 
-  // Cập nhật và lọc danh sách thửa đất hợp lệ
+  // 2. CĂN GIỮA VÀ BAY TỚI THỬA ĐẤT ĐƯỢC CHỌN 1 LẦN DUY NHẤT
   useEffect(() => {
-    const valid: Parcel[] = [];
-    for (let i = 0; i < parcels.length; i++) {
-      const p = parcels[i];
-      if (typeof p.lat === 'number' && typeof p.lng === 'number' && !isNaN(p.lat) && !isNaN(p.lng)) {
-        if (HIDDEN_PARCEL_SET.has(p.ma_thua)) continue;
-        const ld = (p.loai_dat || '').trim().toUpperCase();
-        if (ld === 'BCS') {
-          const dt = parseFloat(String(p.dien_tich || '').replace(',', '.'));
-          if (!isNaN(dt) && dt < 100) continue;
-        }
-        valid.push(p);
-      }
-    }
-    validParcelsRef.current = valid;
-    setDotsCount(valid.length);
-
-    if (redrawBatchCanvasRef.current) {
-      redrawBatchCanvasRef.current();
-    }
-  }, [parcels]);
-
-  // Tự động bay tới thửa đất được chọn (Zoom mượt mà + Bù lề trên điện thoại)
-  useEffect(() => {
-    if (!map || !selectedParcel || !selectedParcel.lat || !selectedParcel.lng) {
+    if (!map) return;
+    if (!selectedParcel || !selectedParcel.lat || !selectedParcel.lng) {
       lastCenteredParcelRef.current = null;
       return;
     }
 
-    const forceZoom = (selectedParcel as any)._forceZoom;
+        const forceZoom = (selectedParcel as any)._forceZoom;
     if (lastCenteredParcelRef.current !== selectedParcel.ma_thua || forceZoom) {
       lastCenteredParcelRef.current = selectedParcel.ma_thua;
-      setIsFollowingUser(false);
+      setIsFollowingUser(false); // Tắt bám GPS khi người dùng bấm chọn xem một thửa đất cụ thể
 
-      const targetZoom = Math.max(map.getZoom(), 18);
-      let targetCenter: [number, number] = [selectedParcel.lat, selectedParcel.lng];
+      const targetZoom = Math.max(map.getZoom(), 19);
+      let centerLatLng: [number, number] = [selectedParcel.lat, selectedParcel.lng];
 
+      // Trên điện thoại khi form kê khai hoặc ds thu thập CCCD đang mở (chiếm nửa dưới):
+      // Dịch tâm bản đồ xuống dưới để thửa đất nằm ở trung tâm 2/5 phía trên màn hình (vùng map hiển thị)
       const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
       if (isMobile && isBottomPanelActive) {
         try {
-          const container = map.getContainer();
-          const height = container.clientHeight || 800;
-          const dy = height * 0.28;
-          const centerPoint = map.latLngToContainerPoint(targetCenter);
-          const L = leafletRef.current;
-          if (L) {
-            const offsetPoint = L.point(centerPoint.x, centerPoint.y + dy);
-            const offsetLatLng = map.containerPointToLatLng(offsetPoint);
-            targetCenter = [offsetLatLng.lat, offsetLatLng.lng];
-          }
+          const mapSize = map.getSize();
+          const mapHeight = mapSize.y || (typeof window !== 'undefined' ? window.innerHeight : 800);
+          const dy = mapHeight * 0.3; // Dịch tâm xuống 30% để thửa nằm ở ~20% từ trên xuống (giữa 2/5 phía trên)
+          const targetPoint = map.project([selectedParcel.lat, selectedParcel.lng], targetZoom);
+          const offsetLatLng = map.unproject([targetPoint.x, targetPoint.y + dy], targetZoom);
+          centerLatLng = [offsetLatLng.lat, offsetLatLng.lng];
         } catch {
-          targetCenter = [selectedParcel.lat, selectedParcel.lng];
+          centerLatLng = [selectedParcel.lat, selectedParcel.lng];
         }
       }
 
-      map.flyTo(targetCenter, targetZoom, {
+      map.flyTo(centerLatLng, targetZoom, {
         animate: true,
-        duration: 0.8,
+        duration: 0.55,
       });
     }
   }, [map, selectedParcel, isBottomPanelActive]);
 
-  // Vẽ vòng tròn phát xung đỏ (Radar Pulse) cho thửa chính và thửa gộp kèm theo
+  // 3. CẬP NHẬT DỮ LIỆU THỬA ĐẤT CHO BATCH CANVAS (SIÊU NHANH < 1ms)
+  useEffect(() => {
+    const validParcels = parcels.filter((p) => {
+      if (!p.lat || !p.lng || HIDDEN_PARCEL_SET.has(p.ma_thua)) return false;
+      const ld = (p.loai_dat || '').trim().toUpperCase();
+      if (ld === 'BCS') {
+        const dt = parseFloat(String(p.dien_tich || '').replace(',', '.'));
+        if (!isNaN(dt) && dt < 100) return false;
+      }
+      return true;
+    });
+    validParcelsRef.current = validParcels;
+    setDotsCount(validParcels.length);
+
+    if (redrawBatchCanvasRef.current) {
+      redrawBatchCanvasRef.current();
+    }
+  }, [map, parcels]);
+
+  // 4. LỚP ĐÁNH DẤU THỬA ĐANG CHỌN & THỬA GỘP (SIÊU NHẸ, PHẢN HỒI TỨC THÌ 0.1ms)
   useEffect(() => {
     if (!map || !selectionPulseLayerRef.current) return;
-    const pulseLayer = selectionPulseLayerRef.current;
-    pulseLayer.clearLayers();
+    const group = selectionPulseLayerRef.current;
+    group.clearLayers();
 
-    if (!selectedParcel || !selectedParcel.lat || !selectedParcel.lng) return;
+    if (!selectedParcel?.lat || !selectedParcel?.lng) return;
 
-    import('leaflet').then((L) => {
-      // Vòng xung đỏ thửa chính
-      const pulseIcon = L.divIcon({
-        className: 'parcel-selected-pulse-wrapper',
-        html: `
-          <div class="parcel-selected-pulse"></div>
-          <div style="position: absolute; top: 0; left: 0; width: 22px; height: 22px; margin: -11px 0 0 -11px; background: #dc2626; border: 2.5px solid #ffffff; border-radius: 50%; box-shadow: 0 0 12px rgba(220, 38, 38, 0.9);"></div>
-        `,
-        iconSize: [0, 0],
-        iconAnchor: [0, 0],
+    let isMounted = true;
+    const renderSelection = (L: any) => {
+      if (!isMounted) return;
+
+      const centerLat = selectedParcel.lat as number;
+      const centerLng = selectedParcel.lng as number;
+
+      // Chấm tròn đỏ nổi bật cho thửa đất chính đang chọn
+      const selectedCircle = L.circleMarker([centerLat, centerLng], {
+        renderer: canvasRendererRef.current,
+        radius: 12,
+        color: '#ffffff',
+        fillColor: '#dc2626',
+        fillOpacity: 1,
+        weight: 3.5,
       });
+      selectedCircle.addTo(group);
 
-      L.marker([selectedParcel.lat!, selectedParcel.lng!], {
-        icon: pulseIcon,
+      // Hiệu ứng radar pulse màu đỏ cho thửa chính
+      const mainPulseHtml = `
+        <div class="parcel-selected-pulse-wrapper">
+          <div class="parcel-selected-pulse"></div>
+        </div>
+      `;
+      const mainPulseMarker = L.marker([centerLat, centerLng], {
+        icon: L.divIcon({
+          className: 'parcel-pulse-div-icon',
+          html: mainPulseHtml,
+          iconSize: [0, 0],
+          iconAnchor: [0, 0],
+        }),
         interactive: false,
-        zIndexOffset: 1000,
-      }).addTo(pulseLayer);
+        zIndexOffset: 1200,
+      });
+      mainPulseMarker.addTo(group);
 
-      // Thửa gộp kèm theo (màu cam)
+      // Đường nối đứt nét màu cam và chấm cam cho các thửa gộp kèm theo
       if (additionalParcels && additionalParcels.length > 0) {
         additionalParcels.forEach((ap, idx) => {
           const match = validParcelsRef.current.find((p) => p.ma_thua === ap.ma_thua);
           if (!match?.lat || !match?.lng) return;
 
-          L.polyline(
+          const connLine = L.polyline(
             [
-              [selectedParcel.lat!, selectedParcel.lng!],
+              [centerLat, centerLng],
               [match.lat, match.lng],
             ],
             {
+              renderer: canvasRendererRef.current,
               color: '#f97316',
               weight: 2.5,
-              dashArray: '4, 4',
-              opacity: 0.9,
+              dashArray: '5, 5',
+              opacity: 0.95,
+              interactive: false,
             }
-          ).addTo(pulseLayer);
+          );
+          connLine.addTo(group);
 
-          const addIcon = L.divIcon({
-            className: 'parcel-additional-pulse-wrapper',
-            html: `
-              <div class="parcel-additional-pulse"></div>
-              <div style="position: absolute; top: 0; left: 0; width: 18px; height: 18px; margin: -9px 0 0 -9px; background: #f97316; border: 2px solid #ffffff; border-radius: 50%;"></div>
-              <span class="parcel-additional-badge">+${idx + 1}</span>
-            `,
-            iconSize: [0, 0],
-            iconAnchor: [0, 0],
+          const addCircle = L.circleMarker([match.lat, match.lng], {
+            renderer: canvasRendererRef.current,
+            radius: 10,
+            color: '#ffffff',
+            fillColor: '#f97316',
+            fillOpacity: 1,
+            weight: 3,
           });
-
-          const m = L.marker([match.lat, match.lng], {
-            icon: addIcon,
-            interactive: true,
-            zIndexOffset: 950,
-          }).addTo(pulseLayer);
-
-          m.on('click', () => {
+          addCircle.on('click', () => {
             onSelectParcelRef.current(match);
           });
+          addCircle.addTo(group);
+
+          const addPulseHtml = `
+            <div class="parcel-additional-pulse-wrapper">
+              <div class="parcel-additional-pulse"></div>
+              <span class="parcel-additional-badge">+${idx + 1}</span>
+            </div>
+          `;
+          const addMarker = L.marker([match.lat, match.lng], {
+            icon: L.divIcon({
+              className: 'parcel-pulse-div-icon',
+              html: addPulseHtml,
+              iconSize: [0, 0],
+              iconAnchor: [0, 0],
+            }),
+            interactive: false,
+            zIndexOffset: 1100,
+          });
+          addMarker.addTo(group);
         });
       }
-    });
+    };
+
+    if (leafletRef.current) {
+      renderSelection(leafletRef.current);
+    } else {
+      import('leaflet').then((L) => {
+        leafletRef.current = L;
+        renderSelection(L);
+      });
+    }
+
+    return () => {
+      isMounted = false;
+    };
   }, [map, selectedParcel, additionalParcels]);
 
-  // Vẽ mạng lưới thửa lân cận xung quanh thửa đang chọn
+  // 5. VẼ MẠNG LƯỚI THỬA LÂN CẬN XUNG QUANH THỬA ĐƯỢC CHỌN
   useEffect(() => {
     if (!map || !neighborsLayerRef.current) return;
-    const neighborsLayer = neighborsLayerRef.current;
-    neighborsLayer.clearLayers();
+    const group = neighborsLayerRef.current;
+    group.clearLayers();
 
-    if (!selectedParcel || !selectedParcel.lat || !selectedParcel.lng || !neighborParcels || neighborParcels.length === 0) {
+    if (!selectedParcel?.lat || !selectedParcel?.lng || !neighborParcels || neighborParcels.length === 0) {
       return;
     }
 
-    import('leaflet').then((L) => {
+    let isMounted = true;
+    const renderNeighbors = (L: any) => {
+      if (!isMounted) return;
+      const centerLat = selectedParcel.lat as number;
+      const centerLng = selectedParcel.lng as number;
+
       neighborParcels.slice(0, 8).forEach((nb) => {
         if (!nb.lat || !nb.lng) return;
 
-        L.polyline(
+        const line = L.polyline(
           [
-            [selectedParcel.lat!, selectedParcel.lng!],
+            [centerLat, centerLng],
             [nb.lat, nb.lng],
           ],
           {
-            color: '#94a3b8',
-            weight: 1.5,
-            dashArray: '3, 4',
-            opacity: 0.7,
+            renderer: canvasRendererRef.current,
+            color: '#0284c7',
+            weight: 2,
+            dashArray: '4, 5',
+            opacity: 0.85,
+            interactive: false,
           }
-        ).addTo(neighborsLayer);
+        );
+        line.addTo(group);
 
-        const shortOwner = extractShortOwnerName(nb.chu_ho);
-        const nbIcon = L.divIcon({
-          className: 'neighbor-label-badge',
-          html: `
-            <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #38bdf8; border-radius: 6px; padding: 2px 6px; color: #fff; font-size: 10px; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.4);">
-              ${nb.so_thua} • <span style="color: #38bdf8;">${shortOwner}</span>
-            </div>
-          `,
-          iconSize: [0, 0],
-          iconAnchor: [0, 22],
+        const shortName = extractShortOwnerName(nb.chu_ho);
+
+        const ring = L.circleMarker([nb.lat, nb.lng], {
+          renderer: canvasRendererRef.current,
+          radius: 11,
+          color: '#0284c7',
+          fillColor: '#38bdf8',
+          fillOpacity: 0.18,
+          weight: 2,
+          dashArray: '3, 3',
         });
 
-        const m = L.marker([nb.lat, nb.lng], {
-          icon: nbIcon,
-          interactive: true,
-          zIndexOffset: 900,
-        }).addTo(neighborsLayer);
-
-        m.on('click', () => {
-          const match = validParcelsRef.current.find((p) => p.ma_thua === nb.ma_thua);
-          if (match) {
-            onSelectParcelRef.current(match);
-          }
+        ring.on('click', () => {
+          onSelectParcelRef.current(nb);
         });
+
+        ring.addTo(group);
+
+        if (shortName) {
+          const badgeMarker = L.marker([nb.lat, nb.lng], {
+            icon: L.divIcon({
+              className: 'neighbor-badge-wrapper',
+              html: `<span class="neighbor-name-badge">${shortName}</span>`,
+              iconSize: [0, 0],
+              iconAnchor: [0, 13],
+            }),
+            interactive: true,
+            zIndexOffset: 1000,
+          });
+
+          badgeMarker.on('click', () => {
+            onSelectParcelRef.current(nb);
+          });
+
+          badgeMarker.addTo(group);
+        }
       });
-    });
+    };
+
+    if (leafletRef.current) {
+      renderNeighbors(leafletRef.current);
+    } else {
+      import('leaflet').then((L) => {
+        leafletRef.current = L;
+        renderNeighbors(L);
+      });
+    }
+
+    return () => {
+      isMounted = false;
+    };
   }, [map, selectedParcel, neighborParcels]);
 
-  // Vị trí GPS người dùng di chuyển Realtime (Chế độ bám bước chân Google Maps)
+  // 6. VỊ TRÍ GPS NGƯỜI DÙNG DI CHUYỂN REALTIME MƯỢT MÀ (KHÔNG TẠO LẠI DOM MỖI GIÂY)
   useEffect(() => {
     if (!map || !userLocationLayerRef.current) return;
-    const layer = userLocationLayerRef.current;
+    const group = userLocationLayerRef.current;
 
     if (!userLocation) {
-      layer.clearLayers();
+      group.clearLayers();
       userMarkerRef.current = null;
       return;
     }
 
-    import('leaflet').then((L) => {
-      if (!userMarkerRef.current) {
-        const userIcon = L.divIcon({
-          className: 'user-location-marker',
-          html: `
-            <div class="user-pulse"></div>
-            <div style="position: absolute; top: 0; left: 0; width: 18px; height: 18px; margin: -9px 0 0 -9px; background: #2563eb; border: 3px solid #ffffff; border-radius: 50%; box-shadow: 0 0 10px rgba(37, 99, 235, 0.8);"></div>
-          `,
-          iconSize: [0, 0],
-          iconAnchor: [0, 0],
-        });
+    const { lat, lng } = userLocation;
 
-        const m = L.marker([userLocation.lat, userLocation.lng], {
-          icon: userIcon,
-          zIndexOffset: 2000,
-        }).addTo(layer);
-
-        userMarkerRef.current = m;
-      } else {
-        userMarkerRef.current.setLatLng([userLocation.lat, userLocation.lng]);
-      }
-
+    // Nếu chấm xanh GPS đã tồn tại -> chỉ cập nhật tọa độ mới (di chuyển realtime mượt mà 60fps)
+    if (userMarkerRef.current) {
+      userMarkerRef.current.setLatLng([lat, lng]);
       if (isFollowingUser) {
-        map.panTo([userLocation.lat, userLocation.lng], { animate: true, duration: 0.5 });
+        map.panTo([lat, lng], { animate: true, duration: 0.5 });
       }
-    });
-  }, [map, userLocation, isFollowingUser]);
-
-  // Bay tới vị trí GPS của người dùng
-  const handleFlyToUserLocation = useCallback(() => {
-    if (!userLocation) {
-      if (onToggleLocation) onToggleLocation();
       return;
     }
-    if (!map) return;
 
-    setIsFollowingUser(true);
-    map.flyTo([userLocation.lat, userLocation.lng], 18.5, {
-      animate: true,
-      duration: 1,
-    });
-  }, [map, userLocation, onToggleLocation]);
+    // Khởi tạo chấm xanh lần đầu tiên
+    let isMounted = true;
+    const createGpsMarker = (L: any) => {
+      if (!isMounted || userMarkerRef.current) return;
 
-  // Xem toàn bộ xã Cư Pui
-  const handleFitAll = useCallback(() => {
+      const locationHtml = `
+        <div class="user-ggm-location">
+          <div class="user-ggm-pulse"></div>
+          <div class="user-ggm-dot"></div>
+        </div>
+      `;
+
+      const beaconMarker = L.marker([lat, lng], {
+        icon: L.divIcon({
+          className: 'user-ggm-wrapper',
+          html: locationHtml,
+          iconSize: [0, 0],
+        }),
+        interactive: false,
+        zIndexOffset: 2000,
+      });
+
+      beaconMarker.addTo(group);
+      userMarkerRef.current = beaconMarker;
+
+      if (isFollowingUser) {
+        map.panTo([lat, lng], { animate: true, duration: 0.5 });
+      }
+    };
+
+    if (leafletRef.current) {
+      createGpsMarker(leafletRef.current);
+    } else {
+      import('leaflet').then((L) => {
+        leafletRef.current = L;
+        createGpsMarker(L);
+      });
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [map, userLocation, isFollowingUser]);
+
+  // Thu phóng vừa toàn bộ các thửa
+  const handleFitBounds = useCallback(() => {
     if (!map) return;
-    map.flyTo([12.527, 108.493], 13.5, {
-      animate: true,
-      duration: 0.8,
+    const validParcels = validParcelsRef.current;
+    if (validParcels.length === 0) return;
+
+    setIsFollowingUser(false);
+    import('leaflet').then((L) => {
+      const bounds = L.latLngBounds(
+        validParcels.map((p) => [p.lat as number, p.lng as number])
+      );
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 17 });
     });
   }, [map]);
 
-  // Đặt lại hướng Bắc (0°)
-  const handleResetNorth = useCallback(() => {
-    setBearing(0);
-  }, []);
+  // Bấm nút Định vị: Bay tới vị trí người dùng & Bật chế độ tự động bám theo bước chân
+  const handleFlyToUserLocation = useCallback(() => {
+    setIsFollowingUser(true);
+    if (map && userLocation?.lat && userLocation?.lng) {
+      map.flyTo([userLocation.lat, userLocation.lng], Math.max(map.getZoom(), 18), {
+        animate: true,
+        duration: 0.7,
+      });
+    } else if (onToggleLocation) {
+      onToggleLocation();
+    }
+  }, [map, userLocation, onToggleLocation]);
 
   return (
-    <div
-      ref={outerContainerRef}
-      className="relative w-full h-full overflow-hidden bg-slate-900 select-none"
-      onContextMenu={(e) => e.preventDefault()}
-    >
-      {/* VÙNG CHỨA BẢN ĐỒ LEAFLET NGOẠI TIẾP (D x D): XOAY TỰ DO KHÔNG BAO GIỜ BỊ HỞ VIỀN ĐEN */}
-      <div
-        style={{
-          position: 'absolute',
-          left: '50%',
-          top: '50%',
-          width: `${containerDim.d}px`,
-          height: `${containerDim.d}px`,
-          transform: `translate(-50%, -50%) rotate(${bearing}deg)`,
-          transformOrigin: '50% 50%',
-          transition: isOrbiting ? 'none' : 'transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)',
-        }}
-      >
-        <div ref={mapContainerRef} className="w-full h-full bg-slate-900" />
-      </div>
+    <div className="relative w-full h-full overflow-hidden bg-slate-900">
+      <div ref={mapContainerRef} className="w-full h-full bg-slate-900" />
 
-      {/* TÂM NEO XOAY (HIỂN THỊ KHI NHẤN GIỮ ĐIỂM ĐỂ XOAY) */}
-      {isOrbiting && pivotScreen && (
-        <div
-          style={{
-            left: `${pivotScreen.x}px`,
-            top: `${pivotScreen.y}px`,
-          }}
-          className="pointer-events-none absolute z-[1200] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center animate-in fade-in zoom-in-75 duration-150"
-        >
-          <div className="relative flex items-center justify-center">
-            <div className="w-14 h-14 rounded-full border-2 border-cyan-400 border-dashed animate-spin duration-7000"></div>
-            <div className="absolute w-5 h-5 rounded-full bg-cyan-500/40 border-2 border-white shadow-[0_0_14px_rgba(6,182,212,1)] animate-ping"></div>
-            <div className="absolute w-3.5 h-3.5 rounded-full bg-cyan-400 border-2 border-white shadow-md"></div>
-          </div>
-          <span className="mt-1.5 text-[10px] font-black uppercase tracking-wider text-cyan-200 bg-slate-950/90 px-2.5 py-1 rounded-full border border-cyan-400/50 shadow-xl backdrop-blur-sm whitespace-nowrap">
-            ⚓ Đang xoay bản đồ
-          </span>
-        </div>
-      )}
-
-      {/* Tooltip khi rê chuột trên máy tính (luôn nằm ngang chuẩn xác, không xoay chữ) */}
+      {/* Tooltip nhẹ nhàng khi rê chuột trên máy tính */}
       <div
         ref={hoverTooltipRef}
         style={{ display: 'none', top: 0, left: 0 }}
-        className="pointer-events-none fixed z-[1100] bg-slate-900/95 border border-slate-700 px-3 py-2 rounded-xl shadow-2xl whitespace-nowrap backdrop-blur-md"
+        className="pointer-events-none absolute z-[1100] bg-slate-900/95 border border-slate-700 px-3 py-2 rounded-xl shadow-2xl whitespace-nowrap"
       />
 
-      {/* Desktop Toolbar góc trên bên phải */}
-      <div className="absolute top-4 right-4 z-[1000] hidden lg:flex items-center gap-2 bg-slate-900/85 backdrop-blur-md border border-slate-700 px-3 py-1.5 rounded-2xl shadow-xl text-xs">
+      {/* Desktop Toolbar đơn giản góc trên bên phải */}
+      <div className="absolute top-[56px] right-3.5 z-[1000] hidden lg:flex items-center gap-2 bg-slate-950/90 px-3 py-1.5 rounded-2xl shadow-2xl border border-slate-700/60 text-xs text-white">
         <button
-          onClick={handleFitAll}
-          type="button"
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold transition border border-slate-600/50 cursor-pointer text-slate-200"
+          onClick={handleFitBounds}
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold transition border border-slate-600/50 cursor-pointer"
+          title="Thu phóng vừa toàn bộ các thửa"
         >
           <Maximize2 className="w-3.5 h-3.5 text-blue-400" /> Xem tất cả
-        </button>
-
-        {/* Nút La bàn (Compass) - Xoay theo hướng bản đồ, bấm vào để trả về hướng Bắc */}
-        <button
-          onClick={handleResetNorth}
-          type="button"
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold transition border border-slate-600/50 cursor-pointer"
-          title={bearing !== 0 ? `Bản đồ đang xoay ${Math.round(((bearing % 360) + 360) % 360)}°. Bấm để quay về hướng Bắc` : 'Hướng Bắc'}
-        >
-          <Compass
-            className="w-3.5 h-3.5 text-rose-500 transition-transform duration-200"
-            style={{ transform: `rotate(${-bearing}deg)` }}
-          />
-          {bearing !== 0 && (
-            <span className="text-[11px] font-bold text-slate-300">
-              {Math.round(((bearing % 360) + 360) % 360)}°
-            </span>
-          )}
         </button>
 
         <span className="text-slate-300 font-medium ml-1">
@@ -888,14 +830,14 @@ export default function CadastralMap({
         </span>
       </div>
 
-      {/* Chú giải các loại thửa đất (Desktop góc trên) */}
-      <div className="absolute top-16 right-4 z-[1000] hidden lg:flex items-center gap-3 bg-slate-900/85 backdrop-blur-md border border-slate-700 px-3.5 py-1.5 rounded-2xl shadow-xl text-[11px] select-none">
+      {/* Bảng chú thích màu sắc trạng thái thửa đất trên bản đồ */}
+      <div className="absolute top-[96px] right-3.5 z-[1000] hidden lg:flex items-center gap-2.5 bg-slate-950/90 px-3.5 py-1.5 rounded-2xl shadow-xl border border-slate-700/60 text-[11px] text-slate-200 select-none">
         <span className="flex items-center gap-1.5 font-bold text-red-400">
           <span className="w-2.5 h-2.5 rounded-full bg-red-600 ring-2 ring-white" /> Đang chọn kê khai
         </span>
         {additionalParcels && additionalParcels.length > 0 && (
           <span className="flex items-center gap-1.5 font-bold text-orange-400">
-            <span className="w-2.5 h-2.5 rounded-full bg-orange-500 ring-2 ring-white" /> Thửa gộp (+{additionalParcels.length})
+            <span className="w-2.5 h-2.5 rounded-full bg-orange-500 ring-2 ring-white" /> Thửa gộp ({additionalParcels.length})
           </span>
         )}
         <span className="flex items-center gap-1 text-emerald-300">
@@ -912,28 +854,15 @@ export default function CadastralMap({
         </span>
       </div>
 
-      {/* NÚT TRÒN ĐỊNH VỊ VỊ TRÍ ĐANG ĐỨNG (GOOGLE MAPS STYLE - BÁM BƯỚC CHÂN) */}
-      <div className="absolute bottom-20 right-3.5 sm:bottom-24 sm:right-4 z-[1000] flex flex-col items-end gap-2">
-        {bearing !== 0 && (
-          <button
-            type="button"
-            onClick={handleResetNorth}
-            className="w-10 h-10 rounded-full shadow-xl border border-slate-700 bg-slate-900/90 text-rose-500 flex items-center justify-center cursor-pointer transition active:scale-90"
-            title="Bấm để quay về hướng Bắc"
-          >
-            <Compass
-              className="w-5 h-5 transition-transform duration-200"
-              style={{ transform: `rotate(${-bearing}deg)` }}
-            />
-          </button>
-        )}
+      {/* NÚT TRÒN ĐỊNH VỊ VỊ TRÍ ĐANG ĐỨNG (GOOGLE MAPS STYLE - CÓ CHẾ ĐỘ BÁM BƯỚC CHÂN) */}
+      <div className="absolute bottom-20 right-3.5 sm:bottom-24 sm:right-4 z-[1000] flex flex-col items-end gap-1.5">
         {!userLocation && (
           <div
             onClick={handleFlyToUserLocation}
-            className="bg-slate-900/90 border border-slate-700/80 px-2.5 py-1 rounded-full text-[10px] font-semibold text-slate-300 shadow-md flex items-center gap-1 cursor-pointer hover:bg-slate-800"
+            className="cursor-pointer bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-[11px] font-extrabold px-3 py-1.5 rounded-2xl shadow-xl border border-emerald-400/50 flex items-center gap-1.5 animate-bounce active:scale-95 transition"
           >
-            <LocateFixed className="w-3 h-3 text-blue-400" />
-            <span>Định vị tôi</span>
+            <span className="w-2 h-2 rounded-full bg-white animate-ping"></span>
+            <span>Chạm để Bật GPS</span>
           </div>
         )}
         <button
@@ -946,17 +875,15 @@ export default function CadastralMap({
           }`}
           title={
             isFollowingUser
-              ? 'Đang tự bám theo vị trí của bạn'
-              : userLocation
-              ? 'Bấm để di chuyển tới vị trí của bạn'
-              : 'Bật GPS định vị'
+              ? 'Đang tự động di chuyển bản đồ theo bước chân của bạn'
+              : 'Bấm để đưa tâm bản đồ về vị trí hiện tại và bám theo bước chân'
           }
         >
-          {isLocating ? (
-            <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 animate-spin text-blue-500" />
+          {isLocating && !userLocation ? (
+            <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
           ) : (
             <LocateFixed
-              className={`w-5 h-5 sm:w-6 sm:h-6 ${
+              className={`w-5 h-5 ${
                 isFollowingUser && userLocation
                   ? 'text-white'
                   : userLocation
@@ -973,11 +900,15 @@ export default function CadastralMap({
         {selectedParcel ? (
           <span className="flex items-center gap-1.5 text-red-400">
             <span className="w-2.5 h-2.5 rounded-full bg-red-600 ring-2 ring-white" />
-            Thửa {selectedParcel.so_thua} ({selectedParcel.to_ban_do})
+            <span>Thửa {selectedParcel.so_thua} (Đang chọn)</span>
+            {additionalParcels && additionalParcels.length > 0 && (
+              <span className="text-orange-400 ml-1">+{additionalParcels.length} thửa gộp</span>
+            )}
           </span>
         ) : (
-          <span className="text-slate-300">
-            <strong className="text-emerald-400">{dotsCount.toLocaleString('vi-VN')}</strong> thửa
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span>{dotsCount.toLocaleString('vi-VN')} thửa</span>
           </span>
         )}
       </div>

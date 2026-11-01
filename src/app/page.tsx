@@ -53,7 +53,7 @@ const CadastralMap = dynamic(() => import('@/components/CadastralMap'), {
   loading: () => (
     <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center text-white gap-3">
       <div className="w-9 h-9 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-      <p className="text-xs font-semibold text-slate-300">Đang tải bản đồ vệ tinh Google Earth 3D...</p>
+      <p className="text-xs font-semibold text-slate-300">Đang tải bản đồ vệ tinh Google Maps...</p>
     </div>
   ),
 });
