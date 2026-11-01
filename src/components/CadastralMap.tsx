@@ -3,17 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Parcel, NeighborParcel, AdditionalParcel } from '@/types';
 import { extractShortOwnerName } from '@/utils/geo';
-import {
-  Maximize2,
-  LocateFixed,
-  Loader2,
-  Compass,
-  Box,
-  RotateCcw,
-  RotateCw,
-  Globe,
-  Mountain,
-} from 'lucide-react';
+import { Maximize2, LocateFixed, Loader2, Compass } from 'lucide-react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
@@ -33,24 +23,12 @@ interface CadastralMapProps {
   isBottomPanelActive?: boolean;
 }
 
-// Google Earth Tile URLs
-const GOOGLE_EARTH_HYBRID = [
+// Lớp ảnh vệ tinh Google Maps Hybrid (ảnh vệ tinh độ nét cao kèm tên đường & địa danh)
+const GOOGLE_HYBRID_TILES = [
   'https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
   'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
   'https://mt2.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
   'https://mt3.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-];
-
-const GOOGLE_EARTH_SATELLITE = [
-  'https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-  'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-  'https://mt2.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-  'https://mt3.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-];
-
-// Nguồn dữ liệu độ cao địa hình toàn cầu DEM (Digital Elevation Model)
-const TERRAIN_DEM_TILES = [
-  'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
 ];
 
 // Helper lọc và tạo GeoJSON chuẩn
@@ -117,43 +95,16 @@ export default function CadastralMap({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
 
-  // Mặc định khởi tạo chế độ 3D Earth với địa hình đồi núi rõ rệt
-  const [viewMode, setViewMode] = useState<'2D' | '3D'>('3D');
-  // Hệ số khuếch đại độ cao 3D (3.5x mặc định để thấy rõ đồi dốc ở quy mô thửa đất)
-  const [elevationLevel, setElevationLevel] = useState<number>(3.5);
-  const elevationLevelRef = useRef(elevationLevel);
-  useEffect(() => {
-    elevationLevelRef.current = elevationLevel;
-  }, [elevationLevel]);
   // Góc xoay hiện tại (độ) để hiển thị la bàn
   const [bearing, setBearing] = useState<number>(0);
-  // Loại lớp vệ tinh Google Earth: Hybrid (có đường/nhãn) hoặc Pure (ảnh thuần túy)
-  const [satelliteType, setSatelliteType] = useState<'hybrid' | 'pure'>('hybrid');
   // Số thửa hợp lệ hiển thị
   const [dotsCount, setDotsCount] = useState(0);
   // Chế độ tự động bám theo bước chân GPS
   const [isFollowingUser, setIsFollowingUser] = useState(false);
-  // Trạng thái đang xoay quanh điểm 3D
+  // Trạng thái đang xoay quanh điểm
   const [isOrbiting, setIsOrbiting] = useState(false);
-  // Tọa độ điểm neo xoay 3D (hiển thị tâm neo trên màn hình)
+  // Tọa độ điểm neo xoay (hiển thị tâm neo trên màn hình)
   const [orbitPivotScreen, setOrbitPivotScreen] = useState<{ x: number; y: number } | null>(null);
-
-  // Chế độ xoay chuyên dụng (chạm hoặc nhấp chuột ở bất kỳ điểm nào để xoay quanh điểm đó)
-  const [isRotateMode, setIsRotateMode] = useState<boolean>(false);
-  const isRotateModeRef = useRef(isRotateMode);
-  useEffect(() => {
-    isRotateModeRef.current = isRotateMode;
-    const map = mapRef.current;
-    if (map) {
-      if (isRotateMode) {
-        map.dragPan.disable();
-        map.getCanvas().style.cursor = 'crosshair';
-      } else {
-        map.dragPan.enable();
-        map.getCanvas().style.cursor = '';
-      }
-    }
-  }, [isRotateMode]);
 
   // Markers tham chiếu
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null);
@@ -185,12 +136,11 @@ export default function CadastralMap({
       (window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window);
   }, []);
 
-  // 1. Khởi tạo Bản đồ Google Earth với Địa hình 3D thực thụ (Digital Elevation Model)
+  // 1. Khởi tạo Bản đồ 2D phẳng WebGL chuẩn xác
   useEffect(() => {
     if (!mapContainerRef.current) return;
     if (mapRef.current) return;
 
-    const initialTiles = satelliteType === 'hybrid' ? GOOGLE_EARTH_HYBRID : GOOGLE_EARTH_SATELLITE;
     const initialParsed = buildParcelsGeoJson(parcels);
     validParcelsMapRef.current = initialParsed.mapStore;
     geojsonCacheRef.current = initialParsed.geojson;
@@ -201,19 +151,12 @@ export default function CadastralMap({
       style: {
         version: 8,
         sources: {
-          'google-earth': {
+          'google-hybrid': {
             type: 'raster',
-            tiles: initialTiles,
+            tiles: GOOGLE_HYBRID_TILES,
             tileSize: 256,
             maxzoom: 21,
-            attribution: '&copy; Google Earth',
-          },
-          'terrain-dem': {
-            type: 'raster-dem',
-            tiles: TERRAIN_DEM_TILES,
-            encoding: 'terrarium',
-            tileSize: 256,
-            maxzoom: 15,
+            attribution: '&copy; Google Maps',
           },
           'parcels-source': {
             type: 'geojson',
@@ -230,28 +173,13 @@ export default function CadastralMap({
           },
         },
         layers: [
-          // Lớp ảnh vệ tinh Google Earth
+          // Lớp ảnh vệ tinh Google Maps Hybrid
           {
-            id: 'google-earth-layer',
+            id: 'google-hybrid-layer',
             type: 'raster',
-            source: 'google-earth',
+            source: 'google-hybrid',
             minzoom: 0,
             maxzoom: 22,
-          },
-          // Lớp đổ bóng địa hình quang học (Hillshade) làm nổi rõ mồn một các gờ núi, dốc cao và thung lũng thấp
-          {
-            id: 'terrain-hillshade',
-            type: 'hillshade',
-            source: 'terrain-dem',
-            minzoom: 0,
-            maxzoom: 22,
-            paint: {
-              'hillshade-exaggeration': 0.85,
-              'hillshade-illumination-direction': 315,
-              'hillshade-shadow-color': '#020617',
-              'hillshade-highlight-color': '#ffffff',
-              'hillshade-accent-color': '#0369a1',
-            },
           },
           // Lớp đường nối thửa lân cận & thửa gộp
           {
@@ -265,7 +193,7 @@ export default function CadastralMap({
               'line-opacity': 0.9,
             },
           },
-          // Lớp hiển thị ~9.800 thửa đất WebGL nổi bật trên nền vệ tinh
+          // Lớp hiển thị các thửa đất WebGL nổi bật trên nền vệ tinh
           {
             id: 'parcels-layer',
             type: 'circle',
@@ -324,44 +252,30 @@ export default function CadastralMap({
                 /* default */ '#1e293b',
               ],
               'circle-opacity': 1,
-              'circle-pitch-alignment': 'viewport',
             },
           },
         ],
-        // Địa hình 3D thực tế với độ lồi lõm (exaggeration) 3.5x giúp thấy rõ từng đỉnh đồi, khe suối
-        terrain: {
-          source: 'terrain-dem',
-          exaggeration: 3.5,
-        },
       },
       center: [108.493, 12.527],
       zoom: 13,
-      pitch: 62, // Bắt đầu ở góc nghiêng 3D 62 độ sống động
+      pitch: 0,
+      maxPitch: 0, // Khóa hoàn toàn góc nghiêng 3D để giữ bản đồ phẳng 2D chuẩn xác tuyệt đối
       bearing: 0,
-      maxPitch: 85,
       attributionControl: false,
       trackResize: true,
       dragRotate: true,
-      touchPitch: true,
-      touchZoomRotate: true,
+      touchPitch: false, // Tắt nghiêng 3D bằng cử chỉ cảm ứng
+      touchZoomRotate: true, // Cho phép cử chỉ 2 ngón tay xoay
     });
 
     mapRef.current = map;
 
-    // Lắng nghe thay đổi góc xoay & góc nghiêng
-    const updateBearingPitch = () => {
-      const b = Math.round(map.getBearing());
-      setBearing(b);
-      const p = map.getPitch();
-      if (p >= 20 && viewMode !== '3D') {
-        setViewMode('3D');
-      } else if (p < 5 && viewMode !== '2D') {
-        setViewMode('2D');
-      }
+    // Lắng nghe thay đổi góc xoay để cập nhật la bàn
+    const updateBearing = () => {
+      setBearing(Math.round(map.getBearing()));
     };
 
-    map.on('rotate', updateBearingPitch);
-    map.on('pitch', updateBearingPitch);
+    map.on('rotate', updateBearing);
 
     map.on('dragstart', () => {
       setIsFollowingUser(false);
@@ -371,20 +285,7 @@ export default function CadastralMap({
     });
 
     map.on('load', () => {
-      // Thiết lập bầu khí quyển chân trời Google Earth
-      try {
-        map.setSky({
-          'sky-color': '#0284c7',
-          'sky-horizon-blend': 0.5,
-          'horizon-color': '#bae6fd',
-          'fog-color': '#e0f2fe',
-          'fog-ground-blend': 0.5,
-        });
-      } catch {
-        // Fallback an toàn nếu trình duyệt không hỗ trợ sky
-      }
-
-      // Đảm bảo dữ liệu thửa đất luôn được đồng bộ ngay khi load xong
+      // Đảm bảo dữ liệu thửa đất được đồng bộ ngay khi load xong
       const src = map.getSource('parcels-source') as maplibregl.GeoJSONSource;
       if (src && geojsonCacheRef.current) {
         src.setData(geojsonCacheRef.current);
@@ -471,29 +372,15 @@ export default function CadastralMap({
     };
   }, []);
 
-  // 2. Chuyển đổi lớp vệ tinh Google Earth (Hybrid <-> Pure)
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-
-    const source = map.getSource('google-earth') as any;
-    if (source && source.setTiles) {
-      const tiles = satelliteType === 'hybrid' ? GOOGLE_EARTH_HYBRID : GOOGLE_EARTH_SATELLITE;
-      source.setTiles(tiles);
-    }
-  }, [satelliteType]);
-
   // ============================================================================
   // TÍNH NĂNG XOAY BẢN ĐỒ: GIỮ 1 ĐIỂM RỒI DI CHUỘT / NGÓN TAY ĐỂ XOAY QUANH ĐIỂM (PIVOT ORBIT)
-  // Hỗ trợ:
-  // 1. Chế độ Xoay (Rotate Mode ON): Chạm / click bất kỳ điểm nào lập tức xoay quanh điểm đó
-  // 2. Chuột phải (Right-click drag) hoặc Shift/Ctrl + Drag trên PC: Xoay lập tức quanh điểm đó
-  // 3. Nhấn giữ 1 điểm (~180ms) trên Mobile / Desktop: Kích hoạt tâm xoay quanh điểm
-  // 4. Cử chỉ 2 ngón tay xoay (Two-finger rotate) trên màn hình cảm ứng
+  // - Nhấn giữ 1 điểm (~180ms) tại vị trí chuột hoặc ngón tay -> hiện tâm neo -> di chuyển để xoay quanh điểm đó
+  // - Kéo chuột phải hoặc Shift/Ctrl + Drag trên PC -> xoay tức thì quanh điểm đó
+  // - Cử chỉ 2 ngón tay xoay (Two-finger rotate) trên màn hình cảm ứng
   // ============================================================================
   const holdTimerRef = useRef<any>(null);
   const startPointerRef = useRef<{ x: number; y: number; lng: number; lat: number } | null>(null);
-  const startCameraRef = useRef<{ bearing: number; pitch: number }>({ bearing: 0, pitch: 0 });
+  const startCameraRef = useRef<{ bearing: number }>({ bearing: 0 });
   const isOrbitingRef = useRef<boolean>(false);
   const didOrbitRef = useRef<boolean>(false);
 
@@ -525,7 +412,6 @@ export default function CadastralMap({
 
       startCameraRef.current = {
         bearing: map.getBearing(),
-        pitch: map.getPitch(),
       };
 
       isOrbitingRef.current = true;
@@ -545,7 +431,7 @@ export default function CadastralMap({
     };
 
     const handlePointerDown = (e: PointerEvent) => {
-      // Bỏ qua nếu có ngón thứ 2 chạm vào (để MapLibre xử lý cử chỉ 2 ngón tay thu phóng / xoay tự nhiên)
+      // Bỏ qua nếu có ngón thứ 2 chạm vào (để MapLibre xử lý cử chỉ 2 ngón tay xoay tự nhiên)
       if (e.pointerType === 'touch' && !e.isPrimary) {
         clearTimeout(holdTimerRef.current);
         return;
@@ -574,17 +460,12 @@ export default function CadastralMap({
 
       startCameraRef.current = {
         bearing: map.getBearing(),
-        pitch: map.getPitch(),
       };
 
       didOrbitRef.current = false;
 
-      // 1. KÍCH HOẠT XOAY NGAY LẬP TỨC nếu:
-      // - Đang bật Chế độ Xoay (Rotate Mode ON)
-      // - Dùng Chuột phải (e.button === 2)
-      // - Hoặc giữ phím Shift / Ctrl
+      // Kéo chuột phải hoặc giữ phím Shift / Ctrl trên PC -> Kích hoạt xoay tức thì
       const isInstantRotate =
-        isRotateModeRef.current ||
         (e.pointerType === 'mouse' && e.button === 2) ||
         e.shiftKey ||
         e.ctrlKey;
@@ -594,7 +475,7 @@ export default function CadastralMap({
         return;
       }
 
-      // 2. Chế độ thường: Nhấn giữ ~180ms tại 1 điểm -> Kích hoạt chế độ Tâm xoay quanh điểm
+      // Nhấn giữ 1 điểm (~180ms) -> Kích hoạt chế độ xoay quanh điểm
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = setTimeout(() => {
         activateOrbit(pointX, pointY, e.clientX, e.clientY);
@@ -608,27 +489,24 @@ export default function CadastralMap({
       const dy = e.clientY - startPointerRef.current.y;
       const dist = Math.hypot(dx, dy);
 
-      // Nếu di chuyển quá xa trước khi kích hoạt -> Người dùng muốn kéo map bình thường, hủy hẹn giờ nhấn giữ
+      // Nếu di chuyển nhanh trước 180ms -> Người dùng muốn cuộn/kéo bản đồ bình thường, hủy hẹn giờ nhấn giữ
       const maxJitter = e.pointerType === 'touch' ? 24 : 14;
       if (!isOrbitingRef.current && dist > maxJitter) {
         clearTimeout(holdTimerRef.current);
         return;
       }
 
-      // Đang trong chế độ xoay quanh điểm (Pivot Orbit)
+      // Đang trong chế độ xoay quanh điểm
       if (isOrbitingRef.current) {
         const { lng, lat } = startPointerRef.current;
         const initialBearing = startCameraRef.current.bearing;
-        const initialPitch = startCameraRef.current.pitch;
 
-        // Di ngang -> Xoay góc la bàn (bearing); Di dọc -> Thay đổi độ nghiêng phối cảnh 3D (pitch)
+        // Di chuyển ngang để xoay góc bản đồ (giữ pitch: 0 phẳng hoàn toàn)
         const newBearing = initialBearing + dx * 0.45;
-        const newPitch = Math.max(0, Math.min(80, initialPitch - dy * 0.35));
 
-        // Xoay camera tự nhiên quanh chính tọa độ mặt đất được nhấn giữ
         map.easeTo({
           bearing: newBearing,
-          pitch: newPitch,
+          pitch: 0,
           around: [lng, lat],
           duration: 0,
         });
@@ -642,10 +520,7 @@ export default function CadastralMap({
         isOrbitingRef.current = false;
         setIsOrbiting(false);
         setOrbitPivotScreen(null);
-
-        if (!isRotateModeRef.current) {
-          map.dragPan.enable();
-        }
+        map.dragPan.enable();
 
         setTimeout(() => {
           didOrbitRef.current = false;
@@ -669,7 +544,7 @@ export default function CadastralMap({
     };
   }, []);
 
-  // 3. Cập nhật dữ liệu GeoJSON cho tất cả các thửa đất lên WebGL GPU khi parcels thay đổi
+  // 2. Cập nhật dữ liệu GeoJSON cho tất cả các thửa đất lên WebGL GPU khi parcels thay đổi
   useEffect(() => {
     const map = mapRef.current;
     const parsed = buildParcelsGeoJson(parcels);
@@ -695,7 +570,7 @@ export default function CadastralMap({
     }
   }, [parcels]);
 
-  // 4. Bay tới và căn giữa thửa đất được chọn (Hỗ trợ định vị bù lề cho màn hình điện thoại)
+  // 3. Bay tới và căn giữa thửa đất được chọn (Hỗ trợ định vị bù lề cho màn hình điện thoại)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !selectedParcel?.lat || !selectedParcel?.lng) {
@@ -736,7 +611,7 @@ export default function CadastralMap({
     }
   }, [selectedParcel, isBottomPanelActive]);
 
-  // 5. Đánh dấu thửa đất đang chọn & các thửa gộp kèm theo (Radar Pulse Marker)
+  // 4. Đánh dấu thửa đất đang chọn & các thửa gộp kèm theo (Radar Pulse Marker)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -820,7 +695,7 @@ export default function CadastralMap({
     }
   }, [selectedParcel, additionalParcels]);
 
-  // 6. Vẽ mạng lưới thửa lân cận xung quanh thửa được chọn
+  // 5. Vẽ mạng lưới thửa lân cận xung quanh thửa được chọn
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -881,7 +756,7 @@ export default function CadastralMap({
     }
   }, [selectedParcel, neighborParcels]);
 
-  // 7. Vị trí GPS người dùng di chuyển Realtime (Chế độ bám bước chân Google Maps)
+  // 6. Vị trí GPS người dùng di chuyển Realtime (Chế độ bám bước chân Google Maps)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -927,42 +802,6 @@ export default function CadastralMap({
     }
   }, [userLocation, isFollowingUser]);
 
-  // Chuyển đổi giữa Chế độ 2D (phẳng) và 3D (Địa hình đồi núi thực thụ)
-  const handleToggle2D3D = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    if (viewMode === '2D') {
-      setViewMode('3D');
-      // Kích hoạt địa hình 3D thực tế với độ cao khuếch đại để thấy rõ đỉnh núi, khe đồi
-      map.setTerrain({ source: 'terrain-dem', exaggeration: elevationLevel });
-      map.easeTo({
-        pitch: 62,
-        duration: 900,
-      });
-    } else {
-      setViewMode('2D');
-      // Tắt địa hình 3D để trở về bản đồ phẳng 2D chuẩn xác
-      map.setTerrain(null);
-      map.easeTo({
-        pitch: 0,
-        bearing: 0,
-        duration: 800,
-      });
-    }
-  }, [viewMode, elevationLevel]);
-
-  // Tùy chỉnh mức độ nhấp nhô 3D (2.5x -> 3.5x -> 5.0x)
-  const handleCycleElevation = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const next = elevationLevel === 2.5 ? 3.5 : elevationLevel === 3.5 ? 5.0 : 2.5;
-    setElevationLevel(next);
-    if (viewMode === '3D') {
-      map.setTerrain({ source: 'terrain-dem', exaggeration: next });
-    }
-  }, [elevationLevel, viewMode]);
-
   // Bấm vào la bàn: Reset góc xoay về hướng Bắc (0 độ)
   const handleResetNorth = useCallback(() => {
     const map = mapRef.current;
@@ -971,23 +810,6 @@ export default function CadastralMap({
       bearing: 0,
       duration: 600,
     });
-  }, []);
-
-  // Xoay nhanh bản đồ trái / phải
-  const handleRotateStep = useCallback((direction: 'left' | 'right') => {
-    const map = mapRef.current;
-    if (!map) return;
-    const currentBearing = map.getBearing();
-    const delta = direction === 'left' ? -45 : 45;
-    map.easeTo({
-      bearing: currentBearing + delta,
-      duration: 500,
-    });
-  }, []);
-
-  // Chuyển đổi loại ảnh vệ tinh Google Earth (Hybrid <-> Pure)
-  const handleToggleSatelliteType = useCallback(() => {
-    setSatelliteType((prev) => (prev === 'hybrid' ? 'pure' : 'hybrid'));
   }, []);
 
   // Thu phóng vừa toàn bộ các thửa
@@ -1027,10 +849,10 @@ export default function CadastralMap({
 
   return (
     <div className="relative w-full h-full overflow-hidden bg-slate-950 select-none">
-      {/* Vùng chứa bản đồ WebGL Google Earth 3D */}
+      {/* Vùng chứa bản đồ */}
       <div ref={mapContainerRef} className="w-full h-full" />
 
-      {/* TÂM NEO XOAY 3D (HIỂN THỊ KHI NHẤN GIỮ ĐIỂM ĐỂ XOAY) */}
+      {/* TÂM NEO XOAY (HIỂN THỊ KHI NHẤN GIỮ ĐIỂM ĐỂ XOAY) */}
       {isOrbiting && orbitPivotScreen && (
         <div
           style={{
@@ -1040,11 +862,11 @@ export default function CadastralMap({
           className="pointer-events-none absolute z-[1200] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center animate-in fade-in zoom-in-75 duration-150"
         >
           <div className="relative flex items-center justify-center">
-            <div className="w-16 h-16 rounded-full border-2 border-cyan-400 border-dashed animate-spin duration-7000"></div>
-            <div className="absolute w-6 h-6 rounded-full bg-cyan-500/40 border-2 border-white shadow-[0_0_16px_rgba(6,182,212,1)] animate-ping"></div>
-            <div className="absolute w-3.5 h-3.5 rounded-full bg-cyan-400 border-2 border-white shadow-md"></div>
+            <div className="w-14 h-14 rounded-full border-2 border-cyan-400 border-dashed animate-spin duration-7000"></div>
+            <div className="absolute w-5 h-5 rounded-full bg-cyan-500/40 border-2 border-white shadow-[0_0_14px_rgba(6,182,212,1)] animate-ping"></div>
+            <div className="absolute w-3 h-3 rounded-full bg-cyan-400 border-2 border-white shadow-md"></div>
           </div>
-          <span className="mt-2 text-[10px] font-black uppercase tracking-wider text-cyan-200 bg-slate-950/90 px-2.5 py-1 rounded-full border border-cyan-400/50 shadow-xl backdrop-blur-sm whitespace-nowrap">
+          <span className="mt-1.5 text-[10px] font-black uppercase tracking-wider text-cyan-200 bg-slate-950/90 px-2.5 py-1 rounded-full border border-cyan-400/50 shadow-xl backdrop-blur-sm whitespace-nowrap">
             ⚓ Đang xoay quanh điểm
           </span>
         </div>
@@ -1057,137 +879,45 @@ export default function CadastralMap({
         className="pointer-events-none absolute z-[1100] bg-slate-900/95 border border-slate-700 px-3 py-2 rounded-xl shadow-2xl whitespace-nowrap backdrop-blur-md"
       />
 
-      {/* BỘ ĐIỀU KHIỂN GOOGLE EARTH 2D / 3D & LA BÀN XOAY (GÓC TRÊN BÊN PHẢI) */}
+      {/* THANH CÔNG CỤ TRÊN GÓC PHẢI (DESKTOP) */}
       <div className="absolute top-[56px] right-3.5 z-[1000] flex items-center gap-2">
-        {/* Nút bật/tắt Chế độ 2D & 3D Địa hình */}
-        <button
-          onClick={handleToggle2D3D}
-          type="button"
-          className={`px-3 py-1.5 rounded-2xl font-extrabold text-xs shadow-2xl border flex items-center gap-1.5 transition-all cursor-pointer backdrop-blur-md ${
-            viewMode === '3D'
-              ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white border-cyan-300 ring-2 ring-cyan-400/50 shadow-cyan-500/25'
-              : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
-          }`}
-          title={viewMode === '3D' ? 'Đang ở chế độ 3D Địa hình Google Earth (Bấm để về 2D phẳng)' : 'Bấm để bật chế độ 3D Địa hình thực tế'}
-        >
-          {viewMode === '3D' ? (
-            <Mountain className="w-3.5 h-3.5 text-cyan-200 animate-pulse" />
-          ) : (
-            <Box className="w-3.5 h-3.5 text-slate-400" />
-          )}
-          <span>{viewMode === '3D' ? '3D Địa hình' : '2D Phẳng'}</span>
-        </button>
-
-        {/* Nút bật/tắt Chế độ Xoay quanh điểm */}
-        <button
-          onClick={() => setIsRotateMode((prev) => !prev)}
-          type="button"
-          className={`px-3 py-1.5 rounded-2xl font-extrabold text-xs shadow-2xl border flex items-center gap-1.5 transition-all cursor-pointer backdrop-blur-md ${
-            isRotateMode
-              ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white border-amber-300 ring-2 ring-amber-400/50 shadow-amber-500/30'
-              : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
-          }`}
-          title={
-            isRotateMode
-              ? 'Đang bật Chế độ xoay quanh điểm (Bấm để tắt)'
-              : 'Bật Chế độ xoay: Giữ 1 điểm rồi di chuột hoặc di ngón tay để xoay quanh điểm'
-          }
-        >
-          <RotateCw className={`w-3.5 h-3.5 ${isRotateMode ? 'animate-spin duration-3000 text-white' : 'text-amber-400'}`} />
-          <span>{isRotateMode ? 'Đang bật Xoay ⚓' : 'Xoay bản đồ'}</span>
-        </button>
-
-        {/* Nút tăng giảm độ nhấp nhô đồi núi 3D (2.5x -> 3.5x -> 5.0x) */}
-        {viewMode === '3D' && (
-          <button
-            onClick={handleCycleElevation}
-            type="button"
-            className="hidden xs:flex items-center gap-1 px-2.5 py-1.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-cyan-500/40 text-cyan-200 text-xs font-bold shadow-xl cursor-pointer transition backdrop-blur-md"
-            title="Bấm để tăng độ cao nhấp nhô đồi núi (2.5x -> 3.5x -> 5.0x)"
-          >
-            <Mountain className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Độ nổi {elevationLevel}x</span>
-          </button>
-        )}
-
-        {/* Nút La bàn (Compass) - Xoay tự động theo góc nhìn, bấm để về Bắc */}
-        <button
-          onClick={handleResetNorth}
-          type="button"
-          className="w-8 h-8 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-white flex items-center justify-center shadow-xl cursor-pointer transition backdrop-blur-md"
-          title={`Góc xoay: ${bearing}°. Bấm để quay về hướng Bắc`}
-        >
-          <Compass
-            className="w-4 h-4 text-rose-500 transition-transform duration-200"
-            style={{ transform: `rotate(${-bearing}deg)` }}
-          />
-        </button>
-
-        {/* Nút xoay nhanh 45 độ */}
-        <div className="hidden sm:flex items-center bg-slate-900/90 border border-slate-700 rounded-2xl shadow-xl overflow-hidden backdrop-blur-md">
-          <button
-            onClick={() => handleRotateStep('left')}
-            className="p-1.5 hover:bg-slate-800 text-slate-300 hover:text-white transition cursor-pointer"
-            title="Xoay trái 45°"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
-          <div className="w-[1px] h-4 bg-slate-700"></div>
-          <button
-            onClick={() => handleRotateStep('right')}
-            className="p-1.5 hover:bg-slate-800 text-slate-300 hover:text-white transition cursor-pointer"
-            title="Xoay phải 45°"
-          >
-            <RotateCw className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Chuyển loại ảnh Google Earth (Hybrid <-> Pure Satellite) */}
-        <button
-          onClick={handleToggleSatelliteType}
-          type="button"
-          className="hidden md:flex items-center gap-1 px-2.5 py-1.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold shadow-xl cursor-pointer transition backdrop-blur-md"
-          title={satelliteType === 'hybrid' ? 'Đang hiển thị vệ tinh có tên đường (Bấm để xem ảnh vệ tinh thuần túy)' : 'Đang xem ảnh vệ tinh thuần túy (Bấm để hiện tên đường)'}
-        >
-          <Globe className="w-3.5 h-3.5 text-emerald-400" />
-          <span>{satelliteType === 'hybrid' ? 'Earth Hybrid' : 'Earth Thuần'}</span>
-        </button>
-
         {/* Nút Xem tất cả (Fit Bounds) */}
         <button
           onClick={handleFitBounds}
-          className="hidden lg:flex items-center gap-1 px-2.5 py-1.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-white shadow-xl transition cursor-pointer backdrop-blur-md"
+          className="flex items-center gap-1 px-3 py-1.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-white shadow-xl transition cursor-pointer backdrop-blur-md"
           title="Thu phóng vừa toàn bộ các thửa"
         >
           <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
           <span>Xem tất cả</span>
         </button>
+
+        {/* Nút La bàn (Compass) - Xoay theo góc bản đồ, bấm vào để trả về hướng Bắc */}
+        <button
+          onClick={handleResetNorth}
+          type="button"
+          className="px-2.5 py-1.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-white flex items-center gap-1.5 shadow-xl cursor-pointer transition backdrop-blur-md"
+          title={bearing !== 0 ? `Bản đồ đang xoay ${bearing}°. Bấm để quay về hướng Bắc` : 'Hướng Bắc'}
+        >
+          <Compass
+            className="w-4 h-4 text-rose-500 transition-transform duration-200"
+            style={{ transform: `rotate(${-bearing}deg)` }}
+          />
+          {bearing !== 0 && (
+            <span className="text-[11px] font-bold text-slate-300">
+              {((bearing % 360 + 360) % 360)}°
+            </span>
+          )}
+        </button>
+
+        <div className="hidden lg:flex items-center bg-slate-950/90 px-3 py-1.5 rounded-2xl border border-slate-700/60 shadow-xl text-xs text-white backdrop-blur-md">
+          <span className="text-slate-300 font-medium">
+            Hiển thị: <strong className="text-emerald-400 font-black">{dotsCount.toLocaleString('vi-VN')}</strong> thửa
+          </span>
+        </div>
       </div>
 
-      {/* THÔNG BÁO HƯỚNG DẪN KHI BẬT CHẾ ĐỘ XOAY */}
-      {isRotateMode && (
-        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-[1100] bg-gradient-to-r from-amber-600/95 to-orange-600/95 border border-amber-300/60 text-white text-xs font-bold px-4 py-1.5 rounded-full shadow-2xl backdrop-blur-md flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
-          <RotateCw className="w-4 h-4 animate-spin duration-3000" />
-          <span>Chạm giữ 1 điểm trên bản đồ rồi di ngón tay / chuột để xoay</span>
-          <button
-            onClick={() => setIsRotateMode(false)}
-            className="ml-2 bg-black/30 hover:bg-black/50 text-white px-2 py-0.5 rounded-full text-[11px] font-black cursor-pointer"
-          >
-            Tắt
-          </button>
-        </div>
-      )}
-
-      {/* GỢI Ý THAO TÁC XOAY */}
-      {!isRotateMode && !isOrbiting && (
-        <div className="absolute top-[98px] right-3.5 z-[1000] hidden sm:flex items-center gap-1.5 bg-slate-950/85 border border-cyan-500/40 text-cyan-200 text-[11px] px-3 py-1 rounded-full shadow-lg backdrop-blur-md pointer-events-none animate-in fade-in slide-in-from-top-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
-          <span>Giữ 1 điểm rồi di chuột / ngón tay để xoay (hoặc bật nút Xoay bản đồ)</span>
-        </div>
-      )}
-
       {/* BẢNG CHÚ THÍCH MÀU SẮC TRẠNG THÁI THỬA ĐẤT (DESKTOP) */}
-      <div className="absolute top-[132px] right-3.5 z-[1000] hidden lg:flex items-center gap-2.5 bg-slate-950/90 px-3.5 py-1.5 rounded-2xl shadow-xl border border-slate-700/60 text-[11px] text-slate-200 select-none backdrop-blur-md">
+      <div className="absolute top-[96px] right-3.5 z-[1000] hidden lg:flex items-center gap-2.5 bg-slate-950/90 px-3.5 py-1.5 rounded-2xl shadow-xl border border-slate-700/60 text-[11px] text-slate-200 select-none backdrop-blur-md">
         <span className="flex items-center gap-1.5 font-bold text-red-400">
           <span className="w-2.5 h-2.5 rounded-full bg-red-600 ring-2 ring-white" /> Đang chọn
         </span>
@@ -1210,26 +940,8 @@ export default function CadastralMap({
         </span>
       </div>
 
-      {/* NÚT TRÒN TIỆN ÍCH XOAY & ĐỊNH VỊ GPS VỊ TRÍ ĐANG ĐỨNG (GOOGLE EARTH STYLE) */}
-      <div className="absolute bottom-20 right-3.5 sm:bottom-24 sm:right-4 z-[1000] flex flex-col items-end gap-2">
-        {/* Nút tròn Chế độ Xoay quanh điểm */}
-        <button
-          type="button"
-          onClick={() => setIsRotateMode((prev) => !prev)}
-          className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full shadow-2xl border flex items-center justify-center active:scale-90 transition-all cursor-pointer ${
-            isRotateMode
-              ? 'bg-gradient-to-tr from-amber-500 to-orange-500 text-white border-amber-300 ring-4 ring-amber-500/40 shadow-amber-500/40'
-              : 'bg-slate-900/90 text-amber-400 border-slate-700 hover:bg-slate-800'
-          }`}
-          title={
-            isRotateMode
-              ? 'Chế độ xoay quanh điểm đang BẬT: Chạm 1 điểm rồi di tay để xoay (Bấm để tắt)'
-              : 'Bật Chế độ xoay: Giữ 1 điểm rồi di chuột / ngón tay để xoay quanh điểm'
-          }
-        >
-          <RotateCw className={`w-5 h-5 ${isRotateMode ? 'animate-spin duration-3000 text-white' : 'text-amber-400'}`} />
-        </button>
-
+      {/* NÚT TRÒN ĐỊNH VỊ GPS VỊ TRÍ ĐANG ĐỨNG (GOOGLE MAPS STYLE - BÁM BƯỚC CHÂN) */}
+      <div className="absolute bottom-20 right-3.5 sm:bottom-24 sm:right-4 z-[1000] flex flex-col items-end gap-1.5">
         {!userLocation && (
           <div
             onClick={handleFlyToUserLocation}
@@ -1269,7 +981,7 @@ export default function CadastralMap({
         </button>
       </div>
 
-      {/* MOBILE THỐNG KÊ SỐ LƯỢNG THỬA & CHẾ ĐỘ GOOGLE EARTH */}
+      {/* MOBILE THỐNG KÊ SỐ LƯỢNG THỬA & SELECTION BADGE */}
       <div className="absolute bottom-4 left-3 z-[1000] lg:hidden bg-slate-950/90 px-3 py-1.5 rounded-full text-[11px] font-bold text-white border border-slate-700/60 shadow-lg pointer-events-none flex items-center gap-2 backdrop-blur-md">
         {selectedParcel ? (
           <span className="flex items-center gap-1.5 text-red-400">
@@ -1281,12 +993,8 @@ export default function CadastralMap({
           </span>
         ) : (
           <span className="flex items-center gap-1.5">
-            <Mountain className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
             <span>{dotsCount.toLocaleString('vi-VN')} thửa</span>
-            <span className="text-slate-500">•</span>
-            <span className={viewMode === '3D' ? 'text-cyan-400 font-extrabold' : 'text-slate-400'}>
-              {viewMode} Earth
-            </span>
           </span>
         )}
       </div>
