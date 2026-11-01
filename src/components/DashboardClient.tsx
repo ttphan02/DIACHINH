@@ -1339,7 +1339,15 @@ export default function DashboardPage() {
   // 3. Tính toán trạng thái thực tế của từng thửa
   const computedParcels = useMemo(() => {
     return parcels
-      .filter((p) => !HIDDEN_PARCEL_SET.has(p.ma_thua))
+      .filter((p) => {
+        if (HIDDEN_PARCEL_SET.has(p.ma_thua)) return false;
+        const ld = (p.loai_dat || '').trim().toUpperCase();
+        if (ld === 'BCS') {
+          const dt = parseFloat(String(p.dien_tich || '').replace(',', '.'));
+          if (!isNaN(dt) && dt < 100) return false;
+        }
+        return true;
+      })
       .map((p) => {
       const savedDecl = declarationsMap[p.ma_thua];
       const ggsInfo = ggsParcelsMap[p.ma_thua];

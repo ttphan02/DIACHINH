@@ -427,6 +427,9 @@ export async function executeSyncToGoogleSheet(
       const meta = parcelsBrief[maThua];
       const fallbackDt = meta ? meta[0] : '';
       const fallbackLoaiDat = meta ? meta[1] : '';
+      const curLd = String(decl.loai_dat || fallbackLoaiDat || '').trim().toUpperCase();
+      const curDt = parseFloat(String(decl.dien_tich || fallbackDt || '').replace(',', '.'));
+      if (curLd === 'BCS' && !isNaN(curDt) && curDt < 100) continue;
       const fallbackThon = meta ? meta[2] : '';
       const fallbackOwner = meta ? meta[3] : '';
 

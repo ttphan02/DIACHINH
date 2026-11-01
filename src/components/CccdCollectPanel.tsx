@@ -224,6 +224,11 @@ export default function CccdCollectPanel({
     Object.entries(declarationsMap).forEach(([parcelCode, decl]) => {
       if (!decl || HIDDEN_PARCEL_SET.has(parcelCode)) return;
 
+      const pBrief = parcelsBrief[parcelCode];
+      const ld = String(decl.loai_dat || (pBrief && pBrief[1]) || '').trim().toUpperCase();
+      const dt = parseFloat(String(decl.dien_tich || (pBrief && pBrief[0]) || '').replace(',', '.'));
+      if (ld === 'BCS' && !isNaN(dt) && dt < 100) return;
+
       const name = String(decl.chu_dat_ten || decl.chu_ho || '').trim();
       if (!name || name === 'Chưa có tên') return;
 
