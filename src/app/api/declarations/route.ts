@@ -312,7 +312,7 @@ export async function POST(request: Request) {
 
     // Đồng bộ nhanh các ô nhập nháp (cellEdits) qua các máy tính khác nhau
     if (body && body.type === 'cell_edits') {
-      const currentData = await getDeclarationsFromR2(true);
+      const currentData = await getDeclarationsFromR2(false);
       const updatedPayload: StoragePayload = {
         declaredCodes: currentData.declaredCodes,
         declarationsMap: currentData.declarationsMap,
@@ -344,12 +344,15 @@ export async function POST(request: Request) {
 
     // Hỗ trợ lưu hàng loạt (batch) trong 1 request duy nhất
     if (body && Array.isArray(body.batch) && body.batch.length > 0) {
-      const currentData = await getDeclarationsFromR2(true);
+      const currentData = await getDeclarationsFromR2(false);
       const declaredCodesSet = new Set<string>(currentData.declaredCodes);
       const declarationsMap = { ...currentData.declarationsMap };
       const currentCellEdits = { ...(currentData.cellEdits || {}) };
       const timestamp = new Date().toISOString();
 
+      if (body.cellEdits && typeof body.cellEdits === 'object') {
+        Object.assign(currentCellEdits, body.cellEdits);
+      }
       for (const item of body.batch) {
         if (!item || !item.ma_thua) continue;
         const code = item.ma_thua;
@@ -406,7 +409,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Thiếu mã thửa đất' }, { status: 400 });
     }
 
-    const currentData = await getDeclarationsFromR2(true);
+    const currentData = await getDeclarationsFromR2(false);
     const declaredCodesSet = new Set<string>(currentData.declaredCodes);
     const declarationsMap = { ...currentData.declarationsMap };
     const currentCellEdits = { ...(currentData.cellEdits || {}) };
@@ -566,7 +569,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, error: 'Thiếu mã thửa cần xóa' }, { status: 400 });
     }
 
-    const currentData = await getDeclarationsFromR2(true);
+    const currentData = await getDeclarationsFromR2(false);
     const declaredCodesSet = new Set<string>(currentData.declaredCodes);
     const declarationsMap = { ...currentData.declarationsMap };
 

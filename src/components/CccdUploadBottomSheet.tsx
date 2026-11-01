@@ -948,7 +948,7 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
     // Kích hoạt đồng bộ Google Sheets 1 lần duy nhất nếu có file thành công
     if (successCount > 0) {
       try {
-        await fetch('/api/sync-sheets');
+        fetch('/api/sync-sheets').catch(() => {});
       } catch {
         // ignore
       }

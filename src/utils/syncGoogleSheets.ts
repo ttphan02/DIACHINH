@@ -1,5 +1,7 @@
 import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import parcelsBriefData from '@/data/parcels_brief.json';
+import hiddenParcelsData from '@/data/hidden_parcels.json';
+const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
 import { fetchOrGetCachedGgsData } from '@/utils/ggsData';
 
 // parcelsBrief: ma_thua -> [dien_tich, loai_dat, thon_xa, statusFlag (0: KHONG_TEN, 1: CO_TEN, 2: DA_SO_HOA)]
@@ -410,7 +412,7 @@ export async function executeSyncToGoogleSheet(
     const processedParcels = new Set<string>();
 
     for (const [maThua, decl] of Object.entries(declarationsMap)) {
-      if (!maThua || processedParcels.has(maThua)) continue;
+      if (!maThua || processedParcels.has(maThua) || HIDDEN_PARCEL_SET.has(maThua)) continue;
       processedParcels.add(maThua);
 
       const parts = maThua.split('_');

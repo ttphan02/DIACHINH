@@ -344,7 +344,7 @@ export default function CccdSupplementModal({
 
     // Bước 3: Hoàn thành toàn bộ folder -> Kích hoạt đồng bộ Google Sheet 1 LẦN DUY NHẤT
     try {
-      await fetch('/api/sync-sheets');
+      fetch('/api/sync-sheets').catch(() => {});
     } catch (e) {
       console.warn('Lỗi gọi sync-sheets sau batch:', e);
     }

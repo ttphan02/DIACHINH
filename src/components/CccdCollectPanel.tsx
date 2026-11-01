@@ -21,6 +21,8 @@ import { getOrCreateDeviceId, getSavedCadreName, saveOrUpdateDeclaration } from 
 import { broadcastRealtimeEvent } from '@/utils/realtimeSync';
 import { cleanCccd, cleanName, stripAccents, CANONICAL_VILLAGES, getCanonicalVillage, NGUON_GOC_OPTIONS, normalizeNguonGoc } from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
+import hiddenParcelsData from '@/data/hidden_parcels.json';
+const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
 
 const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
 
@@ -220,7 +222,7 @@ export default function CccdCollectPanel({
     const mapByCitizen = new Map<string, MissingCccdPerson>();
 
     Object.entries(declarationsMap).forEach(([parcelCode, decl]) => {
-      if (!decl) return;
+      if (!decl || HIDDEN_PARCEL_SET.has(parcelCode)) return;
 
       const name = String(decl.chu_dat_ten || decl.chu_ho || '').trim();
       if (!name || name === 'Chưa có tên') return;
@@ -454,18 +456,12 @@ export default function CccdCollectPanel({
         });
       }
 
-      // Lưu lên Cloudflare R2 & D1 Database qua API /api/declarations
+      // Lưu lên Cloudflare R2 & D1 Database qua API /api/declarations (1 request duy nhất gom batch + cellEdits)
       if (updatedDecls.length > 0) {
         await fetch('/api/declarations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ batch: updatedDecls }),
-        });
-
-        await fetch('/api/declarations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'cell_edits', cellEdits: cellEditsToSync }),
+          body: JSON.stringify({ batch: updatedDecls, cellEdits: cellEditsToSync }),
         });
       }
 

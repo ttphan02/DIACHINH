@@ -24,6 +24,8 @@ const CadreTrackingTab = dynamic(() => import('@/components/CadreTrackingTab'), 
 import type { ReadyToPackItem } from '@/utils/pdfPacker';
 import digitizedParcelsData from '@/data/digitized_parcels.json';
 const DIGITIZED_SET = new Set(digitizedParcelsData as string[]);
+import hiddenParcelsData from '@/data/hidden_parcels.json';
+const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
 import {
   Radio,
   FileBarChart2,
@@ -648,7 +650,7 @@ export default function DashboardPage() {
     if (immediate) {
       doSync();
     } else {
-      cellEditsSyncTimeoutRef.current = setTimeout(doSync, 300);
+      cellEditsSyncTimeoutRef.current = setTimeout(doSync, 1200);
     }
   }, []);
 
@@ -1278,7 +1280,21 @@ export default function DashboardPage() {
         );
       }
     } catch (err) {
-      console.error('Lỗi đồng bộ Google Sheets:', err);
+      console.warn('Lỗi đồng bộ /api/sync-ggs, dự phòng nạp snapshot tĩnh:', err);
+      try {
+        const snapRes = await fetch('/data/ggs_snapshot.json');
+        if (snapRes.ok) {
+          const snapData = (await snapRes.json()) as any;
+          if (snapData && Array.isArray(snapData.codes)) {
+            setGgsCodes(new Set(snapData.codes));
+            if (snapData.parcels) setGgsParcelsMap(snapData.parcels);
+            if (Array.isArray(snapData.allCccds)) setGgsCccdSet(new Set(snapData.allCccds));
+            setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
+          }
+        }
+      } catch (snapErr) {
+        console.error('Lỗi nạp snapshot:', snapErr);
+      }
     } finally {
       setIsSyncingGgs(false);
     }
@@ -1322,7 +1338,9 @@ export default function DashboardPage() {
 
   // 3. Tính toán trạng thái thực tế của từng thửa
   const computedParcels = useMemo(() => {
-    return parcels.map((p) => {
+    return parcels
+      .filter((p) => !HIDDEN_PARCEL_SET.has(p.ma_thua))
+      .map((p) => {
       const savedDecl = declarationsMap[p.ma_thua];
       const ggsInfo = ggsParcelsMap[p.ma_thua];
 

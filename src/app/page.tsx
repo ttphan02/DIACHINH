@@ -452,29 +452,20 @@ export default function Home() {
         setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
       }
     } catch (err: any) {
-      console.warn('Lỗi kết nối /api/sync-ggs, kích hoạt dự phòng nạp trực tiếp từ Google Sheets:', err);
+      console.warn('Lỗi kết nối /api/sync-ggs, kích hoạt dự phòng nạp từ snapshot tĩnh:', err);
       try {
-        const directRes = await fetch(
-          'https://docs.google.com/spreadsheets/d/1c2xAknmc1fx-xKBJhLp-EcmZwAAnDIgCPf-pj6wmCHc/export?format=csv&gid=0'
-        );
+        const directRes = await fetch('/data/ggs_snapshot.json');
         if (directRes.ok) {
-          const csvText = await directRes.text();
-          const lines = csvText.split(/\r?\n/);
-          const directCodes: string[] = [];
-          for (let i = 2; i < lines.length; i++) {
-            const line = lines[i];
-            const m = line.match(/CHUACOGIAY_24478_(\d+_\d+)/);
-            if (m) directCodes.push(m[1]);
-          }
-          if (directCodes.length > 0 && directCodes.length !== lastGgsCountRef.current) {
-            lastGgsCountRef.current = directCodes.length;
-            setGgsCodes(new Set(directCodes));
+          const data = (await directRes.json()) as any;
+          if (data && Array.isArray(data.codes)) {
+            if (data.parcels) setGgsParcelsMap(data.parcels);
+            setGgsCodes(new Set(data.codes));
             setIsGgsLoaded(true);
             setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
           }
         }
       } catch (directErr) {
-        console.error('Lỗi khi fetch trực tiếp GGS:', directErr);
+        console.error('Lỗi khi fetch ggs_snapshot:', directErr);
       }
     } finally {
       setIsSyncingGgs(false);
@@ -600,7 +591,7 @@ export default function Home() {
   const computedParcels = useMemo<Parcel[]>(() => {
     return parcels
       .filter((p) => {
-        if (HIDDEN_PARCEL_SET.has(p.ma_thua) && !declarationsMap[p.ma_thua] && !declaredParcelCodes.has(p.ma_thua) && !ggsCodes.has(p.ma_thua) && !DIGITIZED_SET.has(p.ma_thua)) return false;
+        if (HIDDEN_PARCEL_SET.has(p.ma_thua)) return false;
         const ld = (p.loai_dat || '').trim().toUpperCase();
         if (ld === 'BCS') {
           const dt = parseFloat(String(p.dien_tich || '').replace(',', '.'));
