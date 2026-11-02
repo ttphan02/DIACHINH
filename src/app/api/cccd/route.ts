@@ -1,3 +1,5 @@
+import hiddenParcelsData from '@/data/hidden_parcels.json';
+const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { cleanCccd, cleanName } from '@/utils/textHelpers';
@@ -379,7 +381,7 @@ export async function GET(request: Request) {
           url: `/api/image/${encodeURI(fullKey)}`,
           cccdNumber: cccdCandidate || '',
           ownerName: matchedOwner || '',
-          matchedParcelCode: matchedParcel || '',
+          matchedParcelCode: (matchedParcel && !HIDDEN_PARCEL_SET.has(matchedParcel)) ? matchedParcel : '',
         };
       })
       .filter(Boolean)

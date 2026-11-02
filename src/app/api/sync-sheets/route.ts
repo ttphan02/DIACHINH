@@ -1,8 +1,32 @@
+import hiddenParcelsData from '@/data/hidden_parcels.json';
+const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { executeSyncToGoogleSheet, invalidateR2Cache } from '@/utils/syncGoogleSheets';
 
 export const dynamic = 'force-dynamic';
+
+function sanitizeSheetsPayload(sheets: Record<string, string[][]> | null | undefined): Record<string, string[][]> | null {
+  if (!sheets) return null;
+  const result: Record<string, string[][]> = {};
+  for (const [sName, rows] of Object.entries(sheets)) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      result[sName] = rows;
+      continue;
+    }
+    const headers = rows[0];
+    const filteredRows = rows.slice(1).filter((r) => {
+      const ma = String(r[1] || '').trim();
+      return !HIDDEN_PARCEL_SET.has(ma);
+    });
+    filteredRows.forEach((r, idx) => {
+      r[0] = String(idx + 1);
+    });
+    result[sName] = [headers, ...filteredRows];
+  }
+  return result;
+}
+
 
 const KEY_ALL_DECLARATIONS = 'declarations/all.json';
 const R2_PUBLIC_URL = process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL || 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
@@ -73,6 +97,7 @@ export async function GET(req: Request) {
     return NextResponse.json(
       {
         ...cachedSyncResult,
+        sheetsData: sanitizeSheetsPayload(cachedSyncResult.sheetsData),
         cached: true,
         durationMs: 0,
       },
@@ -97,6 +122,7 @@ export async function GET(req: Request) {
           return NextResponse.json(
             {
               ...data,
+              sheetsData: sanitizeSheetsPayload(data.sheetsData),
               cached: true,
               durationMs: 0,
             },
@@ -124,7 +150,7 @@ export async function GET(req: Request) {
       durationMs: Date.now() - t0,
       totalDeclarations: Object.keys(declarationsMap).length,
       summary: (result as any).summary,
-      sheetsData: (result as any).sheetsData,
+      sheetsData: sanitizeSheetsPayload((result as any).sheetsData),
       cachedAt: now,
     };
 

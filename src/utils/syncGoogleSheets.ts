@@ -817,6 +817,10 @@ export async function executeSyncToGoogleSheet(
 
     // 2. Thống kê toàn bộ các thửa đất trong cơ sở dữ liệu xã Cư Pui (11.280 thửa) từ dữ liệu rút gọn siêu nhẹ (O(1) cached)
     for (const [maThua, item] of Object.entries(parcelsBrief)) {
+      if (HIDDEN_PARCEL_SET.has(maThua)) continue;
+      const curLd = String(item[1] || '').trim().toUpperCase();
+      const curDt = parseFloat(String(item[0] || '').replace(',', '.'));
+      if (curLd === 'BCS' && !isNaN(curDt) && curDt < 100) continue;
       const thonXa = item[2] || '';
       const statusFlag = item[3]; // 0: KHONG_TEN, 1: CO_TEN_CHUA_SO_HOA_VANG, 2: DA_SO_HOA_XANH
       const v = getVillageCached(thonXa);

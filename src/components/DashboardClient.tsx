@@ -26,6 +26,28 @@ import digitizedParcelsData from '@/data/digitized_parcels.json';
 const DIGITIZED_SET = new Set(digitizedParcelsData as string[]);
 import hiddenParcelsData from '@/data/hidden_parcels.json';
 const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
+
+const sanitizeSheetsPayload = (sheets: Record<string, string[][]> | null | undefined): Record<string, string[][]> | null => {
+  if (!sheets) return null;
+  const result: Record<string, string[][]> = {};
+  for (const [sName, rows] of Object.entries(sheets)) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      result[sName] = rows;
+      continue;
+    }
+    const headers = rows[0];
+    const filteredRows = rows.slice(1).filter((r) => {
+      const ma = String(r[1] || '').trim();
+      if (ma && HIDDEN_PARCEL_SET.has(ma)) return false;
+      return true;
+    });
+    filteredRows.forEach((r, idx) => {
+      r[0] = String(idx + 1);
+    });
+    result[sName] = [headers, ...filteredRows];
+  }
+  return result;
+};
 import {
   Radio,
   FileBarChart2,
@@ -1248,7 +1270,7 @@ export default function DashboardPage() {
       const data: any = await res.json();
       if (data && data.success) {
         setSyncSummary(data.summary);
-        setSyncSheetsData(data.sheetsData);
+        setSyncSheetsData(sanitizeSheetsPayload(data.sheetsData));
       }
     } catch (err) {
       console.error('Lỗi nạp báo cáo tiến độ nội bộ:', err);
@@ -1520,7 +1542,7 @@ export default function DashboardPage() {
     }
     const rows = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'];
     if (Array.isArray(rows) && rows.length > 1) {
-      return rows.length - 1;
+      return rows.slice(1).filter((r) => !HIDDEN_PARCEL_SET.has(String(r[1] || '').trim())).length;
     }
     return readyToPackParcels.length;
   }, [syncSummary, syncSheetsData, readyToPackParcels.length]);
@@ -1531,7 +1553,7 @@ export default function DashboardPage() {
     }
     const rows = syncSheetsData?.['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'];
     if (Array.isArray(rows) && rows.length > 1) {
-      return rows.length - 1;
+      return rows.slice(1).filter((r) => !HIDDEN_PARCEL_SET.has(String(r[1] || '').trim())).length;
     }
     return dangKeKhaiChuaCccdParcels.length;
   }, [syncSummary, syncSheetsData, dangKeKhaiChuaCccdParcels.length]);
@@ -1544,7 +1566,7 @@ export default function DashboardPage() {
     }
     const rows = syncSheetsData?.['NHẬP DỮ LIỆU'] || syncSheetsData?.['CHỜ NHẬP'];
     if (Array.isArray(rows) && rows.length > 1) {
-      return rows.length - 1;
+      return rows.slice(1).filter((r) => !HIDDEN_PARCEL_SET.has(String(r[1] || '').trim())).length;
     }
     return 0;
   }, [syncSummary, syncSheetsData]);
@@ -1555,7 +1577,7 @@ export default function DashboardPage() {
     }
     const rows = syncSheetsData?.['GCN - ONT'];
     if (Array.isArray(rows) && rows.length > 1) {
-      return rows.length - 1;
+      return rows.slice(1).filter((r) => !HIDDEN_PARCEL_SET.has(String(r[1] || '').trim())).length;
     }
     return gcnOntParcels.length;
   }, [syncSummary, syncSheetsData, gcnOntParcels.length]);
@@ -3463,7 +3485,14 @@ export default function DashboardPage() {
                   }
 
                   let headers = [...(rawSheet[0] || [])];
-                  let allRows = (rawSheet.slice(1) || []).map((r) => [...r]);
+                  let allRows = (rawSheet.slice(1) || [])
+                    .filter((r) => {
+                      const ma = String(r[1] || '').trim();
+                      if (ma && HIDDEN_PARCEL_SET.has(ma)) return false;
+                      return true;
+                    })
+                    .map((r) => [...r]);
+                  allRows.forEach((r, idx) => { r[0] = String(idx + 1); });
 
                   // Bỏ các cột theo yêu cầu: Tờ BĐ, Số thửa, Trạng thái dữ liệu, Ghi chú, Trạng thái đóng tập, Trạng thái giải quyết, Phân loại trạng thái, Nguồn CCCD
                   const isExcludedCol = (h: string) => {
@@ -6027,7 +6056,7 @@ export default function DashboardPage() {
       <ExportMissingCccdModal
         isOpen={isExportMissingCccdOpen}
         onClose={() => setIsExportMissingCccdOpen(false)}
-        parcels={parcels}
+        parcels={computedParcels}
         declarationsMap={declarationsMap}
         theme={theme}
       />

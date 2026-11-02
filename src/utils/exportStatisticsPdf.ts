@@ -1,3 +1,5 @@
+import hiddenParcelsData from '@/data/hidden_parcels.json';
+const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
 import { PDFDocument, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import type { Parcel } from '../types';
@@ -827,6 +829,7 @@ export async function generateStatisticsPdf(
         const gender = String(r[5] || '').trim();
         const rawCccd = String(r[6] || '').replace(/^="|"$/g, '').trim();
         const maThua = String(r[1] || '').trim();
+        if (maThua && HIDDEN_PARCEL_SET.has(maThua)) continue;
 
         const citizenKey = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
