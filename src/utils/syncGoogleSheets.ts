@@ -1,5 +1,7 @@
 import digitizedParcelsData from '@/data/digitized_parcels.json';
 const DIGITIZED_SET = new Set(digitizedParcelsData as string[]);
+import prefilledKh2959Data from '@/data/kh2959_imported.json';
+const KH2959_IMPORTED_SET = new Set(Array.isArray(prefilledKh2959Data) ? prefilledKh2959Data : []);
 import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import parcelsBriefData from '@/data/parcels_brief.json';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
@@ -515,7 +517,8 @@ export async function executeSyncToGoogleSheet(
 
       // GIAI ĐOẠN 4: ĐÃ LÊN GGS CHÍNH (ĐÃ GIẢI QUYẾT)
       // Nếu mã thửa A_B có trên Google Sheet Cột BF Trang tính 1
-      if (ggsCodes.has(maThua)) {
+      // ĐÃ LÊN GGS HOẶC ĐÃ SỐ HÓA HOẶC ĐÃ NHẬP KH2959
+      if (ggsCodes.has(maThua) || DIGITIZED_SET.has(maThua) || KH2959_IMPORTED_SET.has(maThua)) {
         if (ggsP) {
           if (ggsP.chu_ho) item.chu_ho = ggsP.chu_ho;
           if (ggsP.cccd) item.cccd = cleanCccd(ggsP.cccd);

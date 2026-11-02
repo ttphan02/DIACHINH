@@ -1413,7 +1413,7 @@ export default function DashboardPage() {
       const ggsInfo = ggsParcelsMap[p.ma_thua];
 
       // Nếu mã thửa có trên Google Sheet Cột BF hoặc thuộc DIGITIZED_SET -> ĐÃ SỐ HÓA!
-      const isDigitized = DIGITIZED_SET.has(p.ma_thua) || ggsCodes.has(p.ma_thua);
+      const isDigitized = DIGITIZED_SET.has(p.ma_thua) || ggsCodes.has(p.ma_thua) || kh2959ImportedCodes.has(p.ma_thua);
       const isOnGgs = isDigitized;
       const isDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(savedDecl);
 
@@ -1443,7 +1443,7 @@ export default function DashboardPage() {
         is_declared: isDeclared,
       };
     });
-  }, [parcels, ggsCodes, ggsParcelsMap, declaredParcelCodes, declarationsMap]);
+  }, [parcels, ggsCodes, ggsParcelsMap, declaredParcelCodes, declarationsMap, kh2959ImportedCodes]);
 
   // Kiểm tra một thửa đất có đầy đủ và hợp lệ toàn bộ thông tin kê khai hay chưa
   const isParcelInfoCompleteAndValid = useCallback((info: {
@@ -1588,15 +1588,17 @@ export default function DashboardPage() {
   const displayCountTotalDangKeKhai = displayCountReadyToPack + displayCountChuaCccd;
 
   const displayCountNhapDuLieu = useMemo(() => {
-    if (syncSummary?.nhapDuLieu !== undefined) {
-      return syncSummary.nhapDuLieu;
-    }
     const rows = syncSheetsData?.['NHẬP DỮ LIỆU'] || syncSheetsData?.['CHỜ NHẬP'];
     if (Array.isArray(rows) && rows.length > 1) {
-      return rows.slice(1).filter((r) => !HIDDEN_PARCEL_SET.has(String(r[1] || '').trim())).length;
+      return rows.slice(1).filter((r) => {
+        const ma = String(r[1] || '').trim();
+        if (!ma || HIDDEN_PARCEL_SET.has(ma)) return false;
+        if (kh2959ImportedCodes.has(ma) || DIGITIZED_SET.has(ma)) return false;
+        return true;
+      }).length;
     }
     return 0;
-  }, [syncSummary, syncSheetsData]);
+  }, [syncSheetsData, kh2959ImportedCodes]);
 
   const displayCountGcnOnt = useMemo(() => {
     if (syncSummary?.gcnOnt !== undefined) {
@@ -4088,7 +4090,7 @@ export default function DashboardPage() {
                   const validNonOntNhapDuLieuRows = isNhapDuLieuSheet
                     ? allRows.filter((r) => {
                         const maThua = String(r[1] || '').trim();
-                        if (!maThua || kh2959ImportedCodes.has(maThua)) return false;
+                        if (!maThua || kh2959ImportedCodes.has(maThua) || DIGITIZED_SET.has(maThua)) return false;
                         const p = extractParcelFromRow(r);
                         return !/ont/i.test(p.loai_dat || '');
                       })
@@ -4169,7 +4171,7 @@ export default function DashboardPage() {
                                 const text = await r.text();
                                 try {
                                   const d = JSON.parse(text);
-                                  if (d && (d.trung || d.da_nhap)) isDone = true;
+                                  if (d && (d.trung || d.da_nhap || d.nhom_1_2 || d.ton_tai === false)) isDone = true;
                                 } catch {}
                               }
                             } catch {}
@@ -4670,7 +4672,7 @@ export default function DashboardPage() {
                                   title="Tất cả các thửa hợp lệ đã được nhập lên web KH2959"
                                 >
                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                                  <span>Đã nhập xong ({allRows.filter((r) => kh2959ImportedCodes.has(String(r[1] || '').trim())).length}/{allRows.length})</span>
+                                  <span>Đã chuyển sang Đã số hóa ({allRows.filter((r) => kh2959ImportedCodes.has(String(r[1] || '').trim()) || DIGITIZED_SET.has(String(r[1] || '').trim())).length}/{allRows.length})</span>
                                 </div>
                               )}
                             </div>
@@ -5399,7 +5401,7 @@ export default function DashboardPage() {
                                 const isCanTimCccd = isChuaCoCccdSheet && getChuaCoCccdRowStatus(maThua, row) === 'CẦN TÌM CCCD';
                                 const isSaving = savingRowCodes.has(maThua);
                                 const hasEdited = Boolean(cellEdits[maThua]);
-                                const isImportedWeb = kh2959ImportedCodes.has(maThua);
+                                const isImportedWeb = kh2959ImportedCodes.has(maThua) || DIGITIZED_SET.has(maThua);
                                 const landTypeIdx = headers.findIndex((h) => /loại đất|mục đích/i.test(h));
                                 const rowLoaiDat = String(landTypeIdx !== -1 ? row[landTypeIdx] : '').trim();
                                 const isOntRow = /ont/i.test(rowLoaiDat);
@@ -5976,6 +5978,25 @@ export default function DashboardPage() {
                                                   </span>
                                                 )
                                               )}
+                                               {isNhapDuLieuSheet && (
+                                                 isImportedWeb ? (
+                                                   <span
+                                                     className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0"
+                                                     title="Đã chuyển sang danh sách Đã số hóa"
+                                                   >
+                                                     <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500" />
+                                                     <span>Đã số hóa</span>
+                                                   </span>
+                                                 ) : (
+                                                   <span
+                                                     className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 shrink-0"
+                                                     title="Chờ nhập lên Web KH2959"
+                                                   >
+                                                     <Sparkles className="w-2.5 h-2.5" />
+                                                     <span>Chờ nhập</span>
+                                                   </span>
+                                                 )
+                                               )}
                                             </div>
                                           </td>
                                         );

@@ -28,12 +28,17 @@ async function checkSingle(soTo: string, soThua: string) {
       const text = await res.text();
       try {
         const data = JSON.parse(text);
+        // Quy tắc số hóa theo KH2959:
+        // 1. trung === true (đã nộp kê khai trên web KH2959)
+        // 2. nhom_1_2 === true (thửa thuộc Nhóm 1 / Nhóm 2, có dữ liệu từ trước, không cần nhập biểu nữa)
+        // 3. ton_tai === false (không tồn tại trong dữ liệu bản đồ số thửa đất)
+        const isDone = Boolean(data?.trung) || Boolean(data?.nhom_1_2) || (data?.ton_tai === false);
         return {
           ton_tai: Boolean(data?.ton_tai),
           trung: Boolean(data?.trung),
           nhom_1_2: Boolean(data?.nhom_1_2),
           phan_loai: data?.phan_loai || null,
-          da_nhap: Boolean(data?.trung),
+          da_nhap: isDone,
         };
       } catch {
         return { ton_tai: false, trung: false, da_nhap: false };
