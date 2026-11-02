@@ -12,7 +12,9 @@ import {
   AlertCircle,
   ExternalLink,
   Download,
+  RefreshCw,
 } from 'lucide-react';
+import { getResolvedImageUrl } from '@/utils/geo';
 
 interface PdfViewerProps {
   url: string;
@@ -39,6 +41,7 @@ export default function PdfViewer({
   const [zoom, setZoom] = useState<number>(1.0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState<number>(0);
 
   // Pan / Dragging
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -49,6 +52,9 @@ export default function PdfViewer({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pdfDocRef = useRef<any>(null);
   const renderTaskRef = useRef<any>(null);
+
+  // Chuẩn hóa URL qua internal R2 Proxy (/api/image/...) để tránh bị Cloudflare r2.dev chặn rate limit
+  const safeUrl = getResolvedImageUrl(url);
 
   // 1. Tải tài liệu PDF bằng PDF.js từ ArrayBuffer
   useEffect(() => {
@@ -95,12 +101,57 @@ export default function PdfViewer({
         if (!pdfjsLib) throw new Error('Không thể khởi tạo PDF engine');
         pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.js';
 
-        // Tải nhị phân an toàn qua fetch ArrayBuffer
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-        const data = await res.arrayBuffer();
+        // Tải nhị phân an toàn qua fetch ArrayBuffer từ internal proxy
+        let data: ArrayBuffer | null = null;
+        let lastErrorText: string = '';
+
+        // Lần 1: Fetch qua safeUrl (/api/image/...)
+        try {
+          const res = await fetch(safeUrl);
+          if (res.ok) {
+            const buf = await res.arrayBuffer();
+            // Kiểm tra Magic Bytes: file PDF chuẩn luôn bắt đầu bằng '%PDF-'
+            const head = new Uint8Array(buf.slice(0, 5));
+            const headStr = String.fromCharCode(...head);
+            if (headStr.startsWith('%PDF-')) {
+              data = buf;
+            } else {
+              const textPreview = new TextDecoder().decode(buf.slice(0, 200));
+              lastErrorText = textPreview.includes('429') || textPreview.includes('Rate Limit')
+                ? 'Cloudflare Rate Limit (Quá nhiều yêu cầu cùng lúc)'
+                : 'Dữ liệu nhận được không phải định dạng PDF';
+            }
+          } else {
+            lastErrorText = `HTTP ${res.status}: ${res.statusText}`;
+          }
+        } catch (fetchErr: any) {
+          lastErrorText = fetchErr?.message || 'Lỗi kết nối';
+        }
+
+        // Lần 2: Tự động thử lại nếu lần 1 thất bại (sau 400ms)
+        if (!data && !isCancelled) {
+          await new Promise((r) => setTimeout(r, 400));
+          try {
+            const retryUrl = safeUrl.includes('?')
+              ? `${safeUrl}&retry=${Date.now()}`
+              : `${safeUrl}?retry=${Date.now()}`;
+            const retryRes = await fetch(retryUrl);
+            if (retryRes.ok) {
+              const buf = await retryRes.arrayBuffer();
+              const head = new Uint8Array(buf.slice(0, 5));
+              const headStr = String.fromCharCode(...head);
+              if (headStr.startsWith('%PDF-')) {
+                data = buf;
+              }
+            }
+          } catch {}
+        }
 
         if (isCancelled) return;
+
+        if (!data) {
+          throw new Error(lastErrorText || 'Không thể tải nội dung file PDF');
+        }
 
         const loadingTask = pdfjsLib.getDocument({
           data,
@@ -132,7 +183,7 @@ export default function PdfViewer({
         } catch {}
       }
     };
-  }, [url, isImage]);
+  }, [safeUrl, isImage, reloadKey]);
 
   // 2. Vẽ trang PDF lên HTML Canvas (Độ phân giải cao x2 để khi phóng to không bị mờ)
   const renderPage = useCallback(async () => {
@@ -443,15 +494,25 @@ export default function PdfViewer({
             <AlertCircle className="w-8 h-8 mb-2 opacity-80" />
             <p className="text-xs font-bold mb-1">Không thể hiển thị tài liệu</p>
             <p className="text-[11px] text-slate-400 max-w-xs mb-3">{errorMsg}</p>
-            <a
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 transition"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span>Tải hoặc mở liên kết trực tiếp</span>
-            </a>
+            <div className="flex flex-col sm:flex-row items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setReloadKey((k) => k + 1)}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 transition cursor-pointer shadow-md"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Thử lại ngay</span>
+              </button>
+              <a
+                href={safeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-indigo-400 flex items-center gap-1.5 transition border border-slate-700/60 bg-slate-900/60 hover:bg-slate-800"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Mở trong tab mới</span>
+              </a>
+            </div>
           </div>
         ) : isImage ? (
           <div
@@ -462,7 +523,7 @@ export default function PdfViewer({
             }}
           >
             <img
-              src={url}
+              src={safeUrl}
               alt={title || 'Tài liệu'}
               onLoad={() => setIsLoading(false)}
               onError={() => {

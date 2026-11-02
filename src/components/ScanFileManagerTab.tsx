@@ -19,6 +19,7 @@ import {
   ArrowUpRight,
 } from 'lucide-react';
 import CccdHoverPreviewCard from './CccdHoverPreviewCard';
+import { getResolvedImageUrl } from '@/utils/geo';
 import { stripAccents } from '@/utils/textHelpers';
 
 export interface ScanFileItem {
@@ -835,7 +836,7 @@ export default function ScanFileManagerTab({
                       <div className="flex items-center justify-center gap-1.5">
                         {/* Xem PDF Card Hover */}
                         <CccdHoverPreviewCard
-                          fileUrl={file.url}
+                          fileUrl={getResolvedImageUrl(file.url)}
                           filename={file.filename}
                           ownerName={file.ownerName}
                           theme={theme}
@@ -845,9 +846,9 @@ export default function ScanFileManagerTab({
                             onClick={(e) => {
                               e.preventDefault();
                               if (onPreviewUrl) {
-                                onPreviewUrl(file.url, file.filename);
+                                onPreviewUrl(getResolvedImageUrl(file.url), file.filename);
                               } else {
-                                window.open(file.url, '_blank');
+                                window.open(getResolvedImageUrl(file.url), '_blank');
                               }
                             }}
                             className={`p-1.5 rounded-lg border transition cursor-pointer ${

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import CccdHoverPreviewCard from './CccdHoverPreviewCard';
 import { stripAccents } from '@/utils/textHelpers';
+import { getResolvedImageUrl } from '@/utils/geo';
 
 interface CccdFileItem {
   filename: string;
@@ -465,7 +466,7 @@ export default function CccdManagerTab({
                     {/* Nút Xem file PDF có Hover Card Preview */}
                     <CccdHoverPreviewCard
                       theme={theme}
-                      fileUrl={file.url}
+                      fileUrl={getResolvedImageUrl(file.url)}
                       filename={file.filename}
                       cccdNumber={file.cccdNumber}
                       ownerName={file.ownerName}
@@ -475,10 +476,11 @@ export default function CccdManagerTab({
                         type="button"
                         onClick={(e) => {
                           e.preventDefault();
+                          const safeUrl = getResolvedImageUrl(file.url);
                           if (onPreviewUrl) {
-                            onPreviewUrl(file.url, file.filename);
+                            onPreviewUrl(safeUrl, file.filename);
                           } else {
-                            setPreviewPdf({ url: file.url, filename: file.filename });
+                            setPreviewPdf({ url: safeUrl, filename: file.filename });
                           }
                         }}
                         className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
@@ -613,7 +615,7 @@ export default function CccdManagerTab({
               </div>
               <div className="flex items-center gap-2">
                 <a
-                  href={previewPdf.url}
+                  href={getResolvedImageUrl(previewPdf.url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
@@ -625,7 +627,7 @@ export default function CccdManagerTab({
                   <span className="hidden sm:inline">Mở tab mới</span>
                 </a>
                 <a
-                  href={previewPdf.url}
+                  href={getResolvedImageUrl(previewPdf.url)}
                   download={previewPdf.filename}
                   className={`p-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
                     isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
@@ -646,7 +648,7 @@ export default function CccdManagerTab({
             </div>
             <div className="flex-1 w-full bg-slate-950 relative">
               <iframe
-                src={previewPdf.url}
+                src={getResolvedImageUrl(previewPdf.url)}
                 className="w-full h-full border-0 bg-white"
                 title={previewPdf.filename}
               />

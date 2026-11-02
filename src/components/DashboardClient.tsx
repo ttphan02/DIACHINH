@@ -3269,7 +3269,7 @@ export default function DashboardPage() {
             onPreviewUrl={(url, title) => {
               setPreviewPdfModal({
                 isOpen: true,
-                url,
+                url: getResolvedImageUrl(url),
                 title,
                 filename: title,
               });
@@ -3291,7 +3291,7 @@ export default function DashboardPage() {
             onPreviewUrl={(url, title) => {
               setPreviewPdfModal({
                 isOpen: true,
-                url,
+                url: getResolvedImageUrl(url),
                 title,
                 filename: title,
               });

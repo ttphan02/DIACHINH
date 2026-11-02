@@ -98,7 +98,13 @@ export async function GET(
     }
 
     // Giải mã từng phần đường dẫn để xử lý ký tự tiếng Việt / dấu cách
-    const key = path.map((segment) => decodeURIComponent(segment)).join('/');
+    const key = path.map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    }).join('/');
     const cleanKey = key.replace(/^\/+/, '');
 
     const isPdf = cleanKey.toLowerCase().endsWith('.pdf');
@@ -155,6 +161,18 @@ export async function GET(
     if (bucket) {
       try {
         let obj = await bucket.get(cleanKey, getOptions);
+
+        // Fallback Unicode NFC / NFD cho tên file tiếng Việt
+        if (!obj) {
+          const nfcKey = cleanKey.normalize('NFC');
+          const nfdKey = cleanKey.normalize('NFD');
+          if (nfcKey !== cleanKey) {
+            obj = await bucket.get(nfcKey, getOptions);
+          }
+          if (!obj && nfdKey !== cleanKey) {
+            obj = await bucket.get(nfdKey, getOptions);
+          }
+        }
 
         // Fallback tra cứu CCCD theo tiền tố (VD: yêu cầu cccd/038075015833.pdf nhưng trong R2 là cccd/038075015833 - CAO VĂN HĂNG.pdf)
         if (!obj && cleanKey.startsWith('cccd/')) {

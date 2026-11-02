@@ -230,7 +230,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const r2PublicUrl = `https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/${r2Key}`;
+    const r2PublicUrl = `/api/image/${encodeURI(r2Key)}`;
 
     // Xác định Năm sinh & Giới tính (từ tham số gửi lên hoặc tự động giải mã từ 12 số CCCD)
     let finalNamSinh = nam_sinh ? String(nam_sinh).trim() : '';

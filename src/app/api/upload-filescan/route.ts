@@ -359,7 +359,7 @@ export async function POST(request: Request) {
           await putObjectToR2(r2Key, bytes, 'application/pdf');
           uploadedFiles.push({
             filename: fn,
-            r2Url: `${R2_PUBLIC_BASE}/${r2Key}`,
+            r2Url: `/api/image/${encodeURI(r2Key)}`,
             size: bytes.length,
           });
         }
@@ -374,7 +374,7 @@ export async function POST(request: Request) {
         await putObjectToR2(r2Key, bytes, 'application/pdf');
         uploadedFiles.push({
           filename: fn,
-          r2Url: `${R2_PUBLIC_BASE}/${r2Key}`,
+          r2Url: `/api/image/${encodeURI(r2Key)}`,
           size: bytes.length,
         });
       }
@@ -395,7 +395,7 @@ export async function POST(request: Request) {
 
       uploadedFiles.push({
         filename,
-        r2Url: `${R2_PUBLIC_BASE}/${r2Key}`,
+        r2Url: `/api/image/${encodeURI(r2Key)}`,
         size: arrayBuffer.byteLength,
       });
     } else {

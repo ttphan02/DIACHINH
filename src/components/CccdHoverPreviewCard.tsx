@@ -14,6 +14,7 @@ import {
   HardDrive,
 } from 'lucide-react';
 import PdfViewer from './PdfViewer';
+import { getResolvedImageUrl } from '@/utils/geo';
 
 interface CccdHoverPreviewProps {
   fileUrl: string;
@@ -126,6 +127,7 @@ export default function CccdHoverPreviewCard({
   };
 
   const isLight = theme === 'light';
+  const safeUrl = getResolvedImageUrl(fileUrl);
 
   // Lọc số CCCD hiển thị, loại bỏ nhãn loại đất nếu bị lọt vào
   const displayCccd =
@@ -206,7 +208,7 @@ export default function CccdHoverPreviewCard({
             </button>
           )}
           <a
-            href={fileUrl}
+            href={safeUrl}
             target="_blank"
             rel="noopener noreferrer"
             className={`p-1.5 rounded-lg transition text-xs font-semibold flex items-center gap-1 cursor-pointer ${
@@ -217,7 +219,7 @@ export default function CccdHoverPreviewCard({
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
           <a
-            href={fileUrl}
+            href={safeUrl}
             download={filename || 'cccd.pdf'}
             className={`p-1.5 rounded-lg transition text-xs font-semibold flex items-center gap-1 cursor-pointer ${
               isLight ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-slate-800 text-slate-300'
@@ -236,7 +238,7 @@ export default function CccdHoverPreviewCard({
         }`}
       >
         <PdfViewer
-          url={fileUrl}
+          url={safeUrl}
           title={ownerName || filename}
           compact={true}
           theme={theme}

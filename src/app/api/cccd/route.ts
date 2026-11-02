@@ -135,7 +135,7 @@ export async function GET(request: Request) {
           exists: true,
           inR2: true,
           filename,
-          url: `${R2_PUBLIC_BASE}/cccd/${encodeURIComponent(filename)}`,
+          url: `/api/image/cccd/${encodeURIComponent(filename)}`,
           message: 'Đã có cccd trên hệ thống!',
         });
       }
@@ -376,7 +376,7 @@ export async function GET(request: Request) {
           filename,
           size: obj.size,
           uploadedAt: obj.uploaded ? new Date(obj.uploaded).toISOString() : null,
-          url: `${R2_PUBLIC_BASE}/${encodeURI(fullKey)}`,
+          url: `/api/image/${encodeURI(fullKey)}`,
           cccdNumber: cccdCandidate || '',
           ownerName: matchedOwner || '',
           matchedParcelCode: matchedParcel || '',

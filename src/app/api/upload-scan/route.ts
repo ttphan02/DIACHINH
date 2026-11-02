@@ -46,7 +46,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const r2PublicUrl = `https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev/${r2Key}`;
+    const r2PublicUrl = `/api/image/${encodeURI(r2Key)}`;
 
     // Lấy declarationsMap hiện có và kích hoạt đồng bộ
     let declarationsMap: Record<string, any> = {};
