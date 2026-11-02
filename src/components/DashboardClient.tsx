@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredVa
 import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
-import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, normalizeNguonGoc, NGUON_GOC_OPTIONS, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName } from '@/utils/textHelpers';
+import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, cleanVillageDisplay, normalizeNguonGoc, NGUON_GOC_OPTIONS, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName } from '@/utils/textHelpers';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
 import { broadcastRealtimeEvent, onRealtimeEvent } from '@/utils/realtimeSync';
 import dynamic from 'next/dynamic';
@@ -3557,7 +3557,8 @@ export default function DashboardPage() {
                   allRows.forEach((r) => {
                     if (villageColIdx >= 0) {
                       const maThua = String(r[1] || '').trim();
-                      const v = String(cellEdits[maThua]?.[villageColIdx] ?? r[villageColIdx] ?? '').trim();
+                      const rawV = cellEdits[maThua]?.[villageColIdx] ?? r[villageColIdx] ?? '';
+                      const v = cleanVillageDisplay(rawV);
                       if (v) villageCounts[v] = (villageCounts[v] || 0) + 1;
                     }
                   });
@@ -3660,7 +3661,8 @@ export default function DashboardPage() {
 
                     // 2. Lọc theo Thôn / Buôn
                     if (reportVillageFilter !== 'ALL' && villageColIdx >= 0) {
-                      const v = String(cellEdits[maThua]?.[villageColIdx] ?? row[villageColIdx] ?? '').trim();
+                      const rawV = cellEdits[maThua]?.[villageColIdx] ?? row[villageColIdx] ?? '';
+                      const v = cleanVillageDisplay(rawV);
                       if (v !== reportVillageFilter) return false;
                     }
 
@@ -4124,7 +4126,7 @@ export default function DashboardPage() {
                     }
                   };
 
-                  // Kiểm tra trực tiếp trên web KH2959 xem các thửa đã được nhập hay chưa
+                  // Kiểm tra trực tiếp trên web KH2959 xem các thửa đã được nhập hay chưa (chia batch 5 thửa chống quá tải & crash JSON)
                   const handleCheckAllKh2959Status = async () => {
                     if (isCheckingKh2959 || allRows.length === 0) return;
                     setIsCheckingKh2959(true);
@@ -4132,41 +4134,86 @@ export default function DashboardPage() {
                       const parcelsToCheck = allRows.map((r) => {
                         const p = extractParcelFromRow(r);
                         return { ma_thua: p.ma_thua, so_to: p.so_to, so_thua: p.so_thua };
-                      });
+                      }).filter((p) => p.so_to && p.so_thua);
 
-                      const res = await fetch('/api/kh2959/check-status', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ parcels: parcelsToCheck }),
-                      });
+                      if (parcelsToCheck.length === 0) {
+                        alert('Không có thửa đất hợp lệ để kiểm tra!');
+                        return;
+                      }
 
-                      const data = (await res.json()) as any;
-                      if (data?.success && Array.isArray(data.results)) {
-                        const newlyImported: string[] = [];
-                        data.results.forEach((it: any) => {
-                          if (it?.da_nhap && it.ma_thua) {
-                            newlyImported.push(it.ma_thua);
-                          }
-                        });
+                      const newlyImported: string[] = [];
+                      const BATCH_SIZE = 5;
 
+                      for (let i = 0; i < parcelsToCheck.length; i += BATCH_SIZE) {
+                        const batch = parcelsToCheck.slice(i, i + BATCH_SIZE);
+                        const currentProcessed = Math.min(i + batch.length, parcelsToCheck.length);
+                        setInlineSaveToast(`🔍 Đang kiểm tra Web KH2959: ${currentProcessed}/${parcelsToCheck.length} thửa...`);
+
+                        await Promise.all(
+                          batch.map(async (p) => {
+                            let isDone = false;
+                            // 1. Thử kiểm tra trực tiếp từ client (kh2959bmt.net có CORS mở)
+                            try {
+                              const ctrl = new AbortController();
+                              const tid = setTimeout(() => ctrl.abort(), 4000);
+                              const directUrl = `https://www.kh2959bmt.net/api/nhom4/kiem-tra-trung-thua?ma_xa=24478&so_to=${encodeURIComponent(p.so_to)}&so_thua=${encodeURIComponent(p.so_thua)}`;
+                              const r = await fetch(directUrl, { signal: ctrl.signal });
+                              clearTimeout(tid);
+                              if (r.ok) {
+                                const text = await r.text();
+                                try {
+                                  const d = JSON.parse(text);
+                                  if (d && (d.trung || d.da_nhap)) isDone = true;
+                                } catch {}
+                              }
+                            } catch {}
+
+                            // 2. Dự phòng qua Worker proxy nếu fetch trực tiếp không thành công
+                            if (!isDone) {
+                              try {
+                                const ctrl = new AbortController();
+                                const tid = setTimeout(() => ctrl.abort(), 5000);
+                                const proxyRes = await fetch('/api/kh2959/check-status', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ parcels: [p] }),
+                                  signal: ctrl.signal,
+                                });
+                                clearTimeout(tid);
+                                if (proxyRes.ok) {
+                                  const text = await proxyRes.text();
+                                  try {
+                                    const d = JSON.parse(text);
+                                    if (d?.results?.[0]?.da_nhap) isDone = true;
+                                  } catch {}
+                                }
+                              } catch {}
+                            }
+
+                            if (isDone && p.ma_thua) {
+                              newlyImported.push(p.ma_thua);
+                            }
+                          })
+                        );
+
+                        // Cập nhật realtime danh sách đã nhập lên state & localStorage
                         if (newlyImported.length > 0) {
                           setKh2959ImportedCodes((prev) => {
                             const next = new Set(prev);
-                            newlyImported.forEach((code) => next.add(code));
+                            newlyImported.forEach((c) => next.add(c));
                             try {
                               localStorage.setItem('kh2959_imported_parcels', JSON.stringify(Array.from(next)));
                             } catch {}
                             return next;
                           });
                         }
-
-                        setInlineSaveToast(`✓ Đã kiểm tra ${data.totalChecked} thửa: ${data.importedCount} thửa ĐÃ NHẬP, ${data.totalChecked - data.importedCount} thửa CHƯA NHẬP trên Web KH2959!`);
-                        setTimeout(() => setInlineSaveToast(null), 6000);
-                      } else {
-                        alert(`Lỗi kiểm tra: ${data?.error || 'Không thể kiểm tra'}`);
                       }
+
+                      setInlineSaveToast(`✓ Đã kiểm tra xong ${parcelsToCheck.length} thửa: ${newlyImported.length} thửa ĐÃ NHẬP trên Web KH2959!`);
+                      setTimeout(() => setInlineSaveToast(null), 6000);
                     } catch (err: any) {
-                      alert(`Lỗi kết nối tới máy chủ KH2959: ${err?.message || err}`);
+                      setInlineSaveToast(`⚠️ Đã dừng kiểm tra Web KH2959: ${err?.message || err}`);
+                      setTimeout(() => setInlineSaveToast(null), 6000);
                     } finally {
                       setIsCheckingKh2959(false);
                     }
@@ -5580,8 +5627,8 @@ export default function DashboardPage() {
                                           effectiveVal = declForParcel.chu_dat_gioi_tinh;
                                         } else if (isCccdCol && (declForParcel.chu_dat_cccd || declForParcel.cccd)) {
                                           effectiveVal = cleanCccd(declForParcel.chu_dat_cccd || declForParcel.cccd);
-                                        } else if (isVillageCol && (declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi)) {
-                                          effectiveVal = declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi;
+                                        } else if (isVillageCol && (declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi || declForParcel.thon_xa)) {
+                                          effectiveVal = cleanVillageDisplay(declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi || declForParcel.thon_xa);
                                         } else if (isOriginCol && (declForParcel.nguon_goc || declForParcel.nguon_goc_su_dung)) {
                                           effectiveVal = normalizeNguonGoc(declForParcel.nguon_goc || declForParcel.nguon_goc_su_dung);
                                         } else if (isAreaCol && (!cleanText || cleanText === '0' || cleanText === '1000') && declForParcel.dien_tich && declForParcel.ma_thua === maThua) {
@@ -5589,6 +5636,9 @@ export default function DashboardPage() {
                                         } else if (isLandTypeCol && declForParcel.loai_dat) {
                                           effectiveVal = declForParcel.loai_dat;
                                         }
+                                      }
+                                      if (isVillageCol) {
+                                        effectiveVal = cleanVillageDisplay(effectiveVal);
                                       }
                                       const displayVal = cellEdits[maThua]?.[cIdx] !== undefined ? cellEdits[maThua][cIdx] : effectiveVal;
 
@@ -5665,124 +5715,122 @@ export default function DashboardPage() {
                                       }
 
                                        // 2. Ô Thôn / Buôn: Đúng 16 Thôn Buôn sau sáp nhập & tùy chọn tự nhập nơi khác
-                                       if (isVillageCol) {
-                                         const villageList16 = [
-                                           'Thôn Ba Phường',
-                                           'Buôn Ngô',
-                                           'Buôn Bhung',
-                                           'Buôn Cư Phiang',
-                                           'Buôn Tliêr',
-                                           'Thôn Hòa Phong',
-                                           'Thôn Cẩm Phong',
-                                           'Thôn Noh Prông',
-                                           'Thôn Ea Khiêm',
-                                           'Buôn Đắk Tuôr',
-                                           'Buôn Khanh',
-                                           'Thôn Ea Uôl',
-                                           'Thôn Ea Lang',
-                                           'Thôn Ea Rớt',
-                                           'Thôn Cư Tê',
-                                           'Thôn Ea Bar',
-                                         ];
+                                        if (isVillageCol) {
+                                          const villageList16 = [
+                                            'Thôn Ba Phường',
+                                            'Buôn Ngô',
+                                            'Buôn Bhung',
+                                            'Buôn Cư Phiang',
+                                            'Buôn Tliêr',
+                                            'Thôn Hòa Phong',
+                                            'Thôn Cẩm Phong',
+                                            'Thôn Noh Prông',
+                                            'Thôn Ea Khiêm',
+                                            'Buôn Đắk Tuôr',
+                                            'Buôn Khanh',
+                                            'Thôn Ea Uôl',
+                                            'Thôn Ea Lang',
+                                            'Thôn Ea Rớt',
+                                            'Thôn Cư Tê',
+                                            'Thôn Ea Bar',
+                                          ];
 
-                                         const rawV = String(displayVal || '').trim();
-                                         const isCustomInput = customVillageRows[maThua] || (Boolean(rawV) && !villageList16.includes(rawV));
+                                          const cleanedV = cleanVillageDisplay(displayVal);
+                                          const isCustomInput =
+                                            customVillageRows[maThua] === true ||
+                                            (customVillageRows[maThua] !== false && Boolean(cleanedV) && !villageList16.includes(cleanedV));
 
-                                         if (isCustomInput) {
-                                           return (
-                                             <td
-                                               key={cIdx}
-                                               style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
-                                               className={`p-1 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
-                                             >
-                                               <div className="flex items-center gap-1 w-full">
-                                                 <input
-                                                   type="text"
-                                                   value={rawV}
-                                                   placeholder="Nhập nơi khác..."
-                                                   autoFocus={customVillageRows[maThua]}
-                                                   onChange={(e) => handleInlineCellChange(maThua, cIdx, e.target.value)}
-                                                   onBlur={(e) => {
-                                                     const val = e.target.value.trim();
-                                                     handleInlineCellCommit(maThua, cIdx, headerName, val, row, headers);
-                                                     if (villageList16.includes(val)) {
-                                                       setCustomVillageRows((prev) => {
-                                                         const next = { ...prev };
-                                                         delete next[maThua];
-                                                         return next;
-                                                       });
-                                                     }
-                                                   }}
-                                                   onKeyDown={(e) => {
-                                                     if (e.key === 'Enter') {
-                                                       (e.target as HTMLInputElement).blur();
-                                                     }
-                                                   }}
-                                                   className={`flex-1 min-w-0 px-1.5 py-1 text-xs rounded border transition truncate font-medium ${
-                                                     isLight
-                                                       ? 'border-indigo-400 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 bg-white text-slate-800'
-                                                       : 'border-indigo-500 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 bg-slate-900 text-slate-100'
-                                                   }`}
-                                                 />
-                                                 <button
-                                                   type="button"
-                                                   onClick={() => {
-                                                     setCustomVillageRows((prev) => {
-                                                       const next = { ...prev };
-                                                       delete next[maThua];
-                                                       return next;
-                                                     });
-                                                   }}
-                                                   className={`px-1.5 py-1 rounded text-[10px] font-bold border transition cursor-pointer shrink-0 ${
-                                                     isLight
-                                                       ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
-                                                       : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
-                                                   }`}
-                                                   title="Chuyển về danh sách 16 thôn/buôn"
-                                                 >
-                                                   16 thôn
-                                                 </button>
-                                               </div>
-                                             </td>
-                                           );
-                                         }
+                                          if (isCustomInput) {
+                                            return (
+                                              <td
+                                                key={cIdx}
+                                                style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                                className={`p-1 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                              >
+                                                <div className="flex items-center gap-1 w-full">
+                                                  <input
+                                                    type="text"
+                                                    value={cleanedV}
+                                                    placeholder="Nhập nơi khác..."
+                                                    autoFocus={customVillageRows[maThua] === true}
+                                                    onChange={(e) => handleInlineCellChange(maThua, cIdx, e.target.value)}
+                                                    onBlur={(e) => {
+                                                      const val = cleanVillageDisplay(e.target.value);
+                                                      handleInlineCellCommit(maThua, cIdx, headerName, val, row, headers);
+                                                      if (villageList16.includes(val)) {
+                                                        setCustomVillageRows((prev) => ({ ...prev, [maThua]: false }));
+                                                      }
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === 'Enter') {
+                                                        (e.target as HTMLInputElement).blur();
+                                                      }
+                                                    }}
+                                                    className={`flex-1 min-w-0 px-1.5 py-1 text-xs rounded border transition truncate font-medium ${
+                                                      isLight
+                                                        ? 'border-indigo-400 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 bg-white text-slate-800'
+                                                        : 'border-indigo-500 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 bg-slate-900 text-slate-100'
+                                                    }`}
+                                                  />
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      setCustomVillageRows((prev) => ({ ...prev, [maThua]: false }));
+                                                      const fallback = villageList16.includes(cleanedV) ? cleanedV : '';
+                                                      handleInlineCellChange(maThua, cIdx, fallback);
+                                                      handleInlineCellCommit(maThua, cIdx, headerName, fallback, row, headers);
+                                                    }}
+                                                    className={`px-1.5 py-1 rounded text-[10px] font-bold border transition cursor-pointer shrink-0 ${
+                                                      isLight
+                                                        ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                                                        : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
+                                                    }`}
+                                                    title="Chuyển về danh sách 16 thôn/buôn"
+                                                  >
+                                                    16 thôn
+                                                  </button>
+                                                </div>
+                                              </td>
+                                            );
+                                          }
 
-                                         return (
-                                           <td
-                                             key={cIdx}
-                                             style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
-                                             className={`py-1 px-1.5 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
-                                           >
-                                             <select
-                                               value={rawV}
-                                               onChange={(e) => {
-                                                 const v = e.target.value;
-                                                 if (v === '__CUSTOM__') {
-                                                   setCustomVillageRows((prev) => ({ ...prev, [maThua]: true }));
-                                                 } else {
-                                                   handleInlineCellChange(maThua, cIdx, v);
-                                                   handleInlineCellCommit(maThua, cIdx, headerName, v, row, headers);
-                                                 }
-                                               }}
-                                               className={`w-full min-w-0 px-1.5 py-1 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 transition cursor-pointer truncate ${
-                                                 isLight
-                                                   ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
-                                                   : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
-                                               } ${!rawV ? (isLight ? 'text-slate-400 font-normal italic' : 'text-slate-500 font-normal italic') : ''}`}
-                                             >
-                                               <option value="">-- Chọn Thôn / Buôn --</option>
-                                               {villageList16.map((opt) => (
-                                                 <option key={opt} value={opt}>
-                                                   {opt}
-                                                 </option>
-                                               ))}
-                                               <option value="__CUSTOM__">✏️ Nơi khác (Tự nhập tay)...</option>
-                                             </select>
-                                           </td>
-                                         );
-                                       }
+                                          return (
+                                            <td
+                                              key={cIdx}
+                                              style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                              className={`py-1 px-1.5 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                            >
+                                              <select
+                                                value={villageList16.includes(cleanedV) ? cleanedV : ''}
+                                                onChange={(e) => {
+                                                  const v = e.target.value;
+                                                  if (v === '__CUSTOM__') {
+                                                    setCustomVillageRows((prev) => ({ ...prev, [maThua]: true }));
+                                                  } else {
+                                                    setCustomVillageRows((prev) => ({ ...prev, [maThua]: false }));
+                                                    handleInlineCellChange(maThua, cIdx, v);
+                                                    handleInlineCellCommit(maThua, cIdx, headerName, v, row, headers);
+                                                  }
+                                                }}
+                                                className={`w-full min-w-0 px-1.5 py-1 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 transition cursor-pointer truncate ${
+                                                  isLight
+                                                    ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
+                                                    : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+                                                } ${!cleanedV ? (isLight ? 'text-slate-400 font-normal italic' : 'text-slate-500 font-normal italic') : ''}`}
+                                              >
+                                                <option value="">-- Chọn Thôn / Buôn --</option>
+                                                {villageList16.map((opt) => (
+                                                  <option key={opt} value={opt}>
+                                                    {opt}
+                                                  </option>
+                                                ))}
+                                                <option value="__CUSTOM__">✏️ Nơi khác (Tự nhập tay)...</option>
+                                              </select>
+                                            </td>
+                                          );
+                                        }
 
-                                       // 3. Các ô nhập chữ trực tiếp như Excel (Họ tên, Năm sinh, Giới tính, Số CCCD)
+                                        // 3. Các ô nhập chữ trực tiếp như Excel (Họ tên, Năm sinh, Giới tính, Số CCCD)
                                        // Cột Diện tích & Loại đất cố định theo bản đồ địa chính, KHÔNG cho phép sửa trên bảng
                                        if (isNameCol || isDobCol || isGenderCol || isCccdCol) {
                                         // Chỉ kiểm tra validate ở THỬA ĐANG KÊ KHAI (CHƯA CÓ CCCD) và SẲN SÀNG ĐÓNG TẬP

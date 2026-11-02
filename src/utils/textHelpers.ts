@@ -489,6 +489,34 @@ export function getVillageColor(addrOrVillage: string, toBanDo?: string): Villag
   );
 }
 
+export function cleanVillageDisplay(rawAddr?: string, toBanDo?: string): string {
+  if (!rawAddr) return '';
+  let addr = String(rawAddr).trim();
+  // Bóc tách triệt để toàn bộ hậu tố xã Cư Pui, Cư Pui
+  addr = addr
+    .replace(/,\s*x[ãa]\s*c[uư]\s*pui.*$/gi, '')
+    .replace(/\s+x[ãa]\s*c[uư]\s*pui.*$/gi, '')
+    .replace(/^x[ãa]\s*c[uư]\s*pui$/gi, '')
+    .replace(/,\s*c[uư]\s*pui.*$/gi, '')
+    .replace(/\s+c[uư]\s*pui.*$/gi, '')
+    .replace(/^,\s*|\s*,$/g, '')
+    .trim();
+
+  if (!addr || /^(x[ãa]\s*)?c[uư]\s*pui$/i.test(addr)) {
+    if (toBanDo) {
+      const canonical = getCanonicalVillage('', toBanDo);
+      if (canonical && canonical !== 'Chưa xác định') return canonical;
+    }
+    return '';
+  }
+
+  const canonical = getCanonicalVillage(addr, toBanDo);
+  if (canonical && canonical !== 'Chưa xác định') {
+    return canonical;
+  }
+  return addr;
+}
+
 export function cleanDisplayAddress(rawAddr?: string): string {
   if (!rawAddr || !rawAddr.trim()) return 'Xã Cư Pui';
   let addr = rawAddr.trim().replace(/,\s*$/, '');

@@ -47,7 +47,13 @@ async function checkSingle(soTo: string, soThua: string) {
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as any;
+    let body: any = null;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ success: false, error: 'Dữ liệu JSON không hợp lệ' }, { status: 400 });
+    }
+
     const parcels: CheckItem[] = Array.isArray(body?.parcels) ? body.parcels : [];
 
     if (parcels.length === 0) {
