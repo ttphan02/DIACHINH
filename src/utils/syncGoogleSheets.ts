@@ -505,11 +505,17 @@ export async function executeSyncToGoogleSheet(
         nguon_chuyen: '',
       };
 
+      // GIAI ĐOẠN ĐẶC BIỆT: GCN - ONT (Toàn bộ các thửa đất có loại đất chứa ONT)
+      // Thửa đất ở ONT luôn được gom vào danh sách GCN - ONT để quản lý hồ sơ riêng biệt
+      if (/ont/i.test(item.loai_dat || '')) {
+        item.nguon_chuyen = 'GCN - ONT (Chờ bổ sung sau)';
+        stageGcnOnt.push(item);
+        continue;
+      }
+
       // GIAI ĐOẠN 4: ĐÃ LÊN GGS CHÍNH (ĐÃ GIẢI QUYẾT)
-      // NGUYÊN TẮC: Thửa có trên Trangtinh1 CHỈ ĐƯỢC COI LÀ ĐÃ GIẢI QUYẾT NẾU CÙNG CHỦ SỞ HỮU!
-      // Nếu tên chủ đất khác với trên GGS -> Đây là thửa chuyển nhượng / kê khai mới thực địa, tiếp tục quy trình kê khai!
-      // Nếu A_B có trên Google Sheet cột BF Trang tính 1 hoặc nằm trong danh sách Đã số hóa (Scan/ONT)
-      if (ggsCodes.has(maThua) || DIGITIZED_SET.has(maThua)) {
+      // Nếu mã thửa A_B có trên Google Sheet Cột BF Trang tính 1
+      if (ggsCodes.has(maThua)) {
         if (ggsP) {
           if (ggsP.chu_ho) item.chu_ho = ggsP.chu_ho;
           if (ggsP.cccd) item.cccd = cleanCccd(ggsP.cccd);

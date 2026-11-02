@@ -1494,7 +1494,7 @@ export default function DashboardPage() {
 
   // Danh sách thửa đất ONT chờ bổ sung sau (GCN - ONT)
   const gcnOntParcels = useMemo(() => {
-    return nonGgsParcels.filter((p) => {
+    return computedParcels.filter((p) => {
       const isDeclared =
         declaredParcelCodes.has(p.ma_thua) ||
         Boolean(declarationsMap[p.ma_thua]) ||
@@ -1506,7 +1506,7 @@ export default function DashboardPage() {
       const loaiDat = String(edits[8] ?? decl.loai_dat ?? p.loai_dat ?? '').trim();
       return /ont/i.test(loaiDat);
     });
-  }, [nonGgsParcels, declaredParcelCodes, declarationsMap, cellEdits]);
+  }, [computedParcels, declaredParcelCodes, declarationsMap, cellEdits]);
 
   // 2. THỬA ĐANG KÊ KHAI (CHƯA CÓ CCCD): Thửa đã kê khai NHƯNG chưa có CCCD hoặc chưa có file R2
   const dangKeKhaiChuaCccdParcels = useMemo(() => {
