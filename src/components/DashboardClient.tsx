@@ -261,6 +261,7 @@ export default function DashboardPage() {
     }
   });
   const [isSubmittingWeb, setIsSubmittingWeb] = useState(false);
+  const [isCheckingKh2959, setIsCheckingKh2959] = useState(false);
   const [submittingRowCode, setSubmittingRowCode] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
 
@@ -4092,6 +4093,54 @@ export default function DashboardPage() {
                     }
                   };
 
+                  // Kiểm tra trực tiếp trên web KH2959 xem các thửa đã được nhập hay chưa
+                  const handleCheckAllKh2959Status = async () => {
+                    if (isCheckingKh2959 || allRows.length === 0) return;
+                    setIsCheckingKh2959(true);
+                    try {
+                      const parcelsToCheck = allRows.map((r) => {
+                        const p = extractParcelFromRow(r);
+                        return { ma_thua: p.ma_thua, so_to: p.so_to, so_thua: p.so_thua };
+                      });
+
+                      const res = await fetch('/api/kh2959/check-status', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ parcels: parcelsToCheck }),
+                      });
+
+                      const data = (await res.json()) as any;
+                      if (data?.success && Array.isArray(data.results)) {
+                        const newlyImported: string[] = [];
+                        data.results.forEach((it: any) => {
+                          if (it?.da_nhap && it.ma_thua) {
+                            newlyImported.push(it.ma_thua);
+                          }
+                        });
+
+                        if (newlyImported.length > 0) {
+                          setKh2959ImportedCodes((prev) => {
+                            const next = new Set(prev);
+                            newlyImported.forEach((code) => next.add(code));
+                            try {
+                              localStorage.setItem('kh2959_imported_parcels', JSON.stringify(Array.from(next)));
+                            } catch {}
+                            return next;
+                          });
+                        }
+
+                        setInlineSaveToast(`✓ Đã kiểm tra ${data.totalChecked} thửa: ${data.importedCount} thửa ĐÃ NHẬP, ${data.totalChecked - data.importedCount} thửa CHƯA NHẬP trên Web KH2959!`);
+                        setTimeout(() => setInlineSaveToast(null), 6000);
+                      } else {
+                        alert(`Lỗi kiểm tra: ${data?.error || 'Không thể kiểm tra'}`);
+                      }
+                    } catch (err: any) {
+                      alert(`Lỗi kết nối tới máy chủ KH2959: ${err?.message || err}`);
+                    } finally {
+                      setIsCheckingKh2959(false);
+                    }
+                  };
+
                   // Nộp hàng loạt các thửa hợp lệ (không chứa ONT) lên KH2959
                   const handleBatchImportToKh2959 = async () => {
                     if (isSubmittingWeb || validNonOntNhapDuLieuRows.length === 0) return;
@@ -4486,6 +4535,24 @@ export default function DashboardPage() {
                           {/* NÚT TỰ ĐỘNG NHẬP LÊN HỆ THỐNG WEB KH2959 (NHẬP DỮ LIỆU) */}
                           {isNhapDuLieuSheet && (
                             <div className="flex items-center gap-1.5 ml-1">
+                              <button
+                                type="button"
+                                disabled={isCheckingKh2959 || isSubmittingWeb}
+                                onClick={handleCheckAllKh2959Status}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                                  isLight
+                                    ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                                    : 'bg-blue-950/60 text-blue-300 border-blue-800/60 hover:bg-blue-900/60'
+                                }`}
+                                title="Bấm để kiểm tra trực tiếp trên máy chủ KH2959 xem các thửa trong danh sách đã được nhập hồ sơ hay chưa"
+                              >
+                                {isCheckingKh2959 ? (
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                                ) : (
+                                  <Search className="w-3.5 h-3.5 text-blue-400" />
+                                )}
+                                <span>{isCheckingKh2959 ? 'Đang kiểm tra...' : '🔍 Kiểm tra Web KH2959'}</span>
+                              </button>
                               {validNonOntNhapDuLieuRows.length > 0 ? (
                                 <button
                                   type="button"

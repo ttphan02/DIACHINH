@@ -1,0 +1,122 @@
+import { NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
+
+interface CheckItem {
+  ma_thua?: string;
+  so_to?: string;
+  so_thua?: string;
+}
+
+async function checkSingle(soTo: string, soThua: string) {
+  try {
+    const url = `https://www.kh2959bmt.net/api/nhom4/kiem-tra-trung-thua?ma_xa=24478&so_to=${encodeURIComponent(soTo)}&so_thua=${encodeURIComponent(soThua)}`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://www.kh2959bmt.net/nhom-4',
+      },
+      cache: 'no-store',
+    });
+    if (res.ok) {
+      const data: any = await res.json();
+      return {
+        ton_tai: Boolean(data?.ton_tai),
+        trung: Boolean(data?.trung),
+        nhom_1_2: Boolean(data?.nhom_1_2),
+        phan_loai: data?.phan_loai || null,
+        da_nhap: Boolean(data?.trung),
+      };
+    }
+  } catch (err: any) {
+    return { error: err.message || 'Lỗi kết nối kh2959' };
+  }
+  return { ton_tai: false, trung: false, da_nhap: false };
+}
+
+// Giới hạn số lượng request đồng thời để tránh làm quá tải server kh2959
+async function pMap<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let currentIndex = 0;
+
+  async function worker() {
+    while (currentIndex < items.length) {
+      const idx = currentIndex++;
+      results[idx] = await fn(items[idx], idx);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = (await req.json()) as any;
+    const parcels: CheckItem[] = Array.isArray(body?.parcels) ? body.parcels : [];
+
+    if (parcels.length === 0) {
+      return NextResponse.json({ success: false, error: 'Danh sách thửa đất rỗng' }, { status: 400 });
+    }
+
+    // Kiểm tra tối đa 100 thửa 1 lần, chạy 5 luồng song song
+    const limitedParcels = parcels.slice(0, 100);
+
+    const checkedResults = await pMap(limitedParcels, 5, async (p) => {
+      const parts = (p.ma_thua || '').split('_');
+      const soTo = String(p.so_to || parts[0] || '').trim();
+      const soThua = String(p.so_thua || parts[1] || '').trim();
+
+      if (!soTo || !soThua) {
+        return {
+          ma_thua: p.ma_thua || '',
+          so_to: soTo,
+          so_thua: soThua,
+          ok: false,
+          error: 'Thiếu số tờ hoặc số thửa',
+        };
+      }
+
+      const res = await checkSingle(soTo, soThua);
+      return {
+        ma_thua: p.ma_thua || `${soTo}_${soThua}`,
+        so_to: soTo,
+        so_thua: soThua,
+        ok: true,
+        ...res,
+      };
+    });
+
+    const importedCount = checkedResults.filter((r: any) => r.da_nhap).length;
+
+    return NextResponse.json({
+      success: true,
+      totalChecked: checkedResults.length,
+      importedCount,
+      results: checkedResults,
+    });
+  } catch (error: any) {
+    console.error('Lỗi check KH2959 status:', error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+}
+
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const soTo = searchParams.get('so_to') || searchParams.get('to') || '';
+  const soThua = searchParams.get('so_thua') || searchParams.get('thua') || '';
+
+  if (!soTo || !soThua) {
+    return NextResponse.json({ success: false, error: 'Vui lòng cung cấp so_to và so_thua' }, { status: 400 });
+  }
+
+  const res = await checkSingle(soTo, soThua);
+  return NextResponse.json({
+    success: true,
+    ma_thua: `${soTo}_${soThua}`,
+    so_to: soTo,
+    so_thua: soThua,
+    ...res,
+  });
+}
