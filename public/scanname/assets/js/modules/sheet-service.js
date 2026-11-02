@@ -171,6 +171,19 @@ function fetchNamesFromGoogleSheet(identifier, forceRefresh = false) {
           const n = store.thuaMap[cleanThua];
           if (!matchedNames.includes(n)) matchedNames.push(n);
         }
+        const normSlash = cleanThua.replace(/[/\\-]/g, '_');
+        if (store.thuaMap && store.thuaMap[normSlash]) {
+          const n = store.thuaMap[normSlash];
+          if (!matchedNames.includes(n)) matchedNames.push(n);
+        }
+
+        // Tìm theo tên chủ hộ
+        const lowerName = rawId.toLowerCase().trim();
+        if (store.nameMap && store.nameMap[lowerName]) {
+          store.nameMap[lowerName].forEach((n) => {
+            if (!matchedNames.includes(n)) matchedNames.push(n);
+          });
+        }
 
         if (matchedNames.length > 0) {
           return resolve(matchedNames);
