@@ -244,6 +244,7 @@ export default function CccdHoverPreviewCard({
           theme={theme}
           onOpenFullModal={onOpenFullModal}
           showActions={false}
+          defaultZoom={3.0}
         />
       </div>
 

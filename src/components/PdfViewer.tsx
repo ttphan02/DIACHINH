@@ -24,6 +24,7 @@ interface PdfViewerProps {
   className?: string;
   onOpenFullModal?: () => void;
   showActions?: boolean;
+  defaultZoom?: number;
 }
 
 export default function PdfViewer({
@@ -34,11 +35,13 @@ export default function PdfViewer({
   className = '',
   onOpenFullModal,
   showActions = true,
+  defaultZoom,
 }: PdfViewerProps) {
+  const initialZoom = defaultZoom ?? (compact ? 3.0 : 1.0);
   const isImage = /\.(jpe?g|png|webp|gif|svg)($|\?)/i.test(url);
   const [numPages, setNumPages] = useState<number>(1);
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [zoom, setZoom] = useState<number>(1.0);
+  const [zoom, setZoom] = useState<number>(initialZoom);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState<number>(0);
@@ -62,7 +65,7 @@ export default function PdfViewer({
     setIsLoading(true);
     setErrorMsg(null);
     setCurrentPage(1);
-    setZoom(1.0);
+    setZoom(initialZoom);
     setPan({ x: 0, y: 0 });
 
     if (isImage) {
@@ -211,7 +214,7 @@ export default function PdfViewer({
       const fitScale = Math.max(0.1, Math.min(scaleX, scaleY) || 0.6);
 
       // Render với độ phân giải cao (tối thiểu x1.8 để nét căng khi zoom)
-      const renderScale = Math.max(fitScale, 1.0) * (window.devicePixelRatio || 1.5) * 1.5;
+      const renderScale = Math.max(fitScale, 1.0) * (window.devicePixelRatio || 1.5) * (compact ? 2.5 : 1.5);
       const viewport = page.getViewport({ scale: renderScale });
 
       canvas.width = viewport.width;
@@ -263,7 +266,7 @@ export default function PdfViewer({
   // Điều khiển Zoom
   const handleZoomIn = (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setZoom((prev) => Math.min(3.5, Math.round((prev + 0.25) * 100) / 100));
+    setZoom((prev) => Math.min(5.0, Math.round((prev + 0.25) * 100) / 100));
   };
 
   const handleZoomOut = (e?: React.MouseEvent) => {
@@ -277,7 +280,7 @@ export default function PdfViewer({
 
   const handleResetZoom = (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setZoom(1.0);
+    setZoom(initialZoom);
     setPan({ x: 0, y: 0 });
   };
 
@@ -286,19 +289,19 @@ export default function PdfViewer({
     e.stopPropagation();
     const delta = e.deltaY < 0 ? 0.2 : -0.2;
     setZoom((prev) => {
-      const next = Math.min(3.5, Math.max(0.6, Math.round((prev + delta) * 100) / 100));
+      const next = Math.min(5.0, Math.max(0.6, Math.round((prev + delta) * 100) / 100));
       if (next <= 1.0) setPan({ x: 0, y: 0 });
       return next;
     });
   };
 
-  // Nhấp đúp để phóng to nhanh (175%) hoặc quay về 100%
+  // Nhấp đúp để phóng to nhanh hoặc quay về zoom mặc định
   const handleDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (zoom > 1.1) {
+    if (Math.abs(zoom - initialZoom) > 0.1) {
       handleResetZoom();
     } else {
-      setZoom(1.8);
+      setZoom((prev) => Math.min(5.0, prev + 1.0));
     }
   };
 
