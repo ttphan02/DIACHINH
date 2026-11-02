@@ -394,22 +394,7 @@ export default function Home() {
             if (mergedCodesSet.has(curr.ma_thua) || curr.is_declared || DIGITIZED_SET.has(curr.ma_thua)) {
               const decl = mergedMap[curr.ma_thua];
               const ggsInfo = ggsParcelsMap[curr.ma_thua];
-              let isGgsMatched = false;
-              if (ggsCodes.has(curr.ma_thua)) {
-                if (!decl) {
-                  isGgsMatched = true;
-                } else {
-                  const dCccd = (decl.chu_dat_cccd || decl.cccd || '').replace(/\D/g, '');
-                  const gCccd = (ggsInfo?.cccd || '').replace(/\D/g, '');
-                  const hasSameCccd = Boolean(dCccd.length >= 9 && gCccd.length >= 9 && dCccd === gCccd);
-                  const dName = cleanStrictName(decl.chu_dat_ten || decl.chu_ho);
-                  const gName = cleanStrictName(ggsInfo?.chu_ho);
-                  const hasSameName = Boolean(dName && gName && dName === gName);
-                  const hasSameNameNoAccent = Boolean(dName && gName && stripAccents(dName) === stripAccents(gName));
-                  isGgsMatched = hasSameCccd || hasSameName || hasSameNameNoAccent;
-                }
-              }
-              const isOnGgs = DIGITIZED_SET.has(curr.ma_thua) || isGgsMatched;
+              const isOnGgs = DIGITIZED_SET.has(curr.ma_thua) || ggsCodes.has(curr.ma_thua);
               return {
                 ...curr,
                 chu_ho: decl?.chu_dat_ten || curr.chu_ho,

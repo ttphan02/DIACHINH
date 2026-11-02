@@ -1,3 +1,5 @@
+import digitizedParcelsData from '@/data/digitized_parcels.json';
+const DIGITIZED_SET = new Set(digitizedParcelsData as string[]);
 import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import parcelsBriefData from '@/data/parcels_brief.json';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
@@ -506,14 +508,8 @@ export async function executeSyncToGoogleSheet(
       // GIAI ĐOẠN 4: ĐÃ LÊN GGS CHÍNH (ĐÃ GIẢI QUYẾT)
       // NGUYÊN TẮC: Thửa có trên Trangtinh1 CHỈ ĐƯỢC COI LÀ ĐÃ GIẢI QUYẾT NẾU CÙNG CHỦ SỞ HỮU!
       // Nếu tên chủ đất khác với trên GGS -> Đây là thửa chuyển nhượng / kê khai mới thực địa, tiếp tục quy trình kê khai!
-      const gCccd = cleanCccd(ggsP?.cccd);
-      const isSameCccd = Boolean(cccd && gCccd && cleanCccd(cccd) === gCccd);
-      const gName = cleanStrictName(ggsP?.chu_ho);
-      const isSameNameStrict = Boolean(chuHoStrict && gName && chuHoStrict === gName);
-      const isSameNameNoAccent = Boolean(chuHoNorm && ggsP?.chu_ho && chuHoNorm === stripAccents(ggsP.chu_ho));
-      const isSameOwner = isSameCccd || isSameNameStrict || isSameNameNoAccent;
-
-      if (ggsCodes.has(maThua) && isSameOwner) {
+      // Nếu A_B có trên Google Sheet cột BF Trang tính 1 hoặc nằm trong danh sách Đã số hóa (Scan/ONT)
+      if (ggsCodes.has(maThua) || DIGITIZED_SET.has(maThua)) {
         if (ggsP) {
           if (ggsP.chu_ho) item.chu_ho = ggsP.chu_ho;
           if (ggsP.cccd) item.cccd = cleanCccd(ggsP.cccd);

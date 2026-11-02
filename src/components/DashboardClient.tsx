@@ -1374,26 +1374,8 @@ export default function DashboardPage() {
       const savedDecl = declarationsMap[p.ma_thua];
       const ggsInfo = ggsParcelsMap[p.ma_thua];
 
-      let isGgsMatched = false;
-      if (ggsCodes.has(p.ma_thua)) {
-        if (!savedDecl) {
-          isGgsMatched = true;
-        } else {
-          const dName = cleanStrictName(savedDecl.chu_dat_ten || savedDecl.chu_ho);
-          const gName = cleanStrictName(ggsInfo?.chu_ho);
-          const hasSameNameStrict = Boolean(dName && gName && dName === gName);
-          const dNorm = stripAccents(savedDecl.chu_dat_ten || savedDecl.chu_ho || '');
-          const gNorm = stripAccents(ggsInfo?.chu_ho || '');
-          const hasSameNameNoAccent = Boolean(dNorm && gNorm && dNorm === gNorm);
-          const dCccd = cleanCccd(savedDecl.chu_dat_cccd || savedDecl.cccd || savedDecl.cccd_chu_ho || '');
-          const gCccd = cleanCccd(ggsInfo?.cccd || '');
-          const hasSameCccd = Boolean(dCccd && gCccd && dCccd === gCccd);
-
-          isGgsMatched = hasSameCccd || hasSameNameStrict || hasSameNameNoAccent;
-        }
-      }
-
-      const isDigitized = DIGITIZED_SET.has(p.ma_thua) || isGgsMatched;
+      // Nếu mã thửa có trên Google Sheet Cột BF hoặc thuộc DIGITIZED_SET -> ĐÃ SỐ HÓA!
+      const isDigitized = DIGITIZED_SET.has(p.ma_thua) || ggsCodes.has(p.ma_thua);
       const isOnGgs = isDigitized;
       const isDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(savedDecl);
 
