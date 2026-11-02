@@ -1601,15 +1601,12 @@ export default function DashboardPage() {
   }, [syncSheetsData, kh2959ImportedCodes]);
 
   const displayCountGcnOnt = useMemo(() => {
-    if (syncSummary?.gcnOnt !== undefined) {
-      return syncSummary.gcnOnt;
-    }
     const rows = syncSheetsData?.['GCN - ONT'];
     if (Array.isArray(rows) && rows.length > 1) {
       return rows.slice(1).filter((r) => !HIDDEN_PARCEL_SET.has(String(r[1] || '').trim())).length;
     }
     return gcnOntParcels.length;
-  }, [syncSummary, syncSheetsData, gcnOntParcels.length]);
+  }, [syncSheetsData, gcnOntParcels.length]);
 
   // 3. THỬA CHƯA THỰC HIỆN: Các thửa chưa số hóa và chưa thực hiện kê khai
   const chuaThucHienParcels = useMemo(() => {
