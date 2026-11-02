@@ -763,29 +763,66 @@ async function saveAllGroupsToR2() {
     }
 
     let successCount = 0;
+    const failedFiles = [];
+
     for (let k = 0; k < payloadFiles.length; k++) {
       const item = payloadFiles[k];
-      showSpinner(`Đang lưu lên R2 (${k + 1}/${payloadFiles.length}): ${item.filename}...`);
+      showSpinner(`Đang lưu lên R2 (${k + 1}/${payloadFiles.length}): ${item.filename} (Thành công: ${successCount})...`);
 
-      const res = await fetch('/api/upload-filescan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          filename: item.filename,
-          fileBase64: item.fileBase64
-        })
-      });
+      let isSuccess = false;
+      let lastErrMsg = '';
 
-      const resData = await res.json();
-      if (resData.success) {
-        successCount++;
-      } else {
-        console.warn(`Lỗi lưu file ${item.filename}:`, resData.error);
+      // Tối đa 3 lần thử với độ trễ tăng dần (tránh Cloudflare Worker Error 1102 / 503 limit)
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const res = await fetch('/api/upload-filescan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filename: item.filename,
+              fileBase64: item.fileBase64
+            })
+          });
+
+          if (!res.ok) {
+            const txt = await res.text();
+            throw new Error(`HTTP ${res.status}: ${txt.slice(0, 100)}`);
+          }
+
+          const resData = await res.json();
+          if (resData && resData.success) {
+            isSuccess = true;
+            successCount++;
+            break;
+          } else {
+            throw new Error(resData?.error || 'Lỗi server');
+          }
+        } catch (uploadErr) {
+          lastErrMsg = uploadErr.message || String(uploadErr);
+          if (attempt < 3) {
+            // Chờ 600ms rồi thử lại
+            await new Promise(r => setTimeout(r, 600 * attempt));
+          }
+        }
       }
+
+      if (!isSuccess) {
+        console.warn(`Lỗi lưu file ${item.filename} sau 3 lần thử:`, lastErrMsg);
+        failedFiles.push({ filename: item.filename, error: lastErrMsg });
+      }
+
+      // Giãn cách 150ms giữa các file để Cloudflare Worker giải phóng bộ nhớ và không quá tải CPU
+      await new Promise(r => setTimeout(r, 150));
     }
 
-    showToast(`✅ Đã lưu thành công ${successCount}/${payloadFiles.length} file scan vào R2 (folder filescan/)!`, true);
-    alert(`🎉 HOÀN TẤT THÀNH CÔNG!\n\nĐã lưu thành công ${successCount}/${payloadFiles.length} file scan trực tiếp vào folder "filescan/" trên Cloudflare R2!`);
+    if (failedFiles.length === 0) {
+      showToast(`✅ Đã lưu thành công 100% (${successCount}/${payloadFiles.length} file) vào R2!`, true);
+      alert(`🎉 HOÀN TẤT THÀNH CÔNG!\n\nĐã lưu thành công toàn bộ ${successCount}/${payloadFiles.length} file scan trực tiếp vào folder "filescan/" trên Cloudflare R2!`);
+    } else {
+      showToast(`Đã lưu ${successCount}/${payloadFiles.length} file. Có ${failedFiles.length} file bị lỗi!`, false);
+      const failedNames = failedFiles.slice(0, 5).map(f => f.filename).join(', ');
+      alert(`⚠️ CẢNH BÁO TIẾN ĐỘ:\n\n- Đã lưu thành công: ${successCount}/${payloadFiles.length} file.\n- Lỗi (${failedFiles.length} file): ${failedNames}${failedFiles.length > 5 ? '...' : ''}\n\nBạn có thể nhấn lại nút "☁️ Lưu Vào R2 (filescan)" để hệ thống tiếp tục lưu bổ sung các file còn thiếu.`);
+    }
   } catch (err) {
     console.error('Lỗi lưu R2:', err);
     showToast('Lỗi lưu file lên R2: ' + (err.message || 'Lỗi mạng'), false);
