@@ -1381,8 +1381,15 @@ export default function DashboardPage() {
         } else {
           const dName = cleanStrictName(savedDecl.chu_dat_ten || savedDecl.chu_ho);
           const gName = cleanStrictName(ggsInfo?.chu_ho);
-          const hasSameName = Boolean(dName && gName && dName === gName);
-          isGgsMatched = hasSameName;
+          const hasSameNameStrict = Boolean(dName && gName && dName === gName);
+          const dNorm = stripAccents(savedDecl.chu_dat_ten || savedDecl.chu_ho || '');
+          const gNorm = stripAccents(ggsInfo?.chu_ho || '');
+          const hasSameNameNoAccent = Boolean(dNorm && gNorm && dNorm === gNorm);
+          const dCccd = cleanCccd(savedDecl.chu_dat_cccd || savedDecl.cccd || savedDecl.cccd_chu_ho || '');
+          const gCccd = cleanCccd(ggsInfo?.cccd || '');
+          const hasSameCccd = Boolean(dCccd && gCccd && dCccd === gCccd);
+
+          isGgsMatched = hasSameCccd || hasSameNameStrict || hasSameNameNoAccent;
         }
       }
 

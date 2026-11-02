@@ -509,9 +509,11 @@ export async function executeSyncToGoogleSheet(
       const gCccd = cleanCccd(ggsP?.cccd);
       const isSameCccd = Boolean(cccd && gCccd && cleanCccd(cccd) === gCccd);
       const gName = cleanStrictName(ggsP?.chu_ho);
-      const isSameName = Boolean(chuHoStrict && gName && chuHoStrict === gName);
+      const isSameNameStrict = Boolean(chuHoStrict && gName && chuHoStrict === gName);
+      const isSameNameNoAccent = Boolean(chuHoNorm && ggsP?.chu_ho && chuHoNorm === stripAccents(ggsP.chu_ho));
+      const isSameOwner = isSameCccd || isSameNameStrict || isSameNameNoAccent;
 
-      if (ggsCodes.has(maThua) && isSameName) {
+      if (ggsCodes.has(maThua) && isSameOwner) {
         if (ggsP) {
           if (ggsP.chu_ho) item.chu_ho = ggsP.chu_ho;
           if (ggsP.cccd) item.cccd = cleanCccd(ggsP.cccd);

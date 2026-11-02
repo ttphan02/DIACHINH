@@ -11,7 +11,7 @@ import CccdUploadBottomSheet from '@/components/CccdUploadBottomSheet';
 import CccdCollectPanel from '@/components/CccdCollectPanel';
 import CadreNameModal from '@/components/CadreNameModal';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
-import { isPersonName, cleanStrictName } from '@/utils/textHelpers';
+import { isPersonName, cleanStrictName, stripAccents } from '@/utils/textHelpers';
 import {
   getStoredDeclarations,
   saveOrUpdateDeclaration,
@@ -405,7 +405,8 @@ export default function Home() {
                   const dName = cleanStrictName(decl.chu_dat_ten || decl.chu_ho);
                   const gName = cleanStrictName(ggsInfo?.chu_ho);
                   const hasSameName = Boolean(dName && gName && dName === gName);
-                  isGgsMatched = hasSameCccd || hasSameName;
+                  const hasSameNameNoAccent = Boolean(dName && gName && stripAccents(dName) === stripAccents(gName));
+                  isGgsMatched = hasSameCccd || hasSameName || hasSameNameNoAccent;
                 }
               }
               const isOnGgs = DIGITIZED_SET.has(curr.ma_thua) || isGgsMatched;
@@ -614,7 +615,8 @@ export default function Home() {
           const dName = cleanStrictName(savedDecl.chu_dat_ten || savedDecl.chu_ho);
           const gName = cleanStrictName(ggsInfo?.chu_ho);
           const hasSameName = Boolean(dName && gName && dName === gName);
-          isGgsMatched = hasSameCccd || hasSameName;
+          const hasSameNameNoAccent = Boolean(dName && gName && stripAccents(dName) === stripAccents(gName));
+          isGgsMatched = hasSameCccd || hasSameName || hasSameNameNoAccent;
         }
       }
 
