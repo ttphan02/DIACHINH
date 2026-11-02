@@ -26,6 +26,7 @@ import digitizedParcelsData from '@/data/digitized_parcels.json';
 const DIGITIZED_SET = new Set(digitizedParcelsData as string[]);
 import hiddenParcelsData from '@/data/hidden_parcels.json';
 const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
+import prefilledKh2959Data from '@/data/kh2959_imported.json';
 
 const sanitizeSheetsPayload = (sheets: Record<string, string[][]> | null | undefined): Record<string, string[][]> | null => {
   if (!sheets) return null;
@@ -251,13 +252,18 @@ export default function DashboardPage() {
   const [isExportMissingCccdOpen, setIsExportMissingCccdOpen] = useState(false);
   const [isCommittingAllReady, setIsCommittingAllReady] = useState(false);
 
-  // Trạng thái nhập hồ sơ tự động lên web KH2959
+  // Trạng thái nhập hồ sơ tự động lên web KH2959 (khởi tạo với các thửa đã được kiểm tra thực tế trên KH2959)
   const [kh2959ImportedCodes, setKh2959ImportedCodes] = useState<Set<string>>(() => {
     try {
+      const baseSet = new Set<string>(Array.isArray(prefilledKh2959Data) ? prefilledKh2959Data : []);
       const saved = localStorage.getItem('kh2959_imported_parcels');
-      return saved ? new Set(JSON.parse(saved)) : new Set();
+      if (saved) {
+        const arr = JSON.parse(saved);
+        if (Array.isArray(arr)) arr.forEach((c) => baseSet.add(c));
+      }
+      return baseSet;
     } catch {
-      return new Set();
+      return new Set(Array.isArray(prefilledKh2959Data) ? prefilledKh2959Data : []);
     }
   });
   const [isSubmittingWeb, setIsSubmittingWeb] = useState(false);
