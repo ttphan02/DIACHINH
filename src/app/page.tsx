@@ -1538,6 +1538,7 @@ export default function Home() {
                 {/* Nút mở Dashboard quản trị & tiến độ (Ẩn trên điện thoại) */}
                 <Link
                   href="/dashboard"
+                  prefetch={false}
                   className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs bg-cyan-50 hover:bg-cyan-100 text-cyan-800 font-bold rounded-xl transition shrink-0 border border-cyan-200 shadow-2xs"
                   title="Mở Dashboard thống kê & tiến độ số hóa"
                 >
