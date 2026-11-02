@@ -505,15 +505,33 @@ export default function DashboardPage() {
           // CẬP NHẬT DỮ LIỆU ĐỒNG BỘ CHÍNH XÁC TỪ CLOUD R2
           const cloudCodesSet = new Set<string>(data.declaredCodes);
           setDeclaredParcelCodes(cloudCodesSet);
-          setDeclarationsMap(cloudMap);
 
-          // Đồng bộ các ô đang nhập nháp (cellEdits) từ Cloud R2
+          // Hợp nhất declarationsMap: Giữ lại các thay đổi mới hơn trên máy tính này
+          setDeclarationsMap((prev) => {
+            const merged: Record<string, any> = { ...cloudMap };
+            for (const [code, localDecl] of Object.entries(prev)) {
+              if (!merged[code]) {
+                merged[code] = localDecl;
+              } else if (localDecl?.updated_at && merged[code]?.updated_at) {
+                if (new Date(localDecl.updated_at).getTime() > new Date(merged[code].updated_at).getTime()) {
+                  merged[code] = localDecl;
+                }
+              }
+            }
+            try {
+              localStorage.setItem('diachinh_declarations_map', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+
+          // Đồng bộ cellEdits: Giữ 100% các ô người dùng vừa chỉnh sửa trên máy này (prev luôn ưu tiên hơn cloudEdits)
           setCellEdits((prev) => {
             const merged: Record<string, Record<number, string>> = { ...cloudEdits };
             for (const code of Object.keys(prev)) {
-              if (!cloudCodesSet.has(code) && prev[code]) {
-                merged[code] = { ...(merged[code] || {}), ...prev[code] };
-              }
+              merged[code] = {
+                ...(merged[code] || {}),
+                ...prev[code],
+              };
             }
             try {
               localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(merged));
@@ -571,7 +589,7 @@ export default function DashboardPage() {
         if (realtimeReloadTimeoutRef.current) clearTimeout(realtimeReloadTimeoutRef.current);
         realtimeReloadTimeoutRef.current = setTimeout(() => {
           fetchSyncSheetsReportRef.current?.(true);
-        }, 350);
+        }, 2500);
       } else if (event.type === 'DECLARATION_DELETED' && event.maThua) {
         const targetMaThua = event.maThua;
         setDeclarationsMap((prev) => {
@@ -673,7 +691,7 @@ export default function DashboardPage() {
     if (immediate) {
       doSync();
     } else {
-      cellEditsSyncTimeoutRef.current = setTimeout(doSync, 1200);
+      cellEditsSyncTimeoutRef.current = setTimeout(doSync, 300);
     }
   }, []);
 
@@ -795,8 +813,10 @@ export default function DashboardPage() {
       (updatedDecl as any).ho_va_ten_chu_ho = formattedValue;
     }
     if (fieldKey === 'dia_chi_thua_dat') {
-      updatedDecl.dia_chi_thua_dat = formattedValue;
-      updatedDecl.chu_dat_dia_chi = formattedValue.includes('xã Cư Pui') ? formattedValue : `${formattedValue}, xã Cư Pui`;
+      const canonical = getCanonicalVillage(formattedValue) || formattedValue.replace(/,\s*xã Cư Pui/gi, '').trim();
+      updatedDecl.thon_xa = canonical;
+      updatedDecl.dia_chi_thua_dat = canonical;
+      updatedDecl.chu_dat_dia_chi = canonical ? `${canonical}, xã Cư Pui` : 'xã Cư Pui';
     }
 
     // 1. Cập nhật ngay tức thì vào React State & LocalStorage (0ms latency)
@@ -5633,9 +5653,47 @@ export default function DashboardPage() {
                                         );
                                       }
 
-                                      // 2. Các ô nhập chữ trực tiếp như Excel (Họ tên, Năm sinh, Giới tính, Số CCCD, Diện tích, Loại đất)
-                                      // Cột Diện tích & Loại đất cố định theo bản đồ địa chính, KHÔNG cho phép sửa trên bảng
-                                      if (isNameCol || isDobCol || isGenderCol || isCccdCol || isVillageCol) {
+                                       // 2. Ô Thôn / Buôn (Dropdown lựa chọn nhanh các Thôn/Buôn xã Cư Pui)
+                                       if (isVillageCol) {
+                                         const cleanV = getCanonicalVillage(displayVal || '') || (displayVal || '').replace(/,\s*xã Cư Pui/gi, '').trim();
+                                         const villageList = CANONICAL_VILLAGES.filter((v) => v !== 'Chưa xác định');
+
+                                         return (
+                                           <td
+                                             key={cIdx}
+                                             style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                             className={`py-1 px-1.5 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                           >
+                                             <select
+                                               value={cleanV}
+                                               onChange={(e) => {
+                                                 const v = e.target.value;
+                                                 handleInlineCellChange(maThua, cIdx, v);
+                                                 handleInlineCellCommit(maThua, cIdx, headerName, v, row, headers);
+                                               }}
+                                               className={`w-full min-w-0 px-1.5 py-1 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 transition cursor-pointer truncate ${
+                                                 isLight
+                                                   ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
+                                                   : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+                                               } ${!cleanV ? (isLight ? 'text-slate-400 font-normal italic' : 'text-slate-500 font-normal italic') : ''}`}
+                                             >
+                                               <option value="">-- Chọn Thôn / Buôn --</option>
+                                               {villageList.map((opt) => (
+                                                 <option key={opt} value={opt}>
+                                                   {opt}
+                                                 </option>
+                                               ))}
+                                               {cleanV && !villageList.includes(cleanV) && (
+                                                 <option value={cleanV}>{cleanV}</option>
+                                               )}
+                                             </select>
+                                           </td>
+                                         );
+                                       }
+
+                                       // 3. Các ô nhập chữ trực tiếp như Excel (Họ tên, Năm sinh, Giới tính, Số CCCD)
+                                       // Cột Diện tích & Loại đất cố định theo bản đồ địa chính, KHÔNG cho phép sửa trên bảng
+                                       if (isNameCol || isDobCol || isGenderCol || isCccdCol) {
                                         // Chỉ kiểm tra validate ở THỬA ĐANG KÊ KHAI (CHƯA CÓ CCCD) và SẲN SÀNG ĐÓNG TẬP
                                         // Bảng Chưa thực hiện thì không cần check valid
                                         const shouldValidate = isReadyToPackSheet || isChuaCoCccdSheet;
