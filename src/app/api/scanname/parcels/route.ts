@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
-import parcelsData from '@/data/parcels.json';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
 
 const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
@@ -56,7 +55,6 @@ let memoryCache: {
 const CACHE_TTL_MS = 15000; // 15 giây
 
 async function loadDeclarations(): Promise<Record<string, any>> {
-  // 1. R2 binding
   const bucket = await getR2Binding();
   if (bucket) {
     try {
@@ -71,7 +69,7 @@ async function loadDeclarations(): Promise<Record<string, any>> {
     }
   }
 
-  // 2. S3 SDK fallback (Local Node.js)
+  // S3 SDK fallback
   if (R2_ACCOUNT_ID && R2_ACCESS_KEY && R2_SECRET_KEY) {
     try {
       const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
@@ -99,7 +97,7 @@ async function loadDeclarations(): Promise<Record<string, any>> {
     }
   }
 
-  // 3. Public CDN fallback
+  // Public CDN fallback
   try {
     const res = await fetch(`${R2_PUBLIC_URL}/${KEY_ALL_DECLARATIONS}?t=${Date.now()}`, {
       cache: 'no-store',
@@ -161,7 +159,11 @@ async function loadSyncSheets(): Promise<Record<string, string[][]>> {
   return {};
 }
 
-function buildComprehensiveDatabase(
+/**
+ * XÂY DỰNG DANH BẠ DUY NHẤT CHO SCANNAME:
+ * Chỉ đọc ĐÚNG danh sách các thửa kê khai đã CÓ CCCD (Sẵn sàng đóng tập)
+ */
+function buildDeclaredCccdDatabase(
   dmap: Record<string, any>,
   syncSheets: Record<string, string[][]>
 ) {
@@ -187,6 +189,10 @@ function buildComprehensiveDatabase(
     const cleanMa = String(maThua).trim();
     if (HIDDEN_PARCEL_SET.has(cleanMa)) return;
 
+    const cleanDigits = String(rawCccd || '').replace(/^="|"$/g, '').replace(/\D/g, '');
+    // BẮT BUỘC PHẢI CÓ CCCD (9 đến 12 số)
+    if (cleanDigits.length < 9) return;
+
     const gcnName = `CHUACOGIAY_24478_${cleanMa}`;
     thuaMap[cleanMa] = gcnName;
     thuaMap[gcnName] = gcnName;
@@ -197,12 +203,9 @@ function buildComprehensiveDatabase(
     thuaMap[slashMa] = gcnName;
     thuaMap[dashMa] = gcnName;
 
-    const cleanDigits = String(rawCccd || '').replace(/^="|"$/g, '').replace(/\D/g, '');
-    if (cleanDigits.length >= 9) {
-      addCccdKey(cleanDigits, gcnName);
-      if (cleanDigits.length < 12) {
-        addCccdKey(cleanDigits.padStart(12, '0'), gcnName);
-      }
+    addCccdKey(cleanDigits, gcnName);
+    if (cleanDigits.length < 12) {
+      addCccdKey(cleanDigits.padStart(12, '0'), gcnName);
     }
 
     const cleanName = (chuHo || '').trim();
@@ -228,17 +231,17 @@ function buildComprehensiveDatabase(
     }
   };
 
-  // 1. Nạp từ toàn bộ các sheet của syncSheets (Đặc biệt là THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD) đã qua đối soát R2)
+  // 1. Nguồn chính: ĐÚNG DANH SÁCH "THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD)" trên Dashboard
   if (syncSheets && typeof syncSheets === 'object') {
-    for (const [, rows] of Object.entries(syncSheets)) {
-      if (!Array.isArray(rows) || rows.length <= 1) continue;
-      const headers = rows[0] || [];
+    const readyRows = syncSheets['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || syncSheets['THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD)'];
+    if (Array.isArray(readyRows) && readyRows.length > 1) {
+      const headers = readyRows[0] || [];
       const maIdx = headers.findIndex((h) => /mã thửa/i.test(h));
       const nameIdx = headers.findIndex((h) => /họ và tên|chủ đất/i.test(h));
       const cccdIdx = headers.findIndex((h) => /cccd/i.test(h) && !/xem|file/i.test(h));
       const thonIdx = headers.findIndex((h) => /thôn|buôn/i.test(h));
 
-      for (const r of rows.slice(1)) {
+      for (const r of readyRows.slice(1)) {
         const maThua = maIdx >= 0 ? r[maIdx] : r[1];
         const chuHo = nameIdx >= 0 ? r[nameIdx] : r[3];
         const cccd = cccdIdx >= 0 ? r[cccdIdx] : r[6];
@@ -248,13 +251,15 @@ function buildComprehensiveDatabase(
     }
   }
 
-  // 2. Nạp từ declarationsMap (kê khai trực tiếp từ cán bộ)
+  // 2. Nguồn bổ trợ: Các đơn kê khai trong declarationsMap có CCCD hợp lệ
   if (dmap && typeof dmap === 'object') {
     for (const [maThua, decl] of Object.entries(dmap)) {
       if (!decl) continue;
+      const cccd = decl.chu_dat_cccd || decl.cccd_chu_ho || decl.cccd;
+      if (!cccd) continue;
       addEntry(
         maThua,
-        decl.chu_dat_cccd || decl.cccd_chu_ho || decl.cccd,
+        cccd,
         decl.chu_dat_ten || decl.chu_ho || decl.ho_va_ten_chu_ho,
         decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi
       );
@@ -263,21 +268,12 @@ function buildComprehensiveDatabase(
           if (ap && ap.ma_thua) {
             addEntry(
               ap.ma_thua,
-              decl.chu_dat_cccd || decl.cccd_chu_ho || decl.cccd,
+              cccd,
               decl.chu_dat_ten || decl.chu_ho,
               ap.thon_xa || decl.dia_chi_thua_dat
             );
           }
         });
-      }
-    }
-  }
-
-  // 3. Nạp từ parcels.json (toàn xã 9.822 thửa đất)
-  if (Array.isArray(parcelsData)) {
-    for (const p of parcelsData as any[]) {
-      if (p.ma_thua) {
-        addEntry(p.ma_thua, p.cccd, p.chu_ho, p.thon_xa);
       }
     }
   }
@@ -305,7 +301,7 @@ export async function GET(req: Request) {
       loadDeclarations(),
       loadSyncSheets(),
     ]);
-    store = buildComprehensiveDatabase(dmap, syncSheets);
+    store = buildDeclaredCccdDatabase(dmap, syncSheets);
     memoryCache = {
       timestamp: now,
       data: store,
@@ -318,7 +314,7 @@ export async function GET(req: Request) {
     const pad12 = cleanQ.length > 0 && cleanQ.length <= 12 ? cleanQ.padStart(12, '0') : '';
     const matchedNames: string[] = [];
 
-    // 1. Tìm theo số CCCD (chính xác hoặc 12 số)
+    // Tìm theo số CCCD (chính xác hoặc 12 số)
     if (cleanQ && store.cccdMap[cleanQ]) {
       store.cccdMap[cleanQ].forEach((n) => {
         if (!matchedNames.includes(n)) matchedNames.push(n);
@@ -330,7 +326,7 @@ export async function GET(req: Request) {
       });
     }
 
-    // 2. Tìm theo mã thửa hoặc tên GCN
+    // Tìm theo mã thửa hoặc tên GCN
     if (store.thuaMap[q]) {
       const n = store.thuaMap[q];
       if (!matchedNames.includes(n)) matchedNames.push(n);
@@ -346,7 +342,7 @@ export async function GET(req: Request) {
       if (!matchedNames.includes(n)) matchedNames.push(n);
     }
 
-    // 3. Tìm theo tên chủ hộ (chính xác hoặc substring)
+    // Tìm theo tên chủ hộ
     const lowerQ = q.toLowerCase();
     if (store.nameMap[lowerQ]) {
       store.nameMap[lowerQ].forEach((n) => {
@@ -382,7 +378,7 @@ export async function GET(req: Request) {
     );
   }
 
-  // 2. Trả về toàn bộ danh bạ toàn diện để frontend /scanname lưu vào bộ nhớ cache tra cứu 0ms
+  // 2. Trả về toàn bộ danh bạ các thửa kê khai có CCCD
   return NextResponse.json(
     {
       success: true,
