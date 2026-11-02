@@ -5643,37 +5643,37 @@ export default function DashboardPage() {
                                       const displayVal = cellEdits[maThua]?.[cIdx] !== undefined ? cellEdits[maThua][cIdx] : effectiveVal;
 
                                       // 1. Ô Nguồn gốc sử dụng đất (Dropdown Khai hoang / Thừa kế / Tặng cho trực tiếp)
-                                      if (isOriginCol) {
-                                        return (
-                                          <td
-                                            key={cIdx}
-                                            style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
-                                            className={`py-1 px-1.5 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
-                                          >
-                                            <select
-                                              value={normalizeNguonGoc(displayVal || '')}
-                                              onChange={(e) => {
-                                                const v = e.target.value;
-                                                handleInlineCellChange(maThua, cIdx, v);
-                                                handleInlineCellCommit(maThua, cIdx, headerName, v, row, headers);
-                                              }}
-                                              className={`w-full min-w-0 px-1.5 py-1 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 transition cursor-pointer truncate ${
-                                                isLight
-                                                  ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
-                                                  : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
-                                              }`}
-                                            >
-                                              {NGUON_GOC_OPTIONS.map((opt) => (
-                                                <option key={opt} value={opt}>
-                                                  {opt}
-                                                </option>
-                                              ))}
-                                            </select>
-                                          </td>
-                                        );
-                                      }
+                                       if (isOriginCol) {
+                                         return (
+                                           <td
+                                             key={cIdx}
+                                             style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                             className={`p-0 border-r overflow-hidden relative focus-within:z-10 ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                           >
+                                             <select
+                                               value={normalizeNguonGoc(displayVal || '')}
+                                               onChange={(e) => {
+                                                 const v = e.target.value;
+                                                 handleInlineCellChange(maThua, cIdx, v);
+                                                 handleInlineCellCommit(maThua, cIdx, headerName, v, row, headers);
+                                               }}
+                                               className={`w-full h-full min-h-[34px] min-w-0 px-2 py-1.5 rounded-none border-0 bg-transparent text-xs font-semibold outline-none focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 transition cursor-pointer truncate ${
+                                                 isLight
+                                                   ? 'hover:bg-slate-100/60 focus:bg-white text-slate-800'
+                                                   : 'hover:bg-slate-800/50 focus:bg-slate-900 text-slate-200'
+                                               }`}
+                                             >
+                                               {NGUON_GOC_OPTIONS.map((opt) => (
+                                                 <option key={opt} value={opt}>
+                                                   {opt}
+                                                 </option>
+                                               ))}
+                                             </select>
+                                           </td>
+                                         );
+                                       }
 
-                                      // Cột Ghi chú & Hướng dẫn xử lý cho mục Đang kê khai (Chưa có CCCD) - Hiển thị realtime tô màu xanh lá nếu có file R2
+                                       // Cột Ghi chú & Hướng dẫn xử lý cho mục Đang kê khai (Chưa có CCCD) - Hiển thị realtime tô màu xanh lá nếu có file R2
                                       if (isChuaCoCccdSheet && (isNoteCol || cIdx === headers.length - 1)) {
                                         const cccdVal = cleanCccd(
                                           cellEdits[maThua]?.[8] !== undefined
@@ -5745,9 +5745,9 @@ export default function DashboardPage() {
                                               <td
                                                 key={cIdx}
                                                 style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
-                                                className={`p-1 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                                className={`p-0 border-r overflow-hidden relative focus-within:z-10 ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
                                               >
-                                                <div className="flex items-center gap-1 w-full">
+                                                <div className="flex items-center w-full h-full min-h-[34px]">
                                                   <input
                                                     type="text"
                                                     value={cleanedV}
@@ -5766,10 +5766,10 @@ export default function DashboardPage() {
                                                         (e.target as HTMLInputElement).blur();
                                                       }
                                                     }}
-                                                    className={`flex-1 min-w-0 px-1.5 py-1 text-xs rounded border transition truncate font-medium ${
+                                                    className={`flex-1 min-w-0 h-full min-h-[34px] px-2.5 py-1.5 text-xs rounded-none border-0 bg-transparent outline-none focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 truncate font-medium ${
                                                       isLight
-                                                        ? 'border-indigo-400 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 bg-white text-slate-800'
-                                                        : 'border-indigo-500 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 bg-slate-900 text-slate-100'
+                                                        ? 'hover:bg-slate-100/60 focus:bg-white text-slate-900'
+                                                        : 'hover:bg-slate-800/50 focus:bg-slate-900 text-slate-100'
                                                     }`}
                                                   />
                                                   <button
@@ -5780,7 +5780,7 @@ export default function DashboardPage() {
                                                       handleInlineCellChange(maThua, cIdx, fallback);
                                                       handleInlineCellCommit(maThua, cIdx, headerName, fallback, row, headers);
                                                     }}
-                                                    className={`px-1.5 py-1 rounded text-[10px] font-bold border transition cursor-pointer shrink-0 ${
+                                                    className={`px-1.5 py-1 mr-1 rounded text-[10px] font-bold border transition cursor-pointer shrink-0 ${
                                                       isLight
                                                         ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
                                                         : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
@@ -5798,7 +5798,7 @@ export default function DashboardPage() {
                                             <td
                                               key={cIdx}
                                               style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
-                                              className={`py-1 px-1.5 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                              className={`p-0 border-r overflow-hidden relative focus-within:z-10 ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
                                             >
                                               <select
                                                 value={villageList16.includes(cleanedV) ? cleanedV : ''}
@@ -5812,10 +5812,10 @@ export default function DashboardPage() {
                                                     handleInlineCellCommit(maThua, cIdx, headerName, v, row, headers);
                                                   }
                                                 }}
-                                                className={`w-full min-w-0 px-1.5 py-1 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 transition cursor-pointer truncate ${
+                                                className={`w-full h-full min-h-[34px] min-w-0 px-2 py-1.5 rounded-none border-0 bg-transparent text-xs font-semibold outline-none focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-600 transition cursor-pointer truncate ${
                                                   isLight
-                                                    ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
-                                                    : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+                                                    ? 'hover:bg-slate-100/60 focus:bg-white text-slate-800'
+                                                    : 'hover:bg-slate-800/50 focus:bg-slate-900 text-slate-200'
                                                 } ${!cleanedV ? (isLight ? 'text-slate-400 font-normal italic' : 'text-slate-500 font-normal italic') : ''}`}
                                               >
                                                 <option value="">-- Chọn Thôn / Buôn --</option>
@@ -5871,55 +5871,55 @@ export default function DashboardPage() {
                                         }
 
                                         return (
-                                          <td
-                                            key={cIdx}
-                                            style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
-                                            className={`p-1 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
-                                          >
-                                            <input
-                                              type="text"
-                                              value={displayVal}
-                                              title={invalidMsg || undefined}
-                                              onChange={(e) => handleInlineCellChange(maThua, cIdx, e.target.value)}
-                                              onBlur={(e) => {
-                                                let val = e.target.value;
-                                                if (isNameCol) val = cleanName(val);
-                                                else if (isCccdCol) val = cleanCccd(val);
-                                                handleInlineCellCommit(maThua, cIdx, headerName, val, row, headers);
-                                              }}
-                                              onKeyDown={(e) => {
-                                                if (e.key === 'Enter') {
-                                                  (e.target as HTMLInputElement).blur();
-                                                }
-                                              }}
-                                              placeholder={
-                                                isGenderCol
-                                                  ? 'Nam / Nữ...'
-                                                  : isCccdCol
-                                                  ? '12 số CCCD...'
-                                                  : isVillageCol
-                                                  ? 'Thôn / Buôn...'
-                                                  : isNameCol
-                                                  ? 'Nhập họ tên...'
-                                                  : isDobCol
-                                                  ? 'YYYY...'
-                                                  : 'Nhập...'
-                                              }
-                                              className={`w-full min-w-0 px-2 py-1 text-xs rounded border transition truncate font-medium ${
-                                                isInvalid
-                                                  ? isLight
-                                                    ? 'border-rose-500 ring-1 ring-rose-500 bg-white text-slate-800 focus:border-rose-600 focus:ring-rose-600'
-                                                    : 'border-rose-500 ring-1 ring-rose-500 bg-slate-900 text-slate-100 focus:border-rose-400 focus:ring-rose-400'
-                                                  : isLight
-                                                  ? 'border-transparent hover:border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-white text-slate-800 hover:bg-slate-100/50'
-                                                  : 'border-transparent hover:border-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:bg-slate-800 text-slate-100 hover:bg-slate-800/40'
-                                              } ${isNameCol ? 'font-bold' : ''}`}
-                                            />
-                                          </td>
-                                        );
-                                      }
+                                           <td
+                                             key={cIdx}
+                                             style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                             className={`p-0 border-r overflow-hidden relative focus-within:z-10 ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                           >
+                                             <input
+                                               type="text"
+                                               value={displayVal}
+                                               title={invalidMsg || undefined}
+                                               onChange={(e) => handleInlineCellChange(maThua, cIdx, e.target.value)}
+                                               onBlur={(e) => {
+                                                 let val = e.target.value;
+                                                 if (isNameCol) val = cleanName(val);
+                                                 else if (isCccdCol) val = cleanCccd(val);
+                                                 handleInlineCellCommit(maThua, cIdx, headerName, val, row, headers);
+                                               }}
+                                               onKeyDown={(e) => {
+                                                 if (e.key === 'Enter') {
+                                                   (e.target as HTMLInputElement).blur();
+                                                 }
+                                               }}
+                                               placeholder={
+                                                 isGenderCol
+                                                   ? 'Nam / Nữ...'
+                                                   : isCccdCol
+                                                   ? '12 số CCCD...'
+                                                   : isVillageCol
+                                                   ? 'Thôn / Buôn...'
+                                                   : isNameCol
+                                                   ? 'Nhập họ tên...'
+                                                   : isDobCol
+                                                   ? 'YYYY...'
+                                                   : 'Nhập...'
+                                               }
+                                               className={`w-full h-full min-h-[34px] min-w-0 px-2.5 py-1.5 text-xs rounded-none border-0 bg-transparent outline-none focus:outline-none focus:ring-2 focus:ring-inset truncate font-medium ${
+                                                 isInvalid
+                                                   ? isLight
+                                                     ? 'ring-2 ring-inset ring-rose-500 bg-rose-50/50 text-slate-900 focus:ring-rose-600'
+                                                     : 'ring-2 ring-inset ring-rose-500 bg-rose-950/40 text-slate-100 focus:ring-rose-400'
+                                                   : isLight
+                                                   ? 'hover:bg-slate-100/60 focus:bg-white focus:ring-blue-600 text-slate-900 selection:bg-blue-100'
+                                                   : 'hover:bg-slate-800/50 focus:bg-slate-900 focus:ring-blue-500 text-slate-100 selection:bg-blue-900/60'
+                                               } ${isNameCol ? 'font-bold' : ''}`}
+                                             />
+                                           </td>
+                                         );
+                                       }
 
-                                      // 3. Cột Mã thửa
+                                                                             // 3. Cột Mã thửa
                                       if (cIdx === 1) {
                                         return (
                                           <td
