@@ -265,6 +265,9 @@ export default function DashboardPage() {
   const [submittingRowCode, setSubmittingRowCode] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
 
+  // Trạng thái ô Thôn/Buôn tự nhập tay đối với người ở nơi khác
+  const [customVillageRows, setCustomVillageRows] = useState<Record<string, boolean>>({});
+
   // Tên cán bộ kê khai
   const [cadreName, setCadreName] = useState<string>('');
   const [isCadreModalOpen, setIsCadreModalOpen] = useState(false);
@@ -813,10 +816,18 @@ export default function DashboardPage() {
       (updatedDecl as any).ho_va_ten_chu_ho = formattedValue;
     }
     if (fieldKey === 'dia_chi_thua_dat') {
-      const canonical = getCanonicalVillage(formattedValue) || formattedValue.replace(/,\s*xã Cư Pui/gi, '').trim();
-      updatedDecl.thon_xa = canonical;
-      updatedDecl.dia_chi_thua_dat = canonical;
-      updatedDecl.chu_dat_dia_chi = canonical ? `${canonical}, xã Cư Pui` : 'xã Cư Pui';
+      const canonical = getCanonicalVillage(formattedValue);
+      const finalAddr = canonical && canonical !== 'Chưa xác định' ? canonical : formattedValue.trim();
+      updatedDecl.thon_xa = finalAddr;
+      updatedDecl.dia_chi_thua_dat = finalAddr;
+      updatedDecl.chu_dat_dia_chi =
+        finalAddr.includes('xã Cư Pui') ||
+        finalAddr.includes('huyện') ||
+        finalAddr.includes('tỉnh') ||
+        finalAddr.includes('thị trấn') ||
+        finalAddr.includes('thành phố')
+          ? finalAddr
+          : `${finalAddr}, xã Cư Pui`;
     }
 
     // 1. Cập nhật ngay tức thì vào React State & LocalStorage (0ms latency)
@@ -5653,10 +5664,88 @@ export default function DashboardPage() {
                                         );
                                       }
 
-                                       // 2. Ô Thôn / Buôn (Dropdown lựa chọn nhanh các Thôn/Buôn xã Cư Pui)
+                                       // 2. Ô Thôn / Buôn: Đúng 16 Thôn Buôn sau sáp nhập & tùy chọn tự nhập nơi khác
                                        if (isVillageCol) {
-                                         const cleanV = getCanonicalVillage(displayVal || '') || (displayVal || '').replace(/,\s*xã Cư Pui/gi, '').trim();
-                                         const villageList = CANONICAL_VILLAGES.filter((v) => v !== 'Chưa xác định');
+                                         const villageList16 = [
+                                           'Thôn Ba Phường',
+                                           'Buôn Ngô',
+                                           'Buôn Bhung',
+                                           'Buôn Cư Phiang',
+                                           'Buôn Tliêr',
+                                           'Thôn Hòa Phong',
+                                           'Thôn Cẩm Phong',
+                                           'Thôn Noh Prông',
+                                           'Thôn Ea Khiêm',
+                                           'Buôn Đắk Tuôr',
+                                           'Buôn Khanh',
+                                           'Thôn Ea Uôl',
+                                           'Thôn Ea Lang',
+                                           'Thôn Ea Rớt',
+                                           'Thôn Cư Tê',
+                                           'Thôn Ea Bar',
+                                         ];
+
+                                         const rawV = String(displayVal || '').trim();
+                                         const isCustomInput = customVillageRows[maThua] || (Boolean(rawV) && !villageList16.includes(rawV));
+
+                                         if (isCustomInput) {
+                                           return (
+                                             <td
+                                               key={cIdx}
+                                               style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                               className={`p-1 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
+                                             >
+                                               <div className="flex items-center gap-1 w-full">
+                                                 <input
+                                                   type="text"
+                                                   value={rawV}
+                                                   placeholder="Nhập nơi khác..."
+                                                   autoFocus={customVillageRows[maThua]}
+                                                   onChange={(e) => handleInlineCellChange(maThua, cIdx, e.target.value)}
+                                                   onBlur={(e) => {
+                                                     const val = e.target.value.trim();
+                                                     handleInlineCellCommit(maThua, cIdx, headerName, val, row, headers);
+                                                     if (villageList16.includes(val)) {
+                                                       setCustomVillageRows((prev) => {
+                                                         const next = { ...prev };
+                                                         delete next[maThua];
+                                                         return next;
+                                                       });
+                                                     }
+                                                   }}
+                                                   onKeyDown={(e) => {
+                                                     if (e.key === 'Enter') {
+                                                       (e.target as HTMLInputElement).blur();
+                                                     }
+                                                   }}
+                                                   className={`flex-1 min-w-0 px-1.5 py-1 text-xs rounded border transition truncate font-medium ${
+                                                     isLight
+                                                       ? 'border-indigo-400 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 bg-white text-slate-800'
+                                                       : 'border-indigo-500 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 bg-slate-900 text-slate-100'
+                                                   }`}
+                                                 />
+                                                 <button
+                                                   type="button"
+                                                   onClick={() => {
+                                                     setCustomVillageRows((prev) => {
+                                                       const next = { ...prev };
+                                                       delete next[maThua];
+                                                       return next;
+                                                     });
+                                                   }}
+                                                   className={`px-1.5 py-1 rounded text-[10px] font-bold border transition cursor-pointer shrink-0 ${
+                                                     isLight
+                                                       ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                                                       : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
+                                                   }`}
+                                                   title="Chuyển về danh sách 16 thôn/buôn"
+                                                 >
+                                                   16 thôn
+                                                 </button>
+                                               </div>
+                                             </td>
+                                           );
+                                         }
 
                                          return (
                                            <td
@@ -5665,27 +5754,29 @@ export default function DashboardPage() {
                                              className={`py-1 px-1.5 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
                                            >
                                              <select
-                                               value={cleanV}
+                                               value={rawV}
                                                onChange={(e) => {
                                                  const v = e.target.value;
-                                                 handleInlineCellChange(maThua, cIdx, v);
-                                                 handleInlineCellCommit(maThua, cIdx, headerName, v, row, headers);
+                                                 if (v === '__CUSTOM__') {
+                                                   setCustomVillageRows((prev) => ({ ...prev, [maThua]: true }));
+                                                 } else {
+                                                   handleInlineCellChange(maThua, cIdx, v);
+                                                   handleInlineCellCommit(maThua, cIdx, headerName, v, row, headers);
+                                                 }
                                                }}
                                                className={`w-full min-w-0 px-1.5 py-1 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 transition cursor-pointer truncate ${
                                                  isLight
                                                    ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800'
                                                    : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
-                                               } ${!cleanV ? (isLight ? 'text-slate-400 font-normal italic' : 'text-slate-500 font-normal italic') : ''}`}
+                                               } ${!rawV ? (isLight ? 'text-slate-400 font-normal italic' : 'text-slate-500 font-normal italic') : ''}`}
                                              >
                                                <option value="">-- Chọn Thôn / Buôn --</option>
-                                               {villageList.map((opt) => (
+                                               {villageList16.map((opt) => (
                                                  <option key={opt} value={opt}>
                                                    {opt}
                                                  </option>
                                                ))}
-                                               {cleanV && !villageList.includes(cleanV) && (
-                                                 <option value={cleanV}>{cleanV}</option>
-                                               )}
+                                               <option value="__CUSTOM__">✏️ Nơi khác (Tự nhập tay)...</option>
                                              </select>
                                            </td>
                                          );

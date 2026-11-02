@@ -360,11 +360,7 @@ export const CANONICAL_VILLAGES = [
   'Thôn Ea Lang',
   'Thôn Ea Rớt',
   'Thôn Cư Tê',
-  'Thôn Cư Rang',
   'Thôn Ea Bar',
-  'Buôn Khóa',
-  'Buôn Blăk',
-  'Thôn Điện Tân',
   'Chưa xác định',
 ];
 
