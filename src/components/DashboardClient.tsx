@@ -491,9 +491,9 @@ export default function DashboardPage() {
     lastFetchTimeRef.current = Date.now();
     try {
       const res = await fetch('/api/declarations');
-      if (res.ok) {
-        const data = (await res.json()) as any;
-        if (data && data.success && Array.isArray(data.declaredCodes)) {
+      if (!res.ok) return;
+      const data = (await res.json()) as any;
+        if (data && Array.isArray(data.declaredCodes)) {
           if (data.updatedAt && data.updatedAt === lastCloudUpdatedAtRef.current) return;
           const cloudMap = data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {};
           const cloudEdits = data.cellEdits && typeof data.cellEdits === 'object' ? data.cellEdits : {};
@@ -549,7 +549,6 @@ export default function DashboardPage() {
             } catch (e) {}
           }
         }
-      }
     } catch (err) {
       console.warn('Lỗi đồng bộ declarations trên Dashboard:', err);
     } finally {
@@ -694,7 +693,7 @@ export default function DashboardPage() {
     if (immediate) {
       doSync();
     } else {
-      cellEditsSyncTimeoutRef.current = setTimeout(doSync, 300);
+      cellEditsSyncTimeoutRef.current = setTimeout(doSync, 1000);
     }
   }, []);
 
