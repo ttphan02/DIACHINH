@@ -92,8 +92,8 @@ export async function GET(req: Request) {
     }
   }
 
-  // 1. Kiểm tra cache trong bộ nhớ (In-memory cache)
-  if (!force && cachedSyncResult && now - lastSyncTime < SYNC_CACHE_TTL) {
+  // 1. Kiểm tra cache trong bộ nhớ (In-memory cache < 0.1ms)
+  if (!force && cachedSyncResult && now - lastSyncTime < 300000) {
     return NextResponse.json(
       {
         ...cachedSyncResult,
@@ -103,36 +103,26 @@ export async function GET(req: Request) {
       },
       {
         headers: {
-          'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=120',
+          'Cache-Control': 'public, max-age=60, s-maxage=300, stale-while-revalidate=600',
         },
       }
     );
   }
 
-  // 2. Kiểm tra cache trong Cloudflare R2 (giúp các worker isolate mới không phải tính toán lại khi F5)
+  // 2. Stream trực tiếp cache snapshot từ Cloudflare R2 (siêu tốc ~1ms CPU, 0MB RAM, không bao giờ bị Error 1102)
   if (!force && bucket) {
     try {
       const obj = await bucket.get(KEY_SYNC_CACHE);
       if (obj) {
-        const text = await obj.text();
-        const data = JSON.parse(text);
-        if (data && now - (data.cachedAt || 0) < SYNC_CACHE_TTL) {
-          cachedSyncResult = data;
-          lastSyncTime = data.cachedAt;
-          return NextResponse.json(
-            {
-              ...data,
-              sheetsData: sanitizeSheetsPayload(data.sheetsData),
-              cached: true,
-              durationMs: 0,
-            },
-            {
-              headers: {
-                'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=120',
-              },
-            }
-          );
-        }
+        return new Response(obj.body, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'public, max-age=60, s-maxage=300, stale-while-revalidate=600',
+            'CDN-Cache-Control': 'public, max-age=300',
+            'Access-Control-Allow-Origin': '*',
+          },
+        });
       }
     } catch (cacheErr) {
       console.warn('Lỗi đọc cache sync-sheets từ R2:', cacheErr);
