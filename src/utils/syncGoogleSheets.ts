@@ -432,8 +432,7 @@ export async function executeSyncToGoogleSheet(
       const fallbackDt = meta ? meta[0] : '';
       const fallbackLoaiDat = meta ? meta[1] : '';
       const curLd = String(decl.loai_dat || fallbackLoaiDat || '').trim().toUpperCase();
-      const curDt = parseFloat(String(decl.dien_tich || fallbackDt || '').replace(',', '.'));
-      if (curLd === 'BCS' && !isNaN(curDt) && curDt < 100) continue;
+      if (curLd === 'BCS') continue;
       const fallbackThon = meta ? meta[2] : '';
       const fallbackOwner = meta ? meta[3] : '';
 
@@ -825,8 +824,7 @@ export async function executeSyncToGoogleSheet(
     for (const [maThua, item] of Object.entries(parcelsBrief)) {
       if (HIDDEN_PARCEL_SET.has(maThua)) continue;
       const curLd = String(item[1] || '').trim().toUpperCase();
-      const curDt = parseFloat(String(item[0] || '').replace(',', '.'));
-      if (curLd === 'BCS' && !isNaN(curDt) && curDt < 100) continue;
+      if (curLd === 'BCS') continue;
       const thonXa = item[2] || '';
       const statusFlag = item[3]; // 0: KHONG_TEN, 1: CO_TEN_CHUA_SO_HOA_VANG, 2: DA_SO_HOA_XANH
       const v = getVillageCached(thonXa);

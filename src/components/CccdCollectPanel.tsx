@@ -262,9 +262,8 @@ export default function CccdCollectPanel({
       // 2. Bỏ qua các thửa GCN - ONT (đã có CCCD / coi như đã số hóa, không thuộc diện đi thu CCCD)
       if (/ONT/.test(ld)) continue;
 
-      // 3. Bỏ qua thửa đất BCS < 100m2
-      const dt = parseFloat(String(decl.dien_tich || (pBrief && pBrief[0]) || '').replace(',', '.'));
-      if (ld === 'BCS' && !isNaN(dt) && dt < 100) continue;
+      // 3. Bỏ qua toàn bộ thửa đất loại BCS
+      if (ld === 'BCS') continue;
 
       const name = String(decl.chu_dat_ten || decl.chu_ho || '').trim();
       if (!name || name === 'Chưa có tên') continue;

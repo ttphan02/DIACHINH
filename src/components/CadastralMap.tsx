@@ -494,10 +494,7 @@ export default function CadastralMap({
     const validParcels = parcels.filter((p) => {
       if (!p.lat || !p.lng || HIDDEN_PARCEL_SET.has(p.ma_thua)) return false;
       const ld = (p.loai_dat || '').trim().toUpperCase();
-      if (ld === 'BCS') {
-        const dt = parseFloat(String(p.dien_tich || '').replace(',', '.'));
-        if (!isNaN(dt) && dt < 100) return false;
-      }
+      if (ld === 'BCS') return false;
       return true;
     });
     validParcelsRef.current = validParcels;

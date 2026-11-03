@@ -607,10 +607,7 @@ export default function Home() {
       .filter((p) => {
         if (HIDDEN_PARCEL_SET.has(p.ma_thua)) return false;
         const ld = (p.loai_dat || '').trim().toUpperCase();
-        if (ld === 'BCS') {
-          const dt = parseFloat(String(p.dien_tich || '').replace(',', '.'));
-          if (!isNaN(dt) && dt < 100) return false;
-        }
+        if (ld === 'BCS') return false;
         return true;
       })
       .map((p) => {
