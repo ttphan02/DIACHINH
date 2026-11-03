@@ -138,7 +138,41 @@ export default function Home() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
-  const [statusFilter, setStatusFilter] = useState<ParcelStatus | 'ALL' | 'CHUA_KE_KHAI'>('ALL');
+  const ALL_STATUS_KEYS: ParcelStatus[] = [
+    'DA_SO_HOA_XANH',
+    'DA_KE_KHAI_CHUA_SO_HOA_LAM',
+    'CO_TEN_CHUA_SO_HOA_VANG',
+    'CHUA_CO_TEN_XAM',
+  ];
+  const [selectedStatuses, setSelectedStatuses] = useState<Set<ParcelStatus>>(new Set());
+
+  const isAllStatusesSelected = selectedStatuses.size === 0 || selectedStatuses.size === ALL_STATUS_KEYS.length;
+
+  const toggleStatusFilter = (st: ParcelStatus) => {
+    setSelectedStatuses((prev) => {
+      // Nếu đang hiển thị Tất cả (size = 0 hoặc size = 4), click vào 1 loại -> chuyển sang chỉ chọn loại đó
+      if (prev.size === 0 || prev.size === ALL_STATUS_KEYS.length) {
+        return new Set([st]);
+      }
+      const next = new Set(prev);
+      if (next.has(st)) {
+        next.delete(st);
+        // Nếu đã bỏ chọn hết -> tự động về Tất cả
+        return next;
+      } else {
+        next.add(st);
+        // Nếu đã chọn đủ cả 4 loại -> về Tất cả
+        if (next.size === ALL_STATUS_KEYS.length) {
+          return new Set();
+        }
+        return next;
+      }
+    });
+  };
+
+  const selectAllStatuses = () => {
+    setSelectedStatuses(new Set());
+  };
 
   // Selected Parcel & Slide Animation State
   const [selectedParcel, setSelectedParcel] = useState<Parcel | null>(null);
@@ -766,10 +800,8 @@ export default function Home() {
     const qClean = removeVietnameseTones(searchQuery.trim());
 
     return computedParcels.filter((p) => {
-      if (statusFilter !== 'ALL') {
-        if (statusFilter === 'CHUA_KE_KHAI') {
-          if (p.trang_thai === 'DA_SO_HOA_XANH' || p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') return false;
-        } else if (p.trang_thai !== statusFilter) {
+      if (!isAllStatusesSelected && selectedStatuses.size > 0) {
+        if (!selectedStatuses.has(p.trang_thai)) {
           return false;
         }
       }
@@ -789,7 +821,7 @@ export default function Home() {
 
       return true;
     });
-  }, [computedParcels, searchQuery, selectedSheets, statusFilter]);
+  }, [computedParcels, searchQuery, selectedSheets, selectedStatuses, isAllStatusesSelected]);
 
   // 1. Danh sách các thửa đất cùng chủ CHÍNH XÁC theo CCCD (duy nhất) - Loại bỏ các thửa đã chọn gộp
   const sameCccdParcels = useMemo(() => {
@@ -1376,84 +1408,75 @@ export default function Home() {
               }`}
             >
 
-              {/* Row 1: Các button trạng thái (Xóa bỏ background đen, căn chỉnh 5 cột đều tăm tắp vừa vặn mọi màn hình) */}
+              {/* Row 1: Các button trạng thái đa lựa chọn (Multi-select: có thể chọn nhiều loại cùng lúc trên bản đồ) */}
               <div className="bg-white/95 backdrop-blur-md p-1 rounded-2xl border border-gray-200/90 shadow-xl w-fit max-w-[calc(100vw-1.5rem)] overflow-x-auto no-scrollbar">
                 <div className="flex items-center gap-1 sm:gap-1.5 w-max">
                   {/* Tất cả */}
                   <button
-                    onClick={() => {
-                      setStatusFilter('ALL');
-                    }}
-                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer whitespace-nowrap shrink-0 ${
-                      statusFilter === 'ALL'
+                    onClick={selectAllStatuses}
+                    className={`flex items-center justify-center gap-1 py-1.5 px-1.5 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer whitespace-nowrap shrink-0 ${
+                      isAllStatusesSelected
                         ? 'bg-blue-600 text-white shadow-xs'
                         : 'bg-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900'
                     }`}
+                    title="Hiển thị tất cả thửa đất (bỏ lọc)"
                   >
                     <span className="hidden md:inline whitespace-nowrap">Tất cả</span><span className="whitespace-nowrap tabular-nums">({stats.total.toLocaleString('vi-VN')})</span>
                   </button>
 
                   {/* Đã số hóa (Xanh lá - Có trên GGS) */}
                   <button
-                    onClick={() => {
-                      setStatusFilter('DA_SO_HOA_XANH');
-                    }}
-                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer whitespace-nowrap shrink-0 ${
-                      statusFilter === 'DA_SO_HOA_XANH'
-                        ? 'bg-emerald-600 text-white shadow-xs'
+                    onClick={() => toggleStatusFilter('DA_SO_HOA_XANH')}
+                    className={`flex items-center justify-center gap-1.5 py-1.5 px-1.5 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer whitespace-nowrap shrink-0 ${
+                      !isAllStatusesSelected && selectedStatuses.has('DA_SO_HOA_XANH')
+                        ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-400/50'
                         : 'bg-transparent text-emerald-700 hover:bg-emerald-50'
                     }`}
-                    title="Thửa đã số hóa (có trên Google Sheets)"
+                    title="Bấm để bật/tắt hiển thị Thửa đã số hóa (có trên Google Sheets)"
                   >
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${!isAllStatusesSelected && selectedStatuses.has('DA_SO_HOA_XANH') ? 'bg-white ring-1 ring-white/60' : 'bg-emerald-500'}`}></span>
                     <span className="hidden md:inline whitespace-nowrap">Đã số hóa</span><span className="whitespace-nowrap tabular-nums">({stats.green.toLocaleString('vi-VN')})</span>
                   </button>
 
                   {/* Đã kê khai (Xanh lam - Chưa có trên GGS) */}
                   <button
-                    onClick={() => {
-                      setStatusFilter('DA_KE_KHAI_CHUA_SO_HOA_LAM');
-                    }}
-                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer whitespace-nowrap shrink-0 ${
-                      statusFilter === 'DA_KE_KHAI_CHUA_SO_HOA_LAM'
-                        ? 'bg-blue-600 text-white shadow-xs'
+                    onClick={() => toggleStatusFilter('DA_KE_KHAI_CHUA_SO_HOA_LAM')}
+                    className={`flex items-center justify-center gap-1.5 py-1.5 px-1.5 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer whitespace-nowrap shrink-0 ${
+                      !isAllStatusesSelected && selectedStatuses.has('DA_KE_KHAI_CHUA_SO_HOA_LAM')
+                        ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-400/50'
                         : 'bg-transparent text-blue-700 hover:bg-blue-50'
                     }`}
-                    title="Thửa đã được kê khai nhưng chưa số hóa lên Google Sheets"
+                    title="Bấm để bật/tắt hiển thị Thửa đã được kê khai nhưng chưa số hóa"
                   >
-                    <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${!isAllStatusesSelected && selectedStatuses.has('DA_KE_KHAI_CHUA_SO_HOA_LAM') ? 'bg-white ring-1 ring-white/60' : 'bg-blue-500'}`}></span>
                     <span className="hidden md:inline whitespace-nowrap">Đã kê khai</span><span className="whitespace-nowrap tabular-nums">({stats.blue.toLocaleString('vi-VN')})</span>
                   </button>
 
                   {/* Có tên (Màu vàng) */}
                   <button
-                    onClick={() => {
-                      setStatusFilter(statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG' ? 'ALL' : 'CO_TEN_CHUA_SO_HOA_VANG');
-                    }}
-                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer whitespace-nowrap shrink-0 ${
-                      statusFilter === 'CO_TEN_CHUA_SO_HOA_VANG'
-                        ? 'bg-amber-500 text-white shadow-xs'
+                    onClick={() => toggleStatusFilter('CO_TEN_CHUA_SO_HOA_VANG')}
+                    className={`flex items-center justify-center gap-1.5 py-1.5 px-1.5 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer whitespace-nowrap shrink-0 ${
+                      !isAllStatusesSelected && selectedStatuses.has('CO_TEN_CHUA_SO_HOA_VANG')
+                        ? 'bg-amber-500 text-white shadow-xs ring-2 ring-amber-300/50'
                         : 'bg-transparent text-amber-700 hover:bg-amber-50'
                     }`}
-                    title="Thửa chưa kê khai có tên người (màu vàng trên bản đồ)"
+                    title="Bấm để bật/tắt hiển thị Thửa chưa kê khai có tên người (màu vàng)"
                   >
-                    <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${!isAllStatusesSelected && selectedStatuses.has('CO_TEN_CHUA_SO_HOA_VANG') ? 'bg-white ring-1 ring-white/60' : 'bg-amber-400'}`}></span>
                     <span className="hidden md:inline whitespace-nowrap">Có tên</span><span className="whitespace-nowrap tabular-nums">({stats.yellow.toLocaleString('vi-VN')})</span>
                   </button>
 
                   {/* Không có tên (Màu trắng/xám) */}
                   <button
-                    onClick={() => {
-                      setStatusFilter(statusFilter === 'CHUA_CO_TEN_XAM' ? 'ALL' : 'CHUA_CO_TEN_XAM');
-                    }}
-                    className={`flex items-center justify-center gap-1 py-1.5 px-1 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer whitespace-nowrap shrink-0 ${
-                      statusFilter === 'CHUA_CO_TEN_XAM'
-                        ? 'bg-gray-700 text-white shadow-xs'
+                    onClick={() => toggleStatusFilter('CHUA_CO_TEN_XAM')}
+                    className={`flex items-center justify-center gap-1.5 py-1.5 px-1.5 sm:px-2.5 rounded-xl font-bold transition text-xs cursor-pointer whitespace-nowrap shrink-0 ${
+                      !isAllStatusesSelected && selectedStatuses.has('CHUA_CO_TEN_XAM')
+                        ? 'bg-gray-700 text-white shadow-xs ring-2 ring-gray-400/50'
                         : 'bg-transparent text-gray-700 hover:bg-gray-100'
                     }`}
-                    title="Thửa chưa kê khai không có tên người, địa danh (màu trắng trên bản đồ)"
+                    title="Bấm để bật/tắt hiển thị Thửa chưa kê khai không có tên người (màu trắng/xám)"
                   >
-                    <span className="w-2 h-2 rounded-full bg-gray-400 ring-1 ring-gray-300 shrink-0"></span>
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${!isAllStatusesSelected && selectedStatuses.has('CHUA_CO_TEN_XAM') ? 'bg-white ring-1 ring-white/60' : 'bg-gray-400 ring-1 ring-gray-300'}`}></span>
                     <span className="hidden md:inline whitespace-nowrap">Không tên</span><span className="whitespace-nowrap tabular-nums">({stats.gray.toLocaleString('vi-VN')})</span>
                   </button>
 
@@ -1523,11 +1546,11 @@ export default function Home() {
                   />
                 </div>
 
-                {(searchQuery || statusFilter !== 'ALL') && (
+                {(searchQuery || !isAllStatusesSelected) && (
                   <button
                     onClick={() => {
                       setSearchQuery('');
-                      setStatusFilter('ALL');
+                      selectAllStatuses();
                     }}
                     className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-xl transition font-medium shrink-0 cursor-pointer"
                     title="Khôi phục mặc định"
