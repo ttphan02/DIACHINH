@@ -324,13 +324,7 @@ export default function Home() {
   // Tải danh sách đã kê khai từ LocalStorage và đồng bộ từ Cloudflare R2
   const fetchCloudDeclarations = useCallback(async () => {
     try {
-      const res = await fetch(`/api/declarations?t=${Date.now()}`, {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          Pragma: 'no-cache',
-        },
-      });
+      const res = await fetch('/api/declarations');
 
       if (res.ok) {
         const data = (await res.json()) as any;

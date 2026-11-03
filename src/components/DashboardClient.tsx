@@ -490,13 +490,7 @@ export default function DashboardPage() {
     isFetchingCloudRef.current = true;
     lastFetchTimeRef.current = Date.now();
     try {
-      const res = await fetch(`/api/declarations?t=${Date.now()}`, {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          Pragma: 'no-cache',
-        },
-      });
+      const res = await fetch('/api/declarations');
       if (res.ok) {
         const data = (await res.json()) as any;
         if (data && data.success && Array.isArray(data.declaredCodes)) {
@@ -1306,6 +1300,7 @@ export default function DashboardPage() {
     setIsLoadingSyncSheets(true);
     try {
       const res = await fetch(`/api/sync-sheets${force ? '?force=true' : ''}`);
+      if (!res.ok) return;
       const data: any = await res.json();
       if (data && data.success) {
         setSyncSummary(data.summary);
@@ -1327,6 +1322,7 @@ export default function DashboardPage() {
     setIsSyncingGgs(true);
     try {
       const res = await fetch(`/api/sync-ggs${force ? '?force=true' : ''}`);
+      if (!res.ok) return;
       const data: any = await res.json();
       if (data && data.success) {
         if (Array.isArray(data.ggsCodes)) {

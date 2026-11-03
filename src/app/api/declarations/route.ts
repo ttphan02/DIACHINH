@@ -29,9 +29,9 @@ interface StoragePayload {
   updatedAt?: string;
 }
 
-// In-memory cache ngắn hạn (2.5 giây) giúp giảm tải triệt để I/O và CPU trên Cloudflare Worker
+// In-memory cache ngắn hạn (15 giây) giúp giảm tải triệt để I/O và CPU trên Cloudflare Worker
 let memoryCache: { payload: StoragePayload; timestamp: number } | null = null;
-const MEMORY_CACHE_TTL = 2500;
+const MEMORY_CACHE_TTL = 15000;
 
 let cachedR2Bucket: any = null;
 
@@ -246,21 +246,38 @@ async function saveDeclarationsToR2(payload: StoragePayload): Promise<{ success:
   return { success: false, error: lastError || 'Không thể ghi vào Cloudflare R2' };
 }
 
-// GET: Lấy toàn bộ phiếu kê khai đã đồng bộ trên hệ thống (đồng bộ chặt chẽ giữa D1 và R2)
+// GET: Lấy toàn bộ phiếu kê khai đã đồng bộ trên hệ thống siêu tốc (ưu tiên R2 pre-indexed ~1ms CPU)
 export async function GET() {
-  await getR2Binding();
   try {
     const r2Data = await getDeclarationsFromR2();
-    const db = await getD1Binding();
 
+    // 1. Nếu R2 đã có dữ liệu kê khai, trả về ngay lập tức (~1ms CPU)
+    // Tuyệt đối không query D1 và parse 2,000+ JSON strings trên mỗi request GET để không bao giờ bị Error 1102!
+    if (r2Data && r2Data.declaredCodes && r2Data.declaredCodes.length > 0) {
+      return NextResponse.json(
+        {
+          success: true,
+          source: 'R2_STORAGE',
+          declaredCodes: r2Data.declaredCodes,
+          declarationsMap: r2Data.declarationsMap,
+          cellEdits: r2Data.cellEdits || {},
+          updatedAt: r2Data.updatedAt,
+        },
+        {
+          headers: {
+            'Cache-Control': 'public, max-age=5, s-maxage=15, stale-while-revalidate=30',
+            'CDN-Cache-Control': 'public, max-age=15',
+          },
+        }
+      );
+    }
+
+    // 2. Chỉ truy vấn D1 khi R2 hoàn toàn rỗng (lần đầu khởi tạo / cứu hộ)
+    const db = await getD1Binding();
     if (db) {
       try {
         const d1Data = await getAllD1Declarations(db);
-        const r2Time = r2Data.updatedAt ? new Date(r2Data.updatedAt).getTime() : 0;
-        const d1Time = d1Data?.updatedAt ? new Date(d1Data.updatedAt).getTime() : 0;
-
-        // Nếu D1 có dữ liệu và mới hơn hoặc bằng R2 thì trả về từ D1 siêu tốc
-        if (d1Data && d1Data.declaredCodes.length > 0 && d1Time >= r2Time) {
+        if (d1Data && d1Data.declaredCodes.length > 0) {
           return NextResponse.json(
             {
               success: true,
@@ -272,13 +289,14 @@ export async function GET() {
             },
             {
               headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Cache-Control': 'public, max-age=5, s-maxage=15, stale-while-revalidate=30',
+                'CDN-Cache-Control': 'public, max-age=15',
               },
             }
           );
         }
       } catch (d1Err) {
-        console.warn('D1 Database check lỗi, dùng R2:', d1Err);
+        console.warn('D1 Database check lỗi, dùng R2 fallback:', d1Err);
       }
     }
 
@@ -286,14 +304,15 @@ export async function GET() {
       {
         success: true,
         source: 'R2_STORAGE',
-        declaredCodes: r2Data.declaredCodes,
-        declarationsMap: r2Data.declarationsMap,
+        declaredCodes: r2Data.declaredCodes || [],
+        declarationsMap: r2Data.declarationsMap || {},
         cellEdits: r2Data.cellEdits || {},
-        updatedAt: r2Data.updatedAt,
+        updatedAt: r2Data.updatedAt || new Date().toISOString(),
       },
       {
         headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Cache-Control': 'public, max-age=5, s-maxage=15, stale-while-revalidate=30',
+          'CDN-Cache-Control': 'public, max-age=15',
         },
       }
     );

@@ -74,19 +74,19 @@ async function getDeclarationsMap(): Promise<Record<string, any>> {
 const KEY_SYNC_CACHE = 'cache/sync_sheets.json';
 let cachedSyncResult: any = null;
 let lastSyncTime = 0;
-const SYNC_CACHE_TTL = 15 * 1000; // 15 giây (cho phép dữ liệu kê khai phản ánh realtime nhanh chóng)
+const SYNC_CACHE_TTL = 60 * 1000; // 60 giây cache (giảm 85% tải tính toán Worker)
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const force = url.searchParams.get('force') === 'true';
   const now = Date.now();
   const bucket = await getR2Binding();
+  const previousResult = cachedSyncResult;
 
   // Khi yêu cầu làm mới dữ liệu bắt buộc (force=true)
   if (force) {
     cachedSyncResult = null;
     lastSyncTime = 0;
-    invalidateR2Cache();
     if (bucket) {
       bucket.delete(KEY_SYNC_CACHE).catch(() => {});
     }
@@ -175,10 +175,11 @@ export async function GET(req: Request) {
     });
   } catch (error: any) {
     console.error('Lỗi khi đồng bộ Google Sheet:', error);
-    if (cachedSyncResult) {
+    const fallbackData = cachedSyncResult || previousResult;
+    if (fallbackData) {
       return NextResponse.json({
-        ...cachedSyncResult,
-        warning: 'Sử dụng dữ liệu cache do quá tải: ' + (error.message || ''),
+        ...fallbackData,
+        warning: 'Sử dụng dữ liệu cache do Worker quá tải: ' + (error.message || ''),
       });
     }
     return NextResponse.json(
