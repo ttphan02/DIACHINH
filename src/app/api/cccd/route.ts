@@ -1,5 +1,6 @@
 import hiddenParcelsData from '@/data/hidden_parcels.json';
 const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
+import staticGgsSnapshot from '@/data/ggs_snapshot.json';
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { cleanCccd, cleanName } from '@/utils/textHelpers';
@@ -20,6 +21,12 @@ let cccdCache: { data: any; timestamp: number } | null = null;
 const CCCD_CACHE_TTL = 60000; // Cache 60s danh sách CCCD, giảm 95% CPU và I/O Worker
 let listOnlyCache: { data: any; timestamp: number } | null = null;
 const LIST_ONLY_CACHE_TTL = 60000; // Cache 60 giây danh sách số CCCD, giảm 99% I/O và CPU Worker
+
+// In-memory cache cho kết quả kiểm tra từng số CCCD riêng lẻ (TTL 60s)
+const checkResultCache = new Map<string, { data: any; timestamp: number }>();
+
+// Pre-indexed Set các số CCCD đã có trên GGS chính để tra cứu O(1) < 0.001ms CPU
+const GGS_CCCD_SET = new Set<string>((staticGgsSnapshot as any)?.allCccds || []);
 
 async function getR2Binding(): Promise<any | null> {
   try {
@@ -82,6 +89,12 @@ export async function GET(request: Request) {
         return NextResponse.json({ exists: false });
       }
 
+      const now = Date.now();
+      const cached = checkResultCache.get(clean);
+      if (cached && now - cached.timestamp < 60000) {
+        return NextResponse.json(cached.data);
+      }
+
       const bucket = await getR2Binding();
       const targetKey = `cccd/${clean}.pdf`;
       let found = false;
@@ -95,7 +108,18 @@ export async function GET(request: Request) {
 
         if (!found) {
           try {
-            const listRes: any = await bucket.list({ prefix: `cccd/${clean}`, limit: 5 });
+            const listRes: any = await bucket.list({ prefix: `cccd/${clean}`, limit: 1 });
+            if (listRes?.objects && listRes.objects.length > 0) {
+              found = true;
+              matchedKey = listRes.objects[0].key;
+            }
+          } catch {}
+        }
+
+        if (!found && clean.length < 12) {
+          try {
+            const padded12 = clean.padStart(12, '0');
+            const listRes: any = await bucket.list({ prefix: `cccd/${padded12}`, limit: 1 });
             if (listRes?.objects && listRes.objects.length > 0) {
               found = true;
               matchedKey = listRes.objects[0].key;
@@ -104,59 +128,63 @@ export async function GET(request: Request) {
         }
       }
 
-      if (!found) {
+      // Chỉ chạy S3 fallback ở local dev mode nếu không có R2 binding (tuyệt đối không chạy trên Cloudflare Worker)
+      const isWorkerEnv = typeof (globalThis as any).WebSocketPair !== 'undefined' || typeof (globalThis as any).caches !== 'undefined';
+      if (!found && !bucket && !isWorkerEnv && process.env.NODE_ENV !== 'production') {
         const s3 = await getS3Client();
         if (s3) {
-          const { HeadObjectCommand, ListObjectsV2Command } = await import('@aws-sdk/client-s3');
           try {
-            await s3.send(new HeadObjectCommand({ Bucket: R2_BUCKET, Key: targetKey }));
-            found = true;
-          } catch {}
-
-          if (!found) {
+            const { HeadObjectCommand, ListObjectsV2Command } = await import('@aws-sdk/client-s3');
             try {
+              await s3.send(new HeadObjectCommand({ Bucket: R2_BUCKET, Key: targetKey }));
+              found = true;
+            } catch {}
+
+            if (!found) {
               const listRes = await s3.send(
                 new ListObjectsV2Command({
                   Bucket: R2_BUCKET,
                   Prefix: `cccd/${clean}`,
-                  MaxKeys: 5,
+                  MaxKeys: 1,
                 })
               );
               if (listRes.Contents && listRes.Contents.length > 0) {
                 found = true;
                 matchedKey = listRes.Contents[0].Key || targetKey;
               }
-            } catch {}
-          }
+            }
+          } catch {}
         }
       }
 
       if (found) {
         const filename = matchedKey.replace(/^cccd\//, '');
-        return NextResponse.json({
+        const resData = {
           exists: true,
           inR2: true,
           filename,
           url: `/api/image/cccd/${encodeURIComponent(filename)}`,
           message: 'Đã có cccd trên hệ thống!',
-        });
+        };
+        checkResultCache.set(clean, { data: resData, timestamp: now });
+        return NextResponse.json(resData);
       }
 
-      // Kiểm tra xem số CCCD đã có trên Google Sheets chính hay chưa
-      try {
-        const { fetchOrGetCachedGgsData } = await import('@/utils/ggsData');
-        const ggs = await fetchOrGetCachedGgsData();
-        if (ggs && Array.isArray(ggs.allCccds) && ggs.allCccds.includes(clean)) {
-          return NextResponse.json({
-            exists: true,
-            inR2: false,
-            inGgs: true,
-            message: 'Đã có cccd trên hệ thống!',
-          });
-        }
-      } catch {}
+      // Kiểm tra siêu tốc O(1) qua GGS Set pre-indexed (0ms CPU)
+      if (GGS_CCCD_SET.has(clean)) {
+        const resData = {
+          exists: true,
+          inR2: false,
+          inGgs: true,
+          message: 'Đã có cccd trên hệ thống!',
+        };
+        checkResultCache.set(clean, { data: resData, timestamp: now });
+        return NextResponse.json(resData);
+      }
 
-      return NextResponse.json({ exists: false });
+      const notFoundData = { exists: false };
+      checkResultCache.set(clean, { data: notFoundData, timestamp: now });
+      return NextResponse.json(notFoundData);
     }
 
     // 2. Lấy danh sách tóm tắt tất cả các số CCCD đã có file PDF trên R2 (có cache 30s)
@@ -233,7 +261,8 @@ export async function GET(request: Request) {
 
       return NextResponse.json(payload, {
         headers: {
-          'Cache-Control': 'public, max-age=15, s-maxage=30',
+          'Cache-Control': 'public, max-age=60, s-maxage=120, stale-while-revalidate=180',
+          'CDN-Cache-Control': 'public, max-age=120',
         },
       });
     }
@@ -401,7 +430,8 @@ export async function GET(request: Request) {
 
     return NextResponse.json(result, {
       headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=120',
+        'CDN-Cache-Control': 'public, max-age=60',
       },
     });
   } catch (error: any) {

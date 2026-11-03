@@ -90,7 +90,7 @@ export default function CccdHoverPreviewCard({
       openTimerRef.current = setTimeout(() => {
         calculatePosition();
         setIsOpen(true);
-      }, 150);
+      }, 300);
     }
   };
 

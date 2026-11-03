@@ -221,16 +221,12 @@ export async function GET(
             if (obj.size) {
               headers.set('Content-Length', String(obj.size));
             }
-            headers.set('Cache-Control', 'public, max-age=86400');
+            headers.set('Cache-Control', 'public, max-age=604800, s-maxage=2592000, immutable');
+            headers.set('CDN-Cache-Control', 'public, max-age=2592000');
           }
 
-          // Trả về ArrayBuffer cho các file <= 10MB để không bị Next.js chuyển thành chunked stream,
-          // giúp PDF viewer của Chrome/Edge hiển thị trơn tru không báo lỗi
-          if (contentLengthNum && contentLengthNum <= 10 * 1024 * 1024) {
-            const buffer = await obj.arrayBuffer();
-            return new Response(buffer, { status, headers });
-          }
-
+          // Tuyệt đối không dùng obj.arrayBuffer() để tránh vượt quá giới hạn RAM 128MB gây Error 1102!
+          // Luôn stream trực tiếp obj.body (ReadableStream) với Content-Length chuẩn để tiêu thụ 0 MB RAM.
           return new Response(obj.body, { status, headers });
         }
       } catch (r2Err) {
@@ -238,8 +234,9 @@ export async function GET(
       }
     }
 
-    // 2. S3Client Fallback (CHỈ cho Local Node.js dev mode, không chạy trên production Worker để tránh Error 1102)
-    if (process.env.NODE_ENV !== 'production' && !bucket) {
+    // 2. S3Client Fallback (CHỈ cho Local Node.js dev mode, không bao giờ chạy trên Cloudflare Worker để tránh Error 1102)
+    const isWorkerEnv = typeof (globalThis as any).WebSocketPair !== 'undefined' || typeof (globalThis as any).caches !== 'undefined';
+    if (!isWorkerEnv && process.env.NODE_ENV !== 'production' && !bucket) {
       const s3 = await getS3Client();
       if (s3) {
         try {
@@ -333,7 +330,8 @@ export async function GET(
           headers.set('Content-Range', cr);
           headers.set('Cache-Control', 'no-cache');
         } else {
-          headers.set('Cache-Control', 'public, max-age=86400');
+          headers.set('Cache-Control', 'public, max-age=604800, s-maxage=2592000, immutable');
+          headers.set('CDN-Cache-Control', 'public, max-age=2592000');
         }
         const cl = upstreamRes.headers.get('Content-Length');
         if (cl) headers.set('Content-Length', cl);

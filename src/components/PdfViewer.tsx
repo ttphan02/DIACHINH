@@ -104,50 +104,63 @@ export default function PdfViewer({
         if (!pdfjsLib) throw new Error('Không thể khởi tạo PDF engine');
         pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.js';
 
-        // Tải nhị phân an toàn qua fetch ArrayBuffer từ internal proxy
+        // Tải nhị phân an toàn với cơ chế Dual-Channel Failover (Kênh 1: R2 Binding -> Kênh 2: Public CDN)
         let data: ArrayBuffer | null = null;
         let lastErrorText: string = '';
 
-        // Lần 1: Fetch qua safeUrl (/api/image/...)
-        try {
-          const res = await fetch(safeUrl);
-          if (res.ok) {
+        const R2_PUBLIC_BASE = 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
+        let directPublicUrl = '';
+        if (safeUrl.startsWith('/api/image/')) {
+          const subPath = safeUrl.replace(/^\/api\/image\//, '');
+          directPublicUrl = `${R2_PUBLIC_BASE}/${subPath}`;
+        } else if (url.startsWith('http://') || url.startsWith('https://')) {
+          directPublicUrl = url;
+        }
+
+        const candidates: string[] = [];
+        if (safeUrl) candidates.push(safeUrl);
+        if (directPublicUrl && directPublicUrl !== safeUrl) candidates.push(directPublicUrl);
+
+        const tryFetchPdf = async (targetUrl: string): Promise<ArrayBuffer | null> => {
+          try {
+            const res = await fetch(targetUrl);
+            if (!res.ok) {
+              lastErrorText = `HTTP ${res.status}: ${res.statusText}`;
+              return null;
+            }
             const buf = await res.arrayBuffer();
-            // Kiểm tra Magic Bytes: file PDF chuẩn luôn bắt đầu bằng '%PDF-'
             const head = new Uint8Array(buf.slice(0, 5));
             const headStr = String.fromCharCode(...head);
             if (headStr.startsWith('%PDF-')) {
-              data = buf;
-            } else {
-              const textPreview = new TextDecoder().decode(buf.slice(0, 200));
-              lastErrorText = textPreview.includes('429') || textPreview.includes('Rate Limit')
-                ? 'Cloudflare Rate Limit (Quá nhiều yêu cầu cùng lúc)'
-                : 'Dữ liệu nhận được không phải định dạng PDF';
+              return buf;
             }
-          } else {
-            lastErrorText = `HTTP ${res.status}: ${res.statusText}`;
+            const textPreview = new TextDecoder().decode(buf.slice(0, 200));
+            lastErrorText = textPreview.includes('1102') || textPreview.includes('Worker exceeded')
+              ? 'Worker đạt hạn mức, đang kích hoạt kênh dự phòng CDN...'
+              : (textPreview.includes('429') ? 'Cloudflare Rate Limit (429)' : 'Dữ liệu không phải PDF');
+            return null;
+          } catch (fetchErr: any) {
+            lastErrorText = fetchErr?.message || 'Lỗi kết nối';
+            return null;
           }
-        } catch (fetchErr: any) {
-          lastErrorText = fetchErr?.message || 'Lỗi kết nối';
+        };
+
+        // Lần 1: Thử lần lượt các kênh (Proxy nội bộ -> Public CDN)
+        for (const candidate of candidates) {
+          if (isCancelled) return;
+          data = await tryFetchPdf(candidate);
+          if (data) break;
         }
 
-        // Lần 2: Tự động thử lại nếu lần 1 thất bại (sau 400ms)
-        if (!data && !isCancelled) {
-          await new Promise((r) => setTimeout(r, 400));
-          try {
-            const retryUrl = safeUrl.includes('?')
-              ? `${safeUrl}&retry=${Date.now()}`
-              : `${safeUrl}?retry=${Date.now()}`;
-            const retryRes = await fetch(retryUrl);
-            if (retryRes.ok) {
-              const buf = await retryRes.arrayBuffer();
-              const head = new Uint8Array(buf.slice(0, 5));
-              const headStr = String.fromCharCode(...head);
-              if (headStr.startsWith('%PDF-')) {
-                data = buf;
-              }
-            }
-          } catch {}
+        // Lần 2: Nếu cả 2 kênh đều chưa được, thử lại trực tiếp qua Public CDN sau 300ms
+        if (!data && !isCancelled && directPublicUrl) {
+          await new Promise((r) => setTimeout(r, 300));
+          if (!isCancelled) {
+            const retryUrl = directPublicUrl.includes('?')
+              ? `${directPublicUrl}&retry=${Date.now()}`
+              : `${directPublicUrl}?retry=${Date.now()}`;
+            data = await tryFetchPdf(retryUrl);
+          }
         }
 
         if (isCancelled) return;
