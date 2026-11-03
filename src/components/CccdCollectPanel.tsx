@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useDeferredValue, useRef } from 'react';
 import {
   X,
   Search,
@@ -54,6 +54,8 @@ interface MissingCccdPerson {
   deviceId?: string;
 }
 
+const PAGE_BATCH_SIZE = 40; // Hiển thị 40 cặp (80 người) mỗi lần để điện thoại mượt mà 60fps
+
 export default function CccdCollectPanel({
   onClose,
   parcels,
@@ -66,6 +68,10 @@ export default function CccdCollectPanel({
   // Lọc tìm kiếm & Thôn / Buôn
   const [selectedVillage, setSelectedVillage] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+
+  // Số lượng hàng đang hiển thị (cuộn vô tận phân đợt để tránh đơ DOM trên điện thoại)
+  const [visibleCount, setVisibleCount] = useState<number>(PAGE_BATCH_SIZE);
 
   // Danh sách CCCD & Tên file đã có trên Cloudflare R2
   const [existingCccdSet, setExistingCccdSet] = useState<Set<string>>(new Set());
@@ -137,12 +143,13 @@ export default function CccdCollectPanel({
   // Lưu trạng thái Thôn vào localStorage
   const handleSelectVillage = (village: string) => {
     setSelectedVillage(village);
+    setVisibleCount(PAGE_BATCH_SIZE);
     try {
       localStorage.setItem('cccd_collect_selected_village', village);
     } catch {}
   };
 
-  // Toggle trạng thái Đã thu thập (checkbox) và lưu vào localStorage
+  // Toggle trạng thái Đã thu thập (checkbox) và lưu vào localStorage (debounce nhẹ)
   const toggleCheck = (personKey: string) => {
     setCheckedKeys((prev) => {
       const next = new Set(prev);
@@ -158,7 +165,46 @@ export default function CccdCollectPanel({
     });
   };
 
-  // Kiểm tra 1 người đã có CCCD trên R2 hay chưa
+  // TỐI ƯU CỰC ĐỘ 1: Tiền chỉ mục hóa toàn bộ 2.490 tên file trên R2 vào Set O(1)
+  // Tránh lặp regex 3 triệu lần trên main thread của điện thoại!
+  const r2NormalizedIndex = useMemo(() => {
+    const exactSet = new Set<string>();
+    const sortedWordsSet = new Set<string>();
+    const singleWordsSet = new Set<string>();
+
+    for (let i = 0; i < r2Filenames.length; i++) {
+      const fn = r2Filenames[i];
+      const baseName = fn.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
+      const nameInFile = baseName.replace(/^\d+[\-_\s]+/, '').trim();
+      const cleanedFName = cleanName(nameInFile) || nameInFile;
+      const normFn = stripAccents(cleanedFName).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
+      if (!normFn) continue;
+
+      exactSet.add(normFn);
+      const fWords = normFn.split(/\s+/).filter(Boolean);
+      if (fWords.length >= 2) {
+        sortedWordsSet.add([...fWords].sort().join(' '));
+      } else if (fWords.length === 1 && fWords[0].length >= 3) {
+        singleWordsSet.add(fWords[0]);
+      }
+    }
+
+    return { exactSet, sortedWordsSet, singleWordsSet };
+  }, [r2Filenames]);
+
+  // TỐI ƯU CỰC ĐỘ 2: Map tra cứu loại đất O(1) thay vì lặp qua 9.822 thửa
+  const parcelsLoaiDatMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (let i = 0; i < parcels.length; i++) {
+      const p = parcels[i];
+      if (p.ma_thua && p.loai_dat) {
+        map.set(p.ma_thua, p.loai_dat);
+      }
+    }
+    return map;
+  }, [parcels]);
+
+  // Kiểm tra 1 người đã có CCCD trên R2 hay chưa - ĐỘ PHỨC TẠP O(1) THAY VÌ O(M)!
   const hasCccdInR2 = useCallback(
     (decl: any, personName: string): boolean => {
       // 1. Nếu phiếu kê khai đã có liên kết file CCCD R2
@@ -166,75 +212,55 @@ export default function CccdCollectPanel({
         return true;
       }
 
-      // 2. Nếu số CCCD đã có trong R2 Set
+      // 2. Nếu số CCCD đã có trong R2 Set O(1)
       const rawCccd = decl.chu_dat_cccd || decl.cccd_chu_ho || decl.cccd || '';
       const cccdClean = cleanCccd(rawCccd);
-      if (cccdClean.length === 12 && existingCccdSet.has(cccdClean)) {
-        return true;
-      }
-      if (cccdClean.length === 9 && existingCccdSet.has(cccdClean)) {
+      if ((cccdClean.length === 12 || cccdClean.length === 9) && existingCccdSet.has(cccdClean)) {
         return true;
       }
 
-      // 3. Khớp tên file trên R2 (khớp chặt chẽ, chống false-positive cho tên ngắn/1 từ)
+      // 3. Khớp tên file trên R2 qua Index O(1) (tốc độ siêu thanh, không lặp lại regex)
       if (personName && r2Filenames.length > 0) {
         const cleanedPName = cleanName(personName) || personName;
         const normPerson = stripAccents(cleanedPName).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
+        if (!normPerson) return false;
+
+        if (r2NormalizedIndex.exactSet.has(normPerson)) return true;
+
         const pWords = normPerson.split(/\s+/).filter(Boolean);
-
         if (pWords.length >= 2) {
-          const matched = r2Filenames.some((fn) => {
-            const baseName = fn.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
-            const nameInFile = baseName.replace(/^\d+[\-_\s]+/, '').trim();
-            const cleanedFName = cleanName(nameInFile) || nameInFile;
-            const normFn = stripAccents(cleanedFName).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
-            const fWords = normFn.split(/\s+/).filter(Boolean);
-
-            if (normPerson === normFn) return true;
-            if (fWords.length >= 2 && pWords.length === fWords.length && pWords.every((w) => fWords.includes(w))) {
-              return true;
-            }
-            return false;
-          });
-          if (matched) return true;
+          const sortedKey = [...pWords].sort().join(' ');
+          if (r2NormalizedIndex.sortedWordsSet.has(sortedKey)) return true;
         } else if (pWords.length === 1 && pWords[0].length >= 3) {
-          const targetWord = pWords[0];
-          const matched = r2Filenames.some((fn) => {
-            const baseName = fn.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
-            const nameInFile = baseName.replace(/^\d+[\-_\s]+/, '').trim();
-            const cleanedFName = cleanName(nameInFile) || nameInFile;
-            const normFn = stripAccents(cleanedFName).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
-            const fWords = normFn.split(/\s+/).filter(Boolean);
-            return fWords.length === 1 && fWords[0] === targetWord;
-          });
-          if (matched) return true;
+          if (r2NormalizedIndex.singleWordsSet.has(pWords[0])) return true;
         }
       }
 
       return false;
     },
-    [existingCccdSet, r2Filenames]
+    [existingCccdSet, r2Filenames.length, r2NormalizedIndex]
   );
 
   // Lập danh sách công dân ĐÃ KÊ KHAI nhưng CHƯA CÓ CCCD TRÊN R2
-  // (Nếu đã có CCCD trên R2 thì tự động LOẠI BỎ khỏi danh sách này)
   const missingCccdList = useMemo(() => {
     const mapByCitizen = new Map<string, MissingCccdPerson>();
 
-    Object.entries(declarationsMap).forEach(([parcelCode, decl]) => {
-      if (!decl || HIDDEN_PARCEL_SET.has(parcelCode)) return;
+    const declEntries = Object.entries(declarationsMap);
+    for (let i = 0; i < declEntries.length; i++) {
+      const [parcelCode, decl] = declEntries[i];
+      if (!decl || HIDDEN_PARCEL_SET.has(parcelCode)) continue;
 
       const pBrief = parcelsBrief[parcelCode];
       const ld = String(decl.loai_dat || (pBrief && pBrief[1]) || '').trim().toUpperCase();
       const dt = parseFloat(String(decl.dien_tich || (pBrief && pBrief[0]) || '').replace(',', '.'));
-      if (ld === 'BCS' && !isNaN(dt) && dt < 100) return;
+      if (ld === 'BCS' && !isNaN(dt) && dt < 100) continue;
 
       const name = String(decl.chu_dat_ten || decl.chu_ho || '').trim();
-      if (!name || name === 'Chưa có tên') return;
+      if (!name || name === 'Chưa có tên') continue;
 
-      // NẾU TÊN NÀO ĐÃ CÓ CCCD TRONG R2 THÌ BỎ TÊN ĐÓ KHỎI DANH SÁCH
+      // NẾU TÊN NÀO ĐÃ CÓ CCCD TRONG R2 THÌ BỎ TÊN ĐÓ KHỎI DANH SÁCH (Tra cứu O(1))
       if (hasCccdInR2(decl, name)) {
-        return;
+        continue;
       }
 
       const maThua = String(decl.ma_thua || parcelCode || '').trim();
@@ -252,14 +278,13 @@ export default function CccdCollectPanel({
       }
       const thonXa = getCanonicalVillage(rawVillage);
 
-      // Lấy loại đất chính xác từ kê khai, parcels_brief hoặc parcels
+      // Lấy loại đất từ kê khai, parcels_brief hoặc parcelsLoaiDatMap (O(1))
       let loaiDat = String(decl.loai_dat || '').trim();
       if (!loaiDat && maThua && parcelsBrief[maThua] && parcelsBrief[maThua][1]) {
         loaiDat = parcelsBrief[maThua][1];
       }
       if (!loaiDat && maThua) {
-        const foundP = parcels.find((p) => p.ma_thua === maThua);
-        if (foundP?.loai_dat) loaiDat = foundP.loai_dat;
+        loaiDat = parcelsLoaiDatMap.get(maThua) || '';
       }
       loaiDat = loaiDat.trim();
 
@@ -272,8 +297,8 @@ export default function CccdCollectPanel({
 
       // Nhóm theo Tên + Thôn
       const groupKey = `${name.toLowerCase()}___${thonXa.toLowerCase()}`;
-      if (mapByCitizen.has(groupKey)) {
-        const existing = mapByCitizen.get(groupKey)!;
+      const existing = mapByCitizen.get(groupKey);
+      if (existing) {
         if (maThua && !existing.maThuaList.includes(maThua)) existing.maThuaList.push(maThua);
         if (soThua && !existing.soThuaList.includes(soThua)) existing.soThuaList.push(soThua);
         if (toBanDo && !existing.toBanDoList.includes(toBanDo)) existing.toBanDoList.push(toBanDo);
@@ -296,17 +321,18 @@ export default function CccdCollectPanel({
           deviceId: decl.device_id,
         });
       }
-    });
+    }
 
     return Array.from(mapByCitizen.values()).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
-  }, [declarationsMap, hasCccdInR2]);
+  }, [declarationsMap, hasCccdInR2, parcelsLoaiDatMap]);
 
   // Danh sách các thôn có trong danh sách kèm số lượng
   const availableVillages = useMemo(() => {
     const counts: Record<string, number> = {};
-    missingCccdList.forEach((i) => {
-      if (i.thonXa) counts[i.thonXa] = (counts[i.thonXa] || 0) + 1;
-    });
+    for (let i = 0; i < missingCccdList.length; i++) {
+      const it = missingCccdList[i];
+      if (it.thonXa) counts[it.thonXa] = (counts[it.thonXa] || 0) + 1;
+    }
 
     return CANONICAL_VILLAGES.filter((v) => counts[v] && counts[v] > 0).map((v) => ({
       village: v,
@@ -314,7 +340,7 @@ export default function CccdCollectPanel({
     }));
   }, [missingCccdList]);
 
-  // Lọc theo Thôn được chọn và từ khóa tìm kiếm
+  // Lọc theo Thôn được chọn và từ khóa tìm kiếm (sử dụng deferredSearchQuery để không đơ bàn phím điện thoại)
   const filteredCitizens = useMemo(() => {
     let list = missingCccdList;
 
@@ -322,8 +348,8 @@ export default function CccdCollectPanel({
       list = list.filter((item) => item.thonXa === selectedVillage);
     }
 
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
+    const q = deferredSearchQuery.toLowerCase().trim();
+    if (q) {
       list = list.filter(
         (item) =>
           item.name.toLowerCase().includes(q) ||
@@ -334,21 +360,31 @@ export default function CccdCollectPanel({
     }
 
     return list;
-  }, [missingCccdList, selectedVillage, searchQuery]);
+  }, [missingCccdList, selectedVillage, deferredSearchQuery]);
 
-  // Chia danh sách thành các cặp 2 người (TỐI THIỂU 4 Ô TRÊN 1 HÀNG)
-  // Vừa khít 100% chiều rộng của form (420px / điện thoại), không tràn ngang
+  // TỐI ƯU CỰC ĐỘ 3: Phân đợt hiển thị cho điện thoại (chỉ render visibleCount người đầu tiên)
+  const displayedCitizens = useMemo(() => {
+    return filteredCitizens.slice(0, visibleCount);
+  }, [filteredCitizens, visibleCount]);
+
+  // Chia danh sách thành các cặp 2 người (4 Ô TRÊN 1 HÀNG)
   const pairedRows = useMemo(() => {
     const pairs: [MissingCccdPerson, MissingCccdPerson | null][] = [];
-    for (let i = 0; i < filteredCitizens.length; i += 2) {
-      pairs.push([filteredCitizens[i], filteredCitizens[i + 1] || null]);
+    for (let i = 0; i < displayedCitizens.length; i += 2) {
+      pairs.push([displayedCitizens[i], displayedCitizens[i + 1] || null]);
     }
     return pairs;
-  }, [filteredCitizens]);
+  }, [displayedCitizens]);
 
   // Đếm thống kê
   const totalInView = filteredCitizens.length;
-  const checkedInView = filteredCitizens.filter((p) => checkedKeys.has(p.key)).length;
+  const checkedInView = useMemo(() => {
+    let cnt = 0;
+    for (let i = 0; i < filteredCitizens.length; i++) {
+      if (checkedKeys.has(filteredCitizens[i].key)) cnt++;
+    }
+    return cnt;
+  }, [filteredCitizens, checkedKeys]);
 
   // Phóng to và định vị thửa đất trên bản đồ
   const handleZoomToParcel = (maThua: string, e?: React.MouseEvent) => {
@@ -379,7 +415,6 @@ export default function CccdCollectPanel({
     setCorrectedName(person.name);
     setTargetVillage(person.thonXa);
 
-    // Mặc định lấy nguồn gốc sử dụng từ đơn kê khai của công dân này
     let currentNguonGoc = 'Khai Hoang';
     for (const maThua of person.maThuaList) {
       const decl = declarationsMap[maThua];
@@ -461,7 +496,6 @@ export default function CccdCollectPanel({
         });
       }
 
-      // Lưu lên Cloudflare R2 & D1 Database qua API /api/declarations (1 request duy nhất gom batch + cellEdits)
       if (updatedDecls.length > 0) {
         await fetch('/api/declarations', {
           method: 'POST',
@@ -470,7 +504,6 @@ export default function CccdCollectPanel({
         });
       }
 
-      // Cập nhật trạng thái check key
       const oldKey = movingPerson.key;
       const newKey = `${cleanNewName.toLowerCase()}___${finalVillage.toLowerCase()}`;
       if (checkedKeys.has(oldKey)) {
@@ -502,12 +535,17 @@ export default function CccdCollectPanel({
     }
   };
 
+  // Tải thêm công dân khi cuộn
+  const handleLoadMore = () => {
+    setVisibleCount((prev) => Math.min(prev + PAGE_BATCH_SIZE, filteredCitizens.length));
+  };
+
   return (
     <div className="h-full w-full flex flex-col bg-white overflow-hidden select-none">
-      {/* Mobile Drag Handle chuẩn phong cách form kê khai */}
+      {/* Mobile Drag Handle */}
       <div className="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mt-2 mb-0.5 lg:hidden shrink-0" />
 
-      {/* Top Header của Panel - Sử dụng chính xác style màu của form thông tin thửa đất */}
+      {/* Top Header của Panel */}
       <div className="p-3.5 border-b border-gray-100 bg-gray-50/90 flex items-start justify-between gap-2 shrink-0">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -556,7 +594,7 @@ export default function CccdCollectPanel({
         </div>
       </div>
 
-      {/* Thanh lọc & tìm kiếm chuẩn phong cách input của form kê khai thửa */}
+      {/* Thanh lọc & tìm kiếm chuẩn phản hồi nhanh (deferred search) */}
       <div className="p-3 border-b border-gray-100 bg-white space-y-2 shrink-0">
         {/* Dropdown Thôn/Buôn */}
         <div className="relative">
@@ -575,14 +613,17 @@ export default function CccdCollectPanel({
           <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
 
-        {/* Ô tìm kiếm họ tên & số thửa */}
+        {/* Ô tìm kiếm họ tên & số thửa - Mượt mà trên điện thoại */}
         <div className="flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
             <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setVisibleCount(PAGE_BATCH_SIZE);
+              }}
               placeholder="Tìm tên chủ đất, số thửa..."
               className="w-full pl-7 pr-3 py-1.5 rounded-xl border border-gray-200 text-xs bg-gray-50/70 text-gray-800 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition"
             />
@@ -594,7 +635,7 @@ export default function CccdCollectPanel({
         </div>
       </div>
 
-      {/* Thông báo Toast khi di chuyển thành công */}
+      {/* Thông báo Toast */}
       {toastMessage && (
         <div className="px-3.5 py-2 bg-emerald-600 text-white text-xs font-bold flex items-center justify-between shrink-0 shadow-xs animate-in fade-in">
           <span className="truncate">{toastMessage}</span>
@@ -608,8 +649,18 @@ export default function CccdCollectPanel({
         </div>
       )}
 
-      {/* THÂN BẢNG: DANH SÁCH 4 Ô / HÀNG - VỪA KHÍT FORM VỚI STYLE MÀU FORM KÊ KHAI THỬA */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden p-2.5 bg-gray-50/70">
+      {/* THÂN BẢNG: 4 Ô / HÀNG - TỐI ƯU CỰC MƯỢT TRÊN ĐIỆN THOẠI */}
+      <div 
+        className="flex-1 overflow-y-auto overflow-x-hidden p-2.5 bg-gray-50/70 overscroll-contain"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) {
+            if (visibleCount < filteredCitizens.length) {
+              handleLoadMore();
+            }
+          }
+        }}
+      >
         {pairedRows.length === 0 ? (
           <div className="py-12 text-center text-gray-400 space-y-2">
             <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 stroke-[1.5]" />
@@ -652,6 +703,7 @@ export default function CccdCollectPanel({
                     <tr
                       key={rIdx}
                       className="transition-colors hover:bg-blue-50/30"
+                      style={{ contentVisibility: 'auto' }}
                     >
                       {/* Ô 1: Họ tên người 1 */}
                       <td
@@ -754,6 +806,19 @@ export default function CccdCollectPanel({
                 })}
               </tbody>
             </table>
+
+            {/* Nút xem thêm nếu còn */}
+            {visibleCount < filteredCitizens.length && (
+              <div className="p-2 bg-gray-50 border-t border-gray-200 text-center">
+                <button
+                  type="button"
+                  onClick={handleLoadMore}
+                  className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition cursor-pointer"
+                >
+                  Xem thêm ({filteredCitizens.length - visibleCount} người nữa)...
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -777,7 +842,7 @@ export default function CccdCollectPanel({
         </button>
       </div>
 
-      {/* SUB-MODAL: SỬA TÊN ĐÚNG, NGUỒN GỐC & CHUYỂN THÔN BUÔN (Style màu chuẩn form kê khai) */}
+      {/* SUB-MODAL: SỬA TÊN ĐÚNG, NGUỒN GỐC & CHUYỂN THÔN BUÔN */}
       {movingPerson && (() => {
         const cleanNewName = cleanName(correctedName);
         const isNameChanged = cleanNewName && cleanNewName.toLowerCase() !== movingPerson.name.toLowerCase();
@@ -836,27 +901,30 @@ export default function CccdCollectPanel({
                               type="button"
                               onClick={() => handleZoomToParcel(pd.maThua)}
                               className="inline-flex items-center px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-black rounded-lg border border-blue-200 text-xs transition cursor-pointer shadow-2xs active:scale-95"
-                              title={`Bấm để xem vị trí thửa ${pd.soThua || pd.maThua} trên bản đồ`}
+                              title="Bấm để định vị thửa đất này trên bản đồ"
                             >
-                              {loaiDatDisplay}
+                              <span>{loaiDatDisplay}</span>
+                              <MapPin className="w-2.5 h-2.5 ml-0.5 text-blue-600" />
                             </button>
                           );
                         })
                       ) : (
-                        <span className="font-mono text-gray-700 font-bold text-xs">
-                          {movingPerson.soThuaList.length > 0
-                            ? `(${movingPerson.soThuaList.join(', ')})`
-                            : '(Đất)'}
-                        </span>
+                        <span className="text-gray-400">Chưa rõ</span>
                       )}
                     </div>
                   </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500">Số thửa đất:</span>
+                    <span className="font-black text-gray-900">
+                      {movingPerson.soThuaList.join(', ') || movingPerson.maThuaList.join(', ')}
+                    </span>
+                  </div>
                 </div>
 
-                {/* Trường 1: Nhập Họ và tên đúng */}
+                {/* Trường 1: Sửa lại tên đúng chuẩn */}
                 <div>
                   <label className="block text-[11px] font-bold mb-1 text-gray-700">
-                    Họ và tên đúng (sửa lại nếu tên hiện tại sai):
+                    Sửa lại họ và tên đúng (nếu sai chính tả):
                   </label>
                   <div className="relative">
                     <input
