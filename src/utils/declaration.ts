@@ -1,4 +1,5 @@
 import { DeclarationFormData } from '@/types';
+import { isAgriculturalLand, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN } from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
 
 const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
@@ -303,7 +304,8 @@ export function saveOrUpdateDeclaration(formData: DeclarationFormData): {
       const apDienTich = (apBrief && apBrief[0]) || ap.dien_tich || '1000';
       const apLoaiDat = ap.loai_dat || (apBrief && apBrief[1]) || rootLoaiDat;
       const apThonXa = ap.thon_xa || (apBrief && apBrief[2]) || rootThonXa;
-      const apNguonGoc = ap.nguon_goc || formData.nguon_goc_su_dung || 'Khai hoang';
+      const defaultApOrigin = isAgriculturalLand(apLoaiDat) ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai hoang';
+      const apNguonGoc = ap.nguon_goc || formData.nguon_goc_su_dung || defaultApOrigin;
 
       updatedMap[apCode] = {
         ...rootDeclData,

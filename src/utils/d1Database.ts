@@ -1,4 +1,5 @@
 import { getCloudflareContext } from '@opennextjs/cloudflare';
+import { isAgriculturalLand, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN } from '@/utils/textHelpers';
 
 let cachedD1: any = null;
 
@@ -179,7 +180,7 @@ export async function upsertD1Declaration(db: any, decl: any): Promise<boolean> 
     String(decl.chu_dat_gioi_tinh || decl.gioi_tinh_chu_ho || 'Nam'),
     String(decl.chu_dat_cccd || decl.cccd || decl.cccd_chu_ho || ''),
     String(decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || decl.thon_xa || ''),
-    String(decl.nguon_goc_su_dung || decl.nguon_goc || 'Khai hoang'),
+    String(decl.nguon_goc_su_dung || decl.nguon_goc || (isAgriculturalLand(decl.loai_dat) ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai hoang')),
     String(decl.giap_dong || ''),
     String(decl.giap_tay || ''),
     String(decl.giap_nam || ''),
@@ -278,7 +279,7 @@ export async function batchUpsertD1Declarations(db: any, decls: any[]): Promise<
         String(decl.chu_dat_gioi_tinh || decl.gioi_tinh_chu_ho || 'Nam'),
         String(decl.chu_dat_cccd || decl.cccd || decl.cccd_chu_ho || ''),
         String(decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || decl.thon_xa || ''),
-        String(decl.nguon_goc_su_dung || decl.nguon_goc || 'Khai hoang'),
+        String(decl.nguon_goc_su_dung || decl.nguon_goc || (isAgriculturalLand(decl.loai_dat) ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai hoang')),
         String(decl.giap_dong || ''),
         String(decl.giap_tay || ''),
         String(decl.giap_nam || ''),

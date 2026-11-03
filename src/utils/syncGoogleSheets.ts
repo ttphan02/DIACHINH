@@ -471,7 +471,7 @@ export async function executeSyncToGoogleSheet(
       const dob = isValidBirthYear(rawDob) ? rawDob : '1980';
       const rawGender = (decl.chu_dat_gioi_tinh || decl.gioi_tinh_chu_ho || '').trim();
       const gender = (rawGender && ['nam', 'nữ', 'nu'].includes(rawGender.toLowerCase())) ? rawGender : 'Nam';
-      const nguonGoc = normalizeNguonGoc(decl.nguon_goc_su_dung || decl.nguon_goc || 'Khai hoang');
+      const nguonGoc = normalizeNguonGoc(decl.nguon_goc_su_dung || decl.nguon_goc, loaiDat);
 
       const item: {
         ma_thua: string;
@@ -485,7 +485,7 @@ export async function executeSyncToGoogleSheet(
         loai_dat: any;
         dob: any;
         gender: any;
-        nguon_goc: "Khai Hoang" | "Thừa Kế" | "Tặng Cho" | "Chuyển Nhượng";
+        nguon_goc: string;
         scan_file: string;
         cccd_file: string;
         nguon_chuyen?: string;
@@ -647,7 +647,7 @@ export async function executeSyncToGoogleSheet(
       rowsPack.push([
         String(idx + 1), it.ma_thua, it.thon_xa,
         cleanName(it.chu_ho), it.dob || '', it.gender || 'Nam', cccdText,
-        String(it.dien_tich || ''), it.loai_dat || 'DGT', normalizeNguonGoc(it.nguon_goc || 'Khai Hoang'),
+        String(it.dien_tich || ''), it.loai_dat || 'DGT', normalizeNguonGoc(it.nguon_goc, it.loai_dat),
         cccdFormula
       ]);
     });
@@ -665,7 +665,7 @@ export async function executeSyncToGoogleSheet(
       rowsUnpack.push([
         String(idx + 1), it.ma_thua, it.thon_xa,
         cleanName(it.chu_ho), it.dob || '', it.gender || 'Nam', cccdText,
-        String(it.dien_tich || ''), it.loai_dat || 'DGT', normalizeNguonGoc(it.nguon_goc || 'Khai Hoang')
+        String(it.dien_tich || ''), it.loai_dat || 'DGT', normalizeNguonGoc(it.nguon_goc, it.loai_dat)
       ]);
     });
     sheetsData['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] = rowsUnpack;
@@ -681,7 +681,7 @@ export async function executeSyncToGoogleSheet(
       rowsDone.push([
         String(idx + 1), it.ma_thua, it.thon_xa,
         cleanName(it.chu_ho), it.dob || '', it.gender || 'Nam', cccdText,
-        String(it.dien_tich || ''), it.loai_dat || 'DGT', normalizeNguonGoc(it.nguon_goc || 'Khai Hoang')
+        String(it.dien_tich || ''), it.loai_dat || 'DGT', normalizeNguonGoc(it.nguon_goc, it.loai_dat)
       ]);
     });
     sheetsData['ĐÃ GIẢI QUYẾT'] = rowsDone;
@@ -701,7 +701,7 @@ export async function executeSyncToGoogleSheet(
       rowsNhapDuLieu.push([
         String(idx + 1), it.ma_thua, String(it.to_ban_do || ''), String(it.so_thua || ''), it.thon_xa,
         cleanName(it.chu_ho), it.dob || '', it.gender || 'Nam', cccdText,
-        String(it.dien_tich || ''), it.loai_dat || 'DGT', normalizeNguonGoc(it.nguon_goc || 'Khai Hoang'),
+        String(it.dien_tich || ''), it.loai_dat || 'DGT', normalizeNguonGoc(it.nguon_goc, it.loai_dat),
         scanFormula
       ]);
     });

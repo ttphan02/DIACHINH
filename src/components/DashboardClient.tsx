@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredVa
 import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
-import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, cleanVillageDisplay, normalizeNguonGoc, NGUON_GOC_OPTIONS, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName } from '@/utils/textHelpers';
+import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, cleanVillageDisplay, normalizeNguonGoc, NGUON_GOC_OPTIONS, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN, isAgriculturalLand, getNguonGocShortLabel, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName } from '@/utils/textHelpers';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
 import { broadcastRealtimeEvent, onRealtimeEvent } from '@/utils/realtimeSync';
 import dynamic from 'next/dynamic';
@@ -671,7 +671,7 @@ export default function DashboardPage() {
         chu_dat_dia_chi: p.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'xã Cư Pui',
         dien_tich: p.dien_tich,
         loai_dat: p.loai_dat,
-        nguon_goc: 'Khai hoang',
+        nguon_goc: isAgriculturalLand(p.loai_dat) ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai hoang',
       };
       handleOpenEditDeclaration(p, decl);
     }
@@ -786,7 +786,8 @@ export default function DashboardPage() {
     const diaChiThua = existingDecl.dia_chi_thua_dat || existingDecl.chu_dat_dia_chi || findColVal([/thon/, /buon/]) || (p?.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'Xã Cư Pui');
     const dienTich = existingDecl.dien_tich || findColVal([/dien tich/]) || p?.dien_tich || '';
     const loaiDat = existingDecl.loai_dat || findColVal([/loai dat/]) || p?.loai_dat || 'DGT';
-    const nguonGoc = existingDecl.nguon_goc || existingDecl.nguon_goc_su_dung || findColVal([/nguon goc/]) || 'Khai hoang';
+    const defaultOrigin = isAgriculturalLand(loaiDat) ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai hoang';
+    const nguonGoc = existingDecl.nguon_goc || existingDecl.nguon_goc_su_dung || findColVal([/nguon goc/]) || defaultOrigin;
 
     const formattedValue = fieldKey === 'chu_dat_cccd' ? cleanCccd(newValue) : newValue.trim();
 
@@ -2173,12 +2174,12 @@ export default function DashboardPage() {
 
     // Helper chuẩn hóa nguồn gốc sử dụng đất
     const formatOrigin57 = (val: any) => {
-      if (!val) return 'Khai hoang';
+      if (!val) return NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
       const s = String(val).toLowerCase();
       if (s.includes('thừa kế') || s.includes('thua ke')) return 'Nhận thừa kế';
       if (s.includes('chuyển nhượng') || s.includes('chuyen nhuong')) return 'Nhận chuyển nhượng';
       if (s.includes('tặng cho') || s.includes('tang cho')) return 'Tặng cho';
-      if (s.includes('khai hoang')) return 'Khai hoang';
+      if (s.includes('khong thu tien') || s.includes('cong nhan') || s.includes('khai hoang')) return NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
       return String(val).trim();
     };
 
@@ -4066,7 +4067,7 @@ export default function DashboardPage() {
                     const cccd = cleanCccd(rawCccd);
                     const dienTich = String(areaColIdx !== -1 ? r[areaColIdx] : '').replace(',', '.').trim();
                     const loaiDat = String(landTypeColIdx !== -1 ? r[landTypeColIdx] : '').trim().toUpperCase();
-                    const nguonGoc = String(originColIdx !== -1 ? r[originColIdx] : 'Khai hoang').trim();
+                    const nguonGoc = normalizeNguonGoc(String(originColIdx !== -1 ? r[originColIdx] : '').trim(), loaiDat);
 
                     let scanFile = '';
                     const scanCell = String(scanColIdx !== -1 ? r[scanColIdx] : '');

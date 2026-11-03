@@ -98,8 +98,12 @@ export function cleanBoundaryText(text: string): string {
     .trim();
 }
 
-// 4 tùy chọn nguồn gốc sử dụng đất chuẩn hóa
+// Nguồn gốc sử dụng đất chuẩn hóa theo Luật Đất đai
+export const NGUON_GOC_NN_GIAO_KHONG_THU_TIEN =
+  'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất';
+
 export const NGUON_GOC_OPTIONS = [
+  'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất',
   'Khai Hoang',
   'Thừa Kế',
   'Tặng Cho',
@@ -108,14 +112,41 @@ export const NGUON_GOC_OPTIONS = [
 
 export type NguonGocChuan = typeof NGUON_GOC_OPTIONS[number];
 
-// Chuẩn hóa nguồn gốc sử dụng đất về 1 trong 4 nhóm
-export function normalizeNguonGoc(val?: string): NguonGocChuan {
-  if (!val) return 'Khai Hoang';
+// Kiểm tra có phải đất nông nghiệp không (mặc định tại xã Cư Pui)
+export function isAgriculturalLand(loaiDat?: string): boolean {
+  if (!loaiDat) return true;
+  const s = loaiDat.trim().toUpperCase();
+  if (s.includes('ONT') || s.includes('ODT') || s.includes('Ở') || s.includes('DAT O')) return false;
+  return true;
+}
+
+// Nhãn ngắn gọn hiển thị trên các nút bấm UI
+export function getNguonGocShortLabel(val?: string): string {
+  if (!val) return 'Công nhận QSDĐ';
+  const s = stripAccents(val).toLowerCase();
+  if (s.includes('khong thu tien') || s.includes('cong nhan') || s.includes('giao dat')) {
+    return 'Công nhận (Không thu tiền)';
+  }
+  return val;
+}
+
+// Chuẩn hóa nguồn gốc sử dụng đất về các nhóm chuẩn
+export function normalizeNguonGoc(val?: string, loaiDat?: string): string {
+  const isAgri = isAgriculturalLand(loaiDat);
+  if (!val) {
+    return isAgri ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai Hoang';
+  }
   const s = stripAccents(val).toLowerCase();
   if (s.includes('thua ke')) return 'Thừa Kế';
   if (s.includes('tang cho')) return 'Tặng Cho';
   if (s.includes('chuyen nhuong')) return 'Chuyển Nhượng';
-  return 'Khai Hoang';
+  if (s.includes('khong thu tien') || s.includes('cong nhan') || s.includes('giao dat')) {
+    return NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
+  }
+  if (s.includes('khai hoang')) {
+    return isAgri ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai Hoang';
+  }
+  return isAgri ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : val.trim();
 }
 
 // Kiểm tra tính hợp lệ của CCCD: đúng 12 chữ số (hoặc 9 số CMND)

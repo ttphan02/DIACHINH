@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Parcel, DeclarationFormData, AdditionalParcel } from '@/types';
 import { Printer, X, FileText, Download, CheckCircle2, ShieldCheck, MapPin, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { generateReadyToPackPdf, downloadPdfBlob, ReadyToPackItem, cleanDisplayAddress } from '@/utils/pdfPacker';
+import { normalizeNguonGoc } from '@/utils/textHelpers';
 
 export interface PrintableDeclarationItem {
   parcel: Parcel;
@@ -114,7 +115,7 @@ export default function DeclarationPrintModal({
           gender: validGender,
           loai_dat: p.loai_dat,
           dien_tich: p.dien_tich,
-          nguon_goc: decl.nguon_goc_su_dung || 'Khai hoang',
+          nguon_goc: normalizeNguonGoc(decl.nguon_goc_su_dung || decl.nguon_goc, p.loai_dat),
           has_gcn: gcnList.length > 0 || Boolean(p.has_gcn),
           cccd_url: decl.anh_cccd_truoc || decl.cccd_url || decl.file_scan_pdf || p.cccd_url || null,
           cccd_file: decl.cccd_file || (cleanCccdVal ? `${cleanCccdVal.padStart(12, '0')}.pdf` : null),
@@ -215,7 +216,7 @@ export default function DeclarationPrintModal({
           const cccd = decl.chu_dat_cccd || p.cccd || '.......................................';
           const namSinh = decl.chu_dat_nam_sinh || decl.nam_sinh_chu_ho || decl.chu_dat_ngay_sinh || '';
           const gioiTinh = decl.chu_dat_gioi_tinh || (p.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
-          const nguonGoc = decl.nguon_goc_su_dung || 'Khai hoang';
+          const nguonGoc = normalizeNguonGoc(decl.nguon_goc_su_dung || decl.nguon_goc, p.loai_dat);
           const sdt = decl.nguoi_ke_khai_sdt || p.sdt || '................................';
           const diaChi = formatPrintAddress(decl.chu_dat_dia_chi, p.thon_xa);
           const nguoiKekhai = cleanPrintOwner(decl.nguoi_ke_khai_ten) || chuHo;

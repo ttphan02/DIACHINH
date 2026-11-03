@@ -1,5 +1,6 @@
 import { PDFDocument, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
+import { normalizeNguonGoc } from '@/utils/textHelpers';
 
 export interface ReadyToPackItem {
   ma_thua: string;
@@ -438,7 +439,7 @@ export async function generateReadyToPackPdf(
         dienTichFormatted = `${parts[0]},${parts[1].slice(0, 1)}`;
       }
       const thoiHan = resolveThoiHan(r.loai_dat);
-      const nguonGoc = (r.nguon_goc || 'Khai hoang').trim();
+      const nguonGoc = normalizeNguonGoc(r.nguon_goc || undefined, r.loai_dat || undefined);
 
       p1.drawText(String(r.so_thua || ''), {
         x: x_thuaso,
@@ -493,7 +494,7 @@ export async function generateReadyToPackPdf(
       const mucDichList = Array.from(new Set(rows.map((r) => r.loai_dat).filter(Boolean)));
       const thoiHanList = Array.from(new Set(rows.map((r) => resolveThoiHan(r.loai_dat)).filter(Boolean)));
       const nguonGocList = Array.from(
-        new Set(rows.map((r) => (r.nguon_goc || 'Khai hoang').trim()).filter(Boolean))
+        new Set(rows.map((r) => normalizeNguonGoc(r.nguon_goc || undefined, r.loai_dat || undefined)).filter(Boolean))
       );
 
       const countText = `${String(rows.length).padStart(2, '0')} thửa`;
@@ -595,7 +596,7 @@ export async function generateReadyToPackPdf(
           drawCenter(dt, 300.92, curY);
           drawCenter(String(row.loai_dat || ''), 369.78, curY);
           drawCenter(resolveThoiHan(row.loai_dat), 439.54, curY);
-          drawCenter(String(row.nguon_goc || 'Khai hoang').trim(), 538.54, curY, 65);
+          drawCenter(normalizeNguonGoc(row.nguon_goc || undefined, row.loai_dat || undefined), 538.54, curY, 65);
         });
 
         const [pTableCopy] = await mergedDoc.copyPages(tableDoc, [2]);

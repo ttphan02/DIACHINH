@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { DeclarationFormData } from '@/types';
+import { isAgriculturalLand } from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
 import {
   getD1Binding,
@@ -479,7 +480,8 @@ export async function POST(request: Request) {
         const apDienTich = (apBrief && apBrief[0]) || ap.dien_tich || '1000';
         const apLoaiDat = ap.loai_dat || (apBrief && apBrief[1]) || rootLoaiDat;
         const apThonXa = ap.thon_xa || (apBrief && apBrief[2]) || rootThonXa;
-        const apNguonGoc = ap.nguon_goc || formData.nguon_goc_su_dung || 'Khai hoang';
+        const defaultApOrigin = isAgriculturalLand(apLoaiDat) ? 'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất' : 'Khai hoang';
+        const apNguonGoc = ap.nguon_goc || formData.nguon_goc_su_dung || defaultApOrigin;
 
         const attachedDeclData = {
           ...rootDeclData,

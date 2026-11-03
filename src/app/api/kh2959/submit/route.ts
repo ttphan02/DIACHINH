@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import fs from 'fs';
 import path from 'path';
+import { normalizeNguonGoc, isAgriculturalLand, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN } from '@/utils/textHelpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -143,7 +144,14 @@ export async function POST(request: Request) {
       const gioiTinhVal = (item.gioi_tinh || item.chu_dat_gioi_tinh || 'Nam').toLowerCase().includes('nữ') ? 'Nữ' : 'Nam';
       const diaChiThuongTru = item.dia_chi_thuong_tru || item.chu_dat_dia_chi || item.thon_xa || 'xã Cư Pui';
       const diaChiThuaDat = item.dia_chi_thua_dat || item.thon_xa || 'Xã Cư Pui, tỉnh Đắk Lắk';
-      const nguonGocVal = item.nguon_goc || 'Khai hoang';
+      // Mặc định tất cả đất nông nghiệp là "Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất"
+      const isAgri = isAgriculturalLand(loaiDat);
+      let nguonGocVal = (item.nguon_goc || '').trim();
+      if (!nguonGocVal || nguonGocVal.toLowerCase().includes('khai hoang')) {
+        nguonGocVal = isAgri ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai hoang';
+      } else {
+        nguonGocVal = normalizeNguonGoc(nguonGocVal, loaiDat);
+      }
 
       // Tạo cấu trúc payload chuẩn
       const payloadObj = {

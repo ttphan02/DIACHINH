@@ -19,7 +19,7 @@ import {
 import { Parcel, DeclarationFormData } from '@/types';
 import { getOrCreateDeviceId, getSavedCadreName, saveOrUpdateDeclaration } from '@/utils/declaration';
 import { broadcastRealtimeEvent } from '@/utils/realtimeSync';
-import { cleanCccd, cleanName, stripAccents, CANONICAL_VILLAGES, getCanonicalVillage, NGUON_GOC_OPTIONS, normalizeNguonGoc } from '@/utils/textHelpers';
+import { cleanCccd, cleanName, stripAccents, CANONICAL_VILLAGES, getCanonicalVillage, NGUON_GOC_OPTIONS, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN, getNguonGocShortLabel, normalizeNguonGoc } from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
 import digitizedParcelsData from '@/data/digitized_parcels.json';
@@ -426,7 +426,7 @@ export default function CccdCollectPanel({
     setCorrectedName(person.name);
     setTargetVillage(person.thonXa);
 
-    let currentNguonGoc = 'Khai Hoang';
+    let currentNguonGoc = NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
     for (const maThua of person.maThuaList) {
       const decl = declarationsMap[maThua];
       if (decl?.nguon_goc_su_dung) {
@@ -962,19 +962,20 @@ export default function CccdCollectPanel({
                       {selectedNguonGoc} {selectedNguonGoc === initialNguonGoc ? '(Trong đơn)' : '(Đã đổi)'}
                     </span>
                   </label>
-                  <div className="grid grid-cols-4 gap-1">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
                     {NGUON_GOC_OPTIONS.map((opt) => (
                       <button
                         type="button"
                         key={opt}
+                        title={opt}
                         onClick={() => setSelectedNguonGoc(opt)}
-                        className={`py-1.5 px-0.5 rounded-xl border text-[11px] font-bold transition text-center cursor-pointer ${
+                        className={`py-1.5 px-1 rounded-xl border text-[11px] font-bold transition text-center cursor-pointer ${
                           selectedNguonGoc === opt
                             ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
                             : 'bg-gray-50/80 text-gray-700 border-gray-200 hover:bg-gray-100'
                         }`}
                       >
-                        {opt}
+                        {getNguonGocShortLabel(opt)}
                       </button>
                     ))}
                   </div>

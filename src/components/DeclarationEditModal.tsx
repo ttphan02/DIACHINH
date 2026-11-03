@@ -35,6 +35,9 @@ import {
   stripHonorifics,
   cleanBoundaryText,
   NGUON_GOC_OPTIONS,
+  NGUON_GOC_NN_GIAO_KHONG_THU_TIEN,
+  getNguonGocShortLabel,
+  isAgriculturalLand,
   normalizeNguonGoc,
   isValidCccd,
   isValidBirthYear,
@@ -141,7 +144,7 @@ export default function DeclarationEditModal({
       setIsCheckingCccd(false);
     }
   }, [chuDatCccd]);
-  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai hoang');
+  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>(NGUON_GOC_NN_GIAO_KHONG_THU_TIEN);
   const [giapDong, setGiapDong] = useState('');
   const [giapTay, setGiapTay] = useState('');
   const [giapNam, setGiapNam] = useState('');
@@ -225,7 +228,7 @@ export default function DeclarationEditModal({
       );
       setChuDatCccd(declaration.chu_dat_cccd || parcel.cccd || '');
       setChuDatDiaChi(formatThonAddress(declaration.chu_dat_dia_chi, parcel.thon_xa));
-      setNguonGocSuDung(normalizeNguonGoc(declaration.nguon_goc_su_dung));
+      setNguonGocSuDung(normalizeNguonGoc(declaration.nguon_goc_su_dung, parcel?.loai_dat));
       setGiapDong(cleanBoundaryText(declaration.giap_dong || parcel.giap_dong || ''));
       setGiapTay(cleanBoundaryText(declaration.giap_tay || parcel.giap_tay || ''));
       setGiapNam(cleanBoundaryText(declaration.giap_nam || parcel.giap_nam || ''));
@@ -257,7 +260,7 @@ export default function DeclarationEditModal({
       setChuDatGioiTinh(parcel.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
       setChuDatCccd('');
       setChuDatDiaChi(formatThonAddress(undefined, parcel.thon_xa));
-      setNguonGocSuDung('Khai Hoang');
+      setNguonGocSuDung(isAgriculturalLand(parcel?.loai_dat) ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai Hoang');
       setGiapDong(cleanBoundaryText(parcel.giap_dong || ''));
       setGiapTay(cleanBoundaryText(parcel.giap_tay || ''));
       setGiapNam(cleanBoundaryText(parcel.giap_nam || ''));
@@ -666,11 +669,12 @@ export default function DeclarationEditModal({
               </span>
               <span className="text-[10px] text-blue-400 font-bold">{normalizeNguonGoc(nguonGocSuDung)}</span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {NGUON_GOC_OPTIONS.map((opt) => (
                 <button
                   key={opt}
                   type="button"
+                  title={opt}
                   onClick={() => setNguonGocSuDung(opt)}
                   className={`py-2 px-2 rounded-xl border text-xs font-bold transition text-center cursor-pointer ${
                     normalizeNguonGoc(nguonGocSuDung) === opt
@@ -678,7 +682,7 @@ export default function DeclarationEditModal({
                       : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
                   }`}
                 >
-                  {opt}
+                  {getNguonGocShortLabel(opt)}
                 </button>
               ))}
             </div>

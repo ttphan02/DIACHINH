@@ -23,6 +23,9 @@ import {
   cleanName,
   cleanBoundaryText,
   NGUON_GOC_OPTIONS,
+  NGUON_GOC_NN_GIAO_KHONG_THU_TIEN,
+  getNguonGocShortLabel,
+  isAgriculturalLand,
   normalizeNguonGoc,
   isValidCccd,
   isValidBirthYear,
@@ -123,7 +126,7 @@ export default function ParcelDetailModal({
   }, [chuDatCccd]);
 
   const [chuDatDiaChi, setChuDatDiaChi] = useState(formatThonAddress(parcel?.thon_xa));
-  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai Hoang');
+  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>(isAgriculturalLand(parcel?.loai_dat) ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai Hoang');
   const [ghiChu, setGhiChu] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -617,11 +620,12 @@ export default function ParcelDetailModal({
                   </label>
                   <span className="text-xs font-bold text-blue-600">{normalizeNguonGoc(nguonGocSuDung)}</span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {NGUON_GOC_OPTIONS.map((ng) => (
                     <button
                       type="button"
                       key={ng}
+                      title={ng}
                       onClick={() => setNguonGocSuDung(ng)}
                       className={`py-2 px-2 text-xs font-bold rounded-lg border transition text-center cursor-pointer ${
                         normalizeNguonGoc(nguonGocSuDung) === ng
@@ -629,7 +633,7 @@ export default function ParcelDetailModal({
                           : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                       }`}
                     >
-                      {ng}
+                      {getNguonGocShortLabel(ng)}
                     </button>
                   ))}
                 </div>

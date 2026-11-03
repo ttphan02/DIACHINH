@@ -42,6 +42,9 @@ import {
   stripHonorifics,
   cleanBoundaryText,
   NGUON_GOC_OPTIONS,
+  NGUON_GOC_NN_GIAO_KHONG_THU_TIEN,
+  getNguonGocShortLabel,
+  isAgriculturalLand,
   normalizeNguonGoc,
   isValidCccd,
   isValidBirthYear,
@@ -309,7 +312,7 @@ export default function ParcelDetailPanel({
       setIsCheckingCccd(false);
     }
   }, [chuDatCccd, allParcels]);
-  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai hoang');
+  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>(NGUON_GOC_NN_GIAO_KHONG_THU_TIEN);
   const [nguoiKeKhaiTen, setNguoiKeKhaiTen] = useState('');
   const [nguoiKeKhaiSdt, setNguoiKeKhaiSdt] = useState('');
   const [ghiChu, setGhiChu] = useState('');
@@ -439,7 +442,7 @@ export default function ParcelDetailPanel({
         setChuDatGioiTinh(parcel.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
         setChuDatCccd(cleanCccd(parcel.cccd || ''));
         setChuDatDiaChi(formatThonAddress(undefined, parcel.thon_xa));
-        setNguonGocSuDung('Khai Hoang');
+        setNguonGocSuDung(isAgriculturalLand(parcel?.loai_dat) ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai Hoang');
 
         setGgsLookupStatus(null);
         if (initName && initName.split(/\s+/).length >= 2) {
@@ -1931,11 +1934,12 @@ export default function ParcelDetailPanel({
                 <span>Nguồn gốc sử dụng đất <span className="text-red-500">*</span></span>
                 <span className="text-[10px] text-blue-600 font-bold">{normalizeNguonGoc(nguonGocSuDung)}</span>
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                 {NGUON_GOC_OPTIONS.map((opt) => (
                   <button
                     key={opt}
                     type="button"
+                    title={opt}
                     onClick={() => setNguonGocSuDung(opt)}
                     className={`py-2 px-1 rounded-lg border text-xs font-bold transition text-center cursor-pointer ${
                       normalizeNguonGoc(nguonGocSuDung) === opt
@@ -1943,7 +1947,7 @@ export default function ParcelDetailPanel({
                         : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
                     }`}
                   >
-                    {opt}
+                    {getNguonGocShortLabel(opt)}
                   </button>
                 ))}
               </div>
