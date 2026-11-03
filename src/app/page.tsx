@@ -647,24 +647,6 @@ export default function Home() {
         if (savedDecl.chu_dat_cccd) cccd = savedDecl.chu_dat_cccd;
       }
 
-      // XÁC ĐỊNH TRẠNG THÁI THỬA ĐẤT:
-      // 1. Thửa ĐÃ SỐ HÓA (có trên Google Sheets hoặc cccd đã đóng tập) -> Xanh lá
-      // 2. Thửa ĐÃ KÊ KHAI (vừa kê khai trên web, chưa số hóa lên GGS) -> Xanh lam
-      // 3. Thửa CHƯA KÊ KHAI CÓ TÊN (tên người thật) -> Vàng
-      // 4. Thửa CHƯA KÊ KHAI CHƯA CÓ TÊN (không phải tên người, địa danh, công cộng...) -> Trắng
-      let trang_thai: ParcelStatus;
-      if (isOnGgs || DIGITIZED_SET.has(p.ma_thua)) {
-        trang_thai = 'DA_SO_HOA_XANH';
-      } else if (isLocallyDeclared) {
-        trang_thai = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
-      } else if (p.trang_thai === 'DA_SO_HOA_XANH' && !isGgsLoaded) {
-        trang_thai = 'DA_SO_HOA_XANH';
-      } else if (chu_ho && chu_ho !== 'Không có trong dữ liệu' && isPersonName(chu_ho)) {
-        trang_thai = 'CO_TEN_CHUA_SO_HOA_VANG';
-      } else {
-        trang_thai = 'CHUA_CO_TEN_XAM';
-      }
-
       let dien_tich = p.dien_tich ? String(p.dien_tich) : '';
       if ((!dien_tich || dien_tich.startsWith('w6jp')) && ggsInfo?.dien_tich) {
         dien_tich = String(ggsInfo.dien_tich);
@@ -683,6 +665,31 @@ export default function Home() {
       }
       if (savedDecl?.loai_dat) {
         loai_dat = String(savedDecl.loai_dat);
+      }
+
+      // XÁC ĐỊNH TRẠNG THÁI THỬA ĐẤT:
+      // 1. Thửa ĐÃ SỐ HÓA (có trên Google Sheets hoặc cccd đã đóng tập hoặc thửa ONT coi như đã số hóa) -> Xanh lá
+      // 2. Thửa ĐÃ KÊ KHAI (vừa kê khai trên web, chưa số hóa lên GGS, phi-ONT) -> Xanh lam
+      // 3. Thửa CHƯA KÊ KHAI CÓ TÊN (tên người thật) -> Vàng
+      // 4. Thửa CHƯA KÊ KHAI CHƯA CÓ TÊN (không phải tên người, địa danh, công cộng...) -> Trắng
+      let trang_thai: ParcelStatus;
+      const isOntParcel = /ont/i.test(loai_dat);
+
+      if (isOnGgs || DIGITIZED_SET.has(p.ma_thua)) {
+        trang_thai = 'DA_SO_HOA_XANH';
+      } else if (isLocallyDeclared) {
+        // Thửa đất thuộc danh sách GCN - ONT: coi như đã số hóa trên bản đồ (xanh lá), trừ ra khỏi nhóm "Đã kê khai"
+        if (isOntParcel) {
+          trang_thai = 'DA_SO_HOA_XANH';
+        } else {
+          trang_thai = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
+        }
+      } else if (p.trang_thai === 'DA_SO_HOA_XANH' && !isGgsLoaded) {
+        trang_thai = 'DA_SO_HOA_XANH';
+      } else if (chu_ho && chu_ho !== 'Không có trong dữ liệu' && isPersonName(chu_ho)) {
+        trang_thai = 'CO_TEN_CHUA_SO_HOA_VANG';
+      } else {
+        trang_thai = 'CHUA_CO_TEN_XAM';
       }
 
       return {

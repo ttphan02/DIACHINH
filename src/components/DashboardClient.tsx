@@ -1529,23 +1529,27 @@ export default function DashboardPage() {
     });
   }, [nonGgsParcels, declaredParcelCodes, declarationsMap, cellEdits, hasCccdAndFile, r2CccdSet]);
 
-  // Danh sách thửa đất ONT chờ bổ sung sau (GCN - ONT) - CHỈ LẤY THỬA CHƯA SỐ HÓA
+  // Danh sách thửa đất ONT chờ bổ sung sau (GCN - ONT) - GIỮ ĐỦ 226 THỬA ĐẤT ONT ĐÃ KÊ KHAI
   const gcnOntParcels = useMemo(() => {
-    return nonGgsParcels.filter((p) => {
+    return parcels.filter((p) => {
+      if (HIDDEN_PARCEL_SET.has(p.ma_thua)) return false;
+      const decl = declarationsMap[p.ma_thua];
       const isDeclared =
         declaredParcelCodes.has(p.ma_thua) ||
-        Boolean(declarationsMap[p.ma_thua]) ||
+        Boolean(decl) ||
         p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
       if (!isDeclared) return false;
 
-      const decl = declarationsMap[p.ma_thua] || {};
+      // Không lấy thửa đã có trên Google Sheet chính thức (Cột BF) hoặc KH2959
+      if (ggsCodes.has(p.ma_thua) || kh2959ImportedCodes.has(p.ma_thua)) return false;
+
       const edits = cellEdits[p.ma_thua] || {};
-      const loaiDat = String(edits[8] ?? decl.loai_dat ?? p.loai_dat ?? '').trim();
+      const loaiDat = String(edits[8] ?? decl?.loai_dat ?? p.loai_dat ?? '').trim();
       return /ont/i.test(loaiDat);
     });
-  }, [nonGgsParcels, declaredParcelCodes, declarationsMap, cellEdits]);
+  }, [parcels, declaredParcelCodes, declarationsMap, ggsCodes, kh2959ImportedCodes, cellEdits]);
 
-  // 2. THỬA ĐANG KÊ KHAI (CHƯA CÓ CCCD): Thửa đã kê khai NHƯNG chưa có CCCD hoặc chưa có file R2
+  // 2. THỬA ĐANG KÊ KHAI (CHƯA CÓ CCCD): Thửa đã kê khai NHƯNG chưa có CCCD hoặc chưa có file R2 (đã lọc bỏ ONT)
   const dangKeKhaiChuaCccdParcels = useMemo(() => {
     return nonGgsParcels.filter((p) => {
       const isDeclared =
@@ -1556,6 +1560,9 @@ export default function DashboardPage() {
 
       const decl = declarationsMap[p.ma_thua] || {};
       const edits = cellEdits[p.ma_thua] || {};
+      const loaiDat = String(edits[8] ?? decl.loai_dat ?? p.loai_dat ?? '').trim();
+      if (/ont/i.test(loaiDat)) return false;
+
       const rawCccd = edits[6] ?? decl.chu_dat_cccd ?? decl.cccd_chu_ho ?? decl.cccd ?? p.cccd;
       const cccdUrl = decl.cccd_url || p.cccd_url;
       return !hasCccdAndFile(rawCccd, cccdUrl, r2CccdSet);
@@ -1601,12 +1608,15 @@ export default function DashboardPage() {
   }, [syncSheetsData, kh2959ImportedCodes]);
 
   const displayCountGcnOnt = useMemo(() => {
+    if (syncSummary?.gcnOnt !== undefined) {
+      return syncSummary.gcnOnt;
+    }
     const rows = syncSheetsData?.['GCN - ONT'];
     if (Array.isArray(rows) && rows.length > 1) {
       return rows.slice(1).filter((r) => !HIDDEN_PARCEL_SET.has(String(r[1] || '').trim())).length;
     }
     return gcnOntParcels.length;
-  }, [syncSheetsData, gcnOntParcels.length]);
+  }, [syncSummary, syncSheetsData, gcnOntParcels.length]);
 
   // 3. THỬA CHƯA THỰC HIỆN: Các thửa chưa số hóa và chưa thực hiện kê khai
   const chuaThucHienParcels = useMemo(() => {
