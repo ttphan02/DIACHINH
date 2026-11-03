@@ -22,7 +22,10 @@ import { broadcastRealtimeEvent } from '@/utils/realtimeSync';
 import { cleanCccd, cleanName, stripAccents, CANONICAL_VILLAGES, getCanonicalVillage, NGUON_GOC_OPTIONS, normalizeNguonGoc } from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
+import digitizedParcelsData from '@/data/digitized_parcels.json';
+
 const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
+const DIGITIZED_SET = new Set(digitizedParcelsData as string[]);
 
 const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
 
@@ -250,8 +253,16 @@ export default function CccdCollectPanel({
       const [parcelCode, decl] = declEntries[i];
       if (!decl || HIDDEN_PARCEL_SET.has(parcelCode)) continue;
 
+      // 1. Bỏ qua các thửa ĐÃ SỐ HÓA (đã hoàn tất trên GGS)
+      if (DIGITIZED_SET.has(parcelCode)) continue;
+
       const pBrief = parcelsBrief[parcelCode];
       const ld = String(decl.loai_dat || (pBrief && pBrief[1]) || '').trim().toUpperCase();
+
+      // 2. Bỏ qua các thửa GCN - ONT (đã có CCCD / coi như đã số hóa, không thuộc diện đi thu CCCD)
+      if (/ONT/.test(ld)) continue;
+
+      // 3. Bỏ qua thửa đất BCS < 100m2
       const dt = parseFloat(String(decl.dien_tich || (pBrief && pBrief[0]) || '').replace(',', '.'));
       if (ld === 'BCS' && !isNaN(dt) && dt < 100) continue;
 
