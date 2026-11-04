@@ -187,7 +187,7 @@ export async function generateStatisticsPdf(
       if (!row) return;
 
       const statusStr = (p.trang_thai || '') as string;
-      if (statusStr === 'DA_SO_HOA_XANH' || (p as any).is_on_ggs || /ont/i.test(p.loai_dat || '')) {
+      if (statusStr === 'DA_SO_HOA_XANH' || (p as any).is_on_ggs) {
         row.daSoHoa++;
         sumDaSoHoa++;
         return;
@@ -258,7 +258,7 @@ export async function generateStatisticsPdf(
           const v = getCanonicalVillage(p.thon_xa);
           if (v !== vName) return false;
           const statusStr = String(p.trang_thai || '');
-          if (statusStr === 'DA_SO_HOA_XANH' || (p as any).is_on_ggs || /ont/i.test(p.loai_dat || '')) return false;
+          if (statusStr === 'DA_SO_HOA_XANH' || (p as any).is_on_ggs) return false;
           // Gom cả Đang kê khai và Chưa làm có tên
           return (
             statusStr.includes('DA_KE_KHAI') ||
@@ -393,10 +393,10 @@ export async function generateStatisticsPdf(
       color: rgb(0.45, 0.45, 0.45),
     });
 
-    // 4 KHỐI KPI TỔNG THỂ
+    // 3 KHỐI KPI TỔNG THỂ (Bỏ khối Đã số hóa theo yêu cầu người dùng)
     y -= 22;
-    const cardGap = 6;
-    const cardW = (contentW - cardGap * 3) / 4;
+    const cardGap = 8;
+    const cardW = (contentW - cardGap * 2) / 3;
     const cardH = 50;
     const kpiCards = [
       {
@@ -410,7 +410,7 @@ export async function generateStatisticsPdf(
       {
         title: '2. KHÔNG CÓ TÊN',
         count: `${sumKhongTen.toLocaleString('vi-VN')}`,
-        desc: sumHoEaRot > 0 ? `182 rỗng + ${sumHoEaRot} Hồ Ea Rớt` : 'Ô tên trống / Đất công',
+        desc: sumHoEaRot > 0 ? `${sumKhongTen - sumHoEaRot} rỗng + ${sumHoEaRot} Hồ Ea Rớt` : 'Ô tên trống / Đất công',
         border: rgb(0.65, 0.2, 0.8),
         bg: rgb(0.97, 0.94, 0.99),
         titleColor: rgb(0.55, 0.1, 0.7),
@@ -422,14 +422,6 @@ export async function generateStatisticsPdf(
         border: rgb(0.85, 0.5, 0.1),
         bg: rgb(0.99, 0.96, 0.91),
         titleColor: rgb(0.8, 0.4, 0.05),
-      },
-      {
-        title: '4. ĐÃ SỐ HÓA XANH',
-        count: `${sumDaSoHoa.toLocaleString('vi-VN')}`,
-        desc: 'Đã hoàn thành chuẩn hóa',
-        border: rgb(0.15, 0.6, 0.25),
-        bg: rgb(0.93, 0.98, 0.94),
-        titleColor: rgb(0.1, 0.5, 0.2),
       },
     ];
 
@@ -445,24 +437,24 @@ export async function generateStatisticsPdf(
         borderWidth: 1,
       });
       page1.drawText(c.title, {
-        x: cx + 7,
+        x: cx + 10,
         y: y - 13,
-        size: 7.5,
+        size: 8,
         font: fontBold,
         color: c.titleColor,
       });
       page1.drawText(c.count, {
-        x: cx + 7,
+        x: cx + 10,
         y: c.desc ? y - 31 : y - 35,
-        size: 14,
+        size: 15,
         font: fontBold,
         color: rgb(0.1, 0.1, 0.1),
       });
       if (c.desc) {
         page1.drawText(c.desc, {
-          x: cx + 7,
+          x: cx + 10,
           y: y - 43,
-          size: 6.5,
+          size: 7,
           font: fontRegular,
           color: rgb(0.4, 0.4, 0.4),
         });
@@ -485,12 +477,11 @@ export async function generateStatisticsPdf(
 
     y -= 16;
     const tableCols = [
-      { label: 'STT', w: 28, align: 'center' },
-      { label: 'Tên Thôn / Buôn', w: 120, align: 'left' },
-      { label: '1. Tổng Còn Lại', w: 74, align: 'center' },
+      { label: 'STT', w: 32, align: 'center' },
+      { label: 'Tên Thôn / Buôn', w: 151.28, align: 'left' },
+      { label: '1. Tổng Còn Lại', w: 110, align: 'center' },
       { label: sumHoEaRot > 0 ? '2. Không Tên (Hồ Ea Rớt)' : '2. Không Có Tên', w: 110, align: 'center' },
-      { label: '3. Có Tên', w: 136, align: 'center' },
-      { label: '4. Đã Số Hóa', w: 55.28, align: 'center' },
+      { label: '3. Có Tên', w: 120, align: 'center' },
     ];
 
     const thH = 22;
@@ -578,27 +569,15 @@ export async function generateStatisticsPdf(
       });
       rx += tableCols[3].w;
 
-      // Cột Gom Có Tên: hiển thị Tổng (Chưa làm + Kê khai)
+      // Cột Có Tên: hiển thị Tổng danh sách có tên cần thu thập
       const ctStr = v.gomCoTen > 0 ? v.gomCoTen.toLocaleString('vi-VN') : '0';
-      const ctW = fontRegular.widthOfTextAtSize(ctStr, 7.5);
+      const ctW = fontRegular.widthOfTextAtSize(ctStr, 8);
       page1.drawText(ctStr, {
         x: rx + (tableCols[4].w - ctW) / 2,
         y: y - 12,
-        size: 7.5,
-        font: fontRegular,
-        color: rgb(0.85, 0.45, 0.05),
-      });
-      rx += tableCols[4].w;
-
-      // Cột Đã Số Hóa
-      const dshStr = v.daSoHoa.toLocaleString('vi-VN');
-      const dshW = fontBold.widthOfTextAtSize(dshStr, 8);
-      page1.drawText(dshStr, {
-        x: rx + (tableCols[5].w - dshW) / 2,
-        y: y - 12,
         size: 8,
         font: fontBold,
-        color: rgb(0.1, 0.55, 0.25),
+        color: rgb(0.85, 0.45, 0.05),
       });
 
       y -= trH;
@@ -655,24 +634,13 @@ export async function generateStatisticsPdf(
     totX += tableCols[3].w;
 
     const sumCtStr = sumGomCoTen.toLocaleString('vi-VN');
-    const sumCtW = fontBold.widthOfTextAtSize(sumCtStr, 8);
+    const sumCtW = fontBold.widthOfTextAtSize(sumCtStr, 8.5);
     page1.drawText(sumCtStr, {
       x: totX + (tableCols[4].w - sumCtW) / 2,
       y: y - 15,
-      size: 8,
-      font: fontBold,
-      color: rgb(0.8, 0.45, 0.05),
-    });
-    totX += tableCols[4].w;
-
-    const sumDshStr = sumDaSoHoa.toLocaleString('vi-VN');
-    const sumDshW = fontBold.widthOfTextAtSize(sumDshStr, 8.5);
-    page1.drawText(sumDshStr, {
-      x: totX + (tableCols[5].w - sumDshW) / 2,
-      y: y - 15,
       size: 8.5,
       font: fontBold,
-      color: rgb(0.08, 0.5, 0.2),
+      color: rgb(0.8, 0.45, 0.05),
     });
 
     y -= totalRowH + 8;

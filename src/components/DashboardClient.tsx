@@ -1432,10 +1432,14 @@ export default function DashboardPage() {
       const isOntParcel = /ont/i.test(loaiDat);
 
       let finalStatus: ParcelStatus;
-      if (isOnGgs || isOntParcel) {
+      if (isOnGgs) {
         finalStatus = 'DA_SO_HOA_XANH';
       } else if (isDeclared) {
-        finalStatus = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
+        if (isOntParcel) {
+          finalStatus = 'DA_SO_HOA_XANH';
+        } else {
+          finalStatus = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
+        }
       } else if (p.trang_thai === 'DA_SO_HOA_XANH') {
         finalStatus = 'DA_SO_HOA_XANH';
       } else if (mergedChuHo && mergedChuHo !== 'Không có trong dữ liệu' && isPersonName(mergedChuHo)) {
