@@ -1430,8 +1430,12 @@ export default function DashboardPage() {
       const mergedChuHo = savedDecl?.chu_dat_ten || p.chu_ho;
       const mergedCccd = savedDecl?.chu_dat_cccd || p.cccd;
 
+      const edits = cellEdits[p.ma_thua] || {};
+      const loaiDat = String(edits[8] ?? savedDecl?.loai_dat ?? p.loai_dat ?? '').trim();
+      const isOntParcel = /ont/i.test(loaiDat);
+
       let finalStatus: ParcelStatus;
-      if (isOnGgs) {
+      if (isOnGgs || isOntParcel) {
         finalStatus = 'DA_SO_HOA_XANH';
       } else if (isDeclared) {
         finalStatus = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';

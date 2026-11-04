@@ -187,7 +187,7 @@ export async function generateStatisticsPdf(
       if (!row) return;
 
       const statusStr = (p.trang_thai || '') as string;
-      if (statusStr === 'DA_SO_HOA_XANH' || (p as any).is_on_ggs) {
+      if (statusStr === 'DA_SO_HOA_XANH' || (p as any).is_on_ggs || /ont/i.test(p.loai_dat || '')) {
         row.daSoHoa++;
         sumDaSoHoa++;
         return;
@@ -258,7 +258,7 @@ export async function generateStatisticsPdf(
           const v = getCanonicalVillage(p.thon_xa);
           if (v !== vName) return false;
           const statusStr = String(p.trang_thai || '');
-          if (statusStr === 'DA_SO_HOA_XANH' || (p as any).is_on_ggs) return false;
+          if (statusStr === 'DA_SO_HOA_XANH' || (p as any).is_on_ggs || /ont/i.test(p.loai_dat || '')) return false;
           // Gom cả Đang kê khai và Chưa làm có tên
           return (
             statusStr.includes('DA_KE_KHAI') ||
