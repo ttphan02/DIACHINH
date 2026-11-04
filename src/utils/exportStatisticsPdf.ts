@@ -10,20 +10,27 @@ export interface VillageStatsItem {
   name: string;
   tongConLai: number;
   khongTen: number;
-  coTen: number;
+  hoEaRot: number;
+  gomCoTen: number;
+  coTenChuaLam: number;
   daKeKhai: number;
+  daSoHoa: number;
 }
 
 export interface OwnerGroupItem {
   stt: number;
   name: string;
   parcelCount: number;
+  chuaLamCount?: number;
+  keKhaiCount?: number;
 }
 
 export interface VillageDetailGroup {
   villageName: string;
   totalOwners: number;
   totalParcels: number;
+  totalChuaLam: number;
+  totalKeKhai: number;
   owners: OwnerGroupItem[];
 }
 
@@ -140,88 +147,108 @@ export async function generateStatisticsPdf(
         : 'Đang tính toán số liệu thống kê 16 thôn buôn...'
     );
 
-    // 1. TÍNH TOÁN BẢNG SỐ LIỆU 16 THÔN BUÔN (HOẶC RIÊNG THÔN YÊU CẦU)
-    const villageStats: VillageStatsItem[] = [];
+    // 1. TÍNH TOÁN BẢNG SỐ LIỆU 16 THÔN BUÔN (ĐỒNG BỘ CHUẨN COMPUTED PARCELS)
+    const vMap: Record<
+      string,
+      {
+        tongConLai: number;
+        khongTen: number;
+        hoEaRot: number;
+        gomCoTen: number;
+        coTenChuaLam: number;
+        daKeKhai: number;
+        daSoHoa: number;
+      }
+    > = {};
+
+    CANONICAL_VILLAGES.forEach((v) => {
+      vMap[v] = {
+        tongConLai: 0,
+        khongTen: 0,
+        hoEaRot: 0,
+        gomCoTen: 0,
+        coTenChuaLam: 0,
+        daKeKhai: 0,
+        daSoHoa: 0,
+      };
+    });
+
     let sumTongConLai = 0;
     let sumKhongTen = 0;
-    let sumCoTen = 0;
+    let sumHoEaRot = 0;
+    let sumGomCoTen = 0;
+    let sumCoTenChuaLam = 0;
     let sumDaKeKhai = 0;
+    let sumDaSoHoa = 0;
 
-    const rawTkRows = syncSheetsData?.['THỐNG KÊ'] || [];
-    const headerIdx = rawTkRows.findIndex((r) => Array.isArray(r) && r[0] === 'STT' && r[1] === 'Tên thôn / buôn');
-    const tkDataRows = headerIdx >= 0 ? rawTkRows.slice(headerIdx + 1) : [];
+    computedParcels.forEach((p) => {
+      const v = getCanonicalVillage(p.thon_xa);
+      const row = vMap[v] || vMap['Chưa xác định'];
+      if (!row) return;
+
+      const statusStr = (p.trang_thai || '') as string;
+      if (statusStr === 'DA_SO_HOA_XANH' || (p as any).is_on_ggs) {
+        row.daSoHoa++;
+        sumDaSoHoa++;
+        return;
+      }
+
+      // Các thửa chưa hoàn thành số hóa:
+      row.tongConLai++;
+      sumTongConLai++;
+
+      if (
+        statusStr === 'KHONG_TEN_CHUA_SO_HOA_XAM' ||
+        (!statusStr.includes('DA_KE_KHAI') && statusStr !== 'DA_SO_HOA_LAM' && !isPersonName(p.chu_ho))
+      ) {
+        row.khongTen++;
+        sumKhongTen++;
+        const s = String(p.chu_ho || '').trim().toLowerCase();
+        if (s === 'hồ ea rớt' || s === 'ho ea rot') {
+          row.hoEaRot++;
+          sumHoEaRot++;
+        }
+      } else if (statusStr.includes('DA_KE_KHAI') || statusStr === 'DA_SO_HOA_LAM') {
+        row.daKeKhai++;
+        sumDaKeKhai++;
+        row.gomCoTen++;
+        sumGomCoTen++;
+      } else {
+        // Có tên chưa làm (CO_TEN_CHUA_SO_HOA_VANG)
+        row.coTenChuaLam++;
+        sumCoTenChuaLam++;
+        row.gomCoTen++;
+        sumGomCoTen++;
+      }
+    });
 
     const targetVillages = filterVillage ? [filterVillage] : CANONICAL_VILLAGES;
-
-    if (tkDataRows.length >= 16) {
-      targetVillages.forEach((vName, idx) => {
-        const match = tkDataRows.find((r) => String(r[1] || '').trim().toLowerCase() === vName.toLowerCase());
-        const tongConLai = match ? parseInt(String(match[2] || '0').replace(/\D/g, ''), 10) || 0 : 0;
-        const coTen = match ? parseInt(String(match[3] || '0').replace(/\D/g, ''), 10) || 0 : 0;
-        const khongTen = match ? parseInt(String(match[4] || '0').replace(/\D/g, ''), 10) || 0 : 0;
-        const daKeKhai = match ? parseInt(String(match[5] || '0').replace(/\D/g, ''), 10) || 0 : 0;
-
-        villageStats.push({
-          stt: idx + 1,
-          name: vName,
-          tongConLai,
-          khongTen,
-          coTen,
-          daKeKhai,
-        });
-
-        sumTongConLai += tongConLai;
-        sumKhongTen += khongTen;
-        sumCoTen += coTen;
-        sumDaKeKhai += daKeKhai;
+    const villageStats: VillageStatsItem[] = [];
+    targetVillages.forEach((vName, idx) => {
+      const row = vMap[vName] || {
+        tongConLai: 0,
+        khongTen: 0,
+        hoEaRot: 0,
+        gomCoTen: 0,
+        coTenChuaLam: 0,
+        daKeKhai: 0,
+        daSoHoa: 0,
+      };
+      villageStats.push({
+        stt: idx + 1,
+        name: vName,
+        tongConLai: row.tongConLai,
+        khongTen: row.khongTen,
+        hoEaRot: row.hoEaRot,
+        gomCoTen: row.gomCoTen,
+        coTenChuaLam: row.coTenChuaLam,
+        daKeKhai: row.daKeKhai,
+        daSoHoa: row.daSoHoa,
       });
-    } else {
-      const vMap: Record<string, { tongConLai: number; khongTen: number; coTen: number; daKeKhai: number }> = {};
-      CANONICAL_VILLAGES.forEach((v) => {
-        vMap[v] = { tongConLai: 0, khongTen: 0, coTen: 0, daKeKhai: 0 };
-      });
+    });
 
-      computedParcels.forEach((p) => {
-        const v = getCanonicalVillage(p.thon_xa);
-        const row = vMap[v] || vMap['Chưa xác định'];
-        if (!row) return;
-
-        const statusStr = (p.trang_thai || '') as string;
-        // Các thửa đã hoàn thành (số hóa xanh hoặc đã có trên GGS) thì không tính vào số còn lại cần thực hiện!
-        if (statusStr === 'DA_SO_HOA_XANH' || (p as any).is_on_ggs) {
-          return;
-        }
-
-        if (statusStr.includes('DA_KE_KHAI') || statusStr === 'DA_SO_HOA_LAM') {
-          row.daKeKhai++;
-        } else if (isPersonName(p.chu_ho)) {
-          row.coTen++;
-          row.tongConLai++;
-        } else {
-          row.khongTen++;
-          row.tongConLai++;
-        }
-      });
-
-      targetVillages.forEach((vName, idx) => {
-        const row = vMap[vName] || { tongConLai: 0, khongTen: 0, coTen: 0, daKeKhai: 0 };
-        villageStats.push({
-          stt: idx + 1,
-          name: vName,
-          tongConLai: row.tongConLai,
-          khongTen: row.khongTen,
-          coTen: row.coTen,
-          daKeKhai: row.daKeKhai,
-        });
-        sumTongConLai += row.tongConLai;
-        sumKhongTen += row.khongTen;
-        sumCoTen += row.coTen;
-        sumDaKeKhai += row.daKeKhai;
-      });
-    }
-
-    // 2. GOM NHÓM DANH SÁCH "CÓ TÊN CHƯA THỰC HIỆN" THEO TỪNG THÔN BUÔN
-    onProgress?.('Đang tổng hợp danh sách chủ hộ có tên chưa thực hiện...');
+    // 2. GOM NHÓM DANH SÁCH "CÓ TÊN (CHƯA LÀM & ĐANG KÊ KHAI)" THEO TỪNG THÔN BUÔN
+    onProgress?.('Đang tổng hợp danh sách chủ hộ có tên (chưa làm & đang kê khai)...');
     const villageDetailGroups: VillageDetailGroup[] = [];
 
     if (includeUnexecutedOwners) {
@@ -231,16 +258,25 @@ export async function generateStatisticsPdf(
           const v = getCanonicalVillage(p.thon_xa);
           if (v !== vName) return false;
           const statusStr = String(p.trang_thai || '');
-          const isNamedUndeclared =
-            (statusStr === 'CO_TEN_CHUA_SO_HOA_VANG' || isPersonName(p.chu_ho)) &&
-            !statusStr.includes('DA_KE_KHAI') &&
-            statusStr !== 'DA_SO_HOA_XANH';
-          return Boolean(isNamedUndeclared);
+          if (statusStr === 'DA_SO_HOA_XANH' || (p as any).is_on_ggs) return false;
+          // Gom cả Đang kê khai và Chưa làm có tên
+          return (
+            statusStr.includes('DA_KE_KHAI') ||
+            statusStr === 'DA_SO_HOA_LAM' ||
+            statusStr === 'CO_TEN_CHUA_SO_HOA_VANG' ||
+            isPersonName(p.chu_ho)
+          );
         });
 
         if (parcelsInVillage.length === 0) return;
 
-        const ownerMap: Record<string, { displayName: string; count: number }> = {};
+        let totalChuaLam = 0;
+        let totalKeKhai = 0;
+        const ownerMap: Record<
+          string,
+          { displayName: string; totalCount: number; chuaLamCount: number; keKhaiCount: number }
+        > = {};
+
         parcelsInVillage.forEach((p) => {
           const rawName = String(p.chu_ho || '').trim();
           const normKey = rawName
@@ -250,17 +286,27 @@ export async function generateStatisticsPdf(
             .replace(/^(ông|bà|hộ ông|hộ bà|hộ)\s*:?/i, '')
             .replace(/[^a-z0-9]/g, '');
 
+          const statusStr = String(p.trang_thai || '');
+          const isKeKhai = statusStr.includes('DA_KE_KHAI') || statusStr === 'DA_SO_HOA_LAM';
+
+          if (isKeKhai) totalKeKhai++;
+          else totalChuaLam++;
+
           if (!ownerMap[normKey]) {
             ownerMap[normKey] = {
               displayName: formatPrefixOwner(rawName, p.chu_ho?.includes('Nữ') ? 'Nữ' : undefined),
-              count: 0,
+              totalCount: 0,
+              chuaLamCount: 0,
+              keKhaiCount: 0,
             };
           }
-          ownerMap[normKey].count++;
+          ownerMap[normKey].totalCount++;
+          if (isKeKhai) ownerMap[normKey].keKhaiCount++;
+          else ownerMap[normKey].chuaLamCount++;
         });
 
         const sortedOwners = Object.values(ownerMap).sort((a, b) => {
-          if (b.count !== a.count) return b.count - a.count;
+          if (b.totalCount !== a.totalCount) return b.totalCount - a.totalCount;
           return a.displayName.localeCompare(b.displayName, 'vi');
         });
 
@@ -268,10 +314,14 @@ export async function generateStatisticsPdf(
           villageName: vName,
           totalOwners: sortedOwners.length,
           totalParcels: parcelsInVillage.length,
+          totalChuaLam,
+          totalKeKhai,
           owners: sortedOwners.map((o, idx) => ({
             stt: idx + 1,
             name: o.displayName,
-            parcelCount: o.count,
+            parcelCount: o.totalCount,
+            chuaLamCount: o.chuaLamCount,
+            keKhaiCount: o.keKhaiCount,
           })),
         });
       });
@@ -352,7 +402,7 @@ export async function generateStatisticsPdf(
       {
         title: '1. TỔNG CÒN LẠI',
         count: `${sumTongConLai.toLocaleString('vi-VN')}`,
-        desc: 'Toàn bộ chưa thực hiện',
+        desc: 'Không tên + Có tên',
         border: rgb(0.85, 0.2, 0.2),
         bg: rgb(0.99, 0.94, 0.94),
         titleColor: rgb(0.75, 0.1, 0.1),
@@ -360,23 +410,23 @@ export async function generateStatisticsPdf(
       {
         title: '2. KHÔNG CÓ TÊN',
         count: `${sumKhongTen.toLocaleString('vi-VN')}`,
-        desc: 'Chưa có thông tin chủ',
+        desc: sumHoEaRot > 0 ? `182 rỗng + ${sumHoEaRot} Hồ Ea Rớt` : 'Ô tên trống / Đất công',
         border: rgb(0.65, 0.2, 0.8),
         bg: rgb(0.97, 0.94, 0.99),
         titleColor: rgb(0.55, 0.1, 0.7),
       },
       {
-        title: '3. CÓ TÊN CÒN LẠI',
-        count: `${sumCoTen.toLocaleString('vi-VN')}`,
-        desc: 'Chưa thu thập kê khai',
+        title: '3. GOM TỔNG CÓ TÊN',
+        count: `${sumGomCoTen.toLocaleString('vi-VN')}`,
+        desc: `${sumCoTenChuaLam} CL + ${sumDaKeKhai} Kê khai`,
         border: rgb(0.85, 0.5, 0.1),
         bg: rgb(0.99, 0.96, 0.91),
         titleColor: rgb(0.8, 0.4, 0.05),
       },
       {
-        title: '4. TỔNG ĐÃ KÊ KHAI',
-        count: `${sumDaKeKhai.toLocaleString('vi-VN')}`,
-        desc: 'Đã nộp phiếu trên web',
+        title: '4. ĐÃ SỐ HÓA XANH',
+        count: `${sumDaSoHoa.toLocaleString('vi-VN')}`,
+        desc: 'Đã hoàn thành chuẩn hóa',
         border: rgb(0.15, 0.6, 0.25),
         bg: rgb(0.93, 0.98, 0.94),
         titleColor: rgb(0.1, 0.5, 0.2),
@@ -433,12 +483,12 @@ export async function generateStatisticsPdf(
 
     y -= 16;
     const tableCols = [
-      { label: 'STT', w: 34, align: 'center' },
-      { label: 'Tên Thôn / Buôn', w: 145, align: 'left' },
-      { label: '1. Tổng Còn Lại', w: 86, align: 'center' },
-      { label: '2. Không Tên', w: 86, align: 'center' },
-      { label: '3. Có Tên Còn Lại', w: 86, align: 'center' },
-      { label: '4. Đã Kê Khai', w: 86.28, align: 'center' },
+      { label: 'STT', w: 28, align: 'center' },
+      { label: 'Tên Thôn / Buôn', w: 120, align: 'left' },
+      { label: '1. Tổng Còn Lại', w: 74, align: 'center' },
+      { label: sumHoEaRot > 0 ? '2. Không Tên (Hồ Ea Rớt)' : '2. Không Có Tên', w: 110, align: 'center' },
+      { label: '3. Gom Có Tên (Chưa làm & Kê khai)', w: 136, align: 'center' },
+      { label: '4. Đã Số Hóa', w: 55.28, align: 'center' },
     ];
 
     const thH = 22;
@@ -509,32 +559,43 @@ export async function generateStatisticsPdf(
       });
       rx += tableCols[2].w;
 
-      const ktStr = v.khongTen.toLocaleString('vi-VN');
-      const ktW = fontRegular.widthOfTextAtSize(ktStr, 8);
+      // Cột Không Tên: ghi chú rõ số lượng Hồ Ea Rớt nếu có
+      const ktStr =
+        v.hoEaRot > 0
+          ? `${v.khongTen} (${v.hoEaRot} Hồ Ea Rớt)`
+          : v.khongTen > 0
+          ? String(v.khongTen)
+          : '0';
+      const ktW = fontRegular.widthOfTextAtSize(ktStr, 7.5);
       page1.drawText(ktStr, {
         x: rx + (tableCols[3].w - ktW) / 2,
         y: y - 12,
-        size: 8,
-        font: fontRegular,
-        color: rgb(0.55, 0.2, 0.65),
+        size: 7.5,
+        font: v.hoEaRot > 0 ? fontBold : fontRegular,
+        color: v.hoEaRot > 0 ? rgb(0.55, 0.1, 0.7) : rgb(0.5, 0.2, 0.65),
       });
       rx += tableCols[3].w;
 
-      const ctStr = v.coTen.toLocaleString('vi-VN');
-      const ctW = fontRegular.widthOfTextAtSize(ctStr, 8);
+      // Cột Gom Có Tên: hiển thị Tổng (Chưa làm + Kê khai)
+      const ctStr =
+        v.gomCoTen > 0
+          ? `${v.gomCoTen} (${v.coTenChuaLam} CL + ${v.daKeKhai} KK)`
+          : '0';
+      const ctW = fontRegular.widthOfTextAtSize(ctStr, 7.5);
       page1.drawText(ctStr, {
         x: rx + (tableCols[4].w - ctW) / 2,
         y: y - 12,
-        size: 8,
+        size: 7.5,
         font: fontRegular,
-        color: rgb(0.85, 0.5, 0.1),
+        color: rgb(0.85, 0.45, 0.05),
       });
       rx += tableCols[4].w;
 
-      const dkkStr = v.daKeKhai.toLocaleString('vi-VN');
-      const dkkW = fontBold.widthOfTextAtSize(dkkStr, 8);
-      page1.drawText(dkkStr, {
-        x: rx + (tableCols[5].w - dkkW) / 2,
+      // Cột Đã Số Hóa
+      const dshStr = v.daSoHoa.toLocaleString('vi-VN');
+      const dshW = fontBold.widthOfTextAtSize(dshStr, 8);
+      page1.drawText(dshStr, {
+        x: rx + (tableCols[5].w - dshW) / 2,
         y: y - 12,
         size: 8,
         font: fontBold,
@@ -561,7 +622,7 @@ export async function generateStatisticsPdf(
       ? `TỔNG CỘNG ${filterVillage.toUpperCase()}`
       : 'TỔNG CỘNG TOÀN XÃ';
     page1.drawText(totalRowLabel, {
-      x: totX + 10,
+      x: totX + 8,
       y: y - 15,
       size: 8.5,
       font: fontBold,
@@ -570,46 +631,59 @@ export async function generateStatisticsPdf(
     totX += tableCols[0].w + tableCols[1].w;
 
     const sumTclStr = sumTongConLai.toLocaleString('vi-VN');
-    const sumTclW = fontBold.widthOfTextAtSize(sumTclStr, 9);
+    const sumTclW = fontBold.widthOfTextAtSize(sumTclStr, 8.5);
     page1.drawText(sumTclStr, {
       x: totX + (tableCols[2].w - sumTclW) / 2,
       y: y - 15,
-      size: 9,
+      size: 8.5,
       font: fontBold,
       color: rgb(0.8, 0.1, 0.1),
     });
     totX += tableCols[2].w;
 
-    const sumKtStr = sumKhongTen.toLocaleString('vi-VN');
-    const sumKtW = fontBold.widthOfTextAtSize(sumKtStr, 9);
+    const sumKtStr =
+      sumHoEaRot > 0
+        ? `${sumKhongTen.toLocaleString('vi-VN')} (${sumHoEaRot} Hồ Ea Rớt)`
+        : sumKhongTen.toLocaleString('vi-VN');
+    const sumKtW = fontBold.widthOfTextAtSize(sumKtStr, 8);
     page1.drawText(sumKtStr, {
       x: totX + (tableCols[3].w - sumKtW) / 2,
       y: y - 15,
-      size: 9,
+      size: 8,
       font: fontBold,
       color: rgb(0.5, 0.1, 0.6),
     });
     totX += tableCols[3].w;
 
-    const sumCtStr = sumCoTen.toLocaleString('vi-VN');
-    const sumCtW = fontBold.widthOfTextAtSize(sumCtStr, 9);
+    const sumCtStr = `${sumGomCoTen.toLocaleString('vi-VN')} (${sumCoTenChuaLam} CL + ${sumDaKeKhai} KK)`;
+    const sumCtW = fontBold.widthOfTextAtSize(sumCtStr, 8);
     page1.drawText(sumCtStr, {
       x: totX + (tableCols[4].w - sumCtW) / 2,
       y: y - 15,
-      size: 9,
+      size: 8,
       font: fontBold,
       color: rgb(0.8, 0.45, 0.05),
     });
     totX += tableCols[4].w;
 
-    const sumDkkStr = sumDaKeKhai.toLocaleString('vi-VN');
-    const sumDkkW = fontBold.widthOfTextAtSize(sumDkkStr, 9);
-    page1.drawText(sumDkkStr, {
-      x: totX + (tableCols[5].w - sumDkkW) / 2,
+    const sumDshStr = sumDaSoHoa.toLocaleString('vi-VN');
+    const sumDshW = fontBold.widthOfTextAtSize(sumDshStr, 8.5);
+    page1.drawText(sumDshStr, {
+      x: totX + (tableCols[5].w - sumDshW) / 2,
       y: y - 15,
-      size: 9,
+      size: 8.5,
       font: fontBold,
       color: rgb(0.08, 0.5, 0.2),
+    });
+
+    y -= totalRowH + 8;
+    const noteText = '* Ghi chú: "Gom Có Tên" gồm Chưa làm có tên (CL) và Đang kê khai (KK) để theo dõi chủ hộ. Cột "Không Tên" đã note rõ số thửa Hồ Ea Rớt.';
+    page1.drawText(noteText, {
+      x: marginX,
+      y,
+      size: 7,
+      font: fontRegular,
+      color: rgb(0.4, 0.4, 0.4),
     });
 
     const footerText = filterVillage
@@ -626,18 +700,18 @@ export async function generateStatisticsPdf(
     globalPageNumber++;
 
     // ==========================================================
-    // PHẦN 2: BẢNG TÊN & SỐ THỬA CỦA DS CÓ TÊN CHƯA THỰC HIỆN
+    // PHẦN 2: BẢNG TÊN & SỐ THỬA CỦA DS CÓ TÊN (CHƯA LÀM & ĐANG KÊ KHAI)
     // ==========================================================
     if (includeUnexecutedOwners && villageDetailGroups.length > 0) {
-      onProgress?.('Đang kết xuất danh sách chi tiết có tên chưa thực hiện (khổ 3 cột)...');
+      onProgress?.('Đang kết xuất danh sách chi tiết có tên (khổ 3 cột)...');
 
       let currentPage = doc.addPage([W, H]);
       let currentY = H - 36;
 
       const drawPageHeader = (p: any, pNum: number) => {
         const headerTitle = filterVillage
-          ? `DANH SÁCH CHỦ HỘ CÓ TÊN CHƯA THỰC HIỆN KÊ KHAI - ${filterVillage.toUpperCase()}`
-          : 'DANH SÁCH CHỦ HỘ CÓ TÊN CHƯA THỰC HIỆN KÊ KHAI (CHI TIẾT THEO THÔN / BUÔN)';
+          ? `DANH SÁCH CHỦ HỘ CÓ TÊN (CHƯA LÀM & ĐANG KÊ KHAI) - ${filterVillage.toUpperCase()}`
+          : 'DANH SÁCH CHỦ HỘ CÓ TÊN (CHƯA LÀM & ĐANG KÊ KHAI) - THEO THÔN / BUÔN';
         p.drawText(headerTitle, {
           x: marginX,
           y: H - 30,
@@ -680,20 +754,20 @@ export async function generateStatisticsPdf(
         });
 
         const vTitle = vGroup.villageName.toUpperCase();
-        const vSub = `(Tổng số: ${vGroup.totalOwners} chủ hộ | ${vGroup.totalParcels} thửa đất)`;
+        const vSub = `(Tổng: ${vGroup.totalOwners} chủ hộ | ${vGroup.totalParcels} thửa: ${vGroup.totalChuaLam} chưa làm + ${vGroup.totalKeKhai} đang kê khai)`;
         const vTitleW = fontBold.widthOfTextAtSize(vTitle, 9.5);
         const vSubW = fontRegular.widthOfTextAtSize(vSub, 8);
         const centerAllX = marginX + (contentW - (vTitleW + 8 + vSubW)) / 2;
 
         currentPage.drawText(vTitle, {
-          x: centerAllX,
+          x: Math.max(marginX + 6, centerAllX),
           y: currentY - 15,
           size: 9.5,
           font: fontBold,
           color: rgb(1, 1, 1),
         });
         currentPage.drawText(vSub, {
-          x: centerAllX + vTitleW + 8,
+          x: Math.max(marginX + 6, centerAllX) + vTitleW + 8,
           y: currentY - 15,
           size: 8,
           font: fontRegular,
@@ -766,13 +840,32 @@ export async function generateStatisticsPdf(
           const badgeX = cellX + cellW - badgeW - 4;
           const badgeY = cellY + 4;
 
+          const isOnlyKeKhai = item.keKhaiCount && item.keKhaiCount > 0 && (!item.chuaLamCount || item.chuaLamCount === 0);
+          const isOnlyChuaLam = item.chuaLamCount && item.chuaLamCount > 0 && (!item.keKhaiCount || item.keKhaiCount === 0);
+
+          const badgeBg = isOnlyKeKhai
+            ? rgb(0.9, 0.94, 1)
+            : isOnlyChuaLam
+            ? rgb(0.99, 0.94, 0.9)
+            : rgb(0.95, 0.9, 0.99);
+          const badgeBorder = isOnlyKeKhai
+            ? rgb(0.75, 0.85, 0.98)
+            : isOnlyChuaLam
+            ? rgb(0.95, 0.8, 0.7)
+            : rgb(0.85, 0.75, 0.95);
+          const badgeColor = isOnlyKeKhai
+            ? rgb(0.1, 0.35, 0.75)
+            : isOnlyChuaLam
+            ? rgb(0.85, 0.4, 0.05)
+            : rgb(0.5, 0.1, 0.7);
+
           currentPage.drawRectangle({
             x: badgeX,
             y: badgeY,
             width: badgeW,
             height: badgeH,
-            color: rgb(0.99, 0.9, 0.9),
-            borderColor: rgb(0.98, 0.78, 0.78),
+            color: badgeBg,
+            borderColor: badgeBorder,
             borderWidth: 0.5,
           });
 
@@ -783,7 +876,7 @@ export async function generateStatisticsPdf(
             y: badgeY + 3.5,
             size: 7,
             font: fontBold,
-            color: rgb(0.85, 0.15, 0.15),
+            color: badgeColor,
           });
 
           if (colIdx === 2 || i === totalOwners - 1) {
