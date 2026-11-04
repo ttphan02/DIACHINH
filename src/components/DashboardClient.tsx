@@ -786,7 +786,9 @@ export default function DashboardPage() {
     const chuDatTen = existingDecl.chu_dat_ten || existingDecl.chu_ho || findColVal([/ho va ten/, /chu dat/, /chu ho/]) || p?.chu_ho || '';
     const chuDatNamSinh = existingDecl.chu_dat_nam_sinh || findColVal([/nam sinh/, /ngay sinh/]) || (p as any)?.ngay_sinh || '';
     const chuDatGioiTinh = existingDecl.chu_dat_gioi_tinh || findColVal([/gioi tinh/]) || (p as any)?.gioi_tinh || 'Nam';
-    const chuDatCccd = cleanCccd(existingDecl.chu_dat_cccd || existingDecl.cccd || findColVal([/cccd/, /cmnd/]) || p?.cccd || '');
+    const chuDatCccd = existingDecl.yeu_cau_thu_cccd
+      ? ''
+      : cleanCccd(existingDecl.chu_dat_cccd || existingDecl.cccd || findColVal([/cccd/, /cmnd/]) || p?.cccd || '');
     const diaChiThua = existingDecl.dia_chi_thua_dat || existingDecl.chu_dat_dia_chi || findColVal([/thon/, /buon/]) || (p?.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'Xã Cư Pui');
     const dienTich = existingDecl.dien_tich || findColVal([/dien tich/]) || p?.dien_tich || '';
     const loaiDat = existingDecl.loai_dat || findColVal([/loai dat/]) || p?.loai_dat || 'DGT';
@@ -811,7 +813,7 @@ export default function DashboardPage() {
       device_id: existingDecl.device_id || getOrCreateDeviceId(),
     };
 
-    if (baseDecl[fieldKey] === formattedValue) return;
+    if (baseDecl[fieldKey] === formattedValue && (!existingDecl.yeu_cau_thu_cccd || !formattedValue)) return;
 
     const updatedDecl: DeclarationFormData = {
       ...baseDecl,
@@ -821,6 +823,9 @@ export default function DashboardPage() {
       updatedDecl.chu_dat_cccd = formattedValue;
       updatedDecl.cccd_chu_ho = formattedValue;
       (updatedDecl as any).cccd = formattedValue;
+      if (formattedValue) {
+        delete (updatedDecl as any).yeu_cau_thu_cccd;
+      }
     }
     if (fieldKey === 'chu_dat_ten') {
       (updatedDecl as any).chu_ho = formattedValue;
@@ -5920,8 +5925,8 @@ export default function DashboardPage() {
                                       if (isVillageCol) {
                                         effectiveVal = cleanVillageDisplay(effectiveVal);
                                       }
-                                      const isForcedEmptyCccd = isCccdCol && Boolean(declForParcel?.yeu_cau_thu_cccd || declForParcel?.chu_dat_cccd === '');
-                                      const displayVal = isForcedEmptyCccd ? '' : (cellEdits[maThua]?.[cIdx] !== undefined ? cellEdits[maThua][cIdx] : effectiveVal);
+                                      const isForcedEmptyCccd = isCccdCol && Boolean(declForParcel?.yeu_cau_thu_cccd);
+                                      const displayVal = cellEdits[maThua]?.[cIdx] !== undefined ? cellEdits[maThua][cIdx] : (isForcedEmptyCccd ? '' : effectiveVal);
 
                                       // 1. Ô Nguồn gốc sử dụng đất (Dropdown Khai hoang / Thừa kế / Tặng cho trực tiếp)
                                        if (isOriginCol) {

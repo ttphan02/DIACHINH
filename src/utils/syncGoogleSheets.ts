@@ -445,7 +445,7 @@ export async function executeSyncToGoogleSheet(
         : '';
 
       // Nếu thửa đất bị lùi về Chưa có CCCD thì xóa hoàn toàn số CCCD, không lấy lại từ GGS
-      if (decl.yeu_cau_thu_cccd) {
+      if (decl.yeu_cau_thu_cccd && !decl.chu_dat_cccd) {
         cccd = '';
         cccdSource = '';
       } else if (!cccd && declNvKey && nameAndVillageToCccd.has(declNvKey)) {
@@ -498,8 +498,8 @@ export async function executeSyncToGoogleSheet(
         so_thua: thuaMoi,
         thon_xa: thonXa,
         chu_ho: cleanOwner,
-        cccd: decl.yeu_cau_thu_cccd ? '' : cccd,
-        cccd_source: decl.yeu_cau_thu_cccd ? '' : cccdSource,
+        cccd: (decl.yeu_cau_thu_cccd && !decl.chu_dat_cccd) ? '' : cccd,
+        cccd_source: (decl.yeu_cau_thu_cccd && !decl.chu_dat_cccd) ? '' : cccdSource,
         dien_tich: dienTich,
         loai_dat: loaiDat,
         dob: dob,
@@ -556,7 +556,7 @@ export async function executeSyncToGoogleSheet(
       }
 
       // NẾU THỬA ĐÃ ĐƯỢC CHỦ ĐỘNG ĐÁNH DẤU CHƯA CCCD (YÊU CẦU THU THẬP LẠI CCCD)
-      if (decl.yeu_cau_thu_cccd) {
+      if (decl.yeu_cau_thu_cccd && !decl.chu_dat_cccd) {
         stage1KhongCoCccd.push({
           ...item,
           cccd: '',
