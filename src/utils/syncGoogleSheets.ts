@@ -444,8 +444,11 @@ export async function executeSyncToGoogleSheet(
         ? `${chuHoStrict}__${declVillage}`
         : '';
 
-      // Chỉ lấy CCCD từ GGS khi cùng 1 thôn buôn theo đúng yêu cầu nghiệp vụ
-      if (!cccd && declNvKey && nameAndVillageToCccd.has(declNvKey)) {
+      // Nếu thửa đất bị lùi về Chưa có CCCD thì xóa hoàn toàn số CCCD, không lấy lại từ GGS
+      if (decl.yeu_cau_thu_cccd) {
+        cccd = '';
+        cccdSource = '';
+      } else if (!cccd && declNvKey && nameAndVillageToCccd.has(declNvKey)) {
         cccd = nameAndVillageToCccd.get(declNvKey)!;
         cccdSource = 'Khớp tên GGS cùng thôn buôn';
       } else if (!cccd && ggsP && ggsP.cccd && chuHoStrict && chuHoStrict === cleanStrictName(ggsP.chu_ho)) {
@@ -495,8 +498,8 @@ export async function executeSyncToGoogleSheet(
         so_thua: thuaMoi,
         thon_xa: thonXa,
         chu_ho: cleanOwner,
-        cccd,
-        cccd_source: cccdSource,
+        cccd: decl.yeu_cau_thu_cccd ? '' : cccd,
+        cccd_source: decl.yeu_cau_thu_cccd ? '' : cccdSource,
         dien_tich: dienTich,
         loai_dat: loaiDat,
         dob: dob,

@@ -4112,10 +4112,34 @@ export default function DashboardPage() {
                     if (selectedCodes.length === 0 || isMovingParcelsToUnpack) return;
                     setIsMovingParcelsToUnpack(true);
                     try {
+                      // 1. Thu thập tên chủ đất và CCCD của những người thuộc các thửa được chọn
+                      const targetOwners = new Set<string>();
+                      const targetCccds = new Set<string>();
+                      for (const code of selectedCodes) {
+                        const d = declarationsMap[code];
+                        const p = computedParcels.find((cp) => cp.ma_thua === code);
+                        const c = cleanCccd(d?.chu_dat_cccd || d?.cccd || p?.cccd || '');
+                        if (c) targetCccds.add(c);
+                        const n = cleanStrictName(d?.chu_dat_ten || d?.chu_ho || p?.chu_ho || '');
+                        if (n && n.length >= 2) targetOwners.add(n);
+                      }
+
+                      // 2. Tìm tất cả các thửa đất thuộc về người đó để cùng xóa CCCD và lùi về Chưa có CCCD
+                      const allPersonMaThuas = new Set<string>(selectedCodes);
+                      for (const [code, d] of Object.entries(declarationsMap)) {
+                        if (!d) continue;
+                        const c = cleanCccd(d.chu_dat_cccd || d.cccd || '');
+                        const n = cleanStrictName(d.chu_dat_ten || d.chu_ho || '');
+                        if ((c && targetCccds.has(c)) || (n && targetOwners.has(n))) {
+                          allPersonMaThuas.add(code);
+                        }
+                      }
+
                       const updatedDecls: DeclarationFormData[] = [];
                       const newlyUnpackedCodes: string[] = [];
+                      const updatedCellEdits = { ...cellEdits };
 
-                      for (const maThua of selectedCodes) {
+                      for (const maThua of allPersonMaThuas) {
                         const [toFromCode, thuaFromCode] = maThua.split('_');
                         const p = computedParcels.find((cp) => cp.ma_thua === maThua);
                         const existingDecl = declarationsMap[maThua] || {
@@ -4135,13 +4159,34 @@ export default function DashboardPage() {
                           cccd_chu_ho: '',
                           cccd: '',
                           cccd_url: '',
+                          file_cccd_pdf: '',
+                          cccd_file: '',
+                          anh_cccd_truoc: '',
+                          anh_cccd_sau: '',
                           yeu_cau_thu_cccd: true,
                           ghi_chu: 'Yêu cầu thu thập lại CCCD',
                         };
                         saveOrUpdateDeclaration(updatedDecl);
                         updatedDecls.push(updatedDecl);
                         newlyUnpackedCodes.push(maThua);
+
+                        // Xóa sạch giá trị CCCD trong cellEdits của thửa này nếu có
+                        if (updatedCellEdits[maThua]) {
+                          const copy = { ...updatedCellEdits[maThua] };
+                          for (const colKey of Object.keys(copy)) {
+                            const val = String(copy[Number(colKey)] || '').replace(/\D/g, '');
+                            if (val.length === 12 || val.length === 9 || Number(colKey) === 6) {
+                              copy[Number(colKey)] = '';
+                            }
+                          }
+                          updatedCellEdits[maThua] = copy;
+                        }
                       }
+
+                      setCellEdits(updatedCellEdits);
+                      try {
+                        localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(updatedCellEdits));
+                      } catch {}
 
                       if (updatedDecls.length > 0) {
                         // Cập nhật declarationsMap
@@ -4169,10 +4214,14 @@ export default function DashboardPage() {
                             ...remainingPackRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
                           ];
 
+                          const cccdIdxInUnpack = headerUnpack.findIndex((h) => /cccd|định danh/i.test(h));
                           const newlyUnpackedRows = movedRows.map((r) => {
                             const rowCopy = [...r];
+                            if (cccdIdxInUnpack !== -1) {
+                              rowCopy[cccdIdxInUnpack] = '';
+                            }
                             if (rowCopy.length > 6) {
-                              rowCopy[6] = ''; // Xóa hiển thị CCCD
+                              rowCopy[6] = '';
                             }
                             return rowCopy;
                           });
@@ -5852,8 +5901,12 @@ export default function DashboardPage() {
                                           effectiveVal = declForParcel.chu_dat_nam_sinh;
                                         } else if (isGenderCol && declForParcel.chu_dat_gioi_tinh) {
                                           effectiveVal = declForParcel.chu_dat_gioi_tinh;
-                                        } else if (isCccdCol && (declForParcel.chu_dat_cccd || declForParcel.cccd)) {
-                                          effectiveVal = cleanCccd(declForParcel.chu_dat_cccd || declForParcel.cccd);
+                                        } else if (isCccdCol) {
+                                          if (declForParcel?.yeu_cau_thu_cccd || declForParcel?.chu_dat_cccd === '') {
+                                            effectiveVal = '';
+                                          } else if (declForParcel?.chu_dat_cccd || declForParcel?.cccd) {
+                                            effectiveVal = cleanCccd(declForParcel.chu_dat_cccd || declForParcel.cccd);
+                                          }
                                         } else if (isVillageCol && (declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi || declForParcel.thon_xa)) {
                                           effectiveVal = cleanVillageDisplay(declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi || declForParcel.thon_xa);
                                         } else if (isOriginCol && (declForParcel.nguon_goc || declForParcel.nguon_goc_su_dung)) {
@@ -5867,7 +5920,8 @@ export default function DashboardPage() {
                                       if (isVillageCol) {
                                         effectiveVal = cleanVillageDisplay(effectiveVal);
                                       }
-                                      const displayVal = cellEdits[maThua]?.[cIdx] !== undefined ? cellEdits[maThua][cIdx] : effectiveVal;
+                                      const isForcedEmptyCccd = isCccdCol && Boolean(declForParcel?.yeu_cau_thu_cccd || declForParcel?.chu_dat_cccd === '');
+                                      const displayVal = isForcedEmptyCccd ? '' : (cellEdits[maThua]?.[cIdx] !== undefined ? cellEdits[maThua][cIdx] : effectiveVal);
 
                                       // 1. Ô Nguồn gốc sử dụng đất (Dropdown Khai hoang / Thừa kế / Tặng cho trực tiếp)
                                        if (isOriginCol) {
