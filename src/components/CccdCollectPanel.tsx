@@ -425,7 +425,7 @@ export default function CccdCollectPanel({
     setCorrectedName(person.name);
     setTargetVillage(person.thonXa);
 
-    let currentNguonGoc = NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
+    let currentNguonGoc = 'Khai Hoang';
     for (const maThua of person.maThuaList) {
       const decl = declarationsMap[maThua];
       if (decl?.nguon_goc_su_dung) {

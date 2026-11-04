@@ -144,13 +144,13 @@ export async function POST(request: Request) {
       const gioiTinhVal = (item.gioi_tinh || item.chu_dat_gioi_tinh || 'Nam').toLowerCase().includes('nữ') ? 'Nữ' : 'Nam';
       const diaChiThuongTru = item.dia_chi_thuong_tru || item.chu_dat_dia_chi || item.thon_xa || 'xã Cư Pui';
       const diaChiThuaDat = item.dia_chi_thua_dat || item.thon_xa || 'Xã Cư Pui, tỉnh Đắk Lắk';
-      // Mặc định tất cả đất nông nghiệp là "Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất"
+      // Khi nhập trên web kh2959bmt: đất nông nghiệp khai hoang chọn "Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất"
       const isAgri = isAgriculturalLand(loaiDat);
       let nguonGocVal = (item.nguon_goc || '').trim();
-      if (!nguonGocVal || nguonGocVal.toLowerCase().includes('khai hoang')) {
-        nguonGocVal = isAgri ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai hoang';
-      } else {
-        nguonGocVal = normalizeNguonGoc(nguonGocVal, loaiDat);
+      if (isAgri && (!nguonGocVal || nguonGocVal.toLowerCase().includes('khai hoang') || nguonGocVal.toLowerCase().includes('cong nhan') || nguonGocVal.toLowerCase().includes('khong thu tien'))) {
+        nguonGocVal = NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
+      } else if (!nguonGocVal) {
+        nguonGocVal = 'Khai hoang';
       }
 
       // Tạo cấu trúc payload chuẩn

@@ -671,7 +671,7 @@ export default function DashboardPage() {
         chu_dat_dia_chi: p.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'xã Cư Pui',
         dien_tich: p.dien_tich,
         loai_dat: p.loai_dat,
-        nguon_goc: isAgriculturalLand(p.loai_dat) ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai hoang',
+        nguon_goc: 'Khai hoang',
       };
       handleOpenEditDeclaration(p, decl);
     }
@@ -786,7 +786,7 @@ export default function DashboardPage() {
     const diaChiThua = existingDecl.dia_chi_thua_dat || existingDecl.chu_dat_dia_chi || findColVal([/thon/, /buon/]) || (p?.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'Xã Cư Pui');
     const dienTich = existingDecl.dien_tich || findColVal([/dien tich/]) || p?.dien_tich || '';
     const loaiDat = existingDecl.loai_dat || findColVal([/loai dat/]) || p?.loai_dat || 'DGT';
-    const defaultOrigin = isAgriculturalLand(loaiDat) ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai hoang';
+    const defaultOrigin = 'Khai hoang';
     const nguonGoc = existingDecl.nguon_goc || existingDecl.nguon_goc_su_dung || findColVal([/nguon goc/]) || defaultOrigin;
 
     const formattedValue = fieldKey === 'chu_dat_cccd' ? cleanCccd(newValue) : newValue.trim();
@@ -2171,14 +2171,14 @@ export default function DashboardPage() {
       return num.toFixed(2).replace('.', ',');
     };
 
-    // Helper chuẩn hóa nguồn gốc sử dụng đất
+    // Helper chuẩn hóa nguồn gốc sử dụng đất (ghi Khai hoang, Thừa kế, Chuyển nhượng bình thường)
     const formatOrigin57 = (val: any) => {
-      if (!val) return NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
+      if (!val) return 'Khai hoang';
       const s = String(val).toLowerCase();
       if (s.includes('thừa kế') || s.includes('thua ke')) return 'Nhận thừa kế';
       if (s.includes('chuyển nhượng') || s.includes('chuyen nhuong')) return 'Nhận chuyển nhượng';
       if (s.includes('tặng cho') || s.includes('tang cho')) return 'Tặng cho';
-      if (s.includes('khong thu tien') || s.includes('cong nhan') || s.includes('khai hoang')) return NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
+      if (s.includes('khai hoang') || s.includes('khong thu tien') || s.includes('cong nhan')) return 'Khai hoang';
       return String(val).trim();
     };
 

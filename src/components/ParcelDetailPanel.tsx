@@ -312,7 +312,7 @@ export default function ParcelDetailPanel({
       setIsCheckingCccd(false);
     }
   }, [chuDatCccd, allParcels]);
-  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>(NGUON_GOC_NN_GIAO_KHONG_THU_TIEN);
+  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai Hoang');
   const [nguoiKeKhaiTen, setNguoiKeKhaiTen] = useState('');
   const [nguoiKeKhaiSdt, setNguoiKeKhaiSdt] = useState('');
   const [ghiChu, setGhiChu] = useState('');
@@ -442,7 +442,7 @@ export default function ParcelDetailPanel({
         setChuDatGioiTinh(parcel.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
         setChuDatCccd(cleanCccd(parcel.cccd || ''));
         setChuDatDiaChi(formatThonAddress(undefined, parcel.thon_xa));
-        setNguonGocSuDung(isAgriculturalLand(parcel?.loai_dat) ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai Hoang');
+        setNguonGocSuDung('Khai Hoang');
 
         setGgsLookupStatus(null);
         if (initName && initName.split(/\s+/).length >= 2) {

@@ -126,7 +126,7 @@ export default function ParcelDetailModal({
   }, [chuDatCccd]);
 
   const [chuDatDiaChi, setChuDatDiaChi] = useState(formatThonAddress(parcel?.thon_xa));
-  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>(isAgriculturalLand(parcel?.loai_dat) ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai Hoang');
+  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai Hoang');
   const [ghiChu, setGhiChu] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
 

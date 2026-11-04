@@ -144,7 +144,7 @@ export default function DeclarationEditModal({
       setIsCheckingCccd(false);
     }
   }, [chuDatCccd]);
-  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>(NGUON_GOC_NN_GIAO_KHONG_THU_TIEN);
+  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai Hoang');
   const [giapDong, setGiapDong] = useState('');
   const [giapTay, setGiapTay] = useState('');
   const [giapNam, setGiapNam] = useState('');
@@ -260,7 +260,7 @@ export default function DeclarationEditModal({
       setChuDatGioiTinh(parcel.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
       setChuDatCccd('');
       setChuDatDiaChi(formatThonAddress(undefined, parcel.thon_xa));
-      setNguonGocSuDung(isAgriculturalLand(parcel?.loai_dat) ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai Hoang');
+      setNguonGocSuDung('Khai Hoang');
       setGiapDong(cleanBoundaryText(parcel.giap_dong || ''));
       setGiapTay(cleanBoundaryText(parcel.giap_tay || ''));
       setGiapNam(cleanBoundaryText(parcel.giap_nam || ''));

@@ -306,7 +306,7 @@ export default function Home() {
           dien_tich: p.dien_tich,
           loai_dat: p.loai_dat,
           thon_xa: p.thon_xa,
-          nguon_goc: isAgriculturalLand(p.loai_dat) ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai hoang',
+          nguon_goc: 'Khai hoang',
         },
       ];
     });
@@ -915,7 +915,7 @@ export default function Home() {
               dien_tich: latest.dien_tich,
               loai_dat: latest.loai_dat,
               thon_xa: latest.thon_xa,
-              nguon_goc: isAgriculturalLand(p.loai_dat) ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai hoang',
+              nguon_goc: 'Khai hoang',
             },
           ];
         }

@@ -103,7 +103,6 @@ export const NGUON_GOC_NN_GIAO_KHONG_THU_TIEN =
   'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất';
 
 export const NGUON_GOC_OPTIONS = [
-  'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất',
   'Khai Hoang',
   'Thừa Kế',
   'Tặng Cho',
@@ -122,31 +121,22 @@ export function isAgriculturalLand(loaiDat?: string): boolean {
 
 // Nhãn ngắn gọn hiển thị trên các nút bấm UI
 export function getNguonGocShortLabel(val?: string): string {
-  if (!val) return 'Công nhận QSDĐ';
-  const s = stripAccents(val).toLowerCase();
-  if (s.includes('khong thu tien') || s.includes('cong nhan') || s.includes('giao dat')) {
-    return 'Công nhận (Không thu tiền)';
-  }
+  if (!val) return 'Khai Hoang';
   return val;
 }
 
-// Chuẩn hóa nguồn gốc sử dụng đất về các nhóm chuẩn
+// Chuẩn hóa nguồn gốc sử dụng đất về các nhóm chuẩn (Khai hoang, Thừa kế, Chuyển nhượng, Tặng cho)
 export function normalizeNguonGoc(val?: string, loaiDat?: string): string {
-  const isAgri = isAgriculturalLand(loaiDat);
-  if (!val) {
-    return isAgri ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai Hoang';
-  }
+  if (!val) return 'Khai Hoang';
   const s = stripAccents(val).toLowerCase();
   if (s.includes('thua ke')) return 'Thừa Kế';
   if (s.includes('tang cho')) return 'Tặng Cho';
   if (s.includes('chuyen nhuong')) return 'Chuyển Nhượng';
+  if (s.includes('khai hoang')) return 'Khai Hoang';
   if (s.includes('khong thu tien') || s.includes('cong nhan') || s.includes('giao dat')) {
-    return NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
+    return 'Khai Hoang';
   }
-  if (s.includes('khai hoang')) {
-    return isAgri ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : 'Khai Hoang';
-  }
-  return isAgri ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : val.trim();
+  return val.trim();
 }
 
 // Kiểm tra tính hợp lệ của CCCD: đúng 12 chữ số (hoặc 9 số CMND)
