@@ -25,6 +25,8 @@ import type { ReadyToPackItem } from '@/utils/pdfPacker';
 import digitizedParcelsData from '@/data/digitized_parcels.json';
 const DIGITIZED_SET = new Set(digitizedParcelsData as string[]);
 import hiddenParcelsData from '@/data/hidden_parcels.json';
+import kh2959Nhom1Data from '@/data/kh2959_nhom1.json';
+const KH2959_NHOM1_SET = new Set(kh2959Nhom1Data as string[]);
 const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
 import prefilledKh2959Data from '@/data/kh2959_imported.json';
 
@@ -39,7 +41,7 @@ const sanitizeSheetsPayload = (sheets: Record<string, string[][]> | null | undef
     const headers = rows[0];
     const filteredRows = rows.slice(1).filter((r) => {
       const ma = String(r[1] || '').trim();
-      if (ma && HIDDEN_PARCEL_SET.has(ma)) return false;
+      if (sName !== 'KH2959 - NHÓM 1' && ma && HIDDEN_PARCEL_SET.has(ma)) return false;
       return true;
     });
     filteredRows.forEach((r, idx) => {
@@ -1528,6 +1530,14 @@ export default function DashboardPage() {
       return hasCccdAndFile(rawCccd, cccdUrl, r2CccdSet);
     });
   }, [nonGgsParcels, declaredParcelCodes, declarationsMap, cellEdits, hasCccdAndFile, r2CccdSet]);
+
+  // Danh sách 82 thửa đất đã thuộc Nhóm 1 trên KH2959 (không cần nhập biểu)
+  const kh2959Nhom1Parcels = useMemo(() => {
+    const pMap = new Map(parcels.map((p) => [p.ma_thua, p]));
+    return (kh2959Nhom1Data as string[])
+      .map((code) => pMap.get(code))
+      .filter(Boolean) as Parcel[];
+  }, [parcels]);
 
   // Danh sách thửa đất ONT chờ bổ sung sau (GCN - ONT) - GIỮ ĐỦ 226 THỬA ĐẤT ONT ĐÃ KÊ KHAI
   const gcnOntParcels = useMemo(() => {
@@ -3062,6 +3072,30 @@ export default function DashboardPage() {
                 <span className="text-[10px] font-medium">GCN - ONT:</span>
                 <strong className="font-black">{displayCountGcnOnt}</strong>
               </button>
+
+              {/* 6. KH2959 - NHÓM 1 (82 thửa đã có dữ liệu từ trước) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedReportSheet('KH2959 - NHÓM 1');
+                  setActiveTab('progressReport');
+                  setReportPage(1);
+                  setReportSearchQuery('');
+                }}
+                className={`flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs transition cursor-pointer border ${
+                  selectedReportSheet === 'KH2959 - NHÓM 1' && activeTab === 'progressReport'
+                    ? 'bg-blue-600 text-white border-blue-600 font-black shadow-xs ring-1 ring-blue-400'
+                    : isLight
+                    ? 'bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-800'
+                    : 'bg-blue-950/50 hover:bg-blue-900/60 border-blue-800/60 text-blue-300'
+                }`}
+                title="Danh sách 82 thửa đất đã thuộc Nhóm 1 trên KH2959 (đã có dữ liệu từ trước, không cần nhập biểu)"
+              >
+                <ShieldCheck className="w-3 h-3 text-blue-500 shrink-0" />
+                <span className="text-[10px] font-medium">Nhóm 1 KH2959:</span>
+                <strong className="font-black">{kh2959Nhom1Parcels.length}</strong>
+              </button>
+
             </div>
           </div>
 
@@ -3517,14 +3551,41 @@ export default function DashboardPage() {
                         cccdFormula
                       ];
                     });
-                    rawSheet = [headersGcnOnt, ...rowsGcnOnt];
+                  }
+
+                  // Fallback 6: KH2959 - NHÓM 1 (82 thửa đã có dữ liệu từ trước)
+                  if (selectedReportSheet === 'KH2959 - NHÓM 1') {
+                    const headersNhom1 = [
+                      'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Chủ hộ (dự kiến)',
+                      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Phân loại KH2959', 'Ghi chú'
+                    ];
+                    const rowsNhom1 = kh2959Nhom1Parcels.map((p, idx) => {
+                      const [soTo, soThua] = p.ma_thua.split('_');
+                      const cccdText = p.cccd ? `="${cleanCccd(p.cccd)}"` : 'Chưa có';
+                      return [
+                        String(idx + 1),
+                        p.ma_thua,
+                        soTo || '',
+                        soThua || '',
+                        p.thon_xa || 'Chưa rõ thôn',
+                        cleanName(p.chu_ho || 'Chưa có tên'),
+                        (p as any).ngay_sinh || '',
+                        (p as any).gioi_tinh || 'Nam',
+                        cccdText,
+                        p.dien_tich || '0',
+                        p.loai_dat || 'DGT',
+                        'Nhóm 1',
+                        'Đã có dữ liệu từ trước trên KH2959 (không cần nhập biểu)'
+                      ];
+                    });
+                    rawSheet = [headersNhom1, ...rowsNhom1];
                   }
 
                   let headers = [...(rawSheet[0] || [])];
                   let allRows = (rawSheet.slice(1) || [])
                     .filter((r) => {
                       const ma = String(r[1] || '').trim();
-                      if (ma && HIDDEN_PARCEL_SET.has(ma)) return false;
+                      if (selectedReportSheet !== 'KH2959 - NHÓM 1' && ma && HIDDEN_PARCEL_SET.has(ma)) return false;
                       return true;
                     })
                     .map((r) => [...r]);

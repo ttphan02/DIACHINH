@@ -6,6 +6,7 @@ import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import parcelsBriefData from '@/data/parcels_brief.json';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
 const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
+import kh2959Nhom1Data from '@/data/kh2959_nhom1.json';
 import { fetchOrGetCachedGgsData } from '@/utils/ggsData';
 
 // parcelsBrief: ma_thua -> [dien_tich, loai_dat, thon_xa, statusFlag (0: KHONG_TEN, 1: CO_TEN, 2: DA_SO_HOA)]
@@ -736,6 +737,24 @@ export async function executeSyncToGoogleSheet(
     });
     sheetsData['GCN - ONT'] = rowsGcnOnt;
 
+    // SHEET: KH2959 - NHÓM 1 (82 thửa đã có dữ liệu từ trước)
+    const headersNhom1 = [
+      'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất (dự kiến)',
+      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Phân loại KH2959', 'Ghi chú'
+    ];
+    const rowsNhom1: string[][] = [headersNhom1];
+    (kh2959Nhom1Data as string[]).forEach((code, idx) => {
+      const b = parcelsBrief[code];
+      const [to, thua] = code.split('_');
+      rowsNhom1.push([
+        String(idx + 1), code, to || '', thua || '', (b && b[2]) || 'Chưa rõ thôn',
+        'Chưa có tên', '', 'Nam', 'Chưa có',
+        (b && b[0]) || '0', (b && b[1]) || 'DGT', 'Nhóm 1',
+        'Đã có dữ liệu từ trước trên KH2959 (không cần nhập biểu)'
+      ]);
+    });
+    sheetsData['KH2959 - NHÓM 1'] = rowsNhom1;
+
     // SHEET 1: THỐNG KÊ (Bảng chỉ số tổng quan & Bảng 16 thôn buôn)
     const totalDeclared = processedParcels.size;
     const rowsTk: string[][] = [
@@ -900,6 +919,7 @@ export async function executeSyncToGoogleSheet(
     sheetsData['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] = padRectangular(rowsPack);
     sheetsData['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] = padRectangular(rowsUnpack);
     sheetsData['GCN - ONT'] = padRectangular(rowsGcnOnt);
+    sheetsData['KH2959 - NHÓM 1'] = padRectangular(rowsNhom1);
 
     // 4. Trả về cấu trúc dữ liệu nội bộ (Hoàn toàn đóng gói trên Web / R2, không gửi Webhook ra ngoài)
     console.log('>>> Thống kê & Phân loại nội bộ hoàn tất 100% trong Web/R2');
