@@ -269,7 +269,8 @@ export default function CccdCollectPanel({
       if (!name || name === 'Chưa có tên') continue;
 
       // NẾU TÊN NÀO ĐÃ CÓ CCCD TRONG R2 THÌ BỎ TÊN ĐÓ KHỎI DANH SÁCH (Tra cứu O(1))
-      if (hasCccdInR2(decl, name)) {
+      // Trừ khi thửa được chủ động đánh dấu yêu cầu thu thập lại CCCD (yeu_cau_thu_cccd)
+      if (!decl.yeu_cau_thu_cccd && hasCccdInR2(decl, name)) {
         continue;
       }
 

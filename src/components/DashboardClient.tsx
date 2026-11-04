@@ -63,6 +63,7 @@ import {
   PieChart,
   Users,
   UserCheck,
+  UserX,
   CheckCircle2,
   Clock,
   AlertTriangle,
@@ -253,6 +254,7 @@ export default function DashboardPage() {
   const [inlineSaveToast, setInlineSaveToast] = useState<string | null>(null);
   const [isExportMissingCccdOpen, setIsExportMissingCccdOpen] = useState(false);
   const [isCommittingAllReady, setIsCommittingAllReady] = useState(false);
+  const [isMovingParcelsToUnpack, setIsMovingParcelsToUnpack] = useState(false);
 
   // Trạng thái nhập hồ sơ tự động lên web KH2959 (khởi tạo với các thửa đã được kiểm tra thực tế trên KH2959)
   const [kh2959ImportedCodes, setKh2959ImportedCodes] = useState<Set<string>>(() => {
@@ -1520,6 +1522,7 @@ export default function DashboardPage() {
       if (!isDeclared) return false;
 
       const decl = declarationsMap[p.ma_thua] || {};
+      if (decl.yeu_cau_thu_cccd) return false;
       const edits = cellEdits[p.ma_thua] || {};
       const loaiDat = String(edits[8] ?? decl.loai_dat ?? p.loai_dat ?? '').trim();
       // Nếu loại đất là ONT hoặc có ONT: Tự động chuyển qua danh sách "GCN - ONT" để bổ sung sau
@@ -1572,6 +1575,8 @@ export default function DashboardPage() {
       const edits = cellEdits[p.ma_thua] || {};
       const loaiDat = String(edits[8] ?? decl.loai_dat ?? p.loai_dat ?? '').trim();
       if (/ont/i.test(loaiDat)) return false;
+
+      if (decl.yeu_cau_thu_cccd) return true;
 
       const rawCccd = edits[6] ?? decl.chu_dat_cccd ?? decl.cccd_chu_ho ?? decl.cccd ?? p.cccd;
       const cccdUrl = decl.cccd_url || p.cccd_url;
@@ -4101,6 +4106,131 @@ export default function DashboardPage() {
                     }
                   };
 
+                  // Chuyển các thửa đã chọn từ "Sẵn sàng đóng tập" về "Chưa có CCCD" để thu thập lại
+                  const handleMoveSelectedToUnpack = async (customCodes?: string[]) => {
+                    const selectedCodes = customCodes || Array.from(readyToPackSelectedCodes);
+                    if (selectedCodes.length === 0 || isMovingParcelsToUnpack) return;
+                    setIsMovingParcelsToUnpack(true);
+                    try {
+                      const updatedDecls: DeclarationFormData[] = [];
+                      const newlyUnpackedCodes: string[] = [];
+
+                      for (const maThua of selectedCodes) {
+                        const [toFromCode, thuaFromCode] = maThua.split('_');
+                        const p = computedParcels.find((cp) => cp.ma_thua === maThua);
+                        const existingDecl = declarationsMap[maThua] || {
+                          ma_thua: maThua,
+                          to_ban_do: toFromCode || '',
+                          so_thua: thuaFromCode || '',
+                          chu_dat_ten: p?.chu_ho || 'Chủ sử dụng',
+                          chu_dat_cccd: '',
+                          chu_dat_dia_chi: p?.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'xã Cư Pui',
+                          dien_tich: p?.dien_tich || '1000',
+                          loai_dat: p?.loai_dat || 'DGT',
+                          nguon_goc: 'Khai hoang',
+                        };
+                        const updatedDecl: DeclarationFormData = {
+                          ...existingDecl,
+                          chu_dat_cccd: '',
+                          cccd_chu_ho: '',
+                          cccd: '',
+                          cccd_url: '',
+                          yeu_cau_thu_cccd: true,
+                          ghi_chu: 'Yêu cầu thu thập lại CCCD',
+                        };
+                        saveOrUpdateDeclaration(updatedDecl);
+                        updatedDecls.push(updatedDecl);
+                        newlyUnpackedCodes.push(maThua);
+                      }
+
+                      if (updatedDecls.length > 0) {
+                        // Cập nhật declarationsMap
+                        const newMap = { ...declarationsMap };
+                        updatedDecls.forEach((d) => {
+                          newMap[d.ma_thua] = d;
+                        });
+                        setDeclarationsMap(newMap);
+
+                        // Optimistic UI Update: Di chuyển ngay lập tức giữa 2 sheet
+                        const movedMaThuas = new Set(selectedCodes);
+                        setSyncSheetsData((prev) => {
+                          if (!prev) return prev;
+                          const oldPack = prev['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || [];
+                          const oldUnpack = prev['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] || [];
+
+                          const headerPack = oldPack[0] || [];
+                          const headerUnpack = oldUnpack[0] || [];
+
+                          const movedRows = oldPack.slice(1).filter((r) => movedMaThuas.has(String(r[1] || '').trim()));
+                          const remainingPackRows = oldPack.slice(1).filter((r) => !movedMaThuas.has(String(r[1] || '').trim()));
+
+                          const newPack = [
+                            headerPack,
+                            ...remainingPackRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
+                          ];
+
+                          const newlyUnpackedRows = movedRows.map((r) => {
+                            const rowCopy = [...r];
+                            if (rowCopy.length > 6) {
+                              rowCopy[6] = ''; // Xóa hiển thị CCCD
+                            }
+                            return rowCopy;
+                          });
+
+                          const mergedUnpackRows = [...oldUnpack.slice(1), ...newlyUnpackedRows];
+                          const newUnpack = [
+                            headerUnpack,
+                            ...mergedUnpackRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
+                          ];
+
+                          return {
+                            ...prev,
+                            'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)': newPack,
+                            'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)': newUnpack,
+                          };
+                        });
+
+                        setSyncSummary((prev) => {
+                          if (!prev) return prev;
+                          return {
+                            ...prev,
+                            daDongTap: Math.max(0, (prev.daDongTap || 0) - updatedDecls.length),
+                            khongCoCccd: (prev.khongCoCccd || 0) + updatedDecls.length,
+                          };
+                        });
+
+                        // Xóa selection
+                        setReadyToPackSelectedCodes((prev) => {
+                          const next = new Set(prev);
+                          selectedCodes.forEach((c) => next.delete(c));
+                          return next;
+                        });
+
+                        // Gửi batch lưu lên Cloudflare R2
+                        const res = await fetch('/api/declarations', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ batch: updatedDecls }),
+                        });
+                        if (res.ok) {
+                          const data = (await res.json()) as any;
+                          if (data && data.declaredCodes) {
+                            setDeclaredParcelCodes(new Set(data.declaredCodes));
+                            setDeclarationsMap(data.declarationsMap || {});
+                          }
+                        }
+                      }
+
+                      setInlineSaveToast(`✓ Đã chuyển ${updatedDecls.length} thửa về danh sách "Chưa có CCCD" để thu thập lại!`);
+                      setTimeout(() => setInlineSaveToast(null), 4000);
+                      await fetchSyncSheetsReport(true);
+                    } catch (err) {
+                      console.error('Lỗi chuyển thửa về Chưa CCCD:', err);
+                    } finally {
+                      setIsMovingParcelsToUnpack(false);
+                    }
+                  };
+
                   // Trích xuất thông tin thửa đất từ dòng trong bảng
                   const extractParcelFromRow = (r: any[]) => {
                     const maThua = String(r[1] || '').trim();
@@ -4480,12 +4610,32 @@ export default function DashboardPage() {
                               ) : (
                                 <>
                                   {readyToPackSelectedCodes.size > 0 ? (
-                                    <button
-                                      type="button"
-                                      disabled={isPackagingPdf}
-                                      onClick={() => handleGenerateReadyToPackPdf(Array.from(readyToPackSelectedCodes))}
-                                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-600/30 disabled:opacity-75"
-                                    >
+                                    <>
+                                      <button
+                                        type="button"
+                                        disabled={isMovingParcelsToUnpack || isPackagingPdf}
+                                        onClick={() => handleMoveSelectedToUnpack()}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer bg-gradient-to-r from-rose-600 via-pink-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white shadow-rose-600/30 disabled:opacity-75"
+                                        title="Chuyển các thửa đã chọn về danh sách Chưa có CCCD để cán bộ đi thu thập lại CCCD"
+                                      >
+                                        {isMovingParcelsToUnpack ? (
+                                          <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                                        ) : (
+                                          <UserX className="w-3.5 h-3.5 text-rose-200" />
+                                        )}
+                                        <span>
+                                          {isMovingParcelsToUnpack
+                                            ? 'Đang chuyển...'
+                                            : `Chưa CCCD (${readyToPackSelectedCodes.size} thửa)`}
+                                        </span>
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        disabled={isPackagingPdf}
+                                        onClick={() => handleGenerateReadyToPackPdf(Array.from(readyToPackSelectedCodes))}
+                                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-600/30 disabled:opacity-75"
+                                      >
                                       {isPackagingPdf ? (
                                         <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
                                       ) : (
@@ -4497,6 +4647,7 @@ export default function DashboardPage() {
                                           : `Đóng Tập (${readyToPackSelectedCodes.size} thửa đã chọn)`}
                                       </span>
                                     </button>
+                                    </>
                                   ) : unpackedFilteredCodes.length > 0 ? (
                                     <>
                                       <button
@@ -6024,6 +6175,21 @@ export default function DashboardPage() {
                                                   <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500" />
                                                   <span>Đủ TT</span>
                                                 </span>
+                                              )}
+                                              {isReadyToPackSheet && (
+                                                <button
+                                                  type="button"
+                                                  disabled={isMovingParcelsToUnpack}
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleMoveSelectedToUnpack([maThua]);
+                                                  }}
+                                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 cursor-pointer shrink-0 transition"
+                                                  title="Chuyển thửa này về danh sách Chưa có CCCD để thu thập lại"
+                                                >
+                                                  <UserX className="w-2.5 h-2.5" />
+                                                  <span>Chưa CCCD</span>
+                                                </button>
                                               )}
                                               {isReadyToPackSheet && (
                                                 packagedParcelCodes.has(maThua) ? (

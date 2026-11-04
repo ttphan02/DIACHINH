@@ -107,6 +107,7 @@ export interface DeclarationFormData {
   anh_gcn?: string;
   anh_gcn_list?: string[];
   ghi_chu?: string;
+  yeu_cau_thu_cccd?: boolean; // Đánh dấu chủ động yêu cầu thu thập lại CCCD (chuyển từ Có CCCD về Chưa CCCD)
   // Các trường phụ trợ
   mode?: DeclarationMode;
   nguoi_ke_khai_ten?: string;

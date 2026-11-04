@@ -552,6 +552,18 @@ export async function executeSyncToGoogleSheet(
         continue;
       }
 
+      // NẾU THỬA ĐÃ ĐƯỢC CHỦ ĐỘNG ĐÁNH DẤU CHƯA CCCD (YÊU CẦU THU THẬP LẠI CCCD)
+      if (decl.yeu_cau_thu_cccd) {
+        stage1KhongCoCccd.push({
+          ...item,
+          cccd: '',
+          cccd_source: '',
+          phan_loai: 'KHÔNG CÓ CCCD',
+          ghi_chu: 'Yêu cầu thu thập lại CCCD',
+        });
+        continue;
+      }
+
       // GIAI ĐOẠN 2: CÓ CCCD TRÊN R2 (Theo người dân, không phụ thuộc mã thửa)
       let foundCccd = '';
 
