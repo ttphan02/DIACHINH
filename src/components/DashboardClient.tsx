@@ -6260,10 +6260,10 @@ export default function DashboardPage() {
                                                  isImportedWeb ? (
                                                    <span
                                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0"
-                                                     title="Đã chuyển sang danh sách Đã số hóa"
+                                                     title="Đã nộp thành công lên Web KH2959"
                                                    >
                                                      <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500" />
-                                                     <span>Đã số hóa</span>
+                                                     <span>Đã nộp KH2959</span>
                                                    </span>
                                                  ) : (
                                                    <span

@@ -109,13 +109,58 @@ export default function CccdSupplementModal({
   // ============================================================================
   // HÀM TIỆN ÍCH DÙNG CHUNG
   // ============================================================================
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
+  // Nén ảnh bằng HTML5 Canvas phía Client để triệt tiêu vĩnh viễn lỗi Cloudflare Worker Error 1102 (503 OOM)
+  const compressImageFile = async (file: File, maxDim = 1400, quality = 0.82): Promise<string> => {
+    return new Promise((resolve) => {
+      if (file.type === 'application/pdf') {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(file);
+        return;
+      }
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, width);
+        canvas.height = Math.max(1, height);
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(file);
+      };
+      img.onerror = () => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(file);
+      };
+      img.src = objectUrl;
     });
+  };
+
+  const fileToBase64 = (file: File): Promise<string> => {
+    return compressImageFile(file);
   };
 
   const ocrImageWithAi = async (b64: string): Promise<{ so_cccd?: string; ho_va_ten?: string; nam_sinh?: string; gioi_tinh?: string }> => {
@@ -143,16 +188,16 @@ export default function CccdSupplementModal({
   // ============================================================================
   // LOGIC XỬ LÝ CHẾ ĐỘ ĐƠN LẺ
   // ============================================================================
-  const readAndProcessSingleImage = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const b64 = event.target?.result as string;
+  const readAndProcessSingleImage = async (file: File) => {
+    try {
+      const b64 = await compressImageFile(file);
       setImageFile(b64);
       setResultInfo(null);
       setErrorMessage('');
       triggerAiOcrSingle(b64);
-    };
-    reader.readAsDataURL(file);
+    } catch (err: any) {
+      setErrorMessage('Lỗi xử lý ảnh: ' + (err?.message || 'Không thể đọc file'));
+    }
   };
 
   const triggerAiOcrSingle = async (b64: string) => {

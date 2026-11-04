@@ -246,7 +246,7 @@ export async function POST(request: Request) {
 
     // Cập nhật thông tin phiếu kê khai nếu có liên kết thửa hoặc trùng số CCCD
     let updatedDeclarations: Record<string, any> = {};
-    if (bucket) {
+    if (!skipSync && bucket) {
       try {
         const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
         if (declObj) {
