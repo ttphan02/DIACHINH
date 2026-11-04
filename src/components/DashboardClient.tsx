@@ -6231,21 +6231,6 @@ export default function DashboardPage() {
                                                 </span>
                                               )}
                                               {isReadyToPackSheet && (
-                                                <button
-                                                  type="button"
-                                                  disabled={isMovingParcelsToUnpack}
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleMoveSelectedToUnpack([maThua]);
-                                                  }}
-                                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 cursor-pointer shrink-0 transition"
-                                                  title="Chuyển thửa này về danh sách Chưa có CCCD để thu thập lại"
-                                                >
-                                                  <UserX className="w-2.5 h-2.5" />
-                                                  <span>Chưa CCCD</span>
-                                                </button>
-                                              )}
-                                              {isReadyToPackSheet && (
                                                 packagedParcelCodes.has(maThua) ? (
                                                   <button
                                                     type="button"
