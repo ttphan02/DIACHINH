@@ -205,8 +205,6 @@ async function saveDeclarationsToR2(payload: StoragePayload): Promise<{ success:
       await bucket.put(KEY_ALL_DECLARATIONS, jsonStr, {
         httpMetadata: { contentType: 'application/json' },
       });
-      // Xóa cache bất đồng bộ không await để không làm chậm request
-      bucket.delete('cache/sync_sheets.json').catch(() => {});
       return { success: true };
     } catch (err: any) {
       lastError = err?.message || String(err);
@@ -230,12 +228,6 @@ async function saveDeclarationsToR2(payload: StoragePayload): Promise<{ success:
           ContentType: 'application/json',
         })
       );
-      s3.send(
-        new DeleteObjectCommand({
-          Bucket: R2_BUCKET,
-          Key: 'cache/sync_sheets.json',
-        })
-      ).catch(() => {});
       return { success: true };
     }
   } catch (err: any) {

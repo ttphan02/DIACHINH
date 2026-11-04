@@ -295,16 +295,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Tự động kích hoạt đồng bộ sang Google Sheet Realtime tức thì (nếu không bật cờ skipSync của tải hàng loạt)
-    if (bucket && !skipSync && Object.keys(updatedDeclarations).length > 0) {
-      import('@/utils/syncGoogleSheets')
-        .then(({ executeSyncToGoogleSheet }) => {
-          executeSyncToGoogleSheet(updatedDeclarations, bucket).catch((err) =>
-            console.error('Lỗi sync Google Sheet sau khi upload CCCD:', err)
-          );
-        })
-        .catch((err) => console.warn('Lỗi nạp module syncGoogleSheets:', err));
-    }
+
 
     return NextResponse.json({
       success: true,

@@ -515,14 +515,7 @@ export async function DELETE(request: Request) {
       console.warn('Lỗi cập nhật declarations khi xóa CCCD:', e);
     }
 
-    // Tự động kích hoạt đồng bộ Google Sheet
-    import('@/utils/syncGoogleSheets')
-      .then(({ executeSyncToGoogleSheet }) => {
-        executeSyncToGoogleSheet(updatedDeclarations, bucket).catch((err) =>
-          console.error('Lỗi sync Google Sheet sau khi xóa CCCD:', err)
-        );
-      })
-      .catch((err) => console.error('Lỗi import syncGoogleSheets:', err));
+
 
     return NextResponse.json({
       success: true,

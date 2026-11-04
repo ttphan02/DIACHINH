@@ -3953,7 +3953,7 @@ export default function DashboardPage() {
 
                       setInlineSaveToast(`✓ Đã kê khai thành công ${newDecls.length} thửa đất đủ thông tin! Dữ liệu đã chuyển sang danh sách tương ứng.`);
                       setTimeout(() => setInlineSaveToast(null), 4500);
-                      await fetchSyncSheetsReport(true);
+                      await fetchSyncSheetsReport(false);
                     } catch (err) {
                       console.error('Lỗi kê khai các thửa đủ thông tin:', err);
                     } finally {
@@ -4098,7 +4098,7 @@ export default function DashboardPage() {
                       setInlineSaveToast(`✓ Đã chuyển thành công ${updatedDecls.length} thửa có file CCCD trên R2 sang Sẵn Sàng Đóng Tập!`);
                       setTimeout(() => setInlineSaveToast(null), 4000);
                       setSelectedReportSheet('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
-                      await fetchSyncSheetsReport(true);
+                      await fetchSyncSheetsReport(false);
                     } catch (err) {
                       console.error('Lỗi chuyển thửa sang đóng tập:', err);
                     } finally {
@@ -4272,7 +4272,7 @@ export default function DashboardPage() {
 
                       setInlineSaveToast(`✓ Đã chuyển ${updatedDecls.length} thửa về danh sách "Chưa có CCCD" để thu thập lại!`);
                       setTimeout(() => setInlineSaveToast(null), 4000);
-                      await fetchSyncSheetsReport(true);
+                      await fetchSyncSheetsReport(false);
                     } catch (err) {
                       console.error('Lỗi chuyển thửa về Chưa CCCD:', err);
                     } finally {

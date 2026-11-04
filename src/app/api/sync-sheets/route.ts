@@ -95,25 +95,8 @@ export async function GET(req: Request) {
   }
   // Tuyệt đối KHÔNG xóa KEY_SYNC_CACHE trên R2 để luôn có dữ liệu fallback an toàn
 
-  // 1. Kiểm tra cache trong bộ nhớ (In-memory cache < 0.1ms)
-  if (!force && cachedSyncResult && now - lastSyncTime < 300000) {
-    return NextResponse.json(
-      {
-        ...cachedSyncResult,
-        sheetsData: sanitizeSheetsPayload(cachedSyncResult.sheetsData),
-        cached: true,
-        durationMs: 0,
-      },
-      {
-        headers: {
-          'Cache-Control': 'public, max-age=60, s-maxage=300, stale-while-revalidate=600',
-        },
-      }
-    );
-  }
-
-  // 2. Stream trực tiếp cache snapshot từ Cloudflare R2 (siêu tốc ~1ms CPU, 0MB RAM, không bao giờ bị Error 1102)
-  if (!force && bucket) {
+  // 1. Stream trực tiếp cache snapshot từ Cloudflare R2 (siêu tốc ~1ms CPU, 0MB RAM, triệt tiêu hoàn toàn lỗi 1102)
+  if (bucket) {
     try {
       const obj = await bucket.get(KEY_SYNC_CACHE);
       if (obj) {
@@ -121,8 +104,8 @@ export async function GET(req: Request) {
           status: 200,
           headers: {
             'Content-Type': 'application/json; charset=utf-8',
-            'Cache-Control': 'public, max-age=60, s-maxage=300, stale-while-revalidate=600',
-            'CDN-Cache-Control': 'public, max-age=300',
+            'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=120',
+            'CDN-Cache-Control': 'public, max-age=60',
             'Access-Control-Allow-Origin': '*',
           },
         });
@@ -130,6 +113,37 @@ export async function GET(req: Request) {
     } catch (cacheErr) {
       console.warn('Lỗi đọc cache sync-sheets từ R2:', cacheErr);
     }
+  }
+
+  // 2. Fallback đọc từ public R2 URL nếu bucket.get gặp vấn đề
+  try {
+    const res = await fetch(`${R2_PUBLIC_URL}/${KEY_SYNC_CACHE}?t=${now}`, {
+      headers: { 'Cache-Control': 'no-cache' },
+      cache: 'no-store',
+    });
+    if (res.ok) {
+      const text = await res.text();
+      return new Response(text, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'public, max-age=30, s-maxage=60',
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
+  } catch (err) {
+    console.warn('Lỗi khi fetch cache sync-sheets từ public R2:', err);
+  }
+
+  // 3. In-memory cache fallback
+  if (cachedSyncResult) {
+    return NextResponse.json({
+      ...cachedSyncResult,
+      sheetsData: sanitizeSheetsPayload(cachedSyncResult.sheetsData),
+      cached: true,
+      durationMs: 0,
+    });
   }
 
   const t0 = Date.now();

@@ -410,14 +410,6 @@ export async function POST(request: Request) {
 
     // Xóa cache để cập nhật tức thì
     scanCache = null;
-    try {
-      const bucket = await getR2Binding();
-      if (bucket) {
-        bucket.delete('cache/sync_sheets.json').catch(() => {});
-      } else {
-        await deleteObjectFromR2('cache/sync_sheets.json').catch(() => {});
-      }
-    } catch {}
 
     return NextResponse.json({
       success: true,
@@ -459,14 +451,6 @@ export async function DELETE(request: Request) {
 
     // Xóa cache để cập nhật tức thì
     scanCache = null;
-    try {
-      const bucket = await getR2Binding();
-      if (bucket) {
-        bucket.delete('cache/sync_sheets.json').catch(() => {});
-      } else {
-        await deleteObjectFromR2('cache/sync_sheets.json').catch(() => {});
-      }
-    } catch {}
 
     return NextResponse.json({
       success: true,

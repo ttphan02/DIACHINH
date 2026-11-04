@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
-import { executeSyncToGoogleSheet } from '@/utils/syncGoogleSheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,12 +61,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Tự động kích hoạt đồng bộ sang Google Sheet Realtime tức thì
-    if (bucket) {
-      executeSyncToGoogleSheet(declarationsMap, bucket).catch((err) =>
-        console.error('Lỗi sync Google Sheet sau khi upload SCAN:', err)
-      );
-    }
+
 
     return NextResponse.json({
       success: true,
