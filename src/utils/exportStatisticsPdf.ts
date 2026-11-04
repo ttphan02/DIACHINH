@@ -416,9 +416,9 @@ export async function generateStatisticsPdf(
         titleColor: rgb(0.55, 0.1, 0.7),
       },
       {
-        title: '3. GOM TỔNG CÓ TÊN',
+        title: '3. CÓ TÊN',
         count: `${sumGomCoTen.toLocaleString('vi-VN')}`,
-        desc: `${sumCoTenChuaLam} CL + ${sumDaKeKhai} Kê khai`,
+        desc: '',
         border: rgb(0.85, 0.5, 0.1),
         bg: rgb(0.99, 0.96, 0.91),
         titleColor: rgb(0.8, 0.4, 0.05),
@@ -453,18 +453,20 @@ export async function generateStatisticsPdf(
       });
       page1.drawText(c.count, {
         x: cx + 7,
-        y: y - 31,
+        y: c.desc ? y - 31 : y - 35,
         size: 14,
         font: fontBold,
         color: rgb(0.1, 0.1, 0.1),
       });
-      page1.drawText(c.desc, {
-        x: cx + 7,
-        y: y - 43,
-        size: 6.5,
-        font: fontRegular,
-        color: rgb(0.4, 0.4, 0.4),
-      });
+      if (c.desc) {
+        page1.drawText(c.desc, {
+          x: cx + 7,
+          y: y - 43,
+          size: 6.5,
+          font: fontRegular,
+          color: rgb(0.4, 0.4, 0.4),
+        });
+      }
     });
 
     y -= cardH + 18;
@@ -487,7 +489,7 @@ export async function generateStatisticsPdf(
       { label: 'Tên Thôn / Buôn', w: 120, align: 'left' },
       { label: '1. Tổng Còn Lại', w: 74, align: 'center' },
       { label: sumHoEaRot > 0 ? '2. Không Tên (Hồ Ea Rớt)' : '2. Không Có Tên', w: 110, align: 'center' },
-      { label: '3. Gom Có Tên (Chưa làm & Kê khai)', w: 136, align: 'center' },
+      { label: '3. Có Tên', w: 136, align: 'center' },
       { label: '4. Đã Số Hóa', w: 55.28, align: 'center' },
     ];
 
@@ -577,10 +579,7 @@ export async function generateStatisticsPdf(
       rx += tableCols[3].w;
 
       // Cột Gom Có Tên: hiển thị Tổng (Chưa làm + Kê khai)
-      const ctStr =
-        v.gomCoTen > 0
-          ? `${v.gomCoTen} (${v.coTenChuaLam} CL + ${v.daKeKhai} KK)`
-          : '0';
+      const ctStr = v.gomCoTen > 0 ? v.gomCoTen.toLocaleString('vi-VN') : '0';
       const ctW = fontRegular.widthOfTextAtSize(ctStr, 7.5);
       page1.drawText(ctStr, {
         x: rx + (tableCols[4].w - ctW) / 2,
@@ -655,7 +654,7 @@ export async function generateStatisticsPdf(
     });
     totX += tableCols[3].w;
 
-    const sumCtStr = `${sumGomCoTen.toLocaleString('vi-VN')} (${sumCoTenChuaLam} CL + ${sumDaKeKhai} KK)`;
+    const sumCtStr = sumGomCoTen.toLocaleString('vi-VN');
     const sumCtW = fontBold.widthOfTextAtSize(sumCtStr, 8);
     page1.drawText(sumCtStr, {
       x: totX + (tableCols[4].w - sumCtW) / 2,
@@ -677,7 +676,7 @@ export async function generateStatisticsPdf(
     });
 
     y -= totalRowH + 8;
-    const noteText = '* Ghi chú: "Gom Có Tên" gồm Chưa làm có tên (CL) và Đang kê khai (KK) để theo dõi chủ hộ. Cột "Không Tên" đã note rõ số thửa Hồ Ea Rớt.';
+    const noteText = sumHoEaRot > 0 ? '* Ghi chú: Cột "Không Có Tên" đã note rõ số thửa Hồ Ea Rớt.' : '';
     page1.drawText(noteText, {
       x: marginX,
       y,
@@ -710,8 +709,8 @@ export async function generateStatisticsPdf(
 
       const drawPageHeader = (p: any, pNum: number) => {
         const headerTitle = filterVillage
-          ? `DANH SÁCH CHỦ HỘ CÓ TÊN (CHƯA LÀM & ĐANG KÊ KHAI) - ${filterVillage.toUpperCase()}`
-          : 'DANH SÁCH CHỦ HỘ CÓ TÊN (CHƯA LÀM & ĐANG KÊ KHAI) - THEO THÔN / BUÔN';
+          ? `DANH SÁCH CÓ TÊN - ${filterVillage.toUpperCase()}`
+          : 'DANH SÁCH CÓ TÊN - THEO THÔN / BUÔN';
         p.drawText(headerTitle, {
           x: marginX,
           y: H - 30,
@@ -754,7 +753,7 @@ export async function generateStatisticsPdf(
         });
 
         const vTitle = vGroup.villageName.toUpperCase();
-        const vSub = `(Tổng: ${vGroup.totalOwners} chủ hộ | ${vGroup.totalParcels} thửa: ${vGroup.totalChuaLam} chưa làm + ${vGroup.totalKeKhai} đang kê khai)`;
+        const vSub = `(Tổng: ${vGroup.totalOwners} chủ hộ | ${vGroup.totalParcels} thửa đất)`;
         const vTitleW = fontBold.widthOfTextAtSize(vTitle, 9.5);
         const vSubW = fontRegular.widthOfTextAtSize(vSub, 8);
         const centerAllX = marginX + (contentW - (vTitleW + 8 + vSubW)) / 2;
