@@ -751,21 +751,18 @@ export default function DashboardPage() {
 
     // Trong danh sách "CHƯA THỰC HIỆN": người dùng đang nhập nháp các ô.
     // Lưu ngay lập tức lên R2 mà không chờ debounce
-    if (selectedReportSheet === 'CHƯA THỰC HIỆN') {
-      const updatedEdits = {
-        ...cellEdits,
-        [maThua]: {
-          ...(cellEdits[maThua] || {}),
-          [colIdx]: newValue,
-        },
-      };
-      syncCellEditsToCloud(updatedEdits, true);
-      broadcastRealtimeEvent({
-        type: 'CELL_EDITS_SYNCED',
-        cellEdits: updatedEdits,
-      });
-      return;
-    }
+    const updatedEdits = {
+      ...cellEdits,
+      [maThua]: {
+        ...(cellEdits[maThua] || {}),
+        [colIdx]: newValue,
+      },
+    };
+    syncCellEditsToCloud(updatedEdits, true);
+    broadcastRealtimeEvent({
+      type: 'CELL_EDITS_SYNCED',
+      cellEdits: updatedEdits,
+    });
 
     // Tìm parcel gốc hoặc dựng từ row (đối với các sheet đã kê khai)
     const p = computedParcels.find((cp) => cp.ma_thua === maThua);
@@ -3202,6 +3199,28 @@ export default function DashboardPage() {
                 <span>Vị trí Cán bộ</span>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
               </button>
+            </div>
+
+            {/* Trạng thái đồng bộ máy chủ 100% */}
+            <div
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition select-none ${
+                savingRowCodes.size > 0
+                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                  : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+              }`}
+              title={savingRowCodes.size > 0 ? 'Đang lưu các thay đổi lên Cloudflare Database...' : 'Toàn bộ dữ liệu trên bảng đã được đồng bộ 100% vào Cloudflare Database'}
+            >
+              {savingRowCodes.size > 0 ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                  <span className="hidden sm:inline">Đang lưu...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                  <span className="hidden sm:inline">Đồng bộ 100%</span>
+                </>
+              )}
             </div>
 
             {/* Nút mở công cụ ScanName (Tách PDF & Đổi tên hồ sơ scan sau ký) */}
