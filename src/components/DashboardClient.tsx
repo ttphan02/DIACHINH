@@ -3596,6 +3596,7 @@ export default function DashboardPage() {
                     .filter((r) => {
                       const ma = String(r[1] || '').trim();
                       if (selectedReportSheet !== 'KH2959 - NHÓM 1' && ma && HIDDEN_PARCEL_SET.has(ma)) return false;
+                      if (selectedReportSheet === 'NHẬP DỮ LIỆU' && (kh2959ImportedCodes.has(ma) || DIGITIZED_SET.has(ma))) return false;
                       return true;
                     })
                     .map((r) => [...r]);
