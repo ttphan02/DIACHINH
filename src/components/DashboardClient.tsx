@@ -492,8 +492,15 @@ export default function DashboardPage() {
     try {
       const res = await fetch('/api/declarations');
       if (!res.ok) return;
-      const data = (await res.json()) as any;
-        if (data && Array.isArray(data.declaredCodes)) {
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch (jsonErr) {
+        // Nếu luồng truyền tải bị ngắt kết nối do mạng, bỏ qua lần này một cách êm ái
+        return;
+      }
+      if (data && Array.isArray(data.declaredCodes)) {
           if (data.updatedAt && data.updatedAt === lastCloudUpdatedAtRef.current) return;
           const cloudMap = data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {};
           const cloudEdits = data.cellEdits && typeof data.cellEdits === 'object' ? data.cellEdits : {};
@@ -590,7 +597,7 @@ export default function DashboardPage() {
         }
         if (realtimeReloadTimeoutRef.current) clearTimeout(realtimeReloadTimeoutRef.current);
         realtimeReloadTimeoutRef.current = setTimeout(() => {
-          fetchSyncSheetsReportRef.current?.(true);
+          fetchSyncSheetsReportRef.current?.(false);
         }, 2500);
       } else if (event.type === 'DECLARATION_DELETED' && event.maThua) {
         const targetMaThua = event.maThua;

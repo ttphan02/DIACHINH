@@ -84,13 +84,16 @@ export async function GET(req: Request) {
   const previousResult = cachedSyncResult;
 
   // Khi yêu cầu làm mới dữ liệu bắt buộc (force=true)
-  if (force) {
-    cachedSyncResult = null;
-    lastSyncTime = 0;
-    if (bucket) {
-      bucket.delete(KEY_SYNC_CACHE).catch(() => {});
-    }
+  // Chống spam: nếu vừa tính toán xong trong vòng 15 giây, trả về ngay kết quả gần nhất để bảo vệ Worker
+  if (force && cachedSyncResult && now - lastSyncTime < 15000) {
+    return NextResponse.json({
+      ...cachedSyncResult,
+      sheetsData: sanitizeSheetsPayload(cachedSyncResult.sheetsData),
+      cached: true,
+      message: 'Vừa đồng bộ thành công, sử dụng dữ liệu mới nhất',
+    });
   }
+  // Tuyệt đối KHÔNG xóa KEY_SYNC_CACHE trên R2 để luôn có dữ liệu fallback an toàn
 
   // 1. Kiểm tra cache trong bộ nhớ (In-memory cache < 0.1ms)
   if (!force && cachedSyncResult && now - lastSyncTime < 300000) {
@@ -164,18 +167,38 @@ export async function GET(req: Request) {
       },
     });
   } catch (error: any) {
-    console.error('Lỗi khi đồng bộ Google Sheet:', error);
+    console.warn('Lỗi khi tính toán đồng bộ Google Sheet, kích hoạt fallback R2:', error);
+    // 1. Thử fallback từ bộ nhớ
     const fallbackData = cachedSyncResult || previousResult;
     if (fallbackData) {
       return NextResponse.json({
         ...fallbackData,
+        sheetsData: sanitizeSheetsPayload(fallbackData.sheetsData),
         warning: 'Sử dụng dữ liệu cache do Worker quá tải: ' + (error.message || ''),
       });
     }
-    return NextResponse.json(
-      { success: false, error: error.message || 'Lỗi khi đồng bộ Google Sheet' },
-      { status: 500 }
-    );
+    // 2. Thử fallback đọc trực tiếp snapshot từ R2
+    if (bucket) {
+      try {
+        const obj = await bucket.get(KEY_SYNC_CACHE);
+        if (obj) {
+          return new Response(obj.body, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Cache-Control': 'public, max-age=60, s-maxage=300',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+      } catch {}
+    }
+    return NextResponse.json({
+      success: true,
+      summary: { totalDeclared: 0, daGiaiQuyet: 0, daDongTap: 0, canTimCccd: 0, khongCoCccd: 0 },
+      sheetsData: {},
+      warning: 'Đang khởi tạo dữ liệu nền: ' + (error.message || ''),
+    });
   }
 }
 
