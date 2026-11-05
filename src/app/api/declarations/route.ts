@@ -277,7 +277,25 @@ export async function GET(request: Request) {
       }
     }
 
-    // 1. Ưu tiên truy vấn trực tiếp từ Cloudflare D1 SQL Database
+    // 1. Stream trực tiếp từ Cloudflare R2 (Zero-CPU Streaming, không tốn RAM và ngăn lỗi 1102 / 503)
+    const bucket = await getR2Binding();
+    if (bucket) {
+      const obj = await bucket.get(KEY_ALL_DECLARATIONS);
+      if (obj && obj.body) {
+        return new Response(obj.body, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'public, max-age=3, s-maxage=10, stale-while-revalidate=30',
+            'CDN-Cache-Control': 'public, max-age=10',
+            'ETag': obj.httpEtag || '"all-decl-v1"',
+            'Access-Control-Allow-Origin': '*',
+          },
+        });
+      }
+    }
+
+    // 2. Dự phòng: Truy vấn từ Cloudflare D1 SQL Database nếu R2 chưa có cache
     if (db) {
       try {
         const d1Data = await getAllD1Declarations(db);
@@ -290,30 +308,13 @@ export async function GET(request: Request) {
             },
             {
               headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Cache-Control': 'public, max-age=3, s-maxage=10, stale-while-revalidate=30',
               },
             }
           );
         }
       } catch (d1Err) {
         console.warn('Lỗi truy vấn declarations từ D1 SQL Database:', d1Err);
-      }
-    }
-
-    // 2. Stream trực tiếp từ R2 Binding (fallback nếu D1 chưa khởi tạo)
-    const bucket = await getR2Binding();
-    if (bucket) {
-      const obj = await bucket.get(KEY_ALL_DECLARATIONS);
-      if (obj) {
-        return new Response(obj.body, {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Cache-Control': 'public, max-age=5, s-maxage=15, stale-while-revalidate=30',
-            'CDN-Cache-Control': 'public, max-age=15',
-            'Access-Control-Allow-Origin': '*',
-          },
-        });
       }
     }
 

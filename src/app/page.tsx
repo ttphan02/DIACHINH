@@ -355,8 +355,17 @@ export default function Home() {
     }
   }, []);
 
-  // Tải danh sách đã kê khai từ LocalStorage và đồng bộ từ Cloudflare R2
-  const fetchCloudDeclarations = useCallback(async () => {
+  const isFetchingCloudRef = useRef(false);
+  const lastCloudFetchTimeRef = useRef(0);
+
+  // Tải danh sách đã kê khai từ LocalStorage và đồng bộ từ Cloudflare R2 (có guard chống nghẽn và debounce)
+  const fetchCloudDeclarations = useCallback(async (force = false) => {
+    const now = Date.now();
+    if (isFetchingCloudRef.current || (!force && now - lastCloudFetchTimeRef.current < 2500)) {
+      return;
+    }
+    isFetchingCloudRef.current = true;
+    lastCloudFetchTimeRef.current = now;
     try {
       const res = await fetch('/api/declarations');
 
@@ -437,6 +446,8 @@ export default function Home() {
       }
     } catch (err) {
       console.warn('Lỗi khi fetch declarations từ cloud:', err);
+    } finally {
+      isFetchingCloudRef.current = false;
     }
   }, [flushPendingDeclarations]);
 
