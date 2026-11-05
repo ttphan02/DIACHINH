@@ -562,10 +562,29 @@ export async function executeSyncToGoogleSheet(
 
         item.scan_file = foundScan;
         item.cccd_file = foundCccd;
-        item.nguon_chuyen = foundScan
-          ? 'Từ Nhập dữ liệu (Đã có scan)'
-          : (foundCccd ? 'Từ Đơn kê khai có CCCD' : 'GCN - ONT (Chờ bổ sung sau)');
-        stageGcnOnt.push(item);
+
+        const cleanCVal = cleanCccd(cccd);
+        const hasCccdAndFile = Boolean(foundCccd && (cleanCVal.length === 12 || cleanCVal.length === 9));
+
+        if (hasCccdAndFile) {
+          item.nguon_chuyen = 'GCN - ONT (Đã có CCCD)';
+          stageGcnOnt.push(item);
+        } else {
+          // Thửa ONT chưa có file CCCD trên R2 -> Phải ở lại DS Kê khai Chưa có CCCD để cán bộ đi thu thập!
+          if (cccd && allGgsCccds.has(cccd)) {
+            stage1CanTimCccd.push({
+              ...item,
+              phan_loai: 'CẦN TÌM CCCD',
+              ghi_chu: 'ĐẤT ONT: Đã có thông tin CCCD nhưng chưa có file trên R2 - Cần tìm file scan/ảnh CCCD',
+            });
+          } else {
+            stage1KhongCoCccd.push({
+              ...item,
+              phan_loai: 'KHÔNG CÓ CCCD',
+              ghi_chu: 'ĐẤT ONT: Chưa có file CCCD trên R2 - Cần liên hệ chủ hộ thu thập CCCD',
+            });
+          }
+        }
         continue;
       }
 

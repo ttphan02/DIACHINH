@@ -4002,8 +4002,14 @@ export default function DashboardPage() {
                         const data = (await res.json()) as any;
                         if (data && data.declaredCodes) {
                           setDeclaredParcelCodes(new Set(data.declaredCodes));
-                          setDeclarationsMap(data.declarationsMap || {});
                         }
+                        setDeclarationsMap((prev) => {
+                          const next = { ...prev };
+                          newDecls.forEach((d) => {
+                            next[d.ma_thua] = d;
+                          });
+                          return next;
+                        });
                       }
 
                       // Dọn dẹp cellEdits của các thửa này
@@ -4019,7 +4025,7 @@ export default function DashboardPage() {
                       clearPendingDeclarations(newDecls.map((d) => d.ma_thua));
                     setInlineSaveToast(`✓ Đã kê khai thành công ${newDecls.length} thửa đất đủ thông tin! Dữ liệu đã chuyển sang danh sách tương ứng.`);
                       setTimeout(() => setInlineSaveToast(null), 4500);
-                      await fetchSyncSheetsReport(false);
+                      await fetchSyncSheetsReport(true);
                     } catch (err) {
                       console.error('Lỗi kê khai các thửa đủ thông tin:', err);
                     } finally {
@@ -4074,6 +4080,9 @@ export default function DashboardPage() {
                         }
                       }
 
+                      const newlyPackedRows: string[][] = [];
+                      const newlyOntRows: string[][] = [];
+
                       if (updatedDecls.length > 0) {
                         // Dọn dẹp cellEdits của các thửa này
                         setCellEdits((prev) => {
@@ -4085,13 +4094,15 @@ export default function DashboardPage() {
                           return next;
                         });
 
-                        // Cập nhật UI tức thì (Optimistic UI Update): Di chuyển ngay lập tức giữa 2 sheet
+                        // Cập nhật UI tức thì (Optimistic UI Update): Di chuyển giữa các sheet chuẩn logic ONT và Phi-ONT
                         const movedMaThuas = new Set(updatedDecls.map((d) => d.ma_thua));
                         const oldUnpack = syncSheetsData?.['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] || [];
                         const oldPack = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || [];
+                        const oldOnt = syncSheetsData?.['GCN - ONT'] || [];
 
                         const headerUnpack = oldUnpack[0] || [];
                         const headerPack = oldPack[0] || [];
+                        const headerOnt = oldOnt[0] || [];
 
                         const remainingUnpackRows = oldUnpack.slice(1).filter((r) => !movedMaThuas.has(String(r[1] || '').trim()));
                         const newUnpack = [
@@ -4099,7 +4110,7 @@ export default function DashboardPage() {
                           ...remainingUnpackRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
                         ];
 
-                        const newlyPackedRows = readyToMoveToPackRows.map((r) => {
+                        readyToMoveToPackRows.forEach((r) => {
                           const maThua = String(r[1] || '').trim();
                           const decl = updatedDecls.find((d) => d.ma_thua === maThua);
                           const cccdNum = decl?.chu_dat_cccd || '';
@@ -4107,7 +4118,10 @@ export default function DashboardPage() {
                           const fileName = `${cccdNum}.pdf`;
                           const fileUrl = `/api/image/cccd/${encodeURIComponent(fileName)}`;
                           const fileFormula = `=HYPERLINK("${fileUrl}"; "${fileName}")`;
-                          return [
+                          const loaiDat = String(decl?.loai_dat || r[8] || 'DGT');
+                          const isOnt = /ont/i.test(loaiDat);
+
+                          const rowData = [
                             '',
                             maThua,
                             String(r[2] || ''),
@@ -4116,10 +4130,16 @@ export default function DashboardPage() {
                             String(decl?.chu_dat_gioi_tinh || r[5] || 'Nam'),
                             cccdText,
                             String(decl?.dien_tich || r[7] || ''),
-                            String(decl?.loai_dat || r[8] || 'DGT'),
+                            loaiDat,
                             String(decl?.nguon_goc || r[9] || 'Khai Hoang'),
                             fileFormula,
                           ];
+
+                          if (isOnt) {
+                            newlyOntRows.push(rowData);
+                          } else {
+                            newlyPackedRows.push(rowData);
+                          }
                         });
 
                         const mergedPackRows = [...oldPack.slice(1), ...newlyPackedRows];
@@ -4128,17 +4148,25 @@ export default function DashboardPage() {
                           ...mergedPackRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
                         ];
 
+                        const mergedOntRows = [...oldOnt.slice(1), ...newlyOntRows];
+                        const newOnt = [
+                          headerOnt,
+                          ...mergedOntRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
+                        ];
+
                         const nextSheets = {
                           ...(syncSheetsData || {}),
                           'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)': newUnpack,
                           'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)': newPack,
+                          'GCN - ONT': newOnt,
                         };
 
                         setSyncSheetsData(nextSheets);
 
                         const nextSummary = syncSummary ? {
                           ...syncSummary,
-                          daDongTap: (syncSummary.daDongTap || 0) + updatedDecls.length,
+                          daDongTap: (syncSummary.daDongTap || 0) + newlyPackedRows.length,
+                          gcnOnt: (syncSummary.gcnOnt || 0) + newlyOntRows.length,
                           khongCoCccd: Math.max(0, (syncSummary.khongCoCccd || 0) - updatedDecls.length),
                         } : null;
 
@@ -4155,8 +4183,14 @@ export default function DashboardPage() {
                               const data = (await res.json()) as any;
                               if (data && data.declaredCodes) {
                                 setDeclaredParcelCodes(new Set(data.declaredCodes));
-                                setDeclarationsMap(data.declarationsMap || {});
                               }
+                              setDeclarationsMap((prev) => {
+                                const next = { ...prev };
+                                updatedDecls.forEach((d) => {
+                                  next[d.ma_thua] = d;
+                                });
+                                return next;
+                              });
                             }
                           }),
                           fetch('/api/sync-sheets', {
@@ -4171,10 +4205,18 @@ export default function DashboardPage() {
                       }
 
                       clearPendingDeclarations(updatedDecls.map((d) => d.ma_thua));
-                    setInlineSaveToast(`✓ Đã chuyển thành công ${updatedDecls.length} thửa có file CCCD trên R2 sang Sẵn Sàng Đóng Tập!`);
+                      const toastMsg = newlyOntRows.length > 0 && newlyPackedRows.length > 0
+                        ? `✓ Đã chuyển thành công ${newlyPackedRows.length} thửa sang Sẵn Sàng Đóng Tập và ${newlyOntRows.length} thửa sang GCN - ONT!`
+                        : (newlyOntRows.length > 0
+                          ? `✓ Đã chuyển thành công ${newlyOntRows.length} thửa ONT có CCCD sang GCN - ONT (Đã số hóa)!`
+                          : `✓ Đã chuyển thành công ${newlyPackedRows.length} thửa có file CCCD trên R2 sang Sẵn Sàng Đóng Tập!`);
+                      setInlineSaveToast(toastMsg);
                       setTimeout(() => setInlineSaveToast(null), 4000);
-                      setSelectedReportSheet('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
-                      await fetchSyncSheetsReport(false);
+                      if (newlyPackedRows.length > 0) {
+                        setSelectedReportSheet('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
+                      } else if (newlyOntRows.length > 0) {
+                        setSelectedReportSheet('GCN - ONT');
+                      }
                     } catch (err) {
                       console.error('Lỗi chuyển thửa sang đóng tập:', err);
                     } finally {
@@ -4340,8 +4382,14 @@ export default function DashboardPage() {
                               const data = (await res.json()) as any;
                               if (data && data.declaredCodes) {
                                 setDeclaredParcelCodes(new Set(data.declaredCodes));
-                                setDeclarationsMap(data.declarationsMap || {});
                               }
+                              setDeclarationsMap((prev) => {
+                                const next = { ...prev };
+                                updatedDecls.forEach((d) => {
+                                  next[d.ma_thua] = d;
+                                });
+                                return next;
+                              });
                             }
                           }),
                           fetch('/api/sync-sheets', {
@@ -4358,7 +4406,6 @@ export default function DashboardPage() {
                       clearPendingDeclarations(updatedDecls.map((d) => d.ma_thua));
                     setInlineSaveToast(`✓ Đã chuyển ${updatedDecls.length} thửa về danh sách "Chưa có CCCD" để thu thập lại!`);
                       setTimeout(() => setInlineSaveToast(null), 4000);
-                      await fetchSyncSheetsReport(false);
                     } catch (err) {
                       console.error('Lỗi chuyển thửa về Chưa CCCD:', err);
                     } finally {

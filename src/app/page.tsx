@@ -703,8 +703,10 @@ export default function Home() {
       if (isOnGgs || DIGITIZED_SET.has(p.ma_thua)) {
         trang_thai = 'DA_SO_HOA_XANH';
       } else if (isLocallyDeclared) {
-        // Thửa đất thuộc danh sách GCN - ONT: coi như đã số hóa trên bản đồ (xanh lá), trừ ra khỏi nhóm "Đã kê khai"
-        if (isOntParcel) {
+        // Thửa đất thuộc danh sách GCN - ONT: coi như đã số hóa trên bản đồ (xanh lá) NẾU ĐÃ CÓ CCCD
+        // Nếu ONT chưa có CCCD thì vẫn ở trạng thái Đang kê khai (Xanh lam) để cán bộ đi thu thập CCCD
+        const hasValidCccd = Boolean(cccd && cccd.length >= 9);
+        if (isOntParcel && hasValidCccd) {
           trang_thai = 'DA_SO_HOA_XANH';
         } else {
           trang_thai = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
