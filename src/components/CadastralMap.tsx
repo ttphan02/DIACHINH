@@ -347,55 +347,7 @@ export default function CadastralMap({
         // 4. Xanh lam: Đã kê khai (Web)
         drawBatch(bluePts, '#2563eb', '#1e3a8a', baseRadius * 1.08, 1.6);
 
-        // 5. VẼ NHÃN TÊN CHỦ ĐẤT TRÊN CÁC DẤU CHẤM (Khi người dùng BẬT tính năng Hiện tên)
-        if (showOwnerNamesRef.current && zoom >= 14) {
-          ctx.font = zoom >= 17 
-            ? 'bold 12px system-ui, -apple-system, sans-serif'
-            : zoom >= 15
-            ? 'bold 11px system-ui, -apple-system, sans-serif'
-            : 'bold 10px system-ui, -apple-system, sans-serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'bottom';
-          ctx.lineJoin = 'round';
-          ctx.lineWidth = zoom >= 16 ? 3.5 : 2.8;
-          ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
 
-          const labelGridSize = zoom <= 14 ? 50 : zoom <= 15 ? 32 : 0;
-          const labelGrid = labelGridSize > 0 ? new Set<string>() : null;
-
-          for (let i = 0; i < visibleScreenPts.length; i++) {
-            const item = visibleScreenPts[i];
-            const p = item.parcel;
-            const name = getMapDisplayName(p.chu_ho);
-            if (!name) continue;
-
-            const cx = item.x + padX;
-            const cy = item.y + padY;
-
-            if (labelGrid) {
-              const gx = (cx / labelGridSize) | 0;
-              const gy = (cy / labelGridSize) | 0;
-              const key = `${gx}_${gy}`;
-              if (labelGrid.has(key)) continue;
-              labelGrid.add(key);
-            }
-
-            const labelY = cy - baseRadius - 2;
-
-            if (p.trang_thai === 'DA_SO_HOA_XANH') {
-              ctx.fillStyle = '#6ee7b7'; // Xanh lá sáng
-            } else if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') {
-              ctx.fillStyle = '#93c5fd'; // Xanh lam sáng
-            } else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') {
-              ctx.fillStyle = '#fde047'; // Vàng sáng
-            } else {
-              ctx.fillStyle = '#f8fafc'; // Trắng
-            }
-
-            ctx.strokeText(name, cx, labelY);
-            ctx.fillText(name, cx, labelY);
-          }
-        }
 
         ctx.restore();
       };
@@ -639,6 +591,22 @@ export default function CadastralMap({
       });
       mainPulseMarker.addTo(group);
 
+      // Hiển thị nhãn tên trên thửa đang chọn (kiểu dáng pill badge giống hệt các thửa lân cận)
+      const selectedShortName = extractShortOwnerName(selectedParcel.chu_ho);
+      if (selectedShortName && showOwnerNamesRef.current) {
+        const selectedBadgeMarker = L.marker([centerLat, centerLng], {
+          icon: L.divIcon({
+            className: 'neighbor-badge-wrapper',
+            html: `<span class="neighbor-name-badge selected-parcel-badge">${selectedShortName}</span>`,
+            iconSize: [0, 0],
+            iconAnchor: [0, 16],
+          }),
+          interactive: false,
+          zIndexOffset: 1300,
+        });
+        selectedBadgeMarker.addTo(group);
+      }
+
       // Đường nối đứt nét màu cam và chấm cam cho các thửa gộp kèm theo
       if (additionalParcels && additionalParcels.length > 0) {
         additionalParcels.forEach((ap, idx) => {
@@ -707,7 +675,7 @@ export default function CadastralMap({
     return () => {
       isMounted = false;
     };
-  }, [map, selectedParcel, additionalParcels]);
+  }, [map, selectedParcel, additionalParcels, showOwnerNames]);
 
   // 5. VẼ MẠNG LƯỚI THỬA LÂN CẬN XUNG QUANH THỬA ĐƯỢC CHỌN
   useEffect(() => {
@@ -762,7 +730,7 @@ export default function CadastralMap({
 
         ring.addTo(group);
 
-        if (shortName) {
+        if (shortName && showOwnerNamesRef.current) {
           const badgeMarker = L.marker([nb.lat, nb.lng], {
             icon: L.divIcon({
               className: 'neighbor-badge-wrapper',
@@ -795,7 +763,7 @@ export default function CadastralMap({
     return () => {
       isMounted = false;
     };
-  }, [map, selectedParcel, neighborParcels]);
+  }, [map, selectedParcel, neighborParcels, showOwnerNames]);
 
   // 6. VỊ TRÍ GPS NGƯỜI DÙNG DI CHUYỂN REALTIME MƯỢT MÀ (KHÔNG TẠO LẠI DOM MỖI GIÂY)
   useEffect(() => {
