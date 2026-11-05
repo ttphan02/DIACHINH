@@ -29,11 +29,8 @@ interface RenderedPoint {
 }
 
 function getMapDisplayName(rawName?: string | null): string {
-  if (!rawName || !isPersonName(rawName)) return '';
-  let s = String(rawName).trim();
-  s = s.replace(/^(hộ\s+ông\s*:\s*|hộ\s+bà\s*:\s*|ông\s*:\s*|bà\s*:\s*|hộ\s*:\s*|ông\s+|bà\s+|hộ\s+)/i, '').trim();
-  s = s.replace(/’/g, "'").replace(/^(H|Y)'\s*/i, '$1 ');
-  return s;
+  if (!rawName) return '';
+  return extractShortOwnerName(rawName);
 }
 
 export default function CadastralMap({
@@ -348,7 +345,7 @@ export default function CadastralMap({
         drawBatch(bluePts, '#2563eb', '#1e3a8a', baseRadius * 1.08, 1.6);
 
         // 5. VẼ NHÃN TÊN CHỦ ĐẤT TRÊN CÁC DẤU CHẤM (Khi người dùng BẬT tính năng Hiện tên)
-        if (showOwnerNamesRef.current && zoom >= 14) {
+        if (showOwnerNamesRef.current && zoom >= 13) {
           ctx.font = zoom >= 17 
             ? 'bold 12px system-ui, -apple-system, sans-serif'
             : zoom >= 15
@@ -360,7 +357,7 @@ export default function CadastralMap({
           ctx.lineWidth = zoom >= 16 ? 3.5 : 2.8;
           ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
 
-          const labelGridSize = zoom <= 14 ? 50 : zoom <= 15 ? 32 : 0;
+          const labelGridSize = zoom <= 13 ? 60 : zoom <= 14 ? 45 : zoom <= 15 ? 28 : 0;
           const labelGrid = labelGridSize > 0 ? new Set<string>() : null;
 
           for (let i = 0; i < visibleScreenPts.length; i++) {
