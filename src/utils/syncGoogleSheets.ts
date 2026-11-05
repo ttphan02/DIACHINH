@@ -19,13 +19,16 @@ const R2_BUCKET = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'diachinh-storage';
 const R2_PUBLIC_BASE = process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL || 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
 
 function getS3Client(): S3Client | null {
-  if (R2_ACCOUNT_ID && R2_ACCESS_KEY && R2_SECRET_KEY) {
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID || R2_ACCOUNT_ID;
+  const accessKey = process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || R2_ACCESS_KEY;
+  const secretKey = process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || R2_SECRET_KEY;
+  if (accountId && accessKey && secretKey) {
     return new S3Client({
       region: 'auto',
-      endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
       credentials: {
-        accessKeyId: R2_ACCESS_KEY,
-        secretAccessKey: R2_SECRET_KEY,
+        accessKeyId: accessKey,
+        secretAccessKey: secretKey,
       },
     });
   }
@@ -510,9 +513,9 @@ export async function executeSyncToGoogleSheet(
         nguon_chuyen: '',
       };
 
-      // GIAI ĐOẠN 4: ĐÃ LÊN GGS CHÍNH / ĐÃ SỐ HÓA / ĐÃ NHẬP KH2959 (ĐÃ GIẢI QUYẾT)
-      // Nếu mã thửa A_B có trên Google Sheet Cột BF Trang tính 1 hoặc đã số hóa hoặc đã có trên KH2959
-      if (ggsCodes.has(maThua) || DIGITIZED_SET.has(maThua) || KH2959_IMPORTED_SET.has(maThua)) {
+      // GIAI ĐOẠN 4A: ĐÃ LÊN GGS CHÍNH THỨC HOẶC ĐÃ NHẬP KH2959 (ĐÃ GIẢI QUYẾT)
+      // Nếu mã thửa A_B có trên Google Sheet Cột BF Trang tính 1 hoặc đã có trên KH2959
+      if (ggsCodes.has(maThua) || KH2959_IMPORTED_SET.has(maThua)) {
         if (ggsP) {
           if (ggsP.chu_ho) item.chu_ho = ggsP.chu_ho;
           if (ggsP.cccd) item.cccd = cleanCccd(ggsP.cccd);
@@ -521,11 +524,58 @@ export async function executeSyncToGoogleSheet(
         continue;
       }
 
-      // GIAI ĐOẠN ĐẶC BIỆT: GCN - ONT (Toàn bộ các thửa đất có loại đất chứa ONT CHƯA số hóa)
+      // GIAI ĐOẠN ĐẶC BIỆT: GCN - ONT (Toàn bộ các thửa đất có loại đất chứa ONT)
       // Thửa đất ở ONT luôn được gom vào danh sách GCN - ONT để quản lý hồ sơ riêng biệt
+      // (Bắt buộc kiểm tra TRƯỚC DIGITIZED_SET để không bị nuốt vào Đã giải quyết)
       if (/ont/i.test(item.loai_dat || '')) {
-        item.nguon_chuyen = 'GCN - ONT (Chờ bổ sung sau)';
+        const toNum = String(parseInt(String(toMoi || ''), 10) || toMoi || '');
+        const thuaNum = String(parseInt(String(thuaMoi || ''), 10) || thuaMoi || '');
+        const toThuaKey = `${toNum}_${thuaNum}`;
+        let foundScan = scanByToThua.get(toThuaKey) || scanByToThua.get(maThua) || scanByToThua.get(`${toMoi}_${thuaMoi}`) || '';
+        if (!foundScan && cccd) {
+          foundScan = scanByCccd.get(cccd) || '';
+        }
+        if (!foundScan && (decl.file_scan_pdf || decl.anh_ho_so_pdf || decl.scan_file)) {
+          foundScan = decl.file_scan_pdf || decl.anh_ho_so_pdf || decl.scan_file;
+        }
+
+        let foundCccd = '';
+        if (cccd && cccdByNumber.has(cccd)) {
+          foundCccd = cccdByNumber.get(cccd)!;
+        }
+        if (!foundCccd && chuHoStrict.length >= 2) {
+          const matchedCf = cccdByStrictName.get(chuHoStrict);
+          if (matchedCf) {
+            foundCccd = matchedCf.filename;
+            if (matchedCf.cccdCandidate && !cccd) {
+              item.cccd = matchedCf.cccdCandidate;
+            }
+          }
+        }
+        if (!foundCccd) {
+          foundCccd = cccdByToThua.get(toThuaKey) || cccdByToThua.get(maThua) || '';
+        }
+        if (!foundCccd && (decl.cccd_file || decl.file_cccd_pdf || decl.cccd_url)) {
+          const rawCccdRef = String(decl.cccd_file || decl.file_cccd_pdf || decl.cccd_url || '').trim();
+          foundCccd = rawCccdRef.split('/').pop() || rawCccdRef;
+        }
+
+        item.scan_file = foundScan;
+        item.cccd_file = foundCccd;
+        item.nguon_chuyen = foundScan
+          ? 'Từ Nhập dữ liệu (Đã có scan)'
+          : (foundCccd ? 'Từ Đơn kê khai có CCCD' : 'GCN - ONT (Chờ bổ sung sau)');
         stageGcnOnt.push(item);
+        continue;
+      }
+
+      // GIAI ĐOẠN 4B: CÁC THỬA ĐÃ SỐ HÓA KHÁC (PHI-ONT)
+      if (DIGITIZED_SET.has(maThua)) {
+        if (ggsP) {
+          if (ggsP.chu_ho) item.chu_ho = ggsP.chu_ho;
+          if (ggsP.cccd) item.cccd = cleanCccd(ggsP.cccd);
+        }
+        stage4DaGiaiQuyet.push(item);
         continue;
       }
 
