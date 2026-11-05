@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
 import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, cleanVillageDisplay, normalizeNguonGoc, NGUON_GOC_OPTIONS, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN, isAgriculturalLand, getNguonGocShortLabel, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName } from '@/utils/textHelpers';
-import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
+import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName, removePendingDeclaration, clearPendingDeclarations, syncAllLocalDataToServer } from '@/utils/declaration';
 import { broadcastRealtimeEvent, onRealtimeEvent } from '@/utils/realtimeSync';
 import dynamic from 'next/dynamic';
 import type { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
@@ -255,6 +255,32 @@ export default function DashboardPage() {
   const [isExportMissingCccdOpen, setIsExportMissingCccdOpen] = useState(false);
   const [isCommittingAllReady, setIsCommittingAllReady] = useState(false);
   const [isMovingParcelsToUnpack, setIsMovingParcelsToUnpack] = useState(false);
+  const [isManualSyncing, setIsManualSyncing] = useState(false);
+
+  const handleForceSyncAll = async () => {
+    if (isManualSyncing) return;
+    setIsManualSyncing(true);
+    try {
+      const res = await syncAllLocalDataToServer();
+      await fetchCloudDeclarations();
+      await fetchSyncSheetsReport(true);
+      setInlineSaveToast(`✓ Đã đồng bộ 100% toàn bộ dữ liệu từ trình duyệt lên máy chủ Cloudflare!`);
+      setTimeout(() => setInlineSaveToast(null), 3000);
+    } catch (e: any) {
+      alert('Lỗi đồng bộ: ' + (e.message || 'Lỗi không xác định'));
+    } finally {
+      setIsManualSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    // Tự động đẩy sạch bất kỳ phiếu pending nào còn sót trong localStorage lên Cloud khi mở dashboard
+    syncAllLocalDataToServer().then((res) => {
+      if (res && res.count > 0) {
+        console.log(`✓ Đã đồng bộ sạch sẽ ${res.count} thửa pending từ localStorage lên máy chủ.`);
+      }
+    });
+  }, []);
 
   // Trạng thái nhập hồ sơ tự động lên web KH2959 (khởi tạo với các thửa đã được kiểm tra thực tế trên KH2959)
   const [kh2959ImportedCodes, setKh2959ImportedCodes] = useState<Set<string>>(() => {
@@ -919,6 +945,7 @@ export default function DashboardPage() {
           keepalive: true,
         });
         if (res.ok) {
+          removePendingDeclaration(maThua);
           return true;
         } else {
           if (retryCount < 2) {
@@ -1034,6 +1061,7 @@ export default function DashboardPage() {
           keepalive: true,
         });
         if (res.ok) {
+          removePendingDeclaration(maThua);
           broadcastRealtimeEvent({
             type: 'DECLARATION_SAVED',
             maThua,
@@ -1260,6 +1288,7 @@ export default function DashboardPage() {
     })
       .then(async (res) => {
         if (res.ok) {
+          removePendingDeclaration(data.ma_thua);
           const result = (await res.json()) as any;
           if (result.success && Array.isArray(result.declaredCodes)) {
             const cloudMap =
@@ -3205,19 +3234,22 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            {/* Trạng thái đồng bộ máy chủ 100% */}
-            <div
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition select-none ${
-                savingRowCodes.size > 0
+            {/* Trạng thái đồng bộ máy chủ 100% (Bấm để kích hoạt đồng bộ toàn bộ) */}
+            <button
+              type="button"
+              onClick={handleForceSyncAll}
+              disabled={isManualSyncing || savingRowCodes.size > 0}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer select-none ${
+                savingRowCodes.size > 0 || isManualSyncing
                   ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                  : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                  : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 active:scale-95'
               }`}
-              title={savingRowCodes.size > 0 ? 'Đang lưu các thay đổi lên Cloudflare Database...' : 'Toàn bộ dữ liệu trên bảng đã được đồng bộ 100% vào Cloudflare Database'}
+              title="Bấm để đồng bộ toàn bộ dữ liệu từ trình duyệt (localStorage) lên Cloudflare Database ngay lập tức"
             >
-              {savingRowCodes.size > 0 ? (
+              {savingRowCodes.size > 0 || isManualSyncing ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
-                  <span className="hidden sm:inline">Đang lưu...</span>
+                  <span className="hidden sm:inline">Đang đồng bộ...</span>
                 </>
               ) : (
                 <>
@@ -3225,7 +3257,7 @@ export default function DashboardPage() {
                   <span className="hidden sm:inline">Đồng bộ 100%</span>
                 </>
               )}
-            </div>
+            </button>
 
             {/* Nút mở công cụ ScanName (Tách PDF & Đổi tên hồ sơ scan sau ký) */}
             <a
@@ -3984,7 +4016,8 @@ export default function DashboardPage() {
                         return next;
                       });
 
-                      setInlineSaveToast(`✓ Đã kê khai thành công ${newDecls.length} thửa đất đủ thông tin! Dữ liệu đã chuyển sang danh sách tương ứng.`);
+                      clearPendingDeclarations(newDecls.map((d) => d.ma_thua));
+                    setInlineSaveToast(`✓ Đã kê khai thành công ${newDecls.length} thửa đất đủ thông tin! Dữ liệu đã chuyển sang danh sách tương ứng.`);
                       setTimeout(() => setInlineSaveToast(null), 4500);
                       await fetchSyncSheetsReport(false);
                     } catch (err) {
@@ -4137,7 +4170,8 @@ export default function DashboardPage() {
                         ]);
                       }
 
-                      setInlineSaveToast(`✓ Đã chuyển thành công ${updatedDecls.length} thửa có file CCCD trên R2 sang Sẵn Sàng Đóng Tập!`);
+                      clearPendingDeclarations(updatedDecls.map((d) => d.ma_thua));
+                    setInlineSaveToast(`✓ Đã chuyển thành công ${updatedDecls.length} thửa có file CCCD trên R2 sang Sẵn Sàng Đóng Tập!`);
                       setTimeout(() => setInlineSaveToast(null), 4000);
                       setSelectedReportSheet('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
                       await fetchSyncSheetsReport(false);
@@ -4321,7 +4355,8 @@ export default function DashboardPage() {
                         ]);
                       }
 
-                      setInlineSaveToast(`✓ Đã chuyển ${updatedDecls.length} thửa về danh sách "Chưa có CCCD" để thu thập lại!`);
+                      clearPendingDeclarations(updatedDecls.map((d) => d.ma_thua));
+                    setInlineSaveToast(`✓ Đã chuyển ${updatedDecls.length} thửa về danh sách "Chưa có CCCD" để thu thập lại!`);
                       setTimeout(() => setInlineSaveToast(null), 4000);
                       await fetchSyncSheetsReport(false);
                     } catch (err) {

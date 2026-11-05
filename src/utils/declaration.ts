@@ -63,6 +63,47 @@ export function clearPendingDeclarations(maThuaList?: string[]): void {
 }
 
 /**
+ * Đẩy toàn bộ dữ liệu đang lưu trên localStorage (pending declarations + cell edits) lên server trong 1 batch duy nhất
+ */
+export async function syncAllLocalDataToServer(): Promise<{ success: boolean; count: number; error?: string }> {
+  if (typeof window === 'undefined') return { success: true, count: 0 };
+  try {
+    const pending = getPendingDeclarations();
+    const items = Object.values(pending);
+
+    let cellEdits: any = {};
+    try {
+      const rawEdits = localStorage.getItem('diachinh_table_cell_edits');
+      if (rawEdits) cellEdits = JSON.parse(rawEdits);
+    } catch {}
+
+    if (items.length === 0 && Object.keys(cellEdits).length === 0) {
+      return { success: true, count: 0 };
+    }
+
+    const res = await fetch('/api/declarations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        batch: items,
+        cellEdits: Object.keys(cellEdits).length > 0 ? cellEdits : undefined,
+      }),
+      keepalive: true,
+    });
+
+    if (res.ok) {
+      clearPendingDeclarations();
+      return { success: true, count: items.length };
+    } else {
+      const err = await res.text();
+      return { success: false, count: 0, error: err };
+    }
+  } catch (e: any) {
+    return { success: false, count: 0, error: e?.message || String(e) };
+  }
+}
+
+/**
  * Định dạng tên cán bộ: IN HOA, LIỀN NHAU, KHÔNG DẤU
  * Ví dụ: "Phan Thanh Trúc" -> "PHANTHANHTRUC"
  */
