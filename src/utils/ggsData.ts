@@ -1,5 +1,4 @@
 import { getCloudflareContext } from '@opennextjs/cloudflare';
-import staticGgsSnapshot from '@/data/ggs_snapshot.json';
 
 export interface GgsParcelData {
   chu_ho: string;
@@ -45,8 +44,8 @@ async function getR2Binding(): Promise<any | null> {
 
 /**
  * Lấy dữ liệu Google Sheets đã đồng bộ vào hệ thống.
- * ĐÃ NGẮT HOÀN TOÀN việc tải trực tiếp từ Google Docs CSV để ngăn chặn triệt để lỗi 403 / 503 / CPU limit.
- * Nguồn dữ liệu sử dụng R2 Cache hoặc Bản sao snapshot tĩnh sạch (loại bỏ hoàn toàn các dòng tạm 7917-9246).
+ * ĐÃ NGẮT HOÀN TOÀN việc tải trực tiếp từ Google Docs CSV và loại bỏ staticGgsSnapshot bundle
+ * để giải phóng 2MB bộ nhớ và triệt tiêu lỗi 1102 / 503 Worker Exceeded Resource Limits.
  */
 export async function fetchOrGetCachedGgsData(force = false): Promise<{
   codes: string[];
@@ -71,62 +70,46 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
   }
 
   // 2. Kiểm tra cache trong Cloudflare R2
-  if (!force) {
-    try {
-      const bucket = await getR2Binding();
-      if (bucket) {
-        const obj = await bucket.get(KEY_GGS_CACHE);
-        if (obj) {
-          const text = await obj.text();
-          const r2Data = JSON.parse(text);
-          if (r2Data && Array.isArray(r2Data.codes)) {
-            cachedData = {
-              ...r2Data,
-              expiresAt: now + CACHE_TTL_MS,
-            };
-            return {
-              codes: r2Data.codes,
-              parcels: r2Data.parcels,
-              people: r2Data.people || {},
-              allCccds: r2Data.allCccds,
-              updatedAt: r2Data.updatedAt,
-              cached: true,
-            };
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Lỗi đọc ggs cache từ R2:', e);
-    }
-  }
-
-  // 3. Sử dụng bản sao dữ liệu tĩnh pre-bundled (không tốn subrequest, không tải docs.google.com)
-  const snapshot = staticGgsSnapshot as any;
-  cachedData = {
-    codes: snapshot.codes,
-    parcels: snapshot.parcels,
-    people: snapshot.people || {},
-    allCccds: snapshot.allCccds || [],
-    updatedAt: snapshot.updatedAt || new Date().toISOString(),
-    expiresAt: now + CACHE_TTL_MS,
-  };
-
-  // Lưu ngược vào R2 trong nền nếu chưa có
   try {
     const bucket = await getR2Binding();
     if (bucket) {
-      bucket.put(KEY_GGS_CACHE, JSON.stringify(cachedData), {
-        httpMetadata: { contentType: 'application/json' },
-      }).catch(() => {});
+      const obj = await bucket.get(KEY_GGS_CACHE);
+      if (obj) {
+        const text = await obj.text();
+        const r2Data = JSON.parse(text);
+        if (r2Data && (Array.isArray(r2Data.codes) || Array.isArray(r2Data.ggsCodes))) {
+          const codes = r2Data.codes || r2Data.ggsCodes || [];
+          const parcels = r2Data.parcels || r2Data.ggsParcels || {};
+          const allCccds = r2Data.allCccds || r2Data.ggsCccds || [];
+          cachedData = {
+            codes,
+            parcels,
+            people: r2Data.people || {},
+            allCccds,
+            updatedAt: r2Data.updatedAt || new Date().toISOString(),
+            expiresAt: now + CACHE_TTL_MS,
+          };
+          return {
+            codes: cachedData.codes,
+            parcels: cachedData.parcels,
+            people: cachedData.people,
+            allCccds: cachedData.allCccds,
+            updatedAt: cachedData.updatedAt,
+            cached: true,
+          };
+        }
+      }
     }
-  } catch {}
+  } catch (e) {
+    console.warn('Lỗi đọc ggs cache từ R2:', e);
+  }
 
   return {
-    codes: cachedData.codes,
-    parcels: cachedData.parcels,
-    people: cachedData.people,
-    allCccds: cachedData.allCccds,
-    updatedAt: cachedData.updatedAt,
+    codes: [],
+    parcels: {},
+    people: {},
+    allCccds: [],
+    updatedAt: new Date().toISOString(),
     cached: false,
   };
 }

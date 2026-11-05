@@ -1363,7 +1363,11 @@ export default function DashboardPage() {
   const fetchGgsCodes = useCallback(async (force = false) => {
     setIsSyncingGgs(true);
     try {
-      const res = await fetch(`/api/sync-ggs${force ? '?force=true' : ''}`);
+      const url = force ? '/api/sync-ggs?force=true' : '/data/ggs_snapshot.json';
+      let res = await fetch(url);
+      if (!res.ok) {
+        res = await fetch(force ? '/data/ggs_snapshot.json' : '/api/sync-ggs');
+      }
       if (!res.ok) return;
       const data: any = await res.json();
       if (data && data.success) {

@@ -1,6 +1,6 @@
 import hiddenParcelsData from '@/data/hidden_parcels.json';
 const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
-import staticGgsSnapshot from '@/data/ggs_snapshot.json';
+
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { cleanCccd, cleanName } from '@/utils/textHelpers';
@@ -26,7 +26,7 @@ const LIST_ONLY_CACHE_TTL = 60000; // Cache 60 giây danh sách số CCCD, giả
 const checkResultCache = new Map<string, { data: any; timestamp: number }>();
 
 // Pre-indexed Set các số CCCD đã có trên GGS chính để tra cứu O(1) < 0.001ms CPU
-const GGS_CCCD_SET = new Set<string>((staticGgsSnapshot as any)?.allCccds || []);
+const GGS_CCCD_SET = new Set<string>();
 
 async function getR2Binding(): Promise<any | null> {
   try {

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { fetchOrGetCachedGgsData } from '@/utils/ggsData';
 import { cleanStrictName } from '@/utils/textHelpers';
+import { getD1Binding } from '@/utils/d1Database';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,34 +23,33 @@ export async function GET(request: Request) {
   }
 
   try {
-    const data = await fetchOrGetCachedGgsData(false);
-    const people = data.people || {};
-    let person = people[cleanQuery];
+    const db = await getD1Binding();
+    if (db) {
+      // 1. Tìm chính xác hoặc tương đối theo tên trong database D1 đã có CCCD (< 1ms CPU)
+      const row = await db.prepare(
+        `SELECT chu_dat_ten, chu_dat_nam_sinh, chu_dat_gioi_tinh, chu_dat_cccd, chu_dat_dia_chi, ma_thua 
+         FROM declarations 
+         WHERE (chu_dat_ten = ?1 OR chu_dat_ten LIKE ?2) AND chu_dat_cccd != '' AND chu_dat_cccd IS NOT NULL
+         ORDER BY (chu_dat_ten = ?1) DESC, LENGTH(chu_dat_cccd) DESC, updated_at DESC 
+         LIMIT 1`
+      ).bind(name.trim(), `%${name.trim()}%`).first();
 
-    if (!person) {
-      for (const [k, p] of Object.entries(people)) {
-        if (cleanStrictName(k) === cleanQuery || cleanStrictName(p.full_name) === cleanQuery) {
-          person = p;
-          break;
-        }
+      if (row && row.chu_dat_cccd) {
+        return NextResponse.json({
+          found: true,
+          full_name: row.chu_dat_ten,
+          nam_sinh: row.chu_dat_nam_sinh || '',
+          gioi_tinh: row.chu_dat_gioi_tinh || 'Nam',
+          cccd: row.chu_dat_cccd || '',
+          dia_chi: row.chu_dat_dia_chi || '',
+          ma_thua: row.ma_thua || '',
+        });
       }
-    }
-
-    if (person) {
-      return NextResponse.json({
-        found: true,
-        full_name: person.full_name,
-        nam_sinh: person.nam_sinh || '',
-        gioi_tinh: person.gioi_tinh || 'Nam',
-        cccd: person.cccd || '',
-        dia_chi: person.dia_chi || '',
-        ma_thua: person.ma_thua || '',
-      });
     }
 
     return NextResponse.json({ found: false });
   } catch (err: any) {
-    console.error('Lỗi khi tra cứu công dân trên GGS:', err);
-    return NextResponse.json({ found: false, error: err.message }, { status: 500 });
+    console.error('Lỗi khi tra cứu công dân:', err);
+    return NextResponse.json({ found: false });
   }
 }

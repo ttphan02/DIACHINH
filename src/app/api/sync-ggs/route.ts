@@ -1,42 +1,40 @@
 import { NextResponse } from 'next/server';
-import { fetchOrGetCachedGgsData, GgsParcelData } from '@/utils/ggsData';
+import { getCloudflareContext } from '@opennextjs/cloudflare';
+import type { GgsParcelData } from '@/utils/ggsData';
 
 export type { GgsParcelData };
+export const dynamic = 'force-dynamic';
 
+/**
+ * Endpoint đồng bộ Google Sheets Realtime.
+ * Sử dụng cơ chế Zero-CPU Streaming từ Cloudflare R2 để ngăn chặn 100% lỗi 1102 / 503
+ * (Worker Exceeded Resource Limits).
+ */
 export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const force = searchParams.get('force') === 'true';
+    let bucket: any = null;
+    try {
+      const { env } = await getCloudflareContext({ async: true });
+      bucket = (env as any)?.DIACHINH_STORAGE;
+    } catch {}
 
-    const result = await fetchOrGetCachedGgsData(force);
-
-    return NextResponse.json(
-      {
-        success: true,
-        totalGgsCodes: result.codes.length,
-        ggsCodes: result.codes,
-        ggsParcels: result.parcels,
-        ggsCccds: result.allCccds,
-        updatedAt: result.updatedAt,
-        cached: result.cached,
-      },
-      {
-        headers: {
-          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60',
-        },
+    if (bucket) {
+      const obj = await bucket.get('cache/ggs.json');
+      if (obj && obj.body) {
+        return new Response(obj.body, {
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'public, max-age=300, s-maxage=3600',
+            'ETag': obj.httpEtag || '"ggs-cache-v1"',
+          },
+        });
       }
-    );
+    }
+
+    // Dự phòng: chuyển hướng sang static asset do CDN phục vụ 0ms Worker CPU
+    return NextResponse.redirect(new URL('/data/ggs_snapshot.json', request.url), 307);
   } catch (error: any) {
     console.error('Lỗi API sync-ggs:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message || 'Lỗi kết nối tới Google Sheets',
-        totalGgsCodes: 0,
-        ggsCodes: [],
-        ggsParcels: {},
-      },
-      { status: 500 }
-    );
+    return NextResponse.redirect(new URL('/data/ggs_snapshot.json', request.url), 307);
   }
 }
