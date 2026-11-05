@@ -58,6 +58,17 @@ export default function CadastralMap({
   // Chế độ tự động di chuyển màn hình bám theo bước chân người dùng (giống Google Maps)
   const [isFollowingUser, setIsFollowingUser] = useState(false);
 
+  // Tự động vẽ lại canvas khi font chữ Grandview được tải xong
+  useEffect(() => {
+    if (typeof document !== 'undefined' && (document as any).fonts) {
+      (document as any).fonts.ready.then(() => {
+        if (redrawBatchCanvasRef.current) {
+          redrawBatchCanvasRef.current();
+        }
+      });
+    }
+  }, []);
+
   // Tính năng BẬT/TẮT hiển thị tên trên dấu chấm bản đồ
   const [showOwnerNames, setShowOwnerNames] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -92,6 +103,7 @@ export default function CadastralMap({
   // Batch Canvas Layer refs (Vẽ hàng loạt 18.000 điểm chỉ trong 4 lệnh GPU thay vì 18.000 layer)
   const validParcelsRef = useRef<Parcel[]>([]);
   const renderedPointsRef = useRef<RenderedPoint[]>([]);
+  const renderedBadgesRef = useRef<{ x1: number; y1: number; x2: number; y2: number; parcel: Parcel }[]>([]);
   const redrawBatchCanvasRef = useRef<(() => void) | null>(null);
   const hoverTooltipRef = useRef<HTMLDivElement>(null);
 
@@ -344,54 +356,134 @@ export default function CadastralMap({
         // 4. Xanh lam: Đã kê khai (Web)
         drawBatch(bluePts, '#2563eb', '#1e3a8a', baseRadius * 1.08, 1.6);
 
-        // 5. VẼ NHÃN TÊN CHỦ ĐẤT TRÊN CÁC DẤU CHẤM (Khi người dùng BẬT tính năng Hiện tên)
-        if (showOwnerNamesRef.current && zoom >= 13) {
-          ctx.font = zoom >= 17 
-            ? 'bold 12px system-ui, -apple-system, sans-serif'
-            : zoom >= 15
-            ? 'bold 11px system-ui, -apple-system, sans-serif'
-            : 'bold 10px system-ui, -apple-system, sans-serif';
+        // 5. VẼ CÁC THẺ VIÊN THUỐC (PILL BADGE) TÊN CHỦ ĐẤT BẰNG GPU CANVAS
+        // Background hình viên thuốc bo tròn + viền trắng + bóng 3D + font chữ Grandview
+        if (showOwnerNamesRef.current && zoom >= 11) {
+          const fontSize = zoom >= 17 ? 11 : zoom >= 15 ? 10 : zoom >= 13 ? 9.5 : 8.5;
+          ctx.font = `bold ${fontSize}px 'Grandview', 'Bahnschrift', 'Segoe UI', system-ui, sans-serif`;
           ctx.textAlign = 'center';
-          ctx.textBaseline = 'bottom';
-          ctx.lineJoin = 'round';
-          ctx.lineWidth = zoom >= 16 ? 3.5 : 2.8;
-          ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+          ctx.textBaseline = 'middle';
 
-          const labelGridSize = zoom <= 13 ? 60 : zoom <= 14 ? 45 : zoom <= 15 ? 28 : 0;
-          const labelGrid = labelGridSize > 0 ? new Set<string>() : null;
+          const pillH = zoom >= 17 ? 18 : zoom >= 15 ? 16 : zoom >= 13 ? 15 : 13.5;
+          const radius = pillH / 2;
+          const pillPadX = zoom >= 17 ? 7 : zoom >= 15 ? 6 : 4.5;
+          const boxMargin = zoom >= 16 ? 2 : zoom >= 14 ? 3 : zoom >= 13 ? 5 : 8;
 
-          for (let i = 0; i < visibleScreenPts.length; i++) {
-            const item = visibleScreenPts[i];
+          const activeSelectedId = selectedParcel?.ma_thua;
+          const activeNeighbors = neighborParcels;
+          const neighborSet =
+            activeNeighbors && activeNeighbors.length > 0
+              ? new Set(activeNeighbors.map((nb) => nb.ma_thua))
+              : null;
+
+          // Sắp xếp ưu tiên hiển thị để các thửa Đã kê khai / Đã số hóa luôn được vẽ trước
+          const prioritizedPts = visibleScreenPts.slice().sort((a, b) => {
+            const score = (p: Parcel) => {
+              if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') return 3;
+              if (p.trang_thai === 'DA_SO_HOA_XANH') return 2;
+              if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') return 1;
+              return 0;
+            };
+            return score(b.parcel) - score(a.parcel);
+          });
+
+          const drawnBoxes: { x1: number; y1: number; x2: number; y2: number }[] = [];
+          const newRenderedBadges: { x1: number; y1: number; x2: number; y2: number; parcel: Parcel }[] = [];
+
+          for (let i = 0; i < prioritizedPts.length; i++) {
+            const item = prioritizedPts[i];
             const p = item.parcel;
-            const name = getMapDisplayName(p.chu_ho);
-            if (!name) continue;
 
-            const cx = item.x + padX;
-            const cy = item.y + padY;
+            // Bỏ qua thửa đang chọn hoặc các thửa lân cận vì đã có DOM Marker đặc biệt
+            if (activeSelectedId && p.ma_thua === activeSelectedId) continue;
+            if (neighborSet && neighborSet.has(p.ma_thua)) continue;
 
-            if (labelGrid) {
-              const gx = (cx / labelGridSize) | 0;
-              const gy = (cy / labelGridSize) | 0;
-              const key = `${gx}_${gy}`;
-              if (labelGrid.has(key)) continue;
-              labelGrid.add(key);
+            let displayName = extractShortOwnerName(p.chu_ho);
+            // Nếu không có tên chủ hộ nhưng đang zoom gần (zoom >= 16), hiển thị số thửa
+            if (!displayName && p.so_thua && zoom >= 16) {
+              displayName = `${p.so_thua}`;
             }
+            if (!displayName) continue;
 
-            const labelY = cy - baseRadius - 2;
+            const textMetrics = ctx.measureText(displayName);
+            const pillW = textMetrics.width + pillPadX * 2;
 
-            if (p.trang_thai === 'DA_SO_HOA_XANH') {
-              ctx.fillStyle = '#6ee7b7'; // Xanh lá sáng
-            } else if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') {
-              ctx.fillStyle = '#93c5fd'; // Xanh lam sáng
+            const ptX = item.x + padX;
+            const ptY = item.y + padY;
+
+            // Vị trí viên thuốc: nằm ngay phía trên dấu chấm
+            const pillBottom = ptY - baseRadius - 3;
+            const pillTop = pillBottom - pillH;
+            const pillLeft = ptX - pillW / 2;
+
+            // Kiểm tra chống đè chữ (Collision detection) để các nhãn không bao giờ che khuất nhau
+            const bX1 = pillLeft - boxMargin;
+            const bY1 = pillTop - boxMargin;
+            const bX2 = pillLeft + pillW + boxMargin;
+            const bY2 = pillBottom + boxMargin;
+
+            let collides = false;
+            for (let b = 0; b < drawnBoxes.length; b++) {
+              const box = drawnBoxes[b];
+              if (bX1 < box.x2 && bX2 > box.x1 && bY1 < box.y2 && bY2 > box.y1) {
+                collides = true;
+                break;
+              }
+            }
+            if (collides) continue;
+
+            drawnBoxes.push({ x1: bX1, y1: bY1, x2: bX2, y2: bY2 });
+            newRenderedBadges.push({
+              x1: item.x - pillW / 2,
+              y1: item.y - baseRadius - 3 - pillH,
+              x2: item.x + pillW / 2,
+              y2: item.y - baseRadius - 3,
+              parcel: p,
+            });
+
+            // Chọn màu nền cho viên thuốc theo trạng thái
+            let badgeBg = '#475569'; // Slate xám đậm cho thửa khác
+            if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') {
+              badgeBg = '#0284c7'; // Xanh lam sáng (chuẩn màu thẻ lân cận)
+            } else if (p.trang_thai === 'DA_SO_HOA_XANH') {
+              badgeBg = '#059669'; // Xanh ngọc đậm (Emerald)
             } else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') {
-              ctx.fillStyle = '#fde047'; // Vàng sáng
-            } else {
-              ctx.fillStyle = '#f8fafc'; // Trắng
+              badgeBg = '#d97706'; // Vàng cam hổ phách đậm (Amber)
             }
 
-            ctx.strokeText(name, cx, labelY);
-            ctx.fillText(name, cx, labelY);
+            // 1. Tạo đường cong viên thuốc hoàn hảo (Pill Capsule Shape)
+            ctx.beginPath();
+            if (typeof (ctx as any).roundRect === 'function') {
+              (ctx as any).roundRect(pillLeft, pillTop, pillW, pillH, radius);
+            } else {
+              ctx.arc(pillLeft + radius, pillTop + radius, radius, Math.PI * 0.5, Math.PI * 1.5);
+              ctx.arc(pillLeft + pillW - radius, pillTop + radius, radius, -Math.PI * 0.5, Math.PI * 0.5);
+              ctx.closePath();
+            }
+
+            // 2. Vẽ bóng đổ đen mờ 3D và fill nền màu
+            ctx.save();
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+            ctx.shadowBlur = 4;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 1.5;
+            ctx.fillStyle = badgeBg;
+            ctx.fill();
+            ctx.restore();
+
+            // 3. Vẽ viền trắng tinh tế 1.4px
+            ctx.lineWidth = 1.4;
+            ctx.strokeStyle = '#ffffff';
+            ctx.stroke();
+
+            // 4. Vẽ chữ tên rút gọn bằng font Grandview
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(displayName, ptX, pillTop + pillH / 2 + 0.5);
           }
+
+          renderedBadgesRef.current = newRenderedBadges;
+        } else {
+          renderedBadgesRef.current = [];
         }
 
         ctx.restore();

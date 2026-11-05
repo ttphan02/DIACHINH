@@ -1,3 +1,19 @@
+@font-face {
+  font-family: 'Grandview';
+  src: url('/fonts/Grandview-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Grandview';
+  src: url('/fonts/Grandview.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 @import "tailwindcss";
 @import "leaflet/dist/leaflet.css";
 
@@ -58,6 +74,7 @@ input, button, select, textarea, optgroup {
   transform: translate(-50%, -100%);
   background: #0284c7;
   color: #ffffff;
+  font-family: 'Grandview', 'Bahnschrift', 'Segoe UI', system-ui, sans-serif;
   font-weight: 700;
   font-size: 11px;
   line-height: 1.2;
