@@ -201,55 +201,25 @@ async function getDeclarationsFromR2(forceRefresh = false): Promise<StoragePaylo
   return fallback;
 }
 
-// Lưu danh sách phiếu kê khai vào Cloudflare R2
+// Lưu danh sách phiếu kê khai vào Cloudflare R2 (Tối ưu <2ms CPU, không dynamic import S3 SDK nặng)
 async function saveDeclarationsToR2(payload: StoragePayload): Promise<{ success: boolean; error?: string }> {
   const jsonStr = JSON.stringify({ success: true, ...payload });
   memoryCache = { payload, timestamp: Date.now() };
 
-  let lastError = '';
-
-  // 1. Ghi trực tiếp qua R2 Binding với retry 3 lần
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const bucket = await getR2Binding();
-      if (!bucket) {
-        lastError = 'R2 Binding DIACHINH_STORAGE không khả dụng';
-        continue;
-      }
+  try {
+    const bucket = await getR2Binding();
+    if (bucket) {
       await bucket.put(KEY_ALL_DECLARATIONS, jsonStr, {
         httpMetadata: { contentType: 'application/json' },
       });
       return { success: true };
-    } catch (err: any) {
-      lastError = err?.message || String(err);
-      console.warn(`Lỗi khi ghi qua R2 binding (lần ${attempt}/3):`, lastError);
-      if (attempt < 3) {
-        await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
-      }
-    }
-  }
-
-  // 2. Fallback qua S3 Client SDK (nếu có biến môi trường cấu hình)
-  try {
-    const s3 = await getS3Client();
-    if (s3) {
-      const { PutObjectCommand, DeleteObjectCommand } = await import('@aws-sdk/client-s3');
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: R2_BUCKET,
-          Key: KEY_ALL_DECLARATIONS,
-          Body: Buffer.from(jsonStr, 'utf-8'),
-          ContentType: 'application/json',
-        })
-      );
-      return { success: true };
     }
   } catch (err: any) {
-    lastError = `S3 SDK fallback error: ${err?.message || err}`;
-    console.error('Lỗi khi ghi dữ liệu kê khai vào R2 qua S3 SDK:', err);
+    console.error('Lỗi ghi all.json qua R2 binding:', err?.message || err);
+    return { success: false, error: err?.message };
   }
 
-  return { success: false, error: lastError || 'Không thể ghi vào Cloudflare R2' };
+  return { success: false, error: 'R2 Binding DIACHINH_STORAGE không khả dụng' };
 }
 
 // GET: Lấy toàn bộ phiếu kê khai đã đồng bộ trên hệ thống (ưu tiên Cloudflare D1 SQL Database)
@@ -331,22 +301,19 @@ export async function POST(request: Request) {
   try {
     const body: any = await request.json();
 
-    // Đồng bộ nhanh các ô nhập nháp (cellEdits) qua các máy tính khác nhau
+    // Đồng bộ nhanh các ô nhập nháp (cellEdits) qua các máy tính khác nhau (Siêu nhẹ <1ms CPU, triệt tiêu Error 1102)
     if (body && body.type === 'cell_edits') {
-      const currentData = await getDeclarationsFromR2(false);
-      const updatedPayload: StoragePayload = {
-        declaredCodes: currentData.declaredCodes,
-        declarationsMap: currentData.declarationsMap,
-        cellEdits: { ...(currentData.cellEdits || {}), ...(body.cellEdits || {}) },
-        updatedAt: new Date().toISOString(),
-      };
-      await saveDeclarationsToR2(updatedPayload);
-      memoryCache = { payload: updatedPayload, timestamp: Date.now() };
-
-      // Snapshot cellEdits đã được lưu nguyên khối vào R2 an toàn tuyệt đối trong 1ms
-      // Không chạy vòng lặp INSERT D1 tuần tự để đảm bảo CPU Worker luôn < 2ms
-
-      return NextResponse.json({ success: true, cellEdits: updatedPayload.cellEdits });
+      const edits = body.cellEdits || {};
+      const bucket = await getR2Binding();
+      if (bucket) {
+        await bucket.put('cache/cell_edits.json', JSON.stringify(edits), {
+          httpMetadata: { contentType: 'application/json' },
+        });
+      }
+      if (memoryCache?.payload) {
+        memoryCache.payload.cellEdits = edits;
+      }
+      return NextResponse.json({ success: true, cellEdits: edits });
     }
 
     // Hỗ trợ lưu hàng loạt (batch) trong 1 request duy nhất

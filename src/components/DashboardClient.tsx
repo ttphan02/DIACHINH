@@ -730,7 +730,7 @@ export default function DashboardPage() {
     if (immediate) {
       doSync();
     } else {
-      cellEditsSyncTimeoutRef.current = setTimeout(doSync, 1000);
+      cellEditsSyncTimeoutRef.current = setTimeout(doSync, 3000);
     }
   }, []);
 
@@ -784,7 +784,8 @@ export default function DashboardPage() {
         [colIdx]: newValue,
       },
     };
-    syncCellEditsToCloud(updatedEdits, true);
+    // Không gọi syncCellEditsToCloud tại đây để tránh bắn 2 request đồng thời gây Error 1102
+    // Vì ngay bên dưới attemptSave() đã lưu trực tiếp declaration hoàn chỉnh lên Cloudflare R2
     broadcastRealtimeEvent({
       type: 'CELL_EDITS_SYNCED',
       cellEdits: updatedEdits,
