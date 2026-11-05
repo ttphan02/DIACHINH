@@ -6035,10 +6035,14 @@ export default function DashboardPage() {
                                         } else if (isGenderCol && declForParcel.chu_dat_gioi_tinh) {
                                           effectiveVal = declForParcel.chu_dat_gioi_tinh;
                                         } else if (isCccdCol) {
-                                          if (declForParcel?.yeu_cau_thu_cccd || declForParcel?.chu_dat_cccd === '') {
+                                          if (declForParcel?.yeu_cau_thu_cccd) {
                                             effectiveVal = '';
-                                          } else if (declForParcel?.chu_dat_cccd || declForParcel?.cccd) {
-                                            effectiveVal = cleanCccd(declForParcel.chu_dat_cccd || declForParcel.cccd);
+                                          } else if (declForParcel?.chu_dat_cccd) {
+                                            effectiveVal = cleanCccd(declForParcel.chu_dat_cccd);
+                                          } else if (declForParcel?.cccd) {
+                                            effectiveVal = cleanCccd(declForParcel.cccd);
+                                          } else if (cleanText) {
+                                            effectiveVal = cleanCccd(cleanText);
                                           }
                                         } else if (isVillageCol && (declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi || declForParcel.thon_xa)) {
                                           effectiveVal = cleanVillageDisplay(declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi || declForParcel.thon_xa);

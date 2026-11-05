@@ -438,7 +438,7 @@ export async function executeSyncToGoogleSheet(
       const curLd = String(decl.loai_dat || fallbackLoaiDat || '').trim().toUpperCase();
       if (curLd === 'BCS') continue;
       const fallbackThon = meta ? meta[2] : '';
-      const fallbackOwner = meta ? meta[3] : '';
+      const fallbackOwner = '';
 
       const ggsP = ggsParcels[maThua];
       const chuHoStrict = cleanStrictName(chuHo);
@@ -460,7 +460,7 @@ export async function executeSyncToGoogleSheet(
       }
 
       // Tự động bổ sung fallback dữ liệu mặc định/ảo nếu thiếu trường
-      const rawChuHo = chuHo || fallbackOwner || 'Chủ sử dụng';
+      const rawChuHo = chuHo || (ggsP && ggsP.chu_ho ? cleanName(ggsP.chu_ho) : '') || fallbackOwner || 'Chủ sử dụng';
       const cleanOwner = cleanName(rawChuHo) || 'Chủ sử dụng';
       const thonXa = normalizeAddress(
         decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || fallbackThon || 'Thôn 1, xã Cư Pui'
