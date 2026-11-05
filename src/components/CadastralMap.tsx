@@ -3,7 +3,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Parcel, NeighborParcel, AdditionalParcel } from '@/types';
 import { extractShortOwnerName } from '@/utils/geo';
-import { Maximize2, LocateFixed, Loader2 } from 'lucide-react';
+import { isPersonName } from '@/utils/textHelpers';
+import { Maximize2, LocateFixed, Loader2, Tag } from 'lucide-react';
 import type { Map as LeafletMap, LayerGroup } from 'leaflet';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
 const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
@@ -25,6 +26,14 @@ interface RenderedPoint {
   x: number; // Tọa độ containerPoint X
   y: number; // Tọa độ containerPoint Y
   parcel: Parcel;
+}
+
+function getMapDisplayName(rawName?: string | null): string {
+  if (!rawName || !isPersonName(rawName)) return '';
+  let s = String(rawName).trim();
+  s = s.replace(/^(hộ\s+ông\s*:\s*|hộ\s+bà\s*:\s*|ông\s*:\s*|bà\s*:\s*|hộ\s*:\s*|ông\s+|bà\s+|hộ\s+)/i, '').trim();
+  s = s.replace(/’/g, "'").replace(/^(H|Y)'\s*/i, '$1 ');
+  return s;
 }
 
 export default function CadastralMap({
@@ -51,6 +60,37 @@ export default function CadastralMap({
   const [dotsCount, setDotsCount] = useState(0);
   // Chế độ tự động di chuyển màn hình bám theo bước chân người dùng (giống Google Maps)
   const [isFollowingUser, setIsFollowingUser] = useState(false);
+
+  // Tính năng BẬT/TẮT hiển thị tên trên dấu chấm bản đồ
+  const [showOwnerNames, setShowOwnerNames] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('map_show_owner_names');
+        if (saved !== null) return saved === 'true';
+      } catch {}
+    }
+    return true; // Mặc định BẬT
+  });
+
+  const showOwnerNamesRef = useRef(showOwnerNames);
+  useEffect(() => {
+    showOwnerNamesRef.current = showOwnerNames;
+    if (redrawBatchCanvasRef.current) {
+      redrawBatchCanvasRef.current();
+    }
+  }, [showOwnerNames]);
+
+  const toggleShowOwnerNames = useCallback(() => {
+    setShowOwnerNames((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('map_show_owner_names', String(next));
+        } catch {}
+      }
+      return next;
+    });
+  }, []);
 
   // Batch Canvas Layer refs (Vẽ hàng loạt 18.000 điểm chỉ trong 4 lệnh GPU thay vì 18.000 layer)
   const validParcelsRef = useRef<Parcel[]>([]);
@@ -306,6 +346,56 @@ export default function CadastralMap({
 
         // 4. Xanh lam: Đã kê khai (Web)
         drawBatch(bluePts, '#2563eb', '#1e3a8a', baseRadius * 1.08, 1.6);
+
+        // 5. VẼ NHÃN TÊN CHỦ ĐẤT TRÊN CÁC DẤU CHẤM (Khi người dùng BẬT tính năng Hiện tên)
+        if (showOwnerNamesRef.current && zoom >= 14) {
+          ctx.font = zoom >= 17 
+            ? 'bold 12px system-ui, -apple-system, sans-serif'
+            : zoom >= 15
+            ? 'bold 11px system-ui, -apple-system, sans-serif'
+            : 'bold 10px system-ui, -apple-system, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          ctx.lineJoin = 'round';
+          ctx.lineWidth = zoom >= 16 ? 3.5 : 2.8;
+          ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+
+          const labelGridSize = zoom <= 14 ? 50 : zoom <= 15 ? 32 : 0;
+          const labelGrid = labelGridSize > 0 ? new Set<string>() : null;
+
+          for (let i = 0; i < visibleScreenPts.length; i++) {
+            const item = visibleScreenPts[i];
+            const p = item.parcel;
+            const name = getMapDisplayName(p.chu_ho);
+            if (!name) continue;
+
+            const cx = item.x + padX;
+            const cy = item.y + padY;
+
+            if (labelGrid) {
+              const gx = (cx / labelGridSize) | 0;
+              const gy = (cy / labelGridSize) | 0;
+              const key = `${gx}_${gy}`;
+              if (labelGrid.has(key)) continue;
+              labelGrid.add(key);
+            }
+
+            const labelY = cy - baseRadius - 2;
+
+            if (p.trang_thai === 'DA_SO_HOA_XANH') {
+              ctx.fillStyle = '#6ee7b7'; // Xanh lá sáng
+            } else if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') {
+              ctx.fillStyle = '#93c5fd'; // Xanh lam sáng
+            } else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') {
+              ctx.fillStyle = '#fde047'; // Vàng sáng
+            } else {
+              ctx.fillStyle = '#f8fafc'; // Trắng
+            }
+
+            ctx.strokeText(name, cx, labelY);
+            ctx.fillText(name, cx, labelY);
+          }
+        }
 
         ctx.restore();
       };
@@ -822,6 +912,20 @@ export default function CadastralMap({
           <Maximize2 className="w-3.5 h-3.5 text-blue-400" /> Xem tất cả
         </button>
 
+        <button
+          type="button"
+          onClick={toggleShowOwnerNames}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-semibold transition border cursor-pointer ${
+            showOwnerNames
+              ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-xs ring-1 ring-amber-400/40'
+              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-600/50'
+          }`}
+          title={showOwnerNames ? 'Bấm để tắt hiển thị tên trên bản đồ' : 'Bấm để bật hiển thị tên trên các dấu chấm'}
+        >
+          <Tag className={`w-3.5 h-3.5 ${showOwnerNames ? 'text-amber-400' : 'text-slate-400'}`} />
+          <span>{showOwnerNames ? 'Tên: BẬT' : 'Hiện tên chủ đất'}</span>
+        </button>
+
         <span className="text-slate-300 font-medium ml-1">
           Hiển thị: <strong className="text-emerald-400 font-black">{dotsCount.toLocaleString('vi-VN')}</strong> thửa
         </span>
@@ -851,8 +955,25 @@ export default function CadastralMap({
         </span>
       </div>
 
-      {/* NÚT TRÒN ĐỊNH VỊ VỊ TRÍ ĐANG ĐỨNG (GOOGLE MAPS STYLE - CÓ CHẾ ĐỘ BÁM BƯỚC CHÂN) */}
-      <div className="absolute bottom-20 right-3.5 sm:bottom-24 sm:right-4 z-[1000] flex flex-col items-end gap-1.5">
+      {/* NÚT TRÒN ĐỊNH VỊ & ĐIỀU KHIỂN NỔI (GOOGLE MAPS STYLE) */}
+      <div className="absolute bottom-20 right-3.5 sm:bottom-24 sm:right-4 z-[1000] flex flex-col items-end gap-2">
+        {/* Nút bật/tắt hiển thị tên trên bản đồ */}
+        <button
+          type="button"
+          onClick={toggleShowOwnerNames}
+          className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full shadow-2xl border flex flex-col items-center justify-center active:scale-90 transition-all cursor-pointer ${
+            showOwnerNames
+              ? 'bg-amber-500 text-slate-950 border-amber-300 ring-4 ring-amber-500/30 font-black'
+              : 'bg-slate-900/90 text-white border-slate-700 hover:bg-slate-800'
+          }`}
+          title={showOwnerNames ? 'Đang bật hiển thị tên trên bản đồ - Chạm để tắt' : 'Chạm để bật hiển thị tên chủ đất trên bản đồ'}
+        >
+          <Tag className={`w-4 h-4 ${showOwnerNames ? 'text-slate-950' : 'text-amber-400'}`} />
+          <span className="text-[9px] font-black leading-none mt-0.5 tracking-tighter">
+            {showOwnerNames ? 'Tắt tên' : 'Hiện tên'}
+          </span>
+        </button>
+
         {!userLocation && (
           <div
             onClick={handleFlyToUserLocation}
