@@ -365,17 +365,19 @@ export default function CadastralMap({
         // 4. Xanh lam: Đã kê khai (Web)
         drawBatch(bluePts, '#2563eb', '#1e3a8a', baseRadius * 1.08, 1.6);
 
-        // 5. VẼ CÁC THẺ VIÊN THUỐC (PILL BADGE) TÊN CHỦ ĐẤT BẰNG GPU CANVAS
+        // 5. VẼ CÁC THẺ VIÊN THUỐC (PILL BADGE) TÊN CHỦ ĐẤT BẰNG GPU CANVAS TRÊN TOÀN MAP
         // Phong cách chuẩn giống hệt nhãn thửa lân cận: Thẻ con nhộng bo tròn + viền trắng 1.4px + đổ bóng đen mờ 3D + tên rút gọn
-        if (showOwnerNamesRef.current && zoom >= 14) {
-          const fontSize = zoom >= 17 ? 11 : zoom >= 15 ? 10 : 9;
+        // Hỗ trợ từ mức zoom 11 (bao quát toàn xã) đến zoom cận cảnh 21+
+        if (showOwnerNamesRef.current && zoom >= 11) {
+          const fontSize = zoom >= 17 ? 11 : zoom >= 15 ? 10 : zoom >= 13 ? 9.5 : 8.5;
           ctx.font = `bold ${fontSize}px system-ui, -apple-system, sans-serif`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
 
-          const pillH = zoom >= 17 ? 18 : zoom >= 15 ? 16 : 14.5;
+          const pillH = zoom >= 17 ? 18 : zoom >= 15 ? 16 : zoom >= 13 ? 15 : 13.5;
           const radius = pillH / 2;
-          const pillPadX = zoom >= 17 ? 7 : 5.5;
+          const pillPadX = zoom >= 17 ? 7 : zoom >= 15 ? 6 : 4.5;
+          const boxMargin = zoom >= 16 ? 2 : zoom >= 14 ? 3 : zoom >= 13 ? 5 : 8;
 
           const activeSelectedId = selectedParcelRef.current?.ma_thua;
           const activeNeighbors = neighborParcelsRef.current;
@@ -396,7 +398,6 @@ export default function CadastralMap({
           });
 
           const drawnBoxes: { x1: number; y1: number; x2: number; y2: number }[] = [];
-          const boxMargin = zoom >= 16 ? 2 : 4;
           const newRenderedBadges: { x1: number; y1: number; x2: number; y2: number; parcel: Parcel }[] = [];
 
           for (let i = 0; i < prioritizedPts.length; i++) {
@@ -407,10 +408,14 @@ export default function CadastralMap({
             if (activeSelectedId && p.ma_thua === activeSelectedId) continue;
             if (neighborSet && neighborSet.has(p.ma_thua)) continue;
 
-            const shortName = extractShortOwnerName(p.chu_ho);
-            if (!shortName) continue;
+            let displayName = extractShortOwnerName(p.chu_ho);
+            // Nếu không có tên chủ hộ nhưng đang zoom gần (zoom >= 16), hiển thị số thửa
+            if (!displayName && p.so_thua && zoom >= 16) {
+              displayName = `${p.so_thua}`;
+            }
+            if (!displayName) continue;
 
-            const textMetrics = ctx.measureText(shortName);
+            const textMetrics = ctx.measureText(displayName);
             const pillW = textMetrics.width + pillPadX * 2;
 
             const ptX = item.x + padX;
@@ -456,22 +461,22 @@ export default function CadastralMap({
               badgeBg = '#d97706'; // Vàng cam hổ phách đậm (Amber)
             }
 
-            // 1. Tạo đường cong viên thuốc (Capsule / Pill shape)
+            // 1. Tạo đường cong viên thuốc hoàn hảo (Pill Capsule Shape)
             ctx.beginPath();
-            ctx.moveTo(pillLeft + radius, pillTop);
-            ctx.lineTo(pillLeft + pillW - radius, pillTop);
-            ctx.arcTo(pillLeft + pillW, pillTop, pillLeft + pillW, pillTop + pillH, radius);
-            ctx.arcTo(pillLeft + pillW, pillTop + pillH, pillLeft, pillTop + pillH, radius);
-            ctx.arcTo(pillLeft, pillTop + pillH, pillLeft, pillTop, radius);
-            ctx.arcTo(pillLeft, pillTop, pillLeft + pillW, pillTop, radius);
-            ctx.closePath();
+            if (typeof (ctx as any).roundRect === 'function') {
+              (ctx as any).roundRect(pillLeft, pillTop, pillW, pillH, radius);
+            } else {
+              ctx.arc(pillLeft + radius, pillTop + radius, radius, Math.PI * 0.5, Math.PI * 1.5);
+              ctx.arc(pillLeft + pillW - radius, pillTop + radius, radius, -Math.PI * 0.5, Math.PI * 0.5);
+              ctx.closePath();
+            }
 
             // 2. Vẽ bóng đổ đen mờ 3D và fill nền màu
             ctx.save();
             ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-            ctx.shadowBlur = 5;
+            ctx.shadowBlur = 4;
             ctx.shadowOffsetX = 0;
-            ctx.shadowOffsetY = 2;
+            ctx.shadowOffsetY = 1.5;
             ctx.fillStyle = badgeBg;
             ctx.fill();
             ctx.restore();
@@ -483,7 +488,7 @@ export default function CadastralMap({
 
             // 4. Vẽ chữ tên rút gọn
             ctx.fillStyle = '#ffffff';
-            ctx.fillText(shortName, ptX, pillTop + pillH / 2 + 0.5);
+            ctx.fillText(displayName, ptX, pillTop + pillH / 2 + 0.5);
           }
 
           renderedBadgesRef.current = newRenderedBadges;
