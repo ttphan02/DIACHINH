@@ -1469,9 +1469,11 @@ export default function DashboardPage() {
       if (isOnGgs) {
         finalStatus = 'DA_SO_HOA_XANH';
       } else if (isDeclared) {
-        // Thửa đã kê khai nhưng chưa có trên Google Sheets -> Đã kê khai (Xanh lam)
-        // Không tô màu xanh lá (Đã số hóa) cho thửa ONT vừa kê khai
-        finalStatus = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
+        if (isOntParcel) {
+          finalStatus = 'DA_SO_HOA_XANH';
+        } else {
+          finalStatus = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
+        }
       } else if (p.trang_thai === 'DA_SO_HOA_XANH') {
         finalStatus = 'DA_SO_HOA_XANH';
       } else if (mergedChuHo && mergedChuHo !== 'Không có trong dữ liệu' && isPersonName(mergedChuHo)) {
