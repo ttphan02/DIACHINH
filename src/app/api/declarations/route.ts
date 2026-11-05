@@ -139,7 +139,21 @@ async function getDeclarationsFromR2(forceRefresh = false): Promise<StoragePaylo
     return memoryCache.payload;
   }
 
-  // 1. Đọc trực tiếp qua R2 Binding (nhanh nhất trên Cloudflare Worker)
+  // 1. Ưu tiên đọc trực tiếp từ Cloudflare D1 SQL Database
+  try {
+    const db = await getD1Binding();
+    if (db) {
+      const d1Data = await getAllD1Declarations(db);
+      if (d1Data && d1Data.declaredCodes.length > 0) {
+        memoryCache = { payload: d1Data, timestamp: now };
+        return d1Data;
+      }
+    }
+  } catch (d1Err) {
+    console.warn('Lỗi đọc declarations từ D1 SQL Database:', d1Err);
+  }
+
+  // 2. Đọc trực tiếp qua R2 Binding (fallback nếu D1 chưa sẵn sàng)
   try {
     const bucket = await getR2Binding();
     if (bucket) {
@@ -238,10 +252,34 @@ async function saveDeclarationsToR2(payload: StoragePayload): Promise<{ success:
   return { success: false, error: lastError || 'Không thể ghi vào Cloudflare R2' };
 }
 
-// GET: Lấy toàn bộ phiếu kê khai đã đồng bộ trên hệ thống siêu tốc (Stream trực tiếp R2 ~0.2ms CPU)
+// GET: Lấy toàn bộ phiếu kê khai đã đồng bộ trên hệ thống (ưu tiên Cloudflare D1 SQL Database)
 export async function GET() {
   try {
-    // 1. Stream trực tiếp từ R2 Binding (0ms parse CPU, 0MB RAM, không bao giờ bị cắt ngắn hay tràn bộ nhớ)
+    // 1. Ưu tiên truy vấn trực tiếp từ Cloudflare D1 SQL Database
+    const db = await getD1Binding();
+    if (db) {
+      try {
+        const d1Data = await getAllD1Declarations(db);
+        if (d1Data && d1Data.declaredCodes.length > 0) {
+          return NextResponse.json(
+            {
+              success: true,
+              ...d1Data,
+              source: 'd1_sql_database',
+            },
+            {
+              headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+              },
+            }
+          );
+        }
+      } catch (d1Err) {
+        console.warn('Lỗi truy vấn declarations từ D1 SQL Database:', d1Err);
+      }
+    }
+
+    // 2. Stream trực tiếp từ R2 Binding (fallback nếu D1 chưa khởi tạo)
     const bucket = await getR2Binding();
     if (bucket) {
       const obj = await bucket.get(KEY_ALL_DECLARATIONS);
