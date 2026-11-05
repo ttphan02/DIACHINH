@@ -6060,7 +6060,8 @@ export default function DashboardPage() {
                                         effectiveVal = cleanVillageDisplay(effectiveVal);
                                       }
                                       const isForcedEmptyCccd = isCccdCol && Boolean(declForParcel?.yeu_cau_thu_cccd);
-                                      const displayVal = cellEdits[maThua]?.[cIdx] !== undefined ? cellEdits[maThua][cIdx] : (isForcedEmptyCccd ? '' : effectiveVal);
+                                      const rawEdit = cellEdits[maThua]?.[cIdx];
+                                      const displayVal = (rawEdit !== undefined && (rawEdit !== '' || !effectiveVal)) ? rawEdit : (isForcedEmptyCccd ? '' : effectiveVal);
 
                                       // 1. Ô Nguồn gốc sử dụng đất (Dropdown Khai hoang / Thừa kế / Tặng cho trực tiếp)
                                        if (isOriginCol) {
