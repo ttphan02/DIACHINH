@@ -5798,14 +5798,15 @@ export default function DashboardPage() {
                               pagedRows.map((row, rIdx) => {
                                 const maThua = String(row[1] || '').trim();
                                 const isChecked = readyToPackSelectedCodes.has(maThua);
-                                const isReadyToDeclare = isChuaThucHienSheet && checkIsRowReadyToDeclare(maThua, row);
+                                const landTypeIdx = headers.findIndex((h) => /loại đất|mục đích/i.test(h));
+                                const rowLoaiDat = String(landTypeIdx !== -1 ? row[landTypeIdx] : '').trim();
+                                const isOntRow = /ont/i.test(rowLoaiDat) || isGcnOntSheet;
+                                const isReadyToDeclare = !isOntRow && isChuaThucHienSheet && checkIsRowReadyToDeclare(maThua, row);
                                 const isCanTimCccd = isChuaCoCccdSheet && getChuaCoCccdRowStatus(maThua, row) === 'CẦN TÌM CCCD';
                                 const isSaving = savingRowCodes.has(maThua);
                                 const hasEdited = Boolean(cellEdits[maThua]);
-                                const isImportedWeb = kh2959ImportedCodes.has(maThua) || DIGITIZED_SET.has(maThua);
-                                const landTypeIdx = headers.findIndex((h) => /loại đất|mục đích/i.test(h));
-                                const rowLoaiDat = String(landTypeIdx !== -1 ? row[landTypeIdx] : '').trim();
-                                const isOntRow = /ont/i.test(rowLoaiDat);
+                                // Tuyệt đối KHÔNG tô màu xanh cho thửa ONT, ONT+ trên bất kỳ danh sách nào
+                                const isImportedWeb = !isOntRow && (kh2959ImportedCodes.has(maThua) || DIGITIZED_SET.has(maThua));
 
                                 return (
                                   <tr
