@@ -4054,78 +4054,87 @@ export default function DashboardPage() {
 
                         // Cập nhật UI tức thì (Optimistic UI Update): Di chuyển ngay lập tức giữa 2 sheet
                         const movedMaThuas = new Set(updatedDecls.map((d) => d.ma_thua));
-                        setSyncSheetsData((prev) => {
-                          if (!prev) return prev;
-                          const oldUnpack = prev['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] || [];
-                          const oldPack = prev['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || [];
+                        const oldUnpack = syncSheetsData?.['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] || [];
+                        const oldPack = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || [];
 
-                          const headerUnpack = oldUnpack[0] || [];
-                          const headerPack = oldPack[0] || [];
+                        const headerUnpack = oldUnpack[0] || [];
+                        const headerPack = oldPack[0] || [];
 
-                          const remainingUnpackRows = oldUnpack.slice(1).filter((r) => !movedMaThuas.has(String(r[1] || '').trim()));
-                          const newUnpack = [
-                            headerUnpack,
-                            ...remainingUnpackRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
+                        const remainingUnpackRows = oldUnpack.slice(1).filter((r) => !movedMaThuas.has(String(r[1] || '').trim()));
+                        const newUnpack = [
+                          headerUnpack,
+                          ...remainingUnpackRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
+                        ];
+
+                        const newlyPackedRows = readyToMoveToPackRows.map((r) => {
+                          const maThua = String(r[1] || '').trim();
+                          const decl = updatedDecls.find((d) => d.ma_thua === maThua);
+                          const cccdNum = decl?.chu_dat_cccd || '';
+                          const cccdText = cccdNum ? `="${cccdNum}"` : '';
+                          const fileName = `${cccdNum}.pdf`;
+                          const fileUrl = `/api/image/cccd/${encodeURIComponent(fileName)}`;
+                          const fileFormula = `=HYPERLINK("${fileUrl}"; "${fileName}")`;
+                          return [
+                            '',
+                            maThua,
+                            String(r[2] || ''),
+                            String(decl?.chu_dat_ten || r[3] || ''),
+                            String(decl?.chu_dat_nam_sinh || r[4] || ''),
+                            String(decl?.chu_dat_gioi_tinh || r[5] || 'Nam'),
+                            cccdText,
+                            String(decl?.dien_tich || r[7] || ''),
+                            String(decl?.loai_dat || r[8] || 'DGT'),
+                            String(decl?.nguon_goc || r[9] || 'Khai Hoang'),
+                            fileFormula,
                           ];
-
-                          const newlyPackedRows = readyToMoveToPackRows.map((r) => {
-                            const maThua = String(r[1] || '').trim();
-                            const decl = updatedDecls.find((d) => d.ma_thua === maThua);
-                            const cccdNum = decl?.chu_dat_cccd || '';
-                            const cccdText = cccdNum ? `="${cccdNum}"` : '';
-                            const fileName = `${cccdNum}.pdf`;
-                            const fileUrl = `/api/image/cccd/${encodeURIComponent(fileName)}`;
-                            const fileFormula = `=HYPERLINK("${fileUrl}"; "${fileName}")`;
-                            return [
-                              '',
-                              maThua,
-                              String(r[2] || ''),
-                              String(decl?.chu_dat_ten || r[3] || ''),
-                              String(decl?.chu_dat_nam_sinh || r[4] || ''),
-                              String(decl?.chu_dat_gioi_tinh || r[5] || 'Nam'),
-                              cccdText,
-                              String(decl?.dien_tich || r[7] || ''),
-                              String(decl?.loai_dat || r[8] || 'DGT'),
-                              String(decl?.nguon_goc || r[9] || 'Khai Hoang'),
-                              fileFormula,
-                            ];
-                          });
-
-                          const mergedPackRows = [...oldPack.slice(1), ...newlyPackedRows];
-                          const newPack = [
-                            headerPack,
-                            ...mergedPackRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
-                          ];
-
-                          return {
-                            ...prev,
-                            'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)': newUnpack,
-                            'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)': newPack,
-                          };
                         });
 
-                        setSyncSummary((prev) => {
-                          if (!prev) return prev;
-                          return {
-                            ...prev,
-                            daDongTap: (prev.daDongTap || 0) + updatedDecls.length,
-                            khongCoCccd: Math.max(0, (prev.khongCoCccd || 0) - updatedDecls.length),
-                          };
-                        });
+                        const mergedPackRows = [...oldPack.slice(1), ...newlyPackedRows];
+                        const newPack = [
+                          headerPack,
+                          ...mergedPackRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
+                        ];
 
-                        // Gửi batch lưu lên Cloudflare R2
-                        const res = await fetch('/api/declarations', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ batch: updatedDecls }),
-                        });
-                        if (res.ok) {
-                          const data = (await res.json()) as any;
-                          if (data && data.declaredCodes) {
-                            setDeclaredParcelCodes(new Set(data.declaredCodes));
-                            setDeclarationsMap(data.declarationsMap || {});
-                          }
-                        }
+                        const nextSheets = {
+                          ...(syncSheetsData || {}),
+                          'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)': newUnpack,
+                          'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)': newPack,
+                        };
+
+                        setSyncSheetsData(nextSheets);
+
+                        const nextSummary = syncSummary ? {
+                          ...syncSummary,
+                          daDongTap: (syncSummary.daDongTap || 0) + updatedDecls.length,
+                          khongCoCccd: Math.max(0, (syncSummary.khongCoCccd || 0) - updatedDecls.length),
+                        } : null;
+
+                        if (nextSummary) setSyncSummary(nextSummary);
+
+                        // Gửi đồng bộ lưu R2 song song: vừa lưu declaration vừa cập nhật tức thì cache sync-sheets
+                        await Promise.all([
+                          fetch('/api/declarations', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ batch: updatedDecls }),
+                          }).then(async (res) => {
+                            if (res.ok) {
+                              const data = (await res.json()) as any;
+                              if (data && data.declaredCodes) {
+                                setDeclaredParcelCodes(new Set(data.declaredCodes));
+                                setDeclarationsMap(data.declarationsMap || {});
+                              }
+                            }
+                          }),
+                          fetch('/api/sync-sheets', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              summary: nextSummary,
+                              sheetsData: nextSheets,
+                            }),
+                          }),
+                        ]);
                       }
 
                       setInlineSaveToast(`✓ Đã chuyển thành công ${updatedDecls.length} thửa có file CCCD trên R2 sang Sẵn Sàng Đóng Tập!`);
@@ -4231,55 +4240,53 @@ export default function DashboardPage() {
 
                         // Optimistic UI Update: Di chuyển ngay lập tức giữa 2 sheet
                         const movedMaThuas = new Set(selectedCodes);
-                        setSyncSheetsData((prev) => {
-                          if (!prev) return prev;
-                          const oldPack = prev['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || [];
-                          const oldUnpack = prev['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] || [];
+                        const oldPack = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || [];
+                        const oldUnpack = syncSheetsData?.['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] || [];
 
-                          const headerPack = oldPack[0] || [];
-                          const headerUnpack = oldUnpack[0] || [];
+                        const headerPack = oldPack[0] || [];
+                        const headerUnpack = oldUnpack[0] || [];
 
-                          const movedRows = oldPack.slice(1).filter((r) => movedMaThuas.has(String(r[1] || '').trim()));
-                          const remainingPackRows = oldPack.slice(1).filter((r) => !movedMaThuas.has(String(r[1] || '').trim()));
+                        const movedRows = oldPack.slice(1).filter((r) => movedMaThuas.has(String(r[1] || '').trim()));
+                        const remainingPackRows = oldPack.slice(1).filter((r) => !movedMaThuas.has(String(r[1] || '').trim()));
 
-                          const newPack = [
-                            headerPack,
-                            ...remainingPackRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
-                          ];
+                        const newPack = [
+                          headerPack,
+                          ...remainingPackRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
+                        ];
 
-                          const cccdIdxInUnpack = headerUnpack.findIndex((h) => /cccd|định danh/i.test(h));
-                          const newlyUnpackedRows = movedRows.map((r) => {
-                            const rowCopy = [...r];
-                            if (cccdIdxInUnpack !== -1) {
-                              rowCopy[cccdIdxInUnpack] = '';
-                            }
-                            if (rowCopy.length > 6) {
-                              rowCopy[6] = '';
-                            }
-                            return rowCopy;
-                          });
-
-                          const mergedUnpackRows = [...oldUnpack.slice(1), ...newlyUnpackedRows];
-                          const newUnpack = [
-                            headerUnpack,
-                            ...mergedUnpackRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
-                          ];
-
-                          return {
-                            ...prev,
-                            'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)': newPack,
-                            'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)': newUnpack,
-                          };
+                        const cccdIdxInUnpack = headerUnpack.findIndex((h) => /cccd|định danh/i.test(h));
+                        const newlyUnpackedRows = movedRows.map((r) => {
+                          const rowCopy = [...r];
+                          if (cccdIdxInUnpack !== -1) {
+                            rowCopy[cccdIdxInUnpack] = '';
+                          }
+                          if (rowCopy.length > 6) {
+                            rowCopy[6] = '';
+                          }
+                          return rowCopy;
                         });
 
-                        setSyncSummary((prev) => {
-                          if (!prev) return prev;
-                          return {
-                            ...prev,
-                            daDongTap: Math.max(0, (prev.daDongTap || 0) - updatedDecls.length),
-                            khongCoCccd: (prev.khongCoCccd || 0) + updatedDecls.length,
-                          };
-                        });
+                        const mergedUnpackRows = [...oldUnpack.slice(1), ...newlyUnpackedRows];
+                        const newUnpack = [
+                          headerUnpack,
+                          ...mergedUnpackRows.map((r, idx) => [String(idx + 1), ...r.slice(1)]),
+                        ];
+
+                        const nextSheets = {
+                          ...(syncSheetsData || {}),
+                          'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)': newPack,
+                          'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)': newUnpack,
+                        };
+
+                        setSyncSheetsData(nextSheets);
+
+                        const nextSummary = syncSummary ? {
+                          ...syncSummary,
+                          daDongTap: Math.max(0, (syncSummary.daDongTap || 0) - updatedDecls.length),
+                          khongCoCccd: (syncSummary.khongCoCccd || 0) + updatedDecls.length,
+                        } : null;
+
+                        if (nextSummary) setSyncSummary(nextSummary);
 
                         // Xóa selection
                         setReadyToPackSelectedCodes((prev) => {
@@ -4288,19 +4295,30 @@ export default function DashboardPage() {
                           return next;
                         });
 
-                        // Gửi batch lưu lên Cloudflare R2
-                        const res = await fetch('/api/declarations', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ batch: updatedDecls }),
-                        });
-                        if (res.ok) {
-                          const data = (await res.json()) as any;
-                          if (data && data.declaredCodes) {
-                            setDeclaredParcelCodes(new Set(data.declaredCodes));
-                            setDeclarationsMap(data.declarationsMap || {});
-                          }
-                        }
+                        // Gửi đồng bộ lưu R2 song song: vừa lưu declaration vừa cập nhật tức thì cache sync-sheets
+                        await Promise.all([
+                          fetch('/api/declarations', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ batch: updatedDecls }),
+                          }).then(async (res) => {
+                            if (res.ok) {
+                              const data = (await res.json()) as any;
+                              if (data && data.declaredCodes) {
+                                setDeclaredParcelCodes(new Set(data.declaredCodes));
+                                setDeclarationsMap(data.declarationsMap || {});
+                              }
+                            }
+                          }),
+                          fetch('/api/sync-sheets', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              summary: nextSummary,
+                              sheetsData: nextSheets,
+                            }),
+                          }),
+                        ]);
                       }
 
                       setInlineSaveToast(`✓ Đã chuyển ${updatedDecls.length} thửa về danh sách "Chưa có CCCD" để thu thập lại!`);

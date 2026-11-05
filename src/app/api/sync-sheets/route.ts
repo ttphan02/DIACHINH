@@ -95,8 +95,8 @@ export async function GET(req: Request) {
   }
   // Tuyệt đối KHÔNG xóa KEY_SYNC_CACHE trên R2 để luôn có dữ liệu fallback an toàn
 
-  // 1. Stream trực tiếp cache snapshot từ Cloudflare R2 (siêu tốc ~1ms CPU, 0MB RAM, triệt tiêu hoàn toàn lỗi 1102)
-  if (bucket) {
+  // 1. Stream trực tiếp cache snapshot từ Cloudflare R2 (khi KHÔNG yêu cầu force làm mới)
+  if (!force && bucket) {
     try {
       const obj = await bucket.get(KEY_SYNC_CACHE);
       if (obj) {
@@ -104,8 +104,8 @@ export async function GET(req: Request) {
           status: 200,
           headers: {
             'Content-Type': 'application/json; charset=utf-8',
-            'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=120',
-            'CDN-Cache-Control': 'public, max-age=60',
+            'Cache-Control': 'public, max-age=15, s-maxage=30, stale-while-revalidate=60',
+            'CDN-Cache-Control': 'public, max-age=30',
             'Access-Control-Allow-Origin': '*',
           },
         });
@@ -115,29 +115,31 @@ export async function GET(req: Request) {
     }
   }
 
-  // 2. Fallback đọc từ public R2 URL nếu bucket.get gặp vấn đề
-  try {
-    const res = await fetch(`${R2_PUBLIC_URL}/${KEY_SYNC_CACHE}?t=${now}`, {
-      headers: { 'Cache-Control': 'no-cache' },
-      cache: 'no-store',
-    });
-    if (res.ok) {
-      const text = await res.text();
-      return new Response(text, {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Cache-Control': 'public, max-age=30, s-maxage=60',
-          'Access-Control-Allow-Origin': '*',
-        },
+  // 2. Fallback đọc từ public R2 URL nếu bucket.get gặp vấn đề (khi KHÔNG yêu cầu force)
+  if (!force) {
+    try {
+      const res = await fetch(`${R2_PUBLIC_URL}/${KEY_SYNC_CACHE}?t=${now}`, {
+        headers: { 'Cache-Control': 'no-cache' },
+        cache: 'no-store',
       });
+      if (res.ok) {
+        const text = await res.text();
+        return new Response(text, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'public, max-age=15, s-maxage=30',
+            'Access-Control-Allow-Origin': '*',
+          },
+        });
+      }
+    } catch (err) {
+      console.warn('Lỗi khi fetch cache sync-sheets từ public R2:', err);
     }
-  } catch (err) {
-    console.warn('Lỗi khi fetch cache sync-sheets từ public R2:', err);
   }
 
-  // 3. In-memory cache fallback
-  if (cachedSyncResult) {
+  // 3. In-memory cache fallback (khi KHÔNG force)
+  if (!force && cachedSyncResult) {
     return NextResponse.json({
       ...cachedSyncResult,
       sheetsData: sanitizeSheetsPayload(cachedSyncResult.sheetsData),
@@ -217,5 +219,46 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  try {
+    const contentType = req.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const body = (await req.json()) as any;
+      if (body && (body.sheetsData || body.summary)) {
+        const bucket = await getR2Binding();
+        let currentSnapshot: any = {};
+        if (bucket) {
+          try {
+            const obj = await bucket.get(KEY_SYNC_CACHE);
+            if (obj) currentSnapshot = JSON.parse(await obj.text());
+          } catch {}
+        }
+        const updatedPayload = {
+          success: true,
+          durationMs: 0,
+          totalDeclarations: body.totalDeclarations ?? currentSnapshot.totalDeclarations ?? 0,
+          summary: { ...(currentSnapshot.summary || {}), ...(body.summary || {}) },
+          sheetsData: sanitizeSheetsPayload({ ...(currentSnapshot.sheetsData || {}), ...(body.sheetsData || {}) }),
+          cachedAt: Date.now(),
+        };
+
+        cachedSyncResult = updatedPayload;
+        lastSyncTime = Date.now();
+
+        if (bucket) {
+          try {
+            await bucket.put(KEY_SYNC_CACHE, JSON.stringify(updatedPayload), {
+              httpMetadata: { contentType: 'application/json' },
+            });
+          } catch (e) {
+            console.warn('Lỗi lưu KEY_SYNC_CACHE trên R2:', e);
+          }
+        }
+
+        return NextResponse.json(updatedPayload);
+      }
+    }
+  } catch (err: any) {
+    console.warn('Lỗi xử lý POST /api/sync-sheets:', err);
+  }
   return GET(req);
 }
