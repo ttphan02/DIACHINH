@@ -95,26 +95,8 @@ export default function CadastralMap({
   // Batch Canvas Layer refs (Vẽ hàng loạt 18.000 điểm chỉ trong 4 lệnh GPU thay vì 18.000 layer)
   const validParcelsRef = useRef<Parcel[]>([]);
   const renderedPointsRef = useRef<RenderedPoint[]>([]);
-  const renderedBadgesRef = useRef<{ x1: number; y1: number; x2: number; y2: number; parcel: Parcel }[]>([]);
   const redrawBatchCanvasRef = useRef<(() => void) | null>(null);
   const hoverTooltipRef = useRef<HTMLDivElement>(null);
-
-  // Giữ tham chiếu thửa đang chọn và các thửa lân cận cho Batch Canvas
-  const selectedParcelRef = useRef(selectedParcel);
-  useEffect(() => {
-    selectedParcelRef.current = selectedParcel;
-    if (redrawBatchCanvasRef.current) {
-      redrawBatchCanvasRef.current();
-    }
-  }, [selectedParcel]);
-
-  const neighborParcelsRef = useRef(neighborParcels);
-  useEffect(() => {
-    neighborParcelsRef.current = neighborParcels;
-    if (redrawBatchCanvasRef.current) {
-      redrawBatchCanvasRef.current();
-    }
-  }, [neighborParcels]);
 
   // Giữ tham chiếu hàm chọn thửa để KHÔNG bao giờ phải khởi tạo lại sự kiện bản đồ
   const onSelectParcelRef = useRef(onSelectParcel);
@@ -365,135 +347,54 @@ export default function CadastralMap({
         // 4. Xanh lam: Đã kê khai (Web)
         drawBatch(bluePts, '#2563eb', '#1e3a8a', baseRadius * 1.08, 1.6);
 
-        // 5. VẼ CÁC THẺ VIÊN THUỐC (PILL BADGE) TÊN CHỦ ĐẤT BẰNG GPU CANVAS TRÊN TOÀN MAP
-        // Phong cách chuẩn giống hệt nhãn thửa lân cận: Thẻ con nhộng bo tròn + viền trắng 1.4px + đổ bóng đen mờ 3D + tên rút gọn
-        // Hỗ trợ từ mức zoom 11 (bao quát toàn xã) đến zoom cận cảnh 21+
-        if (showOwnerNamesRef.current && zoom >= 11) {
-          const fontSize = zoom >= 17 ? 11 : zoom >= 15 ? 10 : zoom >= 13 ? 9.5 : 8.5;
-          ctx.font = `bold ${fontSize}px system-ui, -apple-system, sans-serif`;
+        // 5. VẼ NHÃN TÊN CHỦ ĐẤT TRÊN CÁC DẤU CHẤM (Khi người dùng BẬT tính năng Hiện tên)
+        if (showOwnerNamesRef.current && zoom >= 14) {
+          ctx.font = zoom >= 17 
+            ? 'bold 12px system-ui, -apple-system, sans-serif'
+            : zoom >= 15
+            ? 'bold 11px system-ui, -apple-system, sans-serif'
+            : 'bold 10px system-ui, -apple-system, sans-serif';
           ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
+          ctx.textBaseline = 'bottom';
+          ctx.lineJoin = 'round';
+          ctx.lineWidth = zoom >= 16 ? 3.5 : 2.8;
+          ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
 
-          const pillH = zoom >= 17 ? 18 : zoom >= 15 ? 16 : zoom >= 13 ? 15 : 13.5;
-          const radius = pillH / 2;
-          const pillPadX = zoom >= 17 ? 7 : zoom >= 15 ? 6 : 4.5;
-          const boxMargin = zoom >= 16 ? 2 : zoom >= 14 ? 3 : zoom >= 13 ? 5 : 8;
+          const labelGridSize = zoom <= 14 ? 50 : zoom <= 15 ? 32 : 0;
+          const labelGrid = labelGridSize > 0 ? new Set<string>() : null;
 
-          const activeSelectedId = selectedParcelRef.current?.ma_thua;
-          const activeNeighbors = neighborParcelsRef.current;
-          const neighborSet =
-            activeNeighbors && activeNeighbors.length > 0
-              ? new Set(activeNeighbors.map((nb) => nb.ma_thua))
-              : null;
-
-          // Sắp xếp ưu tiên hiển thị để các thửa Đã kê khai / Đã số hóa luôn được vẽ trước
-          const prioritizedPts = visibleScreenPts.slice().sort((a, b) => {
-            const score = (p: Parcel) => {
-              if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') return 3;
-              if (p.trang_thai === 'DA_SO_HOA_XANH') return 2;
-              if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') return 1;
-              return 0;
-            };
-            return score(b.parcel) - score(a.parcel);
-          });
-
-          const drawnBoxes: { x1: number; y1: number; x2: number; y2: number }[] = [];
-          const newRenderedBadges: { x1: number; y1: number; x2: number; y2: number; parcel: Parcel }[] = [];
-
-          for (let i = 0; i < prioritizedPts.length; i++) {
-            const item = prioritizedPts[i];
+          for (let i = 0; i < visibleScreenPts.length; i++) {
+            const item = visibleScreenPts[i];
             const p = item.parcel;
+            const name = getMapDisplayName(p.chu_ho);
+            if (!name) continue;
 
-            // Bỏ qua thửa đang chọn hoặc các thửa lân cận vì đã có DOM Marker đặc biệt
-            if (activeSelectedId && p.ma_thua === activeSelectedId) continue;
-            if (neighborSet && neighborSet.has(p.ma_thua)) continue;
+            const cx = item.x + padX;
+            const cy = item.y + padY;
 
-            let displayName = extractShortOwnerName(p.chu_ho);
-            // Nếu không có tên chủ hộ nhưng đang zoom gần (zoom >= 16), hiển thị số thửa
-            if (!displayName && p.so_thua && zoom >= 16) {
-              displayName = `${p.so_thua}`;
+            if (labelGrid) {
+              const gx = (cx / labelGridSize) | 0;
+              const gy = (cy / labelGridSize) | 0;
+              const key = `${gx}_${gy}`;
+              if (labelGrid.has(key)) continue;
+              labelGrid.add(key);
             }
-            if (!displayName) continue;
 
-            const textMetrics = ctx.measureText(displayName);
-            const pillW = textMetrics.width + pillPadX * 2;
+            const labelY = cy - baseRadius - 2;
 
-            const ptX = item.x + padX;
-            const ptY = item.y + padY;
-
-            // Vị trí viên thuốc: nằm ngay phía trên dấu chấm
-            const pillBottom = ptY - baseRadius - 3;
-            const pillTop = pillBottom - pillH;
-            const pillLeft = ptX - pillW / 2;
-
-            // Kiểm tra chống đè chữ (Collision detection) để các nhãn không bao giờ che khuất nhau
-            const bX1 = pillLeft - boxMargin;
-            const bY1 = pillTop - boxMargin;
-            const bX2 = pillLeft + pillW + boxMargin;
-            const bY2 = pillBottom + boxMargin;
-
-            let collides = false;
-            for (let b = 0; b < drawnBoxes.length; b++) {
-              const box = drawnBoxes[b];
-              if (bX1 < box.x2 && bX2 > box.x1 && bY1 < box.y2 && bY2 > box.y1) {
-                collides = true;
-                break;
-              }
-            }
-            if (collides) continue;
-
-            drawnBoxes.push({ x1: bX1, y1: bY1, x2: bX2, y2: bY2 });
-            newRenderedBadges.push({
-              x1: item.x - pillW / 2,
-              y1: item.y - baseRadius - 3 - pillH,
-              x2: item.x + pillW / 2,
-              y2: item.y - baseRadius - 3,
-              parcel: p,
-            });
-
-            // Chọn màu nền cho viên thuốc theo trạng thái
-            let badgeBg = '#475569'; // Slate xám đậm cho thửa khác
-            if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') {
-              badgeBg = '#0284c7'; // Xanh lam sáng (chuẩn màu thẻ lân cận)
-            } else if (p.trang_thai === 'DA_SO_HOA_XANH') {
-              badgeBg = '#059669'; // Xanh ngọc đậm (Emerald)
+            if (p.trang_thai === 'DA_SO_HOA_XANH') {
+              ctx.fillStyle = '#6ee7b7'; // Xanh lá sáng
+            } else if (p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') {
+              ctx.fillStyle = '#93c5fd'; // Xanh lam sáng
             } else if (p.trang_thai === 'CO_TEN_CHUA_SO_HOA_VANG') {
-              badgeBg = '#d97706'; // Vàng cam hổ phách đậm (Amber)
-            }
-
-            // 1. Tạo đường cong viên thuốc hoàn hảo (Pill Capsule Shape)
-            ctx.beginPath();
-            if (typeof (ctx as any).roundRect === 'function') {
-              (ctx as any).roundRect(pillLeft, pillTop, pillW, pillH, radius);
+              ctx.fillStyle = '#fde047'; // Vàng sáng
             } else {
-              ctx.arc(pillLeft + radius, pillTop + radius, radius, Math.PI * 0.5, Math.PI * 1.5);
-              ctx.arc(pillLeft + pillW - radius, pillTop + radius, radius, -Math.PI * 0.5, Math.PI * 0.5);
-              ctx.closePath();
+              ctx.fillStyle = '#f8fafc'; // Trắng
             }
 
-            // 2. Vẽ bóng đổ đen mờ 3D và fill nền màu
-            ctx.save();
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-            ctx.shadowBlur = 4;
-            ctx.shadowOffsetX = 0;
-            ctx.shadowOffsetY = 1.5;
-            ctx.fillStyle = badgeBg;
-            ctx.fill();
-            ctx.restore();
-
-            // 3. Vẽ viền trắng tinh tế 1.4px
-            ctx.lineWidth = 1.4;
-            ctx.strokeStyle = '#ffffff';
-            ctx.stroke();
-
-            // 4. Vẽ chữ tên rút gọn
-            ctx.fillStyle = '#ffffff';
-            ctx.fillText(displayName, ptX, pillTop + pillH / 2 + 0.5);
+            ctx.strokeText(name, cx, labelY);
+            ctx.fillText(name, cx, labelY);
           }
-
-          renderedBadgesRef.current = newRenderedBadges;
-        } else {
-          renderedBadgesRef.current = [];
         }
 
         ctx.restore();
@@ -508,19 +409,8 @@ export default function CadastralMap({
       leafletMap.on('click', (e: any) => {
         const clickX = e.containerPoint.x;
         const clickY = e.containerPoint.y;
-
-        // Ưu tiên 1: Chạm trúng vào viên thuốc tên (Pill Badge)
-        const badges = renderedBadgesRef.current;
-        for (let i = badges.length - 1; i >= 0; i--) {
-          const b = badges[i];
-          if (clickX >= b.x1 && clickX <= b.x2 && clickY >= b.y1 && clickY <= b.y2) {
-            onSelectParcelRef.current(b.parcel);
-            return;
-          }
-        }
-
-        // Ưu tiên 2: Chạm vào dấu chấm tròn (bán kính 22px)
         const pts = renderedPointsRef.current;
+
         let bestParcel: Parcel | null = null;
         let minDistSq = 22 * 22; // Bán kính chạm 22px (dễ bấm trên màn hình cảm ứng điện thoại)
 
@@ -749,22 +639,6 @@ export default function CadastralMap({
       });
       mainPulseMarker.addTo(group);
 
-      // Hiển thị nhãn tên trên thửa đang chọn (kiểu dáng pill badge giống hệt các thửa lân cận)
-      const selectedShortName = extractShortOwnerName(selectedParcel.chu_ho);
-      if (selectedShortName && showOwnerNamesRef.current) {
-        const selectedBadgeMarker = L.marker([centerLat, centerLng], {
-          icon: L.divIcon({
-            className: 'neighbor-badge-wrapper',
-            html: `<span class="neighbor-name-badge selected-parcel-badge">${selectedShortName}</span>`,
-            iconSize: [0, 0],
-            iconAnchor: [0, 16],
-          }),
-          interactive: false,
-          zIndexOffset: 1300,
-        });
-        selectedBadgeMarker.addTo(group);
-      }
-
       // Đường nối đứt nét màu cam và chấm cam cho các thửa gộp kèm theo
       if (additionalParcels && additionalParcels.length > 0) {
         additionalParcels.forEach((ap, idx) => {
@@ -833,7 +707,7 @@ export default function CadastralMap({
     return () => {
       isMounted = false;
     };
-  }, [map, selectedParcel, additionalParcels, showOwnerNames]);
+  }, [map, selectedParcel, additionalParcels]);
 
   // 5. VẼ MẠNG LƯỚI THỬA LÂN CẬN XUNG QUANH THỬA ĐƯỢC CHỌN
   useEffect(() => {
@@ -888,7 +762,7 @@ export default function CadastralMap({
 
         ring.addTo(group);
 
-        if (shortName && showOwnerNamesRef.current) {
+        if (shortName) {
           const badgeMarker = L.marker([nb.lat, nb.lng], {
             icon: L.divIcon({
               className: 'neighbor-badge-wrapper',
@@ -921,7 +795,7 @@ export default function CadastralMap({
     return () => {
       isMounted = false;
     };
-  }, [map, selectedParcel, neighborParcels, showOwnerNames]);
+  }, [map, selectedParcel, neighborParcels]);
 
   // 6. VỊ TRÍ GPS NGƯỜI DÙNG DI CHUYỂN REALTIME MƯỢT MÀ (KHÔNG TẠO LẠI DOM MỖI GIÂY)
   useEffect(() => {

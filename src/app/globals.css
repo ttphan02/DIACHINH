@@ -80,20 +80,6 @@ input, button, select, textarea, optgroup {
   box-shadow: 0 3px 12px rgba(2, 132, 199, 0.7);
 }
 
-.selected-parcel-badge {
-  background: #dc2626 !important;
-  border-color: #ffffff !important;
-  font-weight: 800 !important;
-  box-shadow: 0 3px 10px rgba(220, 38, 38, 0.7), 0 2px 8px rgba(0, 0, 0, 0.5) !important;
-}
-
-.additional-parcel-badge {
-  background: #ea580c !important;
-  border-color: #ffffff !important;
-  font-weight: 800 !important;
-  box-shadow: 0 3px 10px rgba(234, 88, 12, 0.7), 0 2px 8px rgba(0, 0, 0, 0.5) !important;
-}
-
 /* Định dạng in ấn khổ A4 cho Đơn kê khai đất đai */
 @media print {
   @page {
