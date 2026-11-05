@@ -1629,24 +1629,25 @@ export default function DashboardPage() {
   }, [nonGgsParcels, declaredParcelCodes, declarationsMap, cellEdits, hasCccdAndFile, r2CccdSet]);
 
   // Số lượng hiển thị chính xác, đồng bộ 100% giữa Card thống kê và Bảng danh sách
+  // Ưu tiên đọc trực tiếp số lượng dòng trong Bảng danh sách (syncSheetsData) để Card và Bảng luôn khớp nhau tuyệt đối
   const displayCountReadyToPack = useMemo(() => {
-    if (syncSummary?.daDongTap !== undefined) {
-      return syncSummary.daDongTap;
-    }
     const rows = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'];
     if (Array.isArray(rows) && rows.length > 1) {
       return rows.slice(1).filter((r) => !HIDDEN_PARCEL_SET.has(String(r[1] || '').trim())).length;
+    }
+    if (syncSummary?.daDongTap !== undefined) {
+      return syncSummary.daDongTap;
     }
     return readyToPackParcels.length;
   }, [syncSummary, syncSheetsData, readyToPackParcels.length]);
 
   const displayCountChuaCccd = useMemo(() => {
-    if (syncSummary?.canTimCccd !== undefined && syncSummary?.khongCoCccd !== undefined) {
-      return syncSummary.canTimCccd + syncSummary.khongCoCccd;
-    }
     const rows = syncSheetsData?.['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'];
     if (Array.isArray(rows) && rows.length > 1) {
       return rows.slice(1).filter((r) => !HIDDEN_PARCEL_SET.has(String(r[1] || '').trim())).length;
+    }
+    if (syncSummary?.canTimCccd !== undefined && syncSummary?.khongCoCccd !== undefined) {
+      return syncSummary.canTimCccd + syncSummary.khongCoCccd;
     }
     return dangKeKhaiChuaCccdParcels.length;
   }, [syncSummary, syncSheetsData, dangKeKhaiChuaCccdParcels.length]);
@@ -1667,12 +1668,12 @@ export default function DashboardPage() {
   }, [syncSheetsData, kh2959ImportedCodes]);
 
   const displayCountGcnOnt = useMemo(() => {
-    if (syncSummary?.gcnOnt !== undefined) {
-      return syncSummary.gcnOnt;
-    }
     const rows = syncSheetsData?.['GCN - ONT'];
     if (Array.isArray(rows) && rows.length > 1) {
       return rows.slice(1).filter((r) => !HIDDEN_PARCEL_SET.has(String(r[1] || '').trim())).length;
+    }
+    if (syncSummary?.gcnOnt !== undefined) {
+      return syncSummary.gcnOnt;
     }
     return gcnOntParcels.length;
   }, [syncSummary, syncSheetsData, gcnOntParcels.length]);
