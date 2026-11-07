@@ -139,15 +139,6 @@ export default function DashboardPage() {
     };
   }, []);
 
-  // Map tra cứu nhanh thửa đất theo mã thửa để hiển thị mini-map vệ tinh khi hover
-  const parcelsMap = useMemo(() => {
-    const map = new Map<string, Parcel>();
-    for (const p of parcels) {
-      if (p.ma_thua) map.set(p.ma_thua, p);
-    }
-    return map;
-  }, [parcels]);
-
   // Google Sheets & Realtime state
   const [ggsCodes, setGgsCodes] = useState<Set<string>>(new Set());
   const [ggsParcelsMap, setGgsParcelsMap] = useState<Record<string, any>>({});
@@ -1538,6 +1529,15 @@ export default function DashboardPage() {
       };
     });
   }, [parcels, ggsCodes, ggsParcelsMap, declaredParcelCodes, declarationsMap, kh2959ImportedCodes]);
+
+  // Map tra cứu nhanh thửa đất theo mã thửa (sử dụng computedParcels với trạng thái mới nhất)
+  const parcelsMap = useMemo(() => {
+    const map = new Map<string, Parcel>();
+    for (const p of computedParcels) {
+      if (p.ma_thua) map.set(p.ma_thua, p);
+    }
+    return map;
+  }, [computedParcels]);
 
   // Kiểm tra một thửa đất có đầy đủ và hợp lệ toàn bộ thông tin kê khai hay chưa
   const isParcelInfoCompleteAndValid = useCallback((info: {
@@ -6535,6 +6535,7 @@ export default function DashboardPage() {
                                             <div className="flex items-center gap-1.5 truncate">
                                               <ParcelMapHoverPreviewCard
                                                 parcel={pObj}
+                                                allParcels={computedParcels}
                                                 maThua={maThua}
                                                 chuHo={cellOwner}
                                                 thonXa={cellThon}
