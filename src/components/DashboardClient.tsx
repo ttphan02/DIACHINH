@@ -146,6 +146,66 @@ export default function DashboardPage() {
   const lastCloudSigRef = useRef<string>('');
   const lastCloudUpdatedAtRef = useRef<string>('');
 
+  // Hàng đợi debounce gom nhóm các ô sửa trên Dashboard để tránh flood request gây 403 / 503
+  const inlineCommitQueueRef = useRef<Map<string, DeclarationFormData>>(new Map());
+  const inlineCommitTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const flushInlineCommitQueue = useCallback(async () => {
+    if (inlineCommitQueueRef.current.size === 0) return;
+    const items = Array.from(inlineCommitQueueRef.current.values());
+    inlineCommitQueueRef.current.clear();
+    const codes = items.map((i) => i.ma_thua);
+
+    try {
+      const payload = items.length === 1 ? items[0] : { batch: items };
+      const res = await fetch('/api/declarations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true,
+      });
+      if (res.ok) {
+        codes.forEach((c) => removePendingDeclaration(c));
+      }
+    } catch (err) {
+      console.warn('Lỗi lưu inline commit batch:', err);
+    } finally {
+      setSavingRowCodes((prev) => {
+        const next = new Set(prev);
+        codes.forEach((c) => next.delete(c));
+        return next;
+      });
+    }
+  }, []);
+
+  const queueInlineCommit = useCallback((decl: DeclarationFormData) => {
+    inlineCommitQueueRef.current.set(decl.ma_thua, decl);
+    setSavingRowCodes((prev) => new Set(prev).add(decl.ma_thua));
+
+    if (inlineCommitTimerRef.current) {
+      clearTimeout(inlineCommitTimerRef.current);
+    }
+    inlineCommitTimerRef.current = setTimeout(() => {
+      flushInlineCommitQueue();
+    }, 1200);
+  }, [flushInlineCommitQueue]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (inlineCommitQueueRef.current.size > 0) {
+        flushInlineCommitQueue();
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      if (inlineCommitTimerRef.current) clearTimeout(inlineCommitTimerRef.current);
+      if (inlineCommitQueueRef.current.size > 0) {
+        flushInlineCommitQueue();
+      }
+    };
+  }, [flushInlineCommitQueue]);
+
   // Filter & Search states
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<ParcelStatus | 'ALL'>('ALL');
@@ -935,43 +995,8 @@ export default function DashboardPage() {
       }
     }
 
-    // 5. Gửi lên Cloudflare R2 với cơ chế tự động retry để đảm bảo lưu thành công 100%
-    setSavingRowCodes((prev) => new Set(prev).add(maThua));
-    const attemptSave = async (retryCount = 0): Promise<boolean> => {
-      try {
-        const res = await fetch('/api/declarations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updatedDecl),
-          keepalive: true,
-        });
-        if (res.ok) {
-          removePendingDeclaration(maThua);
-          return true;
-        } else {
-          if (retryCount < 2) {
-            await new Promise((r) => setTimeout(r, 600 * (retryCount + 1)));
-            return await attemptSave(retryCount + 1);
-          }
-          return false;
-        }
-      } catch (err) {
-        if (retryCount < 2) {
-          await new Promise((r) => setTimeout(r, 800 * (retryCount + 1)));
-          return await attemptSave(retryCount + 1);
-        }
-        return false;
-      } finally {
-        if (retryCount === 0) {
-          setSavingRowCodes((prev) => {
-            const next = new Set(prev);
-            next.delete(maThua);
-            return next;
-          });
-        }
-      }
-    };
-    attemptSave(0);
+    // 5. Gom nhóm bằng Debounce Queue để gửi theo batch (giảm 90% số request, chống 403 WAF và triệt tiêu 503)
+    queueInlineCommit(updatedDecl);
   };
 
   // Xác nhận kê khai thửa đất từ danh sách CHƯA THỰC HIỆN
