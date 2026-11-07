@@ -269,21 +269,19 @@ export default function ParcelMapHoverPreviewCard({
       }).addTo(map);
 
       // 5. Thẻ tên nổi bật cho thửa chính
-      const centerLabel = finalOwner ? extractShortOwnerName(finalOwner) : `Thửa ${derivedThua || '?'}`;
-      L.marker([centerLat, centerLng], {
-        icon: L.divIcon({
-          className: 'custom-parcel-pin',
-          html: `
-            <div style="position: relative; transform: translate(-50%, -100%); pointer-events: none; margin-top: -14px;">
-              <div style="background: #dc2626; color: white; font-family: 'Grandview', 'Bahnschrift', sans-serif; font-weight: 800; font-size: 11px; padding: 2.5px 8.5px; border-radius: 9999px; box-shadow: 0 2px 10px rgba(0,0,0,0.6); border: 2px solid white; white-space: nowrap; text-align: center;">
-                ${centerLabel}
-              </div>
-            </div>
-          `,
-          iconSize: [0, 0],
-        }),
-        zIndexOffset: 1500,
-      }).addTo(map);
+      const centerLabel = finalOwner ? extractShortOwnerName(finalOwner) : (derivedThua ? `Thửa ${derivedThua}` : '');
+      if (centerLabel) {
+        L.marker([centerLat, centerLng], {
+          icon: L.divIcon({
+            className: 'center-parcel-badge-wrapper',
+            html: `<span class="center-parcel-name-badge" style="transform: translate(-50%, -100%); background: #dc2626 !important; color: #ffffff !important; font-family: 'Grandview', 'Bahnschrift', sans-serif; font-weight: 800; font-size: 11px; line-height: 1.2; padding: 3px 9px; border-radius: 9999px; white-space: nowrap; display: inline-block; box-shadow: 0 2px 10px rgba(0,0,0,0.6); border: 2px solid #ffffff !important; pointer-events: none; user-select: none;">${centerLabel}</span>`,
+            iconSize: [0, 0],
+            iconAnchor: [0, 14],
+          }),
+          interactive: false,
+          zIndexOffset: 1500,
+        }).addTo(map);
+      }
 
       mapInstanceRef.current = map;
       setTimeout(() => {
