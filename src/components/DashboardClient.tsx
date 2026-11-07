@@ -16,6 +16,7 @@ const VectorViewerModal = dynamic(() => import('@/components/VectorViewerModal')
 import CccdSupplementModal from '@/components/CccdSupplementModal';
 import CccdManagerTab from '@/components/CccdManagerTab';
 import CccdHoverPreviewCard from '@/components/CccdHoverPreviewCard';
+import ParcelMapHoverPreviewCard from '@/components/ParcelMapHoverPreviewCard';
 const PdfViewer = dynamic(() => import('@/components/PdfViewer'), { ssr: false });
 const ExportMissingCccdModal = dynamic(() => import('@/components/ExportMissingCccdModal'), { ssr: false });
 import ScanFileManagerTab from '@/components/ScanFileManagerTab';
@@ -137,6 +138,15 @@ export default function DashboardPage() {
       isMounted = false;
     };
   }, []);
+
+  // Map tra cứu nhanh thửa đất theo mã thửa để hiển thị mini-map vệ tinh khi hover
+  const parcelsMap = useMemo(() => {
+    const map = new Map<string, Parcel>();
+    for (const p of parcels) {
+      if (p.ma_thua) map.set(p.ma_thua, p);
+    }
+    return map;
+  }, [parcels]);
 
   // Google Sheets & Realtime state
   const [ggsCodes, setGgsCodes] = useState<Set<string>>(new Set());
@@ -3799,6 +3809,8 @@ export default function DashboardPage() {
                   const villageColIdx = headers.findIndex((h) => /thôn|buôn/i.test(h));
                   const nameColIdx = headers.findIndex((h) => /họ và tên|chủ đất/i.test(h));
                   const statusColIdx = headers.findIndex((h) => /phân loại/i.test(h));
+                  const areaColIdx = headers.findIndex((h) => /diện tích/i.test(h));
+                  const landTypeColIdx = headers.findIndex((h) => /loại đất|mục đích/i.test(h));
 
                   const isChuaThucHienSheet = selectedReportSheet === 'CHƯA THỰC HIỆN';
                   const isReadyToPackSheet = selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)';
@@ -6508,6 +6520,12 @@ export default function DashboardPage() {
 
                                                                              // 3. Cột Mã thửa
                                       if (cIdx === 1) {
+                                        const pObj = parcelsMap.get(maThua);
+                                        const cellOwner = String(cellEdits[maThua]?.[nameColIdx] ?? (nameColIdx >= 0 ? row[nameColIdx] : '') ?? pObj?.chu_ho ?? '').trim();
+                                        const cellThon = String(cellEdits[maThua]?.[villageColIdx] ?? (villageColIdx >= 0 ? row[villageColIdx] : '') ?? pObj?.thon_xa ?? '').trim();
+                                        const cellArea = String(cellEdits[maThua]?.[areaColIdx] ?? (areaColIdx >= 0 ? row[areaColIdx] : '') ?? pObj?.dien_tich ?? '').trim();
+                                        const cellType = String(cellEdits[maThua]?.[landTypeColIdx] ?? (landTypeColIdx >= 0 ? row[landTypeColIdx] : '') ?? pObj?.loai_dat ?? '').trim();
+
                                         return (
                                           <td
                                             key={cIdx}
@@ -6515,21 +6533,31 @@ export default function DashboardPage() {
                                             className={`py-2 px-2 border-r overflow-hidden ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
                                           >
                                             <div className="flex items-center gap-1.5 truncate">
-                                              <button
-                                                type="button"
-                                                onClick={() => handleEditRowParcel(maThua, row)}
-                                                className={`font-semibold hover:underline flex items-center gap-1 text-left cursor-pointer truncate ${
-                                                  isChuaThucHienSheet
-                                                    ? 'text-emerald-700 dark:text-emerald-400'
-                                                    : isReadyToPackSheet
-                                                    ? 'text-indigo-700 dark:text-indigo-400'
-                                                    : 'text-blue-700 dark:text-blue-400'
-                                                }`}
-                                                title="Bấm để xem chi tiết / chỉnh sửa hồ sơ"
+                                              <ParcelMapHoverPreviewCard
+                                                parcel={pObj}
+                                                maThua={maThua}
+                                                chuHo={cellOwner}
+                                                thonXa={cellThon}
+                                                dienTich={cellArea}
+                                                loaiDat={cellType}
+                                                theme={theme}
                                               >
-                                                <span className="truncate">{cleanText}</span>
-                                                <Pencil className="w-2.5 h-2.5 opacity-60 hover:opacity-100 shrink-0" />
-                                              </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleEditRowParcel(maThua, row)}
+                                                  className={`font-semibold hover:underline flex items-center gap-1 text-left cursor-pointer truncate ${
+                                                    isChuaThucHienSheet
+                                                      ? 'text-emerald-700 dark:text-emerald-400'
+                                                      : isReadyToPackSheet
+                                                      ? 'text-indigo-700 dark:text-indigo-400'
+                                                      : 'text-blue-700 dark:text-blue-400'
+                                                  }`}
+                                                  title="Bấm để xem chi tiết / chỉnh sửa hồ sơ (Rê chuột để xem vị trí trên bản đồ)"
+                                                >
+                                                  <span className="truncate">{cleanText}</span>
+                                                  <Pencil className="w-2.5 h-2.5 opacity-60 hover:opacity-100 shrink-0" />
+                                                </button>
+                                              </ParcelMapHoverPreviewCard>
                                               {isReadyToDeclare && (
                                                 <span className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[9px] font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
                                                   <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500" />
