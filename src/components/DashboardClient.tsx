@@ -21,6 +21,8 @@ const ExportMissingCccdModal = dynamic(() => import('@/components/ExportMissingC
 import ScanFileManagerTab from '@/components/ScanFileManagerTab';
 import CadreNameModal from '@/components/CadreNameModal';
 const CadreTrackingTab = dynamic(() => import('@/components/CadreTrackingTab'), { ssr: false });
+import { generateGcnOntChecklist, GcnOntItem, GeneratedGcnOntPage } from '@/utils/generateGcnOntChecklist';
+import { GcnOntChecklistModal } from '@/components/GcnOntChecklistModal';
 import type { ReadyToPackItem } from '@/utils/pdfPacker';
 import digitizedParcelsData from '@/data/digitized_parcels.json';
 const DIGITIZED_SET = new Set(digitizedParcelsData as string[]);
@@ -399,6 +401,15 @@ export default function DashboardPage() {
   const [readyToPackSelectedCodes, setReadyToPackSelectedCodes] = useState<Set<string>>(new Set());
   const [packagedParcelCodes, setPackagedParcelCodes] = useState<Set<string>>(new Set());
   const [readyToPackStatusFilter, setReadyToPackStatusFilter] = useState<'ALL' | 'UNPACKED' | 'PACKED'>('ALL');
+
+  // Checkbox Selection & Modal state cho GCN - ONT
+  const [gcnOntSelectedCodes, setGcnOntSelectedCodes] = useState<Set<string>>(new Set());
+  const [isGeneratingGcnOntList, setIsGeneratingGcnOntList] = useState(false);
+  const [gcnOntExportModal, setGcnOntExportModal] = useState<{
+    isOpen: boolean;
+    pages: GeneratedGcnOntPage[];
+    totalParcels: number;
+  }>({ isOpen: false, pages: [], totalParcels: 0 });
 
   useEffect(() => {
     try {
@@ -2503,6 +2514,71 @@ export default function DashboardPage() {
     }
   };
 
+  // Tạo danh sách ảnh thu thập CCCD & GCN chuẩn 9:16 cho các thửa đất GCN - ONT
+  const handleGenerateGcnOntList = async (targetCodesList?: string[]) => {
+    try {
+      setIsGeneratingGcnOntList(true);
+      const rawRows = syncSheetsData?.['GCN - ONT'] || [];
+      if (rawRows.length <= 1) {
+        alert('Danh sách GCN - ONT hiện chưa có dữ liệu!');
+        return;
+      }
+
+      const selectedSet = targetCodesList && targetCodesList.length > 0
+        ? new Set(targetCodesList)
+        : gcnOntSelectedCodes.size > 0
+        ? gcnOntSelectedCodes
+        : null;
+
+      const items: GcnOntItem[] = [];
+
+      for (let i = 1; i < rawRows.length; i++) {
+        const r = rawRows[i];
+        const maThua = String(r[1] || '').trim();
+        if (selectedSet && !selectedSet.has(maThua)) continue;
+
+        const to = String(r[2] || '').trim();
+        const thua = String(r[3] || '').trim();
+        const thon = String(r[4] || '').trim();
+        const ten = String(r[5] || '').trim();
+        const cccd = String(r[8] || '').trim();
+        const dt = String(r[9] || '').trim();
+        const loaiDat = String(r[10] || 'ONT').trim();
+        const nguonChuyen = String(r[12] || '').trim();
+
+        const hasCccd = !nguonChuyen.includes('Chờ bổ sung CCCD') && Boolean(cleanCccd(cccd));
+
+        items.push({
+          maThua,
+          to,
+          thua,
+          thon,
+          ten,
+          cccd,
+          dt,
+          loaiDat,
+          hasCccd,
+        });
+      }
+
+      if (items.length === 0) {
+        alert('Vui lòng chọn ít nhất một thửa đất để tạo danh sách!');
+        return;
+      }
+
+      const pages = await generateGcnOntChecklist(items);
+      setGcnOntExportModal({
+        isOpen: true,
+        pages,
+        totalParcels: items.length,
+      });
+    } catch (err: any) {
+      alert(`Lỗi khi tạo danh sách: ${err.message}`);
+    } finally {
+      setIsGeneratingGcnOntList(false);
+    }
+  };
+
   // Đóng tập PDF các thửa Sẵn sàng đóng tập (có CCCD) chuẩn logic PDF_Web_App
   const handleGenerateReadyToPackPdf = async (specificCodes?: string[]) => {
     let readyRows = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || [];
@@ -3705,7 +3781,8 @@ export default function DashboardPage() {
                       norm.includes('trang thai xu ly') ||
                       norm.includes('ghi chu') ||
                       norm.includes('phan loai') ||
-                      norm.includes('nguon cccd')
+                      norm.includes('nguon cccd') ||
+                      (selectedReportSheet === 'GCN - ONT' && (norm.includes('nguon chuyen') || norm === 'nguon chuyen'))
                     );
                   };
 
@@ -3896,6 +3973,7 @@ export default function DashboardPage() {
                   const pageCodes = pagedRows.map((r) => String(r[1] || '').trim()).filter(Boolean);
                   const isAllPageSelected = pageCodes.length > 0 && pageCodes.every((c) => readyToPackSelectedCodes.has(c));
                   const isAllPageSelectedChuaThucHien = pageCodes.length > 0 && pageCodes.every((c) => chuaThucHienSelectedCodes.has(c));
+                  const isAllPageSelectedGcnOnt = pageCodes.length > 0 && pageCodes.every((c) => gcnOntSelectedCodes.has(c));
 
                   const toggleSelectAllPageReadyToPack = () => {
                     setReadyToPackSelectedCodes((prev) => {
@@ -3913,6 +3991,18 @@ export default function DashboardPage() {
                     setChuaThucHienSelectedCodes((prev) => {
                       const next = new Set(prev);
                       if (isAllPageSelectedChuaThucHien) {
+                        pageCodes.forEach((c) => next.delete(c));
+                      } else {
+                        pageCodes.forEach((c) => next.add(c));
+                      }
+                      return next;
+                    });
+                  };
+
+                  const toggleSelectAllPageGcnOnt = () => {
+                    setGcnOntSelectedCodes((prev) => {
+                      const next = new Set(prev);
+                      if (isAllPageSelectedGcnOnt) {
                         pageCodes.forEach((c) => next.delete(c));
                       } else {
                         pageCodes.forEach((c) => next.add(c));
@@ -4933,6 +5023,43 @@ export default function DashboardPage() {
                           );
                         })()}
 
+                        {/* NÚT TẠO DANH SÁCH CHO SHEET GCN - ONT */}
+                        {isGcnOntSheet && (
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={isGeneratingGcnOntList || filtered.length === 0}
+                              onClick={() => handleGenerateGcnOntList(gcnOntSelectedCodes.size > 0 ? Array.from(gcnOntSelectedCodes) : undefined)}
+                              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-500 hover:to-orange-500 text-white shadow-amber-600/30 disabled:opacity-75"
+                              title="Tạo danh sách ảnh thu thập CCCD & GCN chuẩn 9:16 cho các thửa đã chọn hoặc toàn bộ thửa đang hiển thị"
+                            >
+                              {isGeneratingGcnOntList ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                              ) : (
+                                <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                              )}
+                              <span>
+                                {isGeneratingGcnOntList
+                                  ? 'Đang tạo danh sách...'
+                                  : gcnOntSelectedCodes.size > 0
+                                  ? `Tạo danh sách (${gcnOntSelectedCodes.size} thửa đã chọn)`
+                                  : `Tạo danh sách (${filtered.length} thửa)`}
+                              </span>
+                            </button>
+                            {gcnOntSelectedCodes.size > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setGcnOntSelectedCodes(new Set())}
+                                className={`text-xs underline transition cursor-pointer ${
+                                  isLight ? 'text-slate-500 hover:text-slate-800' : 'text-slate-400 hover:text-slate-200'
+                                }`}
+                              >
+                                Bỏ chọn ({gcnOntSelectedCodes.size})
+                              </button>
+                            )}
+                          </div>
+                        )}
+
 
                           {/* NÚT KÊ KHAI NGAY TRÊN CHỖ BỘ LỌC (cho mục Chưa thực hiện) */}
                           {isChuaThucHienSheet && (
@@ -5243,17 +5370,17 @@ export default function DashboardPage() {
                             isLight ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-slate-950 text-slate-400 border-slate-800'
                           }`}>
                             <tr>
-                              {isReadyToPackSheet && (
+                              {(isReadyToPackSheet || isGcnOntSheet) && (
                                 <th
                                   style={{ width: '40px', minWidth: '40px', maxWidth: '40px' }}
                                   className={`w-10 px-3 py-2.5 text-center border-r ${isLight ? 'border-slate-200' : 'border-slate-800/80'}`}
                                 >
                                   <input
                                     type="checkbox"
-                                    checked={isAllPageSelected}
-                                    onChange={toggleSelectAllPageReadyToPack}
-                                    className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                    title={isAllPageSelected ? 'Bỏ chọn trang này' : 'Chọn tất cả trang này'}
+                                    checked={isGcnOntSheet ? isAllPageSelectedGcnOnt : isAllPageSelected}
+                                    onChange={isGcnOntSheet ? toggleSelectAllPageGcnOnt : toggleSelectAllPageReadyToPack}
+                                    className={`w-3.5 h-3.5 rounded ${isGcnOntSheet ? 'text-amber-600 focus:ring-amber-500' : 'text-indigo-600 focus:ring-indigo-500'} cursor-pointer`}
+                                    title={(isGcnOntSheet ? isAllPageSelectedGcnOnt : isAllPageSelected) ? 'Bỏ chọn trang này' : 'Chọn tất cả trang này'}
                                   />
                                 </th>
                               )}
@@ -5819,7 +5946,7 @@ export default function DashboardPage() {
                           <tbody className={`divide-y ${isLight ? 'divide-slate-200' : 'divide-slate-800/60'}`}>
                             {pagedRows.length === 0 ? (
                               <tr>
-                                <td colSpan={Math.max(headers.length + (isReadyToPackSheet ? 1 : 0), 1)} className="py-8 text-center text-slate-500">
+                                <td colSpan={Math.max(headers.length + (isReadyToPackSheet || isGcnOntSheet ? 1 : 0), 1)} className="py-8 text-center text-slate-500">
                                   {filtered.length === 0
                                     ? 'Không tìm thấy kết quả phù hợp với các bộ lọc đã chọn.'
                                     : 'Chưa có hồ sơ trong danh sách này.'}
@@ -5828,7 +5955,7 @@ export default function DashboardPage() {
                             ) : (
                               pagedRows.map((row, rIdx) => {
                                 const maThua = String(row[1] || '').trim();
-                                const isChecked = readyToPackSelectedCodes.has(maThua);
+                                const isChecked = isGcnOntSheet ? gcnOntSelectedCodes.has(maThua) : readyToPackSelectedCodes.has(maThua);
                                 const landTypeIdx = headers.findIndex((h) => /loại đất|mục đích/i.test(h));
                                 const rowLoaiDat = String(landTypeIdx !== -1 ? row[landTypeIdx] : '').trim();
                                 const isOntRow = /ont/i.test(rowLoaiDat) || isGcnOntSheet;
@@ -5845,8 +5972,8 @@ export default function DashboardPage() {
                                     className={`transition ${
                                       isChecked
                                         ? isLight
-                                          ? 'bg-indigo-50/70'
-                                          : 'bg-indigo-950/30'
+                                          ? isGcnOntSheet ? 'bg-amber-50/80' : 'bg-indigo-50/70'
+                                          : isGcnOntSheet ? 'bg-amber-950/30' : 'bg-indigo-950/30'
                                         : isImportedWeb
                                         ? isLight
                                           ? 'bg-emerald-100/95 hover:bg-emerald-200/90 text-emerald-950 border-emerald-400 font-medium shadow-2xs'
@@ -5864,7 +5991,7 @@ export default function DashboardPage() {
                                         : 'hover:bg-slate-800/40'
                                     }`}
                                   >
-                                    {isReadyToPackSheet && (
+                                    {(isReadyToPackSheet || isGcnOntSheet) && (
                                       <td
                                         style={{ width: '40px', minWidth: '40px', maxWidth: '40px' }}
                                         className={`w-10 px-3 py-2 text-center border-r ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
@@ -5873,14 +6000,23 @@ export default function DashboardPage() {
                                           type="checkbox"
                                           checked={isChecked}
                                           onChange={() => {
-                                            setReadyToPackSelectedCodes((prev) => {
-                                              const next = new Set(prev);
-                                              if (next.has(maThua)) next.delete(maThua);
-                                              else next.add(maThua);
-                                              return next;
-                                            });
+                                            if (isGcnOntSheet) {
+                                              setGcnOntSelectedCodes((prev) => {
+                                                const next = new Set(prev);
+                                                if (next.has(maThua)) next.delete(maThua);
+                                                else next.add(maThua);
+                                                return next;
+                                              });
+                                            } else {
+                                              setReadyToPackSelectedCodes((prev) => {
+                                                const next = new Set(prev);
+                                                if (next.has(maThua)) next.delete(maThua);
+                                                else next.add(maThua);
+                                                return next;
+                                              });
+                                            }
                                           }}
-                                          className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                          className={`w-3.5 h-3.5 rounded ${isGcnOntSheet ? 'text-amber-600 focus:ring-amber-500' : 'text-indigo-600 focus:ring-indigo-500'} cursor-pointer`}
                                         />
                                       </td>
                                     )}
@@ -6797,6 +6933,15 @@ export default function DashboardPage() {
         }}
         isFirstTime={isFirstTimeCadre}
         theme={theme}
+      />
+
+      {/* Modal Xem & Tải Danh Sách Thu Thập CCCD & GCN 9:16 (GCN - ONT) */}
+      <GcnOntChecklistModal
+        isOpen={gcnOntExportModal.isOpen}
+        onClose={() => setGcnOntExportModal((prev) => ({ ...prev, isOpen: false }))}
+        pages={gcnOntExportModal.pages}
+        totalParcels={gcnOntExportModal.totalParcels}
+        isLight={isLight}
       />
     </div>
   );
