@@ -100,12 +100,28 @@ export async function GET(req: Request) {
     try {
       const obj = await bucket.get(KEY_SYNC_CACHE);
       if (obj) {
-        return new Response(obj.body, {
+        const etag = obj.httpEtag || `"${obj.uploaded?.getTime() || 'sync-v1'}"`;
+        const clientEtag = req.headers.get('if-none-match');
+        if (clientEtag && (clientEtag === etag || clientEtag.includes(etag))) {
+          return new Response(null, {
+            status: 304,
+            headers: {
+              'ETag': etag,
+              'Cache-Control': 'public, max-age=15, s-maxage=30, stale-while-revalidate=60',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+        const text = await obj.text();
+        const byteLen = new TextEncoder().encode(text).length;
+        return new Response(text, {
           status: 200,
           headers: {
             'Content-Type': 'application/json; charset=utf-8',
+            'Content-Length': String(byteLen),
             'Cache-Control': 'public, max-age=15, s-maxage=30, stale-while-revalidate=60',
             'CDN-Cache-Control': 'public, max-age=30',
+            'ETag': etag,
             'Access-Control-Allow-Origin': '*',
           },
         });

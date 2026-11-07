@@ -585,6 +585,7 @@ export default function DashboardPage() {
 
   const isFetchingCloudRef = useRef(false);
   const lastFetchTimeRef = useRef(0);
+  const lastCloudEtagRef = useRef<string | null>(null);
 
   // 1. Đồng bộ danh sách kê khai từ Cloud R2 theo thời gian thực (Không cần F5)
   const fetchCloudDeclarations = useCallback(async () => {
@@ -592,8 +593,13 @@ export default function DashboardPage() {
     isFetchingCloudRef.current = true;
     lastFetchTimeRef.current = Date.now();
     try {
-      const res = await fetch('/api/declarations');
+      const headers: Record<string, string> = {};
+      if (lastCloudEtagRef.current) headers['If-None-Match'] = lastCloudEtagRef.current;
+      const res = await fetch('/api/declarations', { headers });
+      if (res.status === 304) return;
       if (!res.ok) return;
+      const etag = res.headers.get('ETag');
+      if (etag) lastCloudEtagRef.current = etag;
       const text = await res.text();
       let data: any = null;
       try {

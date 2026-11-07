@@ -32,6 +32,7 @@ interface StoragePayload {
 
 // In-memory cache ngắn hạn (15 giây) giúp giảm tải triệt để I/O và CPU trên Cloudflare Worker
 let memoryCache: { payload: StoragePayload; timestamp: number } | null = null;
+let memoryAllJsonCache: { text: string; etag: string; byteLength: number; timestamp: number } | null = null;
 const MEMORY_CACHE_TTL = 15000;
 let lastAllJsonSyncTime = 0;
 
@@ -227,7 +228,10 @@ async function getDeclarationsFromR2(forceRefresh = false): Promise<StoragePaylo
 // Lưu danh sách phiếu kê khai vào Cloudflare R2
 async function saveDeclarationsToR2(payload: StoragePayload): Promise<{ success: boolean; error?: string }> {
   const jsonStr = JSON.stringify({ success: true, ...payload });
+  const byteLen = new TextEncoder().encode(jsonStr).length;
+  const etag = `"${Date.now()}"`;
   memoryCache = { payload, timestamp: Date.now() };
+  memoryAllJsonCache = { text: jsonStr, etag, byteLength: byteLen, timestamp: Date.now() };
 
   try {
     const bucket = await getR2Binding();
@@ -299,18 +303,68 @@ export async function GET(request: Request) {
       }
     }
 
-    // 1. Stream trực tiếp từ Cloudflare R2 (Zero-CPU Streaming, không tốn RAM và ngăn lỗi 1102 / 503)
+    // 1. Kiểm tra ETag và in-memory cache siêu tốc (< 0.1ms CPU, 0 I/O)
+    const clientEtag = request.headers.get('if-none-match');
+    if (memoryAllJsonCache && Date.now() - memoryAllJsonCache.timestamp < 15000) {
+      const etag = memoryAllJsonCache.etag;
+      if (clientEtag && (clientEtag === etag || clientEtag.includes(etag))) {
+        return new Response(null, {
+          status: 304,
+          headers: {
+            'ETag': etag,
+            'Cache-Control': 'public, max-age=5, s-maxage=15, stale-while-revalidate=30',
+            'Access-Control-Allow-Origin': '*',
+          },
+        });
+      }
+
+      return new Response(memoryAllJsonCache.text, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Content-Length': String(memoryAllJsonCache.byteLength),
+          'Cache-Control': 'public, max-age=5, s-maxage=15, stale-while-revalidate=30',
+          'CDN-Cache-Control': 'public, max-age=15',
+          'ETag': etag,
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
+
+    // 2. Đọc trực tiếp từ Cloudflare R2 với đầy đủ Content-Length (Loại bỏ 100% nguy cơ stream bị cắt đứt giữa chừng)
     const bucket = await getR2Binding();
     if (bucket) {
       const obj = await bucket.get(KEY_ALL_DECLARATIONS);
-      if (obj && obj.body) {
-        return new Response(obj.body, {
+      if (obj) {
+        const etag = obj.httpEtag || `"${obj.uploaded?.getTime() || 'all-decl-v1'}"`;
+        if (clientEtag && (clientEtag === etag || clientEtag.includes(etag))) {
+          return new Response(null, {
+            status: 304,
+            headers: {
+              'ETag': etag,
+              'Cache-Control': 'public, max-age=5, s-maxage=15, stale-while-revalidate=30',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+
+        const text = await obj.text();
+        const byteLen = new TextEncoder().encode(text).length;
+        memoryAllJsonCache = {
+          text,
+          etag,
+          byteLength: byteLen,
+          timestamp: Date.now(),
+        };
+
+        return new Response(text, {
           status: 200,
           headers: {
             'Content-Type': 'application/json; charset=utf-8',
-            'Cache-Control': 'public, max-age=3, s-maxage=10, stale-while-revalidate=30',
-            'CDN-Cache-Control': 'public, max-age=10',
-            'ETag': obj.httpEtag || '"all-decl-v1"',
+            'Content-Length': String(byteLen),
+            'Cache-Control': 'public, max-age=5, s-maxage=15, stale-while-revalidate=30',
+            'CDN-Cache-Control': 'public, max-age=15',
+            'ETag': etag,
             'Access-Control-Allow-Origin': '*',
           },
         });
@@ -371,6 +425,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   // 1. Kích hoạt lấy R2 Binding ngay từ đầu request handler trước bất kỳ stream parsing nào
   await getR2Binding();
+  memoryAllJsonCache = null;
 
   try {
     const body: any = await request.json();
@@ -677,6 +732,7 @@ export async function DELETE(request: Request) {
     }
 
     // 3. Cập nhật O(1) trong in-memory cache nếu có
+    memoryAllJsonCache = null;
     if (memoryCache?.payload) {
       const idx = memoryCache.payload.declaredCodes.indexOf(targetMaThua);
       if (idx >= 0) memoryCache.payload.declaredCodes.splice(idx, 1);

@@ -357,20 +357,42 @@ export default function Home() {
 
   const isFetchingCloudRef = useRef(false);
   const lastCloudFetchTimeRef = useRef(0);
+  const lastCloudEtagRef = useRef<string | null>(null);
 
   // Tải danh sách đã kê khai từ LocalStorage và đồng bộ từ Cloudflare R2 (có guard chống nghẽn và debounce)
   const fetchCloudDeclarations = useCallback(async (force = false) => {
     const now = Date.now();
-    if (isFetchingCloudRef.current || (!force && now - lastCloudFetchTimeRef.current < 2500)) {
+    if (isFetchingCloudRef.current || (!force && now - lastCloudFetchTimeRef.current < 4000)) {
       return;
     }
     isFetchingCloudRef.current = true;
     lastCloudFetchTimeRef.current = now;
     try {
-      const res = await fetch('/api/declarations');
+      const headers: Record<string, string> = {};
+      if (lastCloudEtagRef.current && !force) {
+        headers['If-None-Match'] = lastCloudEtagRef.current;
+      }
+
+      const res = await fetch('/api/declarations', { headers });
+
+      if (res.status === 304) {
+        // Dữ liệu trên mây chưa thay đổi (304 Not Modified), hoàn tất ngay không tốn băng thông và CPU
+        return;
+      }
 
       if (res.ok) {
-        const data = (await res.json()) as any;
+        const etag = res.headers.get('ETag');
+        if (etag) lastCloudEtagRef.current = etag;
+
+        const text = await res.text();
+        let data: any = null;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          // Bỏ qua nếu stream bị ngắt mạng tạm thời, chờ lần sau
+          return;
+        }
+
         if (data && data.success && Array.isArray(data.declaredCodes)) {
           // Lấy các thửa đang có trên máy và hàng đợi pending
           const localStored = getStoredDeclarations();
