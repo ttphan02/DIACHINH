@@ -130,12 +130,23 @@ export async function POST(request: Request) {
       const dienTichVal = String(item.dien_tich || '1000').replace(',', '.').trim();
       const chuHoTen = item.chu_ho || item.chu_dat_ten || 'Chủ sử dụng';
       const cccdVal = (item.cccd || item.chu_dat_cccd || '').replace(/\D/g, '');
-      const namSinhVal = String(item.nam_sinh || item.chu_dat_nam_sinh || '1980').match(/\d{4}/)?.[0] || '1980';
-      const gioiTinhVal = (item.gioi_tinh || item.chu_dat_gioi_tinh || 'Nam').toLowerCase().includes('nữ') ? 'Nữ' : 'Nam';
+      let namSinhVal = String(item.nam_sinh || item.chu_dat_nam_sinh || '1980').match(/\d{4}/)?.[0] || '1980';
+      let gioiTinhVal = (item.gioi_tinh || item.chu_dat_gioi_tinh || 'Nam').toLowerCase().includes('nữ') ? 'Nữ' : 'Nam';
+
+      // Chuẩn hóa Năm sinh và Giới tính trực tiếp từ số CCCD 12 chữ số
+      if (/^\d{12}$/.test(cccdVal)) {
+        const gCode = parseInt(cccdVal[3], 10);
+        const y2 = parseInt(cccdVal.slice(4, 6), 10);
+        const century = (gCode === 0 || gCode === 1) ? 1900 : (gCode === 2 || gCode === 3) ? 2000 : 1900;
+        namSinhVal = String(century + y2);
+        gioiTinhVal = (gCode % 2 === 0) ? 'Nam' : 'Nữ';
+      }
+
       const rawDiaChiThuongTru = item.dia_chi_thuong_tru || item.chu_dat_dia_chi || item.thon_xa || 'xã Cư Pui';
       // Địa chỉ thường trú: nếu người ngoài xã Cư Pui (tự nhập thay vì chọn 16 thôn buôn) thì ghi địa chỉ thường trú y như khi nhập
       const finalDiaChiThuongTru = formatDiaChiThuongTru(rawDiaChiThuongTru);
-      const diaChiThuaDat = item.dia_chi_thua_dat || item.thon_xa || 'Xã Cư Pui, tỉnh Đắk Lắk';
+      // Địa chỉ thửa đất: toàn bộ đều ghi "xã Cư Pui"
+      const diaChiThuaDat = 'xã Cư Pui';
 
       // QUY TẮC NGUỒN GỐC: Tất cả loại đất đều là "Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất" ngoài ONT hoặc ONT+...
       const isOnt = isOntLand(loaiDat);
@@ -181,7 +192,7 @@ export async function POST(request: Request) {
               so_thua_gcn: '',
               ma_dinh_danh: maDinhDanh,
               dien_tich_thua_dat: dienTichVal,
-              dia_chi_thua_dat: diaChiThuaDat.includes('tỉnh Đắk Lắk') ? diaChiThuaDat : `${diaChiThuaDat}, tỉnh Đắk Lắk`,
+              dia_chi_thua_dat: diaChiThuaDat,
               ghi_chu: '',
             },
             dat1: {

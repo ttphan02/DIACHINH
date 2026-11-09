@@ -618,8 +618,30 @@ export function cleanDisplayAddress(rawAddr?: string): string {
 /**
  * Kiểm tra xem địa chỉ có thuộc một trong các thôn buôn của xã Cư Pui hay không
  */
+export function isOutsideCuPui(rawAddr?: string): boolean {
+  if (!rawAddr) return false;
+  const s = stripAccents(rawAddr).toLowerCase();
+  const outsideKeywords = [
+    'cu dram',
+    'yang mao',
+    'krong pac',
+    'ea yong',
+    'krong ana',
+    'krong bong',
+    'dak phoi',
+    'yang reh',
+    'hoa son',
+    'hoa le',
+  ];
+  return outsideKeywords.some((k) => s.includes(k));
+}
+
+/**
+ * Kiểm tra xem địa chỉ có thuộc 16 thôn buôn xã Cư Pui hay không
+ */
 export function isCuPuiVillage(rawAddr?: string): boolean {
   if (!rawAddr) return false;
+  if (isOutsideCuPui(rawAddr)) return false;
   const s = stripAccents(rawAddr).toLowerCase();
   if (s.includes('cu pui')) return true;
   const cuPuiKeywords = [
@@ -634,21 +656,25 @@ export function isCuPuiVillage(rawAddr?: string): boolean {
 
 /**
  * Định dạng địa chỉ thường trú:
- * - Nếu người ngoài xã Cư Pui (trường hợp tự nhập thay vì chọn 16 thôn buôn): Ghi địa chỉ thường trú y như khi nhập
+ * - Nếu người ngoài xã Cư Pui (trường hợp tự nhập thay vì chọn 16 thôn buôn): Ghi địa chỉ thường trú y như khi nhập (loại bỏ nếu lỡ bị dính đuôi xã Cư Pui)
  * - Nếu thuộc 16 thôn buôn xã Cư Pui: Ghi chuẩn tên thôn/buôn kèm hậu tố ", xã Cư Pui"
  */
 export function formatDiaChiThuongTru(rawAddr?: string, thonXaFallback?: string): string {
   const target = (rawAddr && !rawAddr.includes('(khong đia chỉ)') ? rawAddr : thonXaFallback) || '';
-  const clean = target.trim();
+  let clean = target.replace(/Bun/g, 'Buôn').trim();
   if (!clean || clean.includes('(khong đia chỉ)')) return 'xã Cư Pui';
 
-  const lower = stripAccents(clean).toLowerCase();
-
   // 1. Nếu là người ngoài xã Cư Pui (tự nhập nơi khác, không thuộc 16 thôn buôn Cư Pui)
-  // -> Ghi y nguyên như khi nhập!
+  // -> Ghi y nguyên như khi nhập (bỏ phần ghép nhầm xã Cư Pui nếu có)
+  if (isOutsideCuPui(clean)) {
+    return clean.replace(/,\s*xã\s*Cư\s*Pui/gi, '').replace(/,\s*xa\s*Cu\s*Pui/gi, '').trim();
+  }
+
   if (!isCuPuiVillage(clean)) {
     return clean;
   }
+
+  const lower = stripAccents(clean).toLowerCase();
 
   // 2. Nếu thuộc thôn buôn xã Cư Pui và đã có đuôi Cư Pui -> giữ nguyên
   if (lower.includes('cu pui')) {
