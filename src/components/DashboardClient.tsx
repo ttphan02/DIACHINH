@@ -885,7 +885,9 @@ export default function DashboardPage() {
     const [toPart, thuaPart] = maThua.split('_');
     const toBanDo = existingDecl.to_ban_do || toPart || p?.to_ban_do || '';
     const soThua = existingDecl.so_thua || thuaPart || p?.so_thua || '';
-    const chuDatTen = existingDecl.chu_dat_ten || existingDecl.chu_ho || findColVal([/ho va ten/, /chu dat/, /chu ho/]) || p?.chu_ho || '';
+    const chuDatTen = existingDecl.chu_dat_ten !== undefined
+      ? existingDecl.chu_dat_ten
+      : (existingDecl.chu_ho || findColVal([/ho va ten/, /chu dat/, /chu ho/]) || p?.chu_ho || '');
     const chuDatNamSinh = existingDecl.chu_dat_nam_sinh || findColVal([/nam sinh/, /ngay sinh/]) || (p as any)?.ngay_sinh || '';
     const chuDatGioiTinh = existingDecl.chu_dat_gioi_tinh || findColVal([/gioi tinh/]) || (p as any)?.gioi_tinh || 'Nam';
     const chuDatCccd = existingDecl.yeu_cau_thu_cccd
@@ -1501,8 +1503,8 @@ export default function DashboardPage() {
       const isDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(savedDecl);
 
       // Gộp thêm dữ liệu kê khai mới nhất từ LocalStorage (nếu có)
-      const mergedChuHo = savedDecl?.chu_dat_ten || p.chu_ho;
-      const mergedCccd = savedDecl?.chu_dat_cccd || p.cccd;
+      const mergedChuHo = savedDecl?.chu_dat_ten !== undefined ? savedDecl.chu_dat_ten : p.chu_ho;
+      const mergedCccd = savedDecl?.chu_dat_cccd !== undefined ? savedDecl.chu_dat_cccd : p.cccd;
 
       const edits = cellEdits[p.ma_thua] || {};
       const loaiDat = String(edits[8] ?? savedDecl?.loai_dat ?? p.loai_dat ?? '').trim();
@@ -6214,18 +6216,22 @@ export default function DashboardPage() {
                                       const declForParcel = declarationsMap[maThua];
                                       let effectiveVal = cleanText;
                                       if (declForParcel && selectedReportSheet !== 'CHƯA THỰC HIỆN') {
-                                        if (isNameCol && (declForParcel.chu_dat_ten || declForParcel.chu_ho)) {
-                                          effectiveVal = cleanName(declForParcel.chu_dat_ten || declForParcel.chu_ho);
-                                        } else if (isDobCol && declForParcel.chu_dat_nam_sinh) {
+                                        if (isNameCol) {
+                                          if (declForParcel.chu_dat_ten !== undefined) {
+                                            effectiveVal = declForParcel.chu_dat_ten ? cleanName(declForParcel.chu_dat_ten) : '';
+                                          } else if (declForParcel.chu_ho !== undefined) {
+                                            effectiveVal = declForParcel.chu_ho ? cleanName(declForParcel.chu_ho) : '';
+                                          }
+                                        } else if (isDobCol && declForParcel.chu_dat_nam_sinh !== undefined) {
                                           effectiveVal = declForParcel.chu_dat_nam_sinh;
-                                        } else if (isGenderCol && declForParcel.chu_dat_gioi_tinh) {
+                                        } else if (isGenderCol && declForParcel.chu_dat_gioi_tinh !== undefined) {
                                           effectiveVal = declForParcel.chu_dat_gioi_tinh;
                                         } else if (isCccdCol) {
                                           if (declForParcel?.yeu_cau_thu_cccd) {
                                             effectiveVal = '';
-                                          } else if (declForParcel?.chu_dat_cccd) {
+                                          } else if (declForParcel?.chu_dat_cccd !== undefined) {
                                             effectiveVal = cleanCccd(declForParcel.chu_dat_cccd);
-                                          } else if (declForParcel?.cccd) {
+                                          } else if (declForParcel?.cccd !== undefined) {
                                             effectiveVal = cleanCccd(declForParcel.cccd);
                                           } else if (cleanText) {
                                             effectiveVal = cleanCccd(cleanText);
@@ -6245,7 +6251,7 @@ export default function DashboardPage() {
                                       }
                                       const isForcedEmptyCccd = isCccdCol && Boolean(declForParcel?.yeu_cau_thu_cccd);
                                       const rawEdit = cellEdits[maThua]?.[cIdx];
-                                      const displayVal = (rawEdit !== undefined && (rawEdit !== '' || !effectiveVal)) ? rawEdit : (isForcedEmptyCccd ? '' : effectiveVal);
+                                      const displayVal = rawEdit !== undefined ? rawEdit : (isForcedEmptyCccd ? '' : effectiveVal);
 
                                       // 1. Ô Nguồn gốc sử dụng đất (Dropdown Khai hoang / Thừa kế / Tặng cho trực tiếp)
                                        if (isOriginCol) {

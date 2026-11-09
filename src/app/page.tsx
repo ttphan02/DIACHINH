@@ -456,8 +456,8 @@ export default function Home() {
               const isOnGgs = DIGITIZED_SET.has(curr.ma_thua) || ggsCodes.has(curr.ma_thua);
               return {
                 ...curr,
-                chu_ho: decl?.chu_dat_ten || curr.chu_ho,
-                cccd: decl?.chu_dat_cccd || curr.cccd,
+                chu_ho: decl?.chu_dat_ten !== undefined ? decl.chu_dat_ten : curr.chu_ho,
+                cccd: decl?.chu_dat_cccd !== undefined ? decl.chu_dat_cccd : curr.cccd,
                 is_declared: true,
                 trang_thai: isOnGgs ? 'DA_SO_HOA_XANH' : 'DA_KE_KHAI_CHUA_SO_HOA_LAM',
               };
@@ -1144,8 +1144,8 @@ export default function Home() {
         const isOnGgs = DIGITIZED_SET.has(formData.ma_thua) || isGgsMatched;
         setSelectedParcel({
           ...selectedParcel,
-          chu_ho: formData.chu_dat_ten || selectedParcel.chu_ho,
-          cccd: formData.chu_dat_cccd || selectedParcel.cccd,
+          chu_ho: formData.chu_dat_ten !== undefined ? formData.chu_dat_ten : selectedParcel.chu_ho,
+          cccd: formData.chu_dat_cccd !== undefined ? formData.chu_dat_cccd : selectedParcel.cccd,
           giap_dong: formData.giap_dong || selectedParcel.giap_dong,
           giap_tay: formData.giap_tay || selectedParcel.giap_tay,
           giap_nam: formData.giap_nam || selectedParcel.giap_nam,
