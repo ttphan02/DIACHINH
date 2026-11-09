@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Parcel, NeighborParcel, AdditionalParcel } from '@/types';
 import { extractShortOwnerName } from '@/utils/geo';
-import { isPersonName } from '@/utils/textHelpers';
+import { isPersonName, isExcludedLandType } from '@/utils/textHelpers';
 import { Maximize2, LocateFixed, Loader2, Tag } from 'lucide-react';
 import type { Map as LeafletMap, LayerGroup } from 'leaflet';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
@@ -672,8 +672,7 @@ export default function CadastralMap({
   useEffect(() => {
     const validParcels = parcels.filter((p) => {
       if (!p.lat || !p.lng || HIDDEN_PARCEL_SET.has(p.ma_thua)) return false;
-      const ld = (p.loai_dat || '').trim().toUpperCase();
-      if (ld === 'BCS') return false;
+      if (isExcludedLandType(p.loai_dat)) return false;
       return true;
     });
     validParcelsRef.current = validParcels;

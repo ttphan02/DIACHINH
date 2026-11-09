@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredVa
 import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
-import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, cleanVillageDisplay, normalizeNguonGoc, NGUON_GOC_OPTIONS, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN, isAgriculturalLand, getNguonGocShortLabel, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName, isOntLand, formatDiaChiThuongTru } from '@/utils/textHelpers';
+import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, cleanVillageDisplay, normalizeNguonGoc, NGUON_GOC_OPTIONS, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN, isAgriculturalLand, getNguonGocShortLabel, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName, isOntLand, formatDiaChiThuongTru, isExcludedLandType } from '@/utils/textHelpers';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName, removePendingDeclaration, clearPendingDeclarations, syncAllLocalDataToServer } from '@/utils/declaration';
 import { broadcastRealtimeEvent, onRealtimeEvent } from '@/utils/realtimeSync';
 import dynamic from 'next/dynamic';
@@ -104,6 +104,7 @@ import {
   Copy,
   UploadCloud,
   Home,
+  Ban,
 } from 'lucide-react';
 
 
@@ -257,6 +258,7 @@ export default function DashboardPage() {
     canTimCccd: number;
     khongCoCccd: number;
     gcnOnt?: number;
+    khongNhap?: number;
   } | null>(null);
   const [isLoadingSyncSheets, setIsLoadingSyncSheets] = useState(false);
   const [selectedReportSheet, setSelectedReportSheet] = useState<string>('THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)');
@@ -1609,12 +1611,27 @@ export default function DashboardPage() {
     return Boolean(r2Set.has(cccd) || cccdUrl);
   }, []);
 
+  // Danh sách các thửa đất KHÔNG NHẬP (DCS, DGD, DTT, DVH, SKC, TSC, MNC, NTD):
+  // Gom toàn bộ 52 thửa đất chuyên dùng/công cộng trên toàn xã bất kể trạng thái
+  const khongNhapParcels = useMemo(() => {
+    return parcels.filter((p) => {
+      const edits = cellEdits[p.ma_thua] || {};
+      const decl = declarationsMap[p.ma_thua] || {};
+      const ld = String(edits[8] ?? decl.loai_dat ?? p.loai_dat ?? '').trim();
+      return isExcludedLandType(ld);
+    });
+  }, [parcels, cellEdits, declarationsMap]);
+
+  const khongNhapCodes = useMemo(() => {
+    return new Set(khongNhapParcels.map((p) => p.ma_thua));
+  }, [khongNhapParcels]);
+
   // Danh sách các thửa chưa số hóa trên GGS
   const nonGgsParcels = useMemo(() => {
     return computedParcels.filter(
-      (p) => p.trang_thai !== 'DA_SO_HOA_XANH' && !DIGITIZED_SET.has(p.ma_thua)
+      (p) => p.trang_thai !== 'DA_SO_HOA_XANH' && !DIGITIZED_SET.has(p.ma_thua) && !khongNhapCodes.has(p.ma_thua)
     );
-  }, [computedParcels, ggsCodes]);
+  }, [computedParcels, ggsCodes, khongNhapCodes]);
 
   // 1. THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD): Thửa đã kê khai + CCCD 12 số + có file trên R2 (ĐÃ LỌC BỎ THỬA ONT ĐỂ BỔ SUNG SAU)
   const readyToPackParcels = useMemo(() => {
@@ -1625,6 +1642,7 @@ export default function DashboardPage() {
         p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
       if (!isDeclared) return false;
 
+      if (khongNhapCodes.has(p.ma_thua)) return false;
       const decl = declarationsMap[p.ma_thua] || {};
       if (decl.yeu_cau_thu_cccd) return false;
       const edits = cellEdits[p.ma_thua] || {};
@@ -1642,6 +1660,7 @@ export default function DashboardPage() {
   const kh2959Nhom1Parcels = useMemo(() => {
     const pMap = new Map(parcels.map((p) => [p.ma_thua, p]));
     return (kh2959Nhom1Data as string[])
+      .filter((code) => !khongNhapCodes.has(code))
       .map((code) => pMap.get(code))
       .filter(Boolean) as Parcel[];
   }, [parcels]);
@@ -1649,7 +1668,7 @@ export default function DashboardPage() {
   // Danh sách thửa đất ONT chờ bổ sung sau (GCN - ONT) - GIỮ ĐỦ 226 THỬA ĐẤT ONT ĐÃ KÊ KHAI
   const gcnOntParcels = useMemo(() => {
     return parcels.filter((p) => {
-      if (HIDDEN_PARCEL_SET.has(p.ma_thua)) return false;
+      if (HIDDEN_PARCEL_SET.has(p.ma_thua) || khongNhapCodes.has(p.ma_thua)) return false;
       const decl = declarationsMap[p.ma_thua];
       const isDeclared =
         declaredParcelCodes.has(p.ma_thua) ||
@@ -1675,6 +1694,7 @@ export default function DashboardPage() {
         p.trang_thai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
       if (!isDeclared) return false;
 
+      if (khongNhapCodes.has(p.ma_thua)) return false;
       const decl = declarationsMap[p.ma_thua] || {};
       const edits = cellEdits[p.ma_thua] || {};
       const loaiDat = String(edits[8] ?? decl.loai_dat ?? p.loai_dat ?? '').trim();
@@ -1738,10 +1758,18 @@ export default function DashboardPage() {
     return gcnOntParcels.length;
   }, [syncSummary, syncSheetsData, gcnOntParcels.length]);
 
+  const displayCountKhongNhap = useMemo(() => {
+    const rows = syncSheetsData?.['THỬA KHÔNG NHẬP (DCS, DGD...)'] || syncSheetsData?.['KHÔNG NHẬP'];
+    if (Array.isArray(rows) && rows.length > 1) {
+      return rows.slice(1).length;
+    }
+    return khongNhapParcels.length;
+  }, [syncSheetsData, khongNhapParcels.length]);
+
   // 3. THỬA CHƯA THỰC HIỆN: Các thửa chưa số hóa và chưa thực hiện kê khai
   const chuaThucHienParcels = useMemo(() => {
     return nonGgsParcels.filter((p) => {
-      if (DIGITIZED_SET.has(p.ma_thua)) return false;
+      if (DIGITIZED_SET.has(p.ma_thua) || khongNhapCodes.has(p.ma_thua)) return false;
       const isDeclared =
         declaredParcelCodes.has(p.ma_thua) ||
         Boolean(declarationsMap[p.ma_thua]) ||
@@ -3271,6 +3299,29 @@ export default function DashboardPage() {
                 <strong className="font-black">{kh2959Nhom1Parcels.length}</strong>
               </button>
 
+              {/* 7. THỬA KHÔNG NHẬP (DCS, DGD, DTT, DVH, SKC, TSC, MNC, NTD) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedReportSheet('THỬA KHÔNG NHẬP (DCS, DGD...)');
+                  setActiveTab('progressReport');
+                  setReportPage(1);
+                  setReportSearchQuery('');
+                }}
+                className={`flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs transition cursor-pointer border ${
+                  (selectedReportSheet === 'THỬA KHÔNG NHẬP (DCS, DGD...)' || selectedReportSheet === 'KHÔNG NHẬP') && activeTab === 'progressReport'
+                    ? 'bg-rose-700 text-white border-rose-700 font-black shadow-xs ring-1 ring-rose-500'
+                    : isLight
+                    ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                    : 'bg-slate-800/80 hover:bg-slate-700 border-slate-700 text-slate-300'
+                }`}
+                title={`Danh sách 52 thửa đất không nhập kê khai (DCS, DGD, DTT, DVH, SKC, TSC, MNC, NTD): ${displayCountKhongNhap} thửa`}
+              >
+                <Ban className="w-3 h-3 text-rose-400 shrink-0" />
+                <span className="text-[10px] font-medium">Không nhập:</span>
+                <strong className="font-black">{displayCountKhongNhap}</strong>
+              </button>
+
             </div>
           </div>
 
@@ -3781,11 +3832,39 @@ export default function DashboardPage() {
                     rawSheet = [headersNhom1, ...rowsNhom1];
                   }
 
+                                    // Fallback 7: THỬA KHÔNG NHẬP (DCS, DGD, DTT, DVH, SKC, TSC, MNC, NTD)
+                  if ((!rawSheet || rawSheet.length <= 1) && (selectedReportSheet === 'THỬA KHÔNG NHẬP (DCS, DGD...)' || selectedReportSheet === 'KHÔNG NHẬP')) {
+                    const headersKhongNhap = [
+                      'STT', 'Mã thửa', 'Thôn / Buôn', 'Họ và tên chủ đất / Tên đơn vị',
+                      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng', 'Ghi chú'
+                    ];
+                    const rowsKhongNhap = khongNhapParcels.map((p, idx) => {
+                      const decl = declarationsMap[p.ma_thua] || {};
+                      const edits = cellEdits[p.ma_thua] || {};
+                      const cccdVal = cleanCccd(edits[6] ?? decl.chu_dat_cccd ?? p.cccd ?? '');
+                      const ld = String(edits[8] ?? decl.loai_dat ?? p.loai_dat ?? '').trim();
+                      return [
+                        String(idx + 1),
+                        p.ma_thua,
+                        decl.dia_chi_thua_dat || p.thon_xa || 'Xã Cư Pui',
+                        cleanName(decl.chu_dat_ten || p.chu_ho || 'Đơn vị / Cơ quan quản lý'),
+                        decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '',
+                        decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam',
+                        cccdVal ? `="${cccdVal}"` : '',
+                        decl.dien_tich || p.dien_tich || '',
+                        ld,
+                        'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất',
+                        `Đất ${ld} chuyên dùng/công cộng - Không kê khai`
+                      ];
+                    });
+                    rawSheet = [headersKhongNhap, ...rowsKhongNhap];
+                  }
+
                   let headers = [...(rawSheet[0] || [])];
                   let allRows = (rawSheet.slice(1) || [])
                     .filter((r) => {
                       const ma = String(r[1] || '').trim();
-                      if (selectedReportSheet !== 'KH2959 - NHÓM 1' && ma && HIDDEN_PARCEL_SET.has(ma)) return false;
+                      if (selectedReportSheet !== 'KH2959 - NHÓM 1' && selectedReportSheet !== 'THỬA KHÔNG NHẬP (DCS, DGD...)' && selectedReportSheet !== 'KHÔNG NHẬP' && ma && HIDDEN_PARCEL_SET.has(ma)) return false;
                       if (selectedReportSheet === 'NHẬP DỮ LIỆU' && (kh2959ImportedCodes.has(ma) || DIGITIZED_SET.has(ma))) return false;
                       return true;
                     })
@@ -3831,6 +3910,7 @@ export default function DashboardPage() {
                   const isChuaCoCccdSheet = selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)';
                   const isNhapDuLieuSheet = selectedReportSheet === 'NHẬP DỮ LIỆU';
                   const isGcnOntSheet = selectedReportSheet === 'GCN - ONT';
+                  const isKhongNhapSheet = selectedReportSheet === 'THỬA KHÔNG NHẬP (DCS, DGD...)' || selectedReportSheet === 'KHÔNG NHẬP';
 
                   // Thống kê Thôn / Buôn và số lượng thửa
                   const villageCounts: Record<string, number> = {};
@@ -5086,6 +5166,20 @@ export default function DashboardPage() {
                           </div>
                         )}
 
+
+                                                  {/* BANNER THÔNG BÁO CHO SHEET THỬA KHÔNG NHẬP */}
+                        {isKhongNhapSheet && (
+                          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold ${
+                            isLight
+                              ? 'bg-rose-50 border-rose-200 text-rose-800'
+                              : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+                          }`}>
+                            <Ban className="w-4 h-4 text-rose-500 shrink-0" />
+                            <span>
+                              Danh sách 52 thửa đất chuyên dùng/công cộng (DCS, DGD, DTT, DVH, SKC, TSC, MNC, NTD) không kê khai nhập liệu và đã được ẩn trên bản đồ.
+                            </span>
+                          </div>
+                        )}
 
                           {/* NÚT KÊ KHAI NGAY TRÊN CHỖ BỘ LỌC (cho mục Chưa thực hiện) */}
                           {isChuaThucHienSheet && (

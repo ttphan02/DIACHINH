@@ -11,7 +11,7 @@ import CccdUploadBottomSheet from '@/components/CccdUploadBottomSheet';
 import CccdCollectPanel from '@/components/CccdCollectPanel';
 import CadreNameModal from '@/components/CadreNameModal';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
-import { isPersonName, cleanStrictName, stripAccents, isAgriculturalLand, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN } from '@/utils/textHelpers';
+import { isPersonName, cleanStrictName, stripAccents, isAgriculturalLand, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN , isExcludedLandType } from '@/utils/textHelpers';
 import {
   getStoredDeclarations,
   saveOrUpdateDeclaration,
@@ -643,8 +643,7 @@ export default function Home() {
     return parcels
       .filter((p) => {
         if (HIDDEN_PARCEL_SET.has(p.ma_thua)) return false;
-        const ld = (p.loai_dat || '').trim().toUpperCase();
-        if (ld === 'BCS') return false;
+        if (isExcludedLandType(p.loai_dat)) return false;
         return true;
       })
       .map((p) => {

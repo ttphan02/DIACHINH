@@ -104,6 +104,39 @@ export function isOntLand(loaiDat?: string | null): boolean {
   return /ONT/i.test(loaiDat);
 }
 
+// Danh sách các loại đất chuyên dùng, công cộng không kê khai, không nhập:
+// DCS: Đất xây dựng trụ sở cơ quan
+// DGD: Đất xây dựng cơ sở giáo dục và đào tạo
+// DTT: Đất xây dựng cơ sở thể dục, thể thao
+// DVH: Đất xây dựng cơ sở văn hóa
+// SKC: Đất cơ sở sản xuất phi nông nghiệp
+// TSC: Đất xây dựng cơ sở sự nghiệp khác
+// MNC: Đất có mặt nước chuyên dùng
+// NTD: Đất làm nghĩa trang, nghĩa địa, nhà tang lễ, nhà hỏa táng
+// BCS: Đất bằng chưa sử dụng
+export const EXCLUDED_LAND_TYPES = new Set([
+  'DCS',
+  'DGD',
+  'DTT',
+  'DVH',
+  'SKC',
+  'TSC',
+  'MNC',
+  'NTD',
+  'BCS',
+]);
+
+export function isExcludedLandType(loaiDat?: string | null): boolean {
+  if (!loaiDat) return false;
+  const clean = String(loaiDat).trim().toUpperCase();
+  for (const t of EXCLUDED_LAND_TYPES) {
+    if (clean === t || clean.startsWith(t + '+') || clean.endsWith('+' + t) || clean.includes('+' + t + '+')) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Nguồn gốc sử dụng đất chuẩn hóa theo Luật Đất đai
 export const NGUON_GOC_NN_GIAO_KHONG_THU_TIEN =
   'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất';

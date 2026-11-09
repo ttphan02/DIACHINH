@@ -49,6 +49,7 @@ import {
   normalizeNguonGoc,
   formatDiaChiThuongTru,
   isOntLand,
+  isExcludedLandType,
 } from './textHelpers';
 
 function parseNameAndType(rawName: string) {
@@ -300,6 +301,7 @@ export async function executeSyncToGoogleSheet(
     canTimCccd: number;
     khongCoCccd: number;
     gcnOnt?: number;
+    khongNhap?: number;
   };
   sheetsData?: Record<string, string[][]>;
 }> {
@@ -418,6 +420,7 @@ export async function executeSyncToGoogleSheet(
     const stageGcnOnt: any[] = []; // Danh sách GCN - ONT (các thửa đất ở ONT chờ bổ sung sau)
     const stage1CanTimCccd: any[] = [];
     const stage1KhongCoCccd: any[] = [];
+    const stage5KhongNhap: any[] = [];
 
     const processedParcels = new Set<string>();
 
@@ -437,10 +440,31 @@ export async function executeSyncToGoogleSheet(
       const meta = parcelsBrief[maThua];
       const fallbackDt = meta ? meta[0] : '';
       const fallbackLoaiDat = meta ? meta[1] : '';
-      const curLd = String(decl.loai_dat || fallbackLoaiDat || '').trim().toUpperCase();
-      if (curLd === 'BCS') continue;
       const fallbackThon = meta ? meta[2] : '';
       const fallbackOwner = '';
+      const curLd = String(decl.loai_dat || fallbackLoaiDat || '').trim().toUpperCase();
+      if (isExcludedLandType(curLd)) {
+        processedParcels.add(maThua);
+        stage5KhongNhap.push({
+          ma_thua: maThua,
+          to_ban_do: toMoi,
+          so_thua: thuaMoi,
+          thon_xa: formatDiaChiThuongTru(decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || fallbackThon),
+          chu_ho: cleanName(chuHo || 'Đơn vị / Cơ quan quản lý'),
+          cccd: cccd,
+          cccd_source: cccdSource,
+          dien_tich: String(decl.dien_tich || fallbackDt || '1000'),
+          loai_dat: curLd,
+          dob: decl.chu_dat_nam_sinh || '',
+          gender: decl.chu_dat_gioi_tinh || 'Nam',
+          nguon_goc: 'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất',
+          scan_file: '',
+          cccd_file: '',
+          phan_loai: 'KHÔNG NHẬP',
+          ghi_chu: `Loại đất ${curLd} thuộc danh mục đất chuyên dùng/công cộng - Không kê khai`,
+        });
+        continue;
+      }
 
       const ggsP = ggsParcels[maThua];
       const chuHoStrict = cleanStrictName(chuHo);
@@ -907,11 +931,40 @@ export async function executeSyncToGoogleSheet(
       else vMap['Chưa xác định'].khongCccd++;
     });
 
+    // Bổ sung toàn bộ các thửa đất thuộc loại đất không nhập còn lại trong toàn xã vào stage5KhongNhap
+    for (const [maThua, item] of Object.entries(parcelsBrief)) {
+      if (processedParcels.has(maThua)) continue;
+      const curLd = String(item[1] || '').trim().toUpperCase();
+      if (isExcludedLandType(curLd)) {
+        processedParcels.add(maThua);
+        const parts = maThua.split('_');
+        const ggsP = ggsParcels[maThua];
+        stage5KhongNhap.push({
+          ma_thua: maThua,
+          to_ban_do: parts[0] || '',
+          so_thua: parts[1] || '',
+          thon_xa: formatDiaChiThuongTru(item[2] || 'Xã Cư Pui'),
+          chu_ho: cleanName(ggsP?.chu_ho || 'Đơn vị / Cơ quan quản lý'),
+          cccd: cleanCccd(ggsP?.cccd || ''),
+          cccd_source: '',
+          dien_tich: String(item[0] || '1000'),
+          loai_dat: curLd,
+          dob: '',
+          gender: 'Nam',
+          nguon_goc: 'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất',
+          scan_file: '',
+          cccd_file: '',
+          phan_loai: 'KHÔNG NHẬP',
+          ghi_chu: `Loại đất ${curLd} thuộc danh mục đất chuyên dùng/công cộng - Không kê khai`,
+        });
+      }
+    }
+
     // 2. Thống kê toàn bộ các thửa đất trong cơ sở dữ liệu xã Cư Pui (11.280 thửa) từ dữ liệu rút gọn siêu nhẹ (O(1) cached)
     for (const [maThua, item] of Object.entries(parcelsBrief)) {
       if (HIDDEN_PARCEL_SET.has(maThua)) continue;
       const curLd = String(item[1] || '').trim().toUpperCase();
-      if (curLd === 'BCS') continue;
+      if (isExcludedLandType(curLd)) continue;
       const thonXa = item[2] || '';
       const statusFlag = item[3]; // 0: KHONG_TEN, 1: CO_TEN_CHUA_SO_HOA_VANG, 2: DA_SO_HOA_XANH
       const v = getVillageCached(thonXa);
@@ -989,6 +1042,24 @@ export async function executeSyncToGoogleSheet(
     sheetsData['GCN - ONT'] = padRectangular(rowsGcnOnt);
     sheetsData['KH2959 - NHÓM 1'] = padRectangular(rowsNhom1);
 
+    // SHEET 8: THỬA KHÔNG NHẬP (DCS, DGD, DTT, DVH, SKC, TSC, MNC, NTD)
+    const headersKhongNhap = [
+      'STT', 'Mã thửa', 'Thôn / Buôn', 'Họ và tên chủ đất / Tên đơn vị',
+      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng', 'Ghi chú'
+    ];
+    const rowsKhongNhap: string[][] = [headersKhongNhap];
+    stage5KhongNhap.forEach((it, idx) => {
+      const cccdText = it.cccd ? `="${it.cccd}"` : '';
+      rowsKhongNhap.push([
+        String(idx + 1), it.ma_thua, it.thon_xa || 'Xã Cư Pui',
+        cleanName(it.chu_ho || 'Đơn vị / Cơ quan quản lý'), it.dob || '', it.gender || 'Nam', cccdText,
+        String(it.dien_tich || ''), it.loai_dat, normalizeNguonGoc(it.nguon_goc, it.loai_dat),
+        it.ghi_chu || `Đất ${it.loai_dat} chuyên dùng/công cộng - Không kê khai`
+      ]);
+    });
+    sheetsData['THỬA KHÔNG NHẬP (DCS, DGD...)'] = padRectangular(rowsKhongNhap);
+    sheetsData['KHÔNG NHẬP'] = padRectangular(rowsKhongNhap);
+
     // 4. Trả về cấu trúc dữ liệu nội bộ (Hoàn toàn đóng gói trên Web / R2, không gửi Webhook ra ngoài)
     console.log('>>> Thống kê & Phân loại nội bộ hoàn tất 100% trong Web/R2');
 
@@ -1005,6 +1076,7 @@ export async function executeSyncToGoogleSheet(
         canTimCccd: stage1CanTimCccd.length,
         khongCoCccd: stage1KhongCoCccd.length,
         gcnOnt: stageGcnOnt.length,
+        khongNhap: stage5KhongNhap.length,
       },
       sheetsData,
     };
