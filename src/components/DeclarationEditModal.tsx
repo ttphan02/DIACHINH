@@ -42,6 +42,8 @@ import {
   isValidCccd,
   isValidBirthYear,
   isValidFullName,
+  formatDiaChiThuongTru,
+  isOntLand,
 } from '@/utils/textHelpers';
 
 interface DeclarationEditModalProps {
@@ -199,13 +201,7 @@ export default function DeclarationEditModal({
     };
 
     const formatThonAddress = (addr?: string, thon?: string) => {
-      const target = (addr && !addr.includes('(khong đia chỉ)') ? addr : thon) || '';
-      const clean = target.trim();
-      if (!clean || clean.includes('(khong đia chỉ)')) return 'Xã Cư Pui, huyện Krông Bông';
-      if (clean.toLowerCase().includes('cư pui') || clean.toLowerCase().includes('cu pui')) {
-        return clean;
-      }
-      return `${clean}, xã Cư Pui`;
+      return formatDiaChiThuongTru(addr, thon);
     };
 
     if (declaration) {
@@ -260,6 +256,7 @@ export default function DeclarationEditModal({
       setChuDatGioiTinh(parcel.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
       setChuDatCccd('');
       setChuDatDiaChi(formatThonAddress(undefined, parcel.thon_xa));
+      setNguonGocSuDung(normalizeNguonGoc(undefined, parcel?.loai_dat));
       setNguonGocSuDung('Khai Hoang');
       setGiapDong(cleanBoundaryText(parcel.giap_dong || ''));
       setGiapTay(cleanBoundaryText(parcel.giap_tay || ''));
@@ -394,7 +391,7 @@ export default function DeclarationEditModal({
       chu_dat_gioi_tinh: chuDatGioiTinh,
       chu_dat_cccd: cleanedCccd,
       chu_dat_dia_chi: cleanedDiaChi,
-      nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung),
+      nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung, parcel?.loai_dat),
       giap_dong: cleanBoundaryText(giapDong),
       giap_tay: cleanBoundaryText(giapTay),
       giap_nam: cleanBoundaryText(giapNam),
@@ -667,7 +664,7 @@ export default function DeclarationEditModal({
               <span className="font-bold text-slate-300 text-xs flex items-center gap-1.5">
                 Nguồn gốc sử dụng đất <span className="text-red-400">*</span>
               </span>
-              <span className="text-[10px] text-blue-400 font-bold">{normalizeNguonGoc(nguonGocSuDung)}</span>
+              <span className="text-[10px] text-blue-400 font-bold">{getNguonGocShortLabel(nguonGocSuDung)}</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {NGUON_GOC_OPTIONS.map((opt) => (

@@ -30,6 +30,8 @@ import {
   isValidCccd,
   isValidBirthYear,
   isValidFullName,
+  formatDiaChiThuongTru,
+  isOntLand,
 } from '@/utils/textHelpers';
 
 interface ParcelDetailModalProps {
@@ -81,12 +83,7 @@ export default function ParcelDetailModal({
   };
 
   const formatThonAddress = (thon?: string) => {
-    const clean = (thon || '').trim();
-    if (!clean || clean.includes('(khong đia chỉ)')) return 'Xã Cư Pui, huyện Krông Bông';
-    if (clean.toLowerCase().includes('cư pui') || clean.toLowerCase().includes('cu pui')) {
-      return clean;
-    }
-    return `${clean}, xã Cư Pui`;
+    return formatDiaChiThuongTru(thon);
   };
 
   const parcelNameValid = parcel?.chu_ho && !isInvalidOwnerName(parcel.chu_ho);
@@ -126,7 +123,7 @@ export default function ParcelDetailModal({
   }, [chuDatCccd]);
 
   const [chuDatDiaChi, setChuDatDiaChi] = useState(formatThonAddress(parcel?.thon_xa));
-  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>('Khai Hoang');
+  const [nguonGocSuDung, setNguonGocSuDung] = useState<string>(normalizeNguonGoc(undefined, parcel?.loai_dat));
   const [ghiChu, setGhiChu] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -197,7 +194,7 @@ export default function ParcelDetailModal({
       chu_dat_gioi_tinh: chuDatGioiTinh,
       chu_dat_cccd: cleanedCccd,
       chu_dat_dia_chi: cleanedDiaChi,
-      nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung),
+      nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung, parcel?.loai_dat),
       giap_dong: cleanBoundaryText(giapDong),
       giap_tay: cleanBoundaryText(giapTay),
       giap_nam: cleanBoundaryText(giapNam),
@@ -618,13 +615,13 @@ export default function ParcelDetailModal({
                   <label className="block text-xs font-bold text-gray-800">
                     Nguồn gốc sử dụng đất <span className="text-red-500">*</span>
                   </label>
-                  <span className="text-xs font-bold text-blue-600">{normalizeNguonGoc(nguonGocSuDung)}</span>
+                  <span className="text-xs font-bold text-blue-600">{getNguonGocShortLabel(nguonGocSuDung)}</span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {NGUON_GOC_OPTIONS.map((ng) => (
                     <button
                       type="button"
-                      key={ng}
+                      key={getNguonGocShortLabel(ng)}
                       title={ng}
                       onClick={() => setNguonGocSuDung(ng)}
                       className={`py-2 px-2 text-xs font-bold rounded-lg border transition text-center cursor-pointer ${

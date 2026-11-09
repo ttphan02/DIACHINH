@@ -98,11 +98,18 @@ export function cleanBoundaryText(text: string): string {
     .trim();
 }
 
+// Kiểm tra thửa đất có chứa loại đất ở ONT hay không (ONT, ONT+CLN, ONT+BHK, ONT+HNK, etc.)
+export function isOntLand(loaiDat?: string | null): boolean {
+  if (!loaiDat) return false;
+  return /ONT/i.test(loaiDat);
+}
+
 // Nguồn gốc sử dụng đất chuẩn hóa theo Luật Đất đai
 export const NGUON_GOC_NN_GIAO_KHONG_THU_TIEN =
   'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất';
 
 export const NGUON_GOC_OPTIONS = [
+  NGUON_GOC_NN_GIAO_KHONG_THU_TIEN,
   'Khai Hoang',
   'Thừa Kế',
   'Tặng Cho',
@@ -121,21 +128,44 @@ export function isAgriculturalLand(loaiDat?: string): boolean {
 
 // Nhãn ngắn gọn hiển thị trên các nút bấm UI
 export function getNguonGocShortLabel(val?: string): string {
-  if (!val) return 'Khai Hoang';
+  if (!val) return 'NN công nhận (không thu tiền)';
+  if (
+    val === NGUON_GOC_NN_GIAO_KHONG_THU_TIEN ||
+    val.includes('khong thu tien') ||
+    val.includes('không thu tiền') ||
+    val.includes('công nhận')
+  ) {
+    return 'NN công nhận (không thu tiền)';
+  }
   return val;
 }
 
-// Chuẩn hóa nguồn gốc sử dụng đất về các nhóm chuẩn (Khai hoang, Thừa kế, Chuyển nhượng, Tặng cho)
+// Chuẩn hóa nguồn gốc sử dụng đất:
+// - Tất cả loại đất ngoài ONT hoặc ONT+...: Luôn là "Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất"
+// - Riêng loại đất ONT hoặc ONT+...: Cho phép giữ/chọn các nguồn gốc khác (Khai Hoang, Thừa Kế, Tặng Cho, Chuyển Nhượng...)
 export function normalizeNguonGoc(val?: string, loaiDat?: string): string {
-  if (!val) return 'Khai Hoang';
+  // Nếu loại đất không phải ONT hoặc ONT+... (phi-ONT)
+  if (loaiDat && !isOntLand(loaiDat)) {
+    return NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
+  }
+
+  // Với đất ONT hoặc ONT+... (hoặc khi chưa truyền loaiDat)
+  if (!val) {
+    if (loaiDat && !isOntLand(loaiDat)) {
+      return NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
+    }
+    return 'Khai Hoang';
+  }
+
   const s = stripAccents(val).toLowerCase();
+  if (s.includes('khong thu tien') || s.includes('cong nhan') || s.includes('giao dat')) {
+    return NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
+  }
   if (s.includes('thua ke')) return 'Thừa Kế';
   if (s.includes('tang cho')) return 'Tặng Cho';
   if (s.includes('chuyen nhuong')) return 'Chuyển Nhượng';
   if (s.includes('khai hoang')) return 'Khai Hoang';
-  if (s.includes('khong thu tien') || s.includes('cong nhan') || s.includes('giao dat')) {
-    return 'Khai Hoang';
-  }
+
   return val.trim();
 }
 
@@ -551,4 +581,49 @@ export function cleanDisplayAddress(rawAddr?: string): string {
   if (!addr) return 'Xã Cư Pui';
   return `${addr}, xã Cư Pui`;
 }
+
+/**
+ * Kiểm tra xem địa chỉ có thuộc một trong các thôn buôn của xã Cư Pui hay không
+ */
+export function isCuPuiVillage(rawAddr?: string): boolean {
+  if (!rawAddr) return false;
+  const s = stripAccents(rawAddr).toLowerCase();
+  if (s.includes('cu pui')) return true;
+  const cuPuiKeywords = [
+    'ba phuong', 'buon ngo', 'ngo', 'bhung', 'cu phiang', 'cu piang',
+    'tlier', 'tlia', 'hoa phong', 'ho phong', 'cam phong', 'noh prong',
+    'ea khiem', 'dak tuor', 'dak tua', 'buon khanh', 'khanh', 'ea uol',
+    'ea lang', 'ea rot', 'cu te', 'ea bar', 'ea ba', 'buon khoa', 'khoa',
+    'buon blak', 'blak', 'dien tan', 'cu rang',
+  ];
+  return cuPuiKeywords.some((k) => s.includes(k));
+}
+
+/**
+ * Định dạng địa chỉ thường trú:
+ * - Nếu người ngoài xã Cư Pui (trường hợp tự nhập thay vì chọn 16 thôn buôn): Ghi địa chỉ thường trú y như khi nhập
+ * - Nếu thuộc 16 thôn buôn xã Cư Pui: Ghi chuẩn tên thôn/buôn kèm hậu tố ", xã Cư Pui"
+ */
+export function formatDiaChiThuongTru(rawAddr?: string, thonXaFallback?: string): string {
+  const target = (rawAddr && !rawAddr.includes('(khong đia chỉ)') ? rawAddr : thonXaFallback) || '';
+  const clean = target.trim();
+  if (!clean || clean.includes('(khong đia chỉ)')) return 'xã Cư Pui';
+
+  const lower = stripAccents(clean).toLowerCase();
+
+  // 1. Nếu là người ngoài xã Cư Pui (tự nhập nơi khác, không thuộc 16 thôn buôn Cư Pui)
+  // -> Ghi y nguyên như khi nhập!
+  if (!isCuPuiVillage(clean)) {
+    return clean;
+  }
+
+  // 2. Nếu thuộc thôn buôn xã Cư Pui và đã có đuôi Cư Pui -> giữ nguyên
+  if (lower.includes('cu pui')) {
+    return clean;
+  }
+
+  // 3. Nếu thuộc thôn buôn xã Cư Pui nhưng chưa có đuôi Cư Pui -> thêm ", xã Cư Pui"
+  return `${clean}, xã Cư Pui`;
+}
+
 

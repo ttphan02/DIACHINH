@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Parcel, DeclarationFormData, AdditionalParcel } from '@/types';
 import { Printer, X, FileText, Download, CheckCircle2, ShieldCheck, MapPin, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { generateReadyToPackPdf, downloadPdfBlob, ReadyToPackItem, cleanDisplayAddress } from '@/utils/pdfPacker';
-import { normalizeNguonGoc } from '@/utils/textHelpers';
+import { normalizeNguonGoc, isCuPuiVillage } from '@/utils/textHelpers';
 
 export interface PrintableDeclarationItem {
   parcel: Parcel;
@@ -66,6 +66,9 @@ export default function DeclarationPrintModal({
     }
     if (target.toLowerCase().includes('krông bông') || target.toLowerCase().includes('krong bong')) {
       return `${target}, tỉnh Đắk Lắk`;
+    }
+    if (!isCuPuiVillage(target)) {
+      return target;
     }
     if (target.toLowerCase().includes('cư pui') || target.toLowerCase().includes('cu pui')) {
       return `${target}, huyện Krông Bông, tỉnh Đắk Lắk`;

@@ -84,9 +84,21 @@ async function submitParcel(item) {
   }
 
   // 4. Chuẩn hóa địa chỉ & nguồn gốc
-  const diaChiThuongTru = thonXa.includes('xã Cư Pui') ? thonXa : `${thonXa}, xã Cư Pui`;
+  const isCuPui = (addr) => {
+    if (!addr) return false;
+    const s = addr.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd');
+    if (s.includes('cu pui')) return true;
+    const kws = ['ba phuong', 'buon ngo', 'ngo', 'bhung', 'cu phiang', 'cu piang', 'tlier', 'tlia', 'hoa phong', 'ho phong', 'cam phong', 'noh prong', 'ea khiem', 'dak tuor', 'dak tua', 'buon khanh', 'khanh', 'ea uol', 'ea lang', 'ea rot', 'cu te', 'ea bar', 'ea ba', 'buon khoa', 'khoa', 'buon blak', 'blak', 'dien tan', 'cu rang'];
+    return kws.some(k => s.includes(k));
+  };
+  const diaChiThuongTru = !isCuPui(thonXa)
+    ? (thonXa || 'xã Cư Pui')
+    : (thonXa.includes('xã Cư Pui') ? thonXa : `${thonXa}, xã Cư Pui`);
   const diaChiThuaDat = thonXa.includes('tỉnh Đắk Lắk') ? thonXa : `${thonXa}, tỉnh Đắk Lắk`;
-  const nguonGocChuan = 'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất';
+  const isOnt = /ONT/i.test(finalLd);
+  const nguonGocChuan = !isOnt
+    ? 'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất'
+    : (nguonGoc || 'Khai hoang');
 
   // 5. Build payload
   const payloadObj = {

@@ -19,7 +19,7 @@ import {
 import { Parcel, DeclarationFormData } from '@/types';
 import { getOrCreateDeviceId, getSavedCadreName, saveOrUpdateDeclaration } from '@/utils/declaration';
 import { broadcastRealtimeEvent } from '@/utils/realtimeSync';
-import { cleanCccd, cleanName, stripAccents, CANONICAL_VILLAGES, getCanonicalVillage, NGUON_GOC_OPTIONS, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN, getNguonGocShortLabel, normalizeNguonGoc } from '@/utils/textHelpers';
+import { cleanCccd, cleanName, stripAccents, CANONICAL_VILLAGES, getCanonicalVillage, NGUON_GOC_OPTIONS, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN, getNguonGocShortLabel, normalizeNguonGoc, formatDiaChiThuongTru, isOntLand } from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
 import digitizedParcelsData from '@/data/digitized_parcels.json';
@@ -472,7 +472,7 @@ export default function CccdCollectPanel({
             ho_va_ten_chu_ho: cleanNewName,
             thon_xa: finalVillage,
             dia_chi_thua_dat: finalVillage,
-            chu_dat_dia_chi: finalVillage,
+            chu_dat_dia_chi: formatDiaChiThuongTru(finalVillage),
             nguon_goc_su_dung: selectedNguonGoc,
             updated_at: timestamp,
           };
@@ -487,7 +487,7 @@ export default function CccdCollectPanel({
             ho_va_ten_chu_ho: cleanNewName,
             thon_xa: finalVillage,
             dia_chi_thua_dat: finalVillage,
-            chu_dat_dia_chi: finalVillage,
+            chu_dat_dia_chi: formatDiaChiThuongTru(finalVillage),
             nguon_goc_su_dung: selectedNguonGoc,
             device_id: getSavedCadreName() || getOrCreateDeviceId(),
             created_at: timestamp,

@@ -50,6 +50,8 @@ import {
   isValidBirthYear,
   isValidFullName,
   isPersonName,
+  formatDiaChiThuongTru,
+  isOntLand,
 } from '@/utils/textHelpers';
 
 interface ParcelDetailPanelProps {
@@ -377,13 +379,7 @@ export default function ParcelDetailPanel({
     };
 
     const formatThonAddress = (addr?: string, thon?: string) => {
-      const target = (addr && !addr.includes('(khong đia chỉ)') ? addr : thon) || '';
-      const clean = target.trim();
-      if (!clean || clean.includes('(khong đia chỉ)')) return 'Xã Cư Pui, huyện Krông Bông';
-      if (clean.toLowerCase().includes('cư pui') || clean.toLowerCase().includes('cu pui')) {
-        return clean;
-      }
-      return `${clean}, xã Cư Pui`;
+      return formatDiaChiThuongTru(addr, thon);
     };
 
     if (parcel) {
@@ -413,7 +409,7 @@ export default function ParcelDetailPanel({
         );
         setChuDatCccd(existingCccd);
         setChuDatDiaChi(formatThonAddress(currentDeclaration.chu_dat_dia_chi, parcel.thon_xa));
-        setNguonGocSuDung(normalizeNguonGoc(currentDeclaration.nguon_goc_su_dung));
+        setNguonGocSuDung(normalizeNguonGoc(currentDeclaration.nguon_goc_su_dung, parcel?.loai_dat));
         setGiapDong(cleanBoundaryText(currentDeclaration.giap_dong || parcel.giap_dong || ''));
         setGiapTay(cleanBoundaryText(currentDeclaration.giap_tay || parcel.giap_tay || ''));
         setGiapNam(cleanBoundaryText(currentDeclaration.giap_nam || parcel.giap_nam || ''));
@@ -442,7 +438,7 @@ export default function ParcelDetailPanel({
         setChuDatGioiTinh(parcel.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
         setChuDatCccd(cleanCccd(parcel.cccd || ''));
         setChuDatDiaChi(formatThonAddress(undefined, parcel.thon_xa));
-        setNguonGocSuDung('Khai Hoang');
+        setNguonGocSuDung(normalizeNguonGoc(undefined, parcel?.loai_dat));
 
         setGgsLookupStatus(null);
         if (initName && initName.split(/\s+/).length >= 2) {
@@ -648,7 +644,7 @@ export default function ParcelDetailPanel({
         chu_dat_gioi_tinh: chuDatGioiTinh,
         chu_dat_cccd: cleanedCccd,
         chu_dat_dia_chi: cleanedDiaChi,
-        nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung),
+        nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung, parcel?.loai_dat),
         giap_dong: cleanBoundaryText(giapDong),
         giap_tay: cleanBoundaryText(giapTay),
         giap_nam: cleanBoundaryText(giapNam),
@@ -1932,7 +1928,7 @@ export default function ParcelDetailPanel({
             <div className="p-3 bg-white border border-gray-200 rounded-xl shadow-2xs space-y-2 text-xs">
               <label className="text-[11px] font-bold text-gray-700 flex items-center justify-between">
                 <span>Nguồn gốc sử dụng đất <span className="text-red-500">*</span></span>
-                <span className="text-[10px] text-blue-600 font-bold">{normalizeNguonGoc(nguonGocSuDung)}</span>
+                <span className="text-[10px] text-blue-600 font-bold">{getNguonGocShortLabel(nguonGocSuDung)}</span>
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                 {NGUON_GOC_OPTIONS.map((opt) => (

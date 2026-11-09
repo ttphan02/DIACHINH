@@ -2,7 +2,13 @@ import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import fs from 'fs';
 import path from 'path';
-import { normalizeNguonGoc, isAgriculturalLand, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN } from '@/utils/textHelpers';
+import {
+  normalizeNguonGoc,
+  isAgriculturalLand,
+  isOntLand,
+  formatDiaChiThuongTru,
+  NGUON_GOC_NN_GIAO_KHONG_THU_TIEN,
+} from '@/utils/textHelpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -142,16 +148,16 @@ export async function POST(request: Request) {
       const cccdVal = (item.cccd || item.chu_dat_cccd || '').replace(/\D/g, '');
       const namSinhVal = String(item.nam_sinh || item.chu_dat_nam_sinh || '1980').match(/\d{4}/)?.[0] || '1980';
       const gioiTinhVal = (item.gioi_tinh || item.chu_dat_gioi_tinh || 'Nam').toLowerCase().includes('nữ') ? 'Nữ' : 'Nam';
-      const diaChiThuongTru = item.dia_chi_thuong_tru || item.chu_dat_dia_chi || item.thon_xa || 'xã Cư Pui';
+      const rawDiaChiThuongTru = item.dia_chi_thuong_tru || item.chu_dat_dia_chi || item.thon_xa || 'xã Cư Pui';
+      // Địa chỉ thường trú: nếu người ngoài xã Cư Pui (tự nhập thay vì chọn 16 thôn buôn) thì ghi địa chỉ thường trú y như khi nhập
+      const finalDiaChiThuongTru = formatDiaChiThuongTru(rawDiaChiThuongTru);
       const diaChiThuaDat = item.dia_chi_thua_dat || item.thon_xa || 'Xã Cư Pui, tỉnh Đắk Lắk';
-      // Khi nhập trên web kh2959bmt: đất nông nghiệp khai hoang chọn "Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất"
-      const isAgri = isAgriculturalLand(loaiDat);
-      let nguonGocVal = (item.nguon_goc || '').trim();
-      if (isAgri && (!nguonGocVal || nguonGocVal.toLowerCase().includes('khai hoang') || nguonGocVal.toLowerCase().includes('cong nhan') || nguonGocVal.toLowerCase().includes('khong thu tien'))) {
-        nguonGocVal = NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
-      } else if (!nguonGocVal) {
-        nguonGocVal = 'Khai hoang';
-      }
+
+      // QUY TẮC NGUỒN GỐC: Tất cả loại đất đều là "Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất" ngoài ONT hoặc ONT+...
+      const isOnt = isOntLand(loaiDat);
+      let nguonGocVal = !isOnt
+        ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN
+        : normalizeNguonGoc(item.nguon_goc, loaiDat);
 
       // Tạo cấu trúc payload chuẩn
       const payloadObj = {
@@ -167,7 +173,7 @@ export async function POST(request: Request) {
             ngay_sinh: namSinhVal,
             gioi_tinh: gioiTinhVal,
             cccd: cccdVal,
-            dia_chi_thuong_tru: diaChiThuongTru.includes('xã Cư Pui') ? diaChiThuongTru : `${diaChiThuongTru}, xã Cư Pui`,
+            dia_chi_thuong_tru: finalDiaChiThuongTru,
             phap_nhan: 'Cá nhân',
             vai_tro_phap_nhan: 'Cá nhân',
           },

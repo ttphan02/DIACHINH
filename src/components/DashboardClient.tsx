@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredVa
 import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
-import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, cleanVillageDisplay, normalizeNguonGoc, NGUON_GOC_OPTIONS, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN, isAgriculturalLand, getNguonGocShortLabel, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName } from '@/utils/textHelpers';
+import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, cleanVillageDisplay, normalizeNguonGoc, NGUON_GOC_OPTIONS, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN, isAgriculturalLand, getNguonGocShortLabel, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName, isOntLand, formatDiaChiThuongTru } from '@/utils/textHelpers';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName, removePendingDeclaration, clearPendingDeclarations, syncAllLocalDataToServer } from '@/utils/declaration';
 import { broadcastRealtimeEvent, onRealtimeEvent } from '@/utils/realtimeSync';
 import dynamic from 'next/dynamic';
@@ -896,8 +896,9 @@ export default function DashboardPage() {
     const diaChiThua = existingDecl.dia_chi_thua_dat || existingDecl.chu_dat_dia_chi || findColVal([/thon/, /buon/]) || (p?.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'Xã Cư Pui');
     const dienTich = existingDecl.dien_tich || findColVal([/dien tich/]) || p?.dien_tich || '';
     const loaiDat = existingDecl.loai_dat || findColVal([/loai dat/]) || p?.loai_dat || 'DGT';
-    const defaultOrigin = 'Khai hoang';
-    const nguonGoc = existingDecl.nguon_goc || existingDecl.nguon_goc_su_dung || findColVal([/nguon goc/]) || defaultOrigin;
+    const defaultOrigin = isOntLand(loaiDat) ? 'Khai hoang' : NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
+    const rawOrigin = existingDecl.nguon_goc || existingDecl.nguon_goc_su_dung || findColVal([/nguon goc/]) || defaultOrigin;
+    const nguonGoc = normalizeNguonGoc(rawOrigin, loaiDat);
 
     const formattedValue = fieldKey === 'chu_dat_cccd' ? cleanCccd(newValue) : newValue.trim();
 
@@ -940,14 +941,19 @@ export default function DashboardPage() {
       const finalAddr = canonical && canonical !== 'Chưa xác định' ? canonical : formattedValue.trim();
       updatedDecl.thon_xa = finalAddr;
       updatedDecl.dia_chi_thua_dat = finalAddr;
-      updatedDecl.chu_dat_dia_chi =
-        finalAddr.includes('xã Cư Pui') ||
-        finalAddr.includes('huyện') ||
-        finalAddr.includes('tỉnh') ||
-        finalAddr.includes('thị trấn') ||
-        finalAddr.includes('thành phố')
-          ? finalAddr
-          : `${finalAddr}, xã Cư Pui`;
+      // Địa chỉ thường trú: nếu người ngoài xã Cư Pui (tự nhập thay vì chọn 16 thôn buôn) thì ghi địa chỉ thường trú y như khi nhập
+      updatedDecl.chu_dat_dia_chi = formatDiaChiThuongTru(finalAddr);
+    }
+    if (fieldKey === 'nguon_goc') {
+      const loaiDatForOrigin = updatedDecl.loai_dat || p?.loai_dat || '';
+      updatedDecl.nguon_goc = normalizeNguonGoc(formattedValue, loaiDatForOrigin);
+      (updatedDecl as any).nguon_goc_su_dung = updatedDecl.nguon_goc;
+    }
+    if (fieldKey === 'loai_dat') {
+      if (!isOntLand(formattedValue)) {
+        updatedDecl.nguon_goc = NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
+        (updatedDecl as any).nguon_goc_su_dung = NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
+      }
     }
 
     // 1. Cập nhật ngay tức thì vào React State & LocalStorage (0ms latency)
@@ -1041,10 +1047,10 @@ export default function DashboardPage() {
 
     const dienTich = String(p?.dien_tich ?? row[7] ?? '').trim();
     const loaiDat = String(p?.loai_dat ?? row[8] ?? 'DGT').trim();
-    const nguonGoc = normalizeNguonGoc(String(edits[9] ?? row[9] ?? 'Khai hoang').trim());
+    const nguonGoc = normalizeNguonGoc(String(edits[9] ?? row[9] ?? '').trim(), loaiDat);
     const ghiChu = '';
 
-    const diaChi = thonXa ? (thonXa.includes('xã Cư Pui') ? thonXa : `${thonXa}, xã Cư Pui`) : 'xã Cư Pui';
+    const diaChi = formatDiaChiThuongTru(thonXa);
     const deviceId = getOrCreateDeviceId();
 
     const newDecl: DeclarationFormData = {
@@ -4109,8 +4115,8 @@ export default function DashboardPage() {
                         const cleanCccdVal = cleanCccd(rawCccdVal);
                         const dienTich = String(p?.dien_tich ?? r[7] ?? '').trim();
                         const loaiDat = String(p?.loai_dat ?? r[8] ?? 'DGT').trim();
-                        const nguonGoc = normalizeNguonGoc(String(edits[9] ?? r[9] ?? 'Khai hoang').trim());
-                        const diaChi = thonXa ? (thonXa.includes('xã Cư Pui') ? thonXa : `${thonXa}, xã Cư Pui`) : 'xã Cư Pui';
+                        const nguonGoc = normalizeNguonGoc(String(edits[9] ?? r[9] ?? '').trim(), loaiDat);
+                        const diaChi = formatDiaChiThuongTru(thonXa);
 
                         const newDecl: DeclarationFormData = {
                           ma_thua: code,
@@ -6239,7 +6245,7 @@ export default function DashboardPage() {
                                         } else if (isVillageCol && (declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi || declForParcel.thon_xa)) {
                                           effectiveVal = cleanVillageDisplay(declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi || declForParcel.thon_xa);
                                         } else if (isOriginCol && (declForParcel.nguon_goc || declForParcel.nguon_goc_su_dung)) {
-                                          effectiveVal = normalizeNguonGoc(declForParcel.nguon_goc || declForParcel.nguon_goc_su_dung);
+                                          effectiveVal = normalizeNguonGoc(declForParcel.nguon_goc || declForParcel.nguon_goc_su_dung, declForParcel.loai_dat || rowLoaiDat);
                                         } else if (isAreaCol && (!cleanText || cleanText === '0' || cleanText === '1000') && declForParcel.dien_tich && declForParcel.ma_thua === maThua) {
                                           effectiveVal = declForParcel.dien_tich;
                                         } else if (isLandTypeCol && declForParcel.loai_dat) {
@@ -6262,7 +6268,7 @@ export default function DashboardPage() {
                                              className={`p-0 border-r overflow-hidden relative focus-within:z-10 ${isLight ? 'border-slate-200' : 'border-slate-800/60'}`}
                                            >
                                              <select
-                                               value={normalizeNguonGoc(displayVal || '')}
+                                               value={normalizeNguonGoc(displayVal || '', declForParcel?.loai_dat || rowLoaiDat)}
                                                onChange={(e) => {
                                                  const v = e.target.value;
                                                  handleInlineCellChange(maThua, cIdx, v);
@@ -6276,8 +6282,8 @@ export default function DashboardPage() {
                                              >
                                                {NGUON_GOC_OPTIONS.map((opt) => (
                                                  <option key={opt} value={opt}>
-                                                   {opt}
-                                                 </option>
+                                                    {getNguonGocShortLabel(opt)}
+                                                  </option>
                                                ))}
                                              </select>
                                            </td>
@@ -6432,7 +6438,7 @@ export default function DashboardPage() {
                                                 <option value="">-- Chọn Thôn / Buôn --</option>
                                                 {villageList16.map((opt) => (
                                                   <option key={opt} value={opt}>
-                                                    {opt}
+                                                    {getNguonGocShortLabel(opt)}
                                                   </option>
                                                 ))}
                                                 <option value="__CUSTOM__">✏️ Nơi khác (Tự nhập tay)...</option>

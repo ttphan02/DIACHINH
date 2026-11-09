@@ -47,6 +47,8 @@ import {
   isValidFullName,
   isValidBirthYear,
   normalizeNguonGoc,
+  formatDiaChiThuongTru,
+  isOntLand,
 } from './textHelpers';
 
 function parseNameAndType(rawName: string) {
@@ -462,9 +464,8 @@ export async function executeSyncToGoogleSheet(
       // Tự động bổ sung fallback dữ liệu mặc định/ảo nếu thiếu trường
       const rawChuHo = chuHo || (ggsP && ggsP.chu_ho ? cleanName(ggsP.chu_ho) : '') || fallbackOwner || 'Chủ sử dụng';
       const cleanOwner = cleanName(rawChuHo) || 'Chủ sử dụng';
-      const thonXa = normalizeAddress(
-        decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || fallbackThon || 'Thôn 1, xã Cư Pui'
-      );
+      const rawAddr = decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || fallbackThon;
+      const thonXa = formatDiaChiThuongTru(rawAddr);
       const dienTich = (fallbackDt && parseFloat(fallbackDt) > 0)
         ? String(fallbackDt)
         : ((decl.dien_tich && parseFloat(decl.dien_tich) > 0 && decl.ma_thua === maThua)
