@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
-import fs from 'fs';
-import path from 'path';
 import {
   normalizeNguonGoc,
   isAgriculturalLand,
@@ -75,20 +73,6 @@ async function getPdfBuffer(filename: string): Promise<Uint8Array | null> {
       if (res.ok) {
         const arr = await res.arrayBuffer();
         return new Uint8Array(arr);
-      }
-    }
-  } catch {}
-
-  // 3. Thử tìm trên ổ cứng cục bộ D:\DIACHINH
-  try {
-    const localCandidates = [
-      path.join('D:\\DIACHINH\\La Scan 28.10', cleanName),
-      path.join('D:\\DIACHINH\\FILE_SCAN_199', cleanName),
-      path.join('D:\\DIACHINH', cleanName),
-    ];
-    for (const p of localCandidates) {
-      if (fs.existsSync(p)) {
-        return fs.readFileSync(p);
       }
     }
   } catch {}
