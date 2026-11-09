@@ -82,6 +82,7 @@ export async function initD1Schema(db: any): Promise<void> {
       is_thua_kem_theo INTEGER DEFAULT 0,
       parent_ma_thua TEXT,
       thua_kem_theo_json TEXT,
+      yeu_cau_thu_cccd INTEGER DEFAULT 0,
       created_at TEXT,
       updated_at TEXT
     )`,
@@ -106,6 +107,10 @@ export async function initD1Schema(db: any): Promise<void> {
       throw err;
     }
   }
+
+  try {
+    await db.prepare('ALTER TABLE declarations ADD COLUMN yeu_cau_thu_cccd INTEGER DEFAULT 0').run();
+  } catch {}
 }
 
 /**
@@ -120,13 +125,13 @@ export async function upsertD1Declaration(db: any, decl: any): Promise<boolean> 
       chu_dat_ten, chu_dat_nam_sinh, chu_dat_gioi_tinh, chu_dat_cccd, chu_dat_dia_chi,
       nguon_goc_su_dung, giap_dong, giap_tay, giap_nam, giap_bac,
       anh_cccd_truoc, anh_cccd_sau, anh_gcn, anh_gcn_list, ghi_chu, device_id,
-      is_thua_kem_theo, parent_ma_thua, thua_kem_theo_json, created_at, updated_at
+      is_thua_kem_theo, parent_ma_thua, thua_kem_theo_json, yeu_cau_thu_cccd, created_at, updated_at
     ) VALUES (
       ?1, ?2, ?3, ?4, ?5, ?6, ?7,
       ?8, ?9, ?10, ?11, ?12,
       ?13, ?14, ?15, ?16, ?17,
       ?18, ?19, ?20, ?21, ?22, ?23,
-      ?24, ?25, ?26, ?27, ?28
+      ?24, ?25, ?26, ?27, ?28, ?29
     )
     ON CONFLICT(ma_thua) DO UPDATE SET
       to_ban_do = excluded.to_ban_do,
@@ -154,6 +159,7 @@ export async function upsertD1Declaration(db: any, decl: any): Promise<boolean> 
       is_thua_kem_theo = excluded.is_thua_kem_theo,
       parent_ma_thua = excluded.parent_ma_thua,
       thua_kem_theo_json = excluded.thua_kem_theo_json,
+      yeu_cau_thu_cccd = excluded.yeu_cau_thu_cccd,
       updated_at = excluded.updated_at;
   `;
 
@@ -194,6 +200,7 @@ export async function upsertD1Declaration(db: any, decl: any): Promise<boolean> 
     decl.is_thua_kem_theo ? 1 : 0,
     String(decl.parent_ma_thua || ''),
     tktJson,
+    decl.yeu_cau_thu_cccd ? 1 : 0,
     String(decl.created_at || timestamp),
     String(decl.updated_at || timestamp)
   ).run();
@@ -213,13 +220,13 @@ export async function batchUpsertD1Declarations(db: any, decls: any[]): Promise<
       chu_dat_ten, chu_dat_nam_sinh, chu_dat_gioi_tinh, chu_dat_cccd, chu_dat_dia_chi,
       nguon_goc_su_dung, giap_dong, giap_tay, giap_nam, giap_bac,
       anh_cccd_truoc, anh_cccd_sau, anh_gcn, anh_gcn_list, ghi_chu, device_id,
-      is_thua_kem_theo, parent_ma_thua, thua_kem_theo_json, created_at, updated_at
+      is_thua_kem_theo, parent_ma_thua, thua_kem_theo_json, yeu_cau_thu_cccd, created_at, updated_at
     ) VALUES (
       ?1, ?2, ?3, ?4, ?5, ?6, ?7,
       ?8, ?9, ?10, ?11, ?12,
       ?13, ?14, ?15, ?16, ?17,
       ?18, ?19, ?20, ?21, ?22, ?23,
-      ?24, ?25, ?26, ?27, ?28
+      ?24, ?25, ?26, ?27, ?28, ?29
     )
     ON CONFLICT(ma_thua) DO UPDATE SET
       to_ban_do = excluded.to_ban_do,
@@ -247,6 +254,7 @@ export async function batchUpsertD1Declarations(db: any, decls: any[]): Promise<
       is_thua_kem_theo = excluded.is_thua_kem_theo,
       parent_ma_thua = excluded.parent_ma_thua,
       thua_kem_theo_json = excluded.thua_kem_theo_json,
+      yeu_cau_thu_cccd = excluded.yeu_cau_thu_cccd,
       updated_at = excluded.updated_at;
   `;
 
@@ -293,6 +301,7 @@ export async function batchUpsertD1Declarations(db: any, decls: any[]): Promise<
         decl.is_thua_kem_theo ? 1 : 0,
         String(decl.parent_ma_thua || ''),
         tktJson,
+        decl.yeu_cau_thu_cccd ? 1 : 0,
         String(decl.created_at || timestamp),
         String(decl.updated_at || timestamp)
       );
@@ -382,6 +391,7 @@ export async function getAllD1Declarations(db: any): Promise<{
         ghi_chu: row.ghi_chu,
         device_id: row.device_id,
         is_thua_kem_theo: Boolean(row.is_thua_kem_theo),
+        yeu_cau_thu_cccd: Boolean(row.yeu_cau_thu_cccd),
         parent_ma_thua: row.parent_ma_thua || undefined,
         thua_kem_theo: thuaKemTheo.length > 0 ? thuaKemTheo : undefined,
         created_at: row.created_at,

@@ -3,6 +3,7 @@ const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { executeSyncToGoogleSheet, invalidateR2Cache } from '@/utils/syncGoogleSheets';
+import { getD1Binding, getAllD1Declarations } from '@/utils/d1Database';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +42,20 @@ async function getR2Binding(): Promise<any | null> {
 }
 
 async function getDeclarationsMap(): Promise<Record<string, any>> {
+  // 1. Ưu tiên đọc trực tiếp từ Cloudflare D1 SQL Database (nguồn dữ liệu tức thời và chính xác nhất)
+  try {
+    const db = await getD1Binding();
+    if (db) {
+      const d1Data = await getAllD1Declarations(db);
+      if (d1Data && d1Data.declarationsMap && Object.keys(d1Data.declarationsMap).length > 0) {
+        return d1Data.declarationsMap;
+      }
+    }
+  } catch (err) {
+    console.warn('Lỗi khi đọc declarations qua D1 binding trong sync-sheets:', err);
+  }
+
+  // 2. Fallback đọc qua R2 Binding
   try {
     const bucket = await getR2Binding();
     if (bucket) {
