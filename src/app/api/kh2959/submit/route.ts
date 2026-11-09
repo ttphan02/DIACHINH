@@ -104,34 +104,49 @@ async function lookupGeohash(maXa: string, soTo: string, soThua: string): Promis
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as any;
-    const parcels: any[] = Array.isArray(body?.parcels) ? body.parcels : [body];
+    const rawParcels: any[] = Array.isArray(body?.parcels) ? body.parcels : [body];
 
     const results: any[] = [];
 
-    for (const item of parcels) {
-      const maThua = item.ma_thua || `${item.so_to}_${item.so_thua}`;
-      const soTo = String(item.so_to || '').trim();
-      const soThua = String(item.so_thua || '').trim();
-      const loaiDat = String(item.loai_dat || 'CLN').trim().toUpperCase();
+    // Gom nhóm các thửa theo chủ sử dụng (CCCD hoặc Họ tên) để hỗ trợ "Dùng chung hồ sơ quét (1 đơn nhiều thửa)"
+    const ownerGroups = new Map<string, any[]>();
+    for (const item of rawParcels) {
+      const cccd = (item.cccd || item.chu_dat_cccd || '').replace(/\D/g, '');
+      const ownerName = (item.chu_ho || item.chu_dat_ten || '').trim().toLowerCase();
+      const key = cccd || ownerName || `${item.so_to}_${item.so_thua}`;
+      if (!ownerGroups.has(key)) ownerGroups.set(key, []);
+      ownerGroups.get(key)!.push(item);
+    }
 
-      // RÀNG BUỘC NGHIÊM NGẶT: Thửa có ONT tuyệt đối không được nhập!
-      if (/ONT/i.test(loaiDat)) {
-        results.push({
-          ma_thua: maThua,
-          ok: false,
-          error: `Thửa ${soThua} (Tờ ${soTo}) có loại đất ${loaiDat} (chứa ONT) - Bổ sung sau, đã chuyển sang GCN - ONT!`,
-        });
-        continue;
+    for (const [ownerKey, group] of ownerGroups.entries()) {
+      // 1. Tách và loại các thửa dính ONT
+      const validGroup: any[] = [];
+      for (const item of group) {
+        const maThua = item.ma_thua || `${item.so_to}_${item.so_thua}`;
+        const soTo = String(item.so_to || '').trim();
+        const soThua = String(item.so_thua || '').trim();
+        const loaiDat = String(item.loai_dat || 'CLN').trim().toUpperCase();
+
+        if (/ONT/i.test(loaiDat)) {
+          results.push({
+            ma_thua: maThua,
+            ok: false,
+            error: `Thửa ${soThua} (Tờ ${soTo}) có loại đất ${loaiDat} (chứa ONT) - Bổ sung sau, đã chuyển sang GCN - ONT!`,
+          });
+        } else {
+          validGroup.push(item);
+        }
       }
 
-      // Lấy geohash nếu chưa có
-      const maDinhDanh = item.ma_dinh_danh || (await lookupGeohash('24478', soTo, soThua)) || '';
+      if (validGroup.length === 0) continue;
 
-      const dienTichVal = String(item.dien_tich || '1000').replace(',', '.').trim();
-      const chuHoTen = item.chu_ho || item.chu_dat_ten || 'Chủ sử dụng';
-      const cccdVal = (item.cccd || item.chu_dat_cccd || '').replace(/\D/g, '');
-      let namSinhVal = String(item.nam_sinh || item.chu_dat_nam_sinh || '1980').match(/\d{4}/)?.[0] || '1980';
-      let gioiTinhVal = (item.gioi_tinh || item.chu_dat_gioi_tinh || 'Nam').toLowerCase().includes('nữ') ? 'Nữ' : 'Nam';
+      const firstItem = validGroup[0];
+      const isMulti = validGroup.length > 1;
+
+      const chuHoTen = firstItem.chu_ho || firstItem.chu_dat_ten || 'Chủ sử dụng';
+      const cccdVal = (firstItem.cccd || firstItem.chu_dat_cccd || '').replace(/\D/g, '');
+      let namSinhVal = String(firstItem.nam_sinh || firstItem.chu_dat_nam_sinh || '1980').match(/\d{4}/)?.[0] || '1980';
+      let gioiTinhVal = (firstItem.gioi_tinh || firstItem.chu_dat_gioi_tinh || 'Nam').toLowerCase().includes('nữ') ? 'Nữ' : 'Nam';
 
       // Chuẩn hóa Năm sinh và Giới tính trực tiếp từ số CCCD 12 chữ số
       if (/^\d{12}$/.test(cccdVal)) {
@@ -142,19 +157,48 @@ export async function POST(request: Request) {
         gioiTinhVal = (gCode % 2 === 0) ? 'Nam' : 'Nữ';
       }
 
-      const rawDiaChiThuongTru = item.dia_chi_thuong_tru || item.chu_dat_dia_chi || item.thon_xa || 'xã Cư Pui';
-      // Địa chỉ thường trú: nếu người ngoài xã Cư Pui (tự nhập thay vì chọn 16 thôn buôn) thì ghi địa chỉ thường trú y như khi nhập
+      const rawDiaChiThuongTru = firstItem.dia_chi_thuong_tru || firstItem.chu_dat_dia_chi || firstItem.thon_xa || 'xã Cư Pui';
       const finalDiaChiThuongTru = formatDiaChiThuongTru(rawDiaChiThuongTru);
-      // Địa chỉ thửa đất: toàn bộ đều ghi "xã Cư Pui"
       const diaChiThuaDat = 'xã Cư Pui';
 
-      // QUY TẮC NGUỒN GỐC: Tất cả loại đất đều là "Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất" ngoài ONT hoặc ONT+...
-      const isOnt = isOntLand(loaiDat);
-      let nguonGocVal = !isOnt
-        ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN
-        : normalizeNguonGoc(item.nguon_goc, loaiDat);
+      // 2. Xây dựng danh sách thửa đất trong hồ sơ
+      const thua_list = await Promise.all(
+        validGroup.map(async (item) => {
+          const soTo = String(item.so_to || '').trim();
+          const soThua = String(item.so_thua || '').trim();
+          const loaiDat = String(item.loai_dat || 'CLN').trim().toUpperCase();
+          const maDinhDanh = item.ma_dinh_danh || (await lookupGeohash('24478', soTo, soThua)) || '';
+          const dienTichVal = String(item.dien_tich || '1000').replace(',', '.').trim();
 
-      // Tạo cấu trúc payload chuẩn
+          const isOnt = isOntLand(loaiDat);
+          const nguonGocVal = !isOnt
+            ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN
+            : normalizeNguonGoc(item.nguon_goc, loaiDat);
+
+          return {
+            thua: {
+              so_to: soTo,
+              so_thua: soThua,
+              so_to_gcn: '',
+              so_thua_gcn: '',
+              ma_dinh_danh: maDinhDanh,
+              dien_tich_thua_dat: dienTichVal,
+              dia_chi_thua_dat: diaChiThuaDat,
+              ghi_chu: '',
+            },
+            dat1: {
+              loai_dat: loaiDat,
+              dien_tich: dienTichVal,
+              nguon_goc_su_dung: nguonGocVal,
+              hinh_thuc_su_dung: 'Sử dụng riêng',
+              thoi_han_su_dung: loaiDat === 'ONT' ? 'Lâu dài' : '50 năm',
+            },
+            dat2: null,
+          };
+        })
+      );
+
+      // 3. Tạo cấu trúc payload chuẩn
       const payloadObj = {
         ma_xa: '24478',
         ten_xa: 'Xã Cư Pui',
@@ -182,46 +226,50 @@ export async function POST(request: Request) {
           ma_dinh_danh_ca_nhan_dai_dien: '',
           dia_chi_thuong_tru_dai_dien: '',
         },
-        dung_chung_ho_so_quet: false,
-        thua_list: [
-          {
-            thua: {
-              so_to: soTo,
-              so_thua: soThua,
-              so_to_gcn: '',
-              so_thua_gcn: '',
-              ma_dinh_danh: maDinhDanh,
-              dien_tich_thua_dat: dienTichVal,
-              dia_chi_thua_dat: diaChiThuaDat,
-              ghi_chu: '',
-            },
-            dat1: {
-              loai_dat: loaiDat,
-              dien_tich: dienTichVal,
-              nguon_goc_su_dung: nguonGocVal,
-              hinh_thuc_su_dung: 'Sử dụng riêng',
-              thoi_han_su_dung: loaiDat === 'ONT' ? 'Lâu dài' : '50 năm',
-            },
-            dat2: null,
-          },
-        ],
+        dung_chung_ho_so_quet: isMulti,
+        thua_list,
       };
 
-      // Tìm file scan PDF
-      const scanFileName = item.scan_file || `CHUACOGIAY_24478_${soTo}_${soThua}-DDK.pdf`;
+      // 4. Tìm file scan PDF dùng chung hoặc đại diện
+      let scanFileName =
+        firstItem.scan_file || `CHUACOGIAY_24478_${firstItem.so_to}_${firstItem.so_thua}-DDK.pdf`;
       let pdfBytes = await getPdfBuffer(scanFileName);
 
-      // Nếu không tìm thấy, tạo 1 file PDF placeholder hợp lệ tối thiểu để server tiếp nhận
+      // Nếu thửa đầu chưa có file scan, thử tìm file scan của các thửa còn lại trong cùng nhóm
       if (!pdfBytes) {
-        const dummyPdf = '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n3 0 obj<</Type/Page/MediaBox[0 0 595 842]/Parent 2 0 R>>endobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000052 00000 n \n0000000101 00000 n \ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n178\n%%EOF\n';
+        for (let k = 1; k < validGroup.length; k++) {
+          const altName =
+            validGroup[k].scan_file ||
+            `CHUACOGIAY_24478_${validGroup[k].so_to}_${validGroup[k].so_thua}-DDK.pdf`;
+          const altBytes = await getPdfBuffer(altName);
+          if (altBytes) {
+            scanFileName = altName;
+            pdfBytes = altBytes;
+            break;
+          }
+        }
+      }
+
+      // Nếu vẫn không tìm thấy, tạo 1 file PDF placeholder hợp lệ tối thiểu để server tiếp nhận
+      if (!pdfBytes) {
+        const dummyPdf =
+          '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n3 0 obj<</Type/Page/MediaBox[0 0 595 842]/Parent 2 0 R>>endobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000052 00000 n \n0000000101 00000 n \ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n178\n%%EOF\n';
         pdfBytes = new TextEncoder().encode(dummyPdf);
       }
 
-      // Xây dựng Multipart FormData
+      // 5. Xây dựng Multipart FormData gửi lên máy chủ
       const formData = new FormData();
       formData.append('payload', JSON.stringify(payloadObj));
       const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
-      formData.append('file_chinh_0', blob, scanFileName);
+
+      if (isMulti) {
+        // Dùng chung hồ sơ quét (1 đơn nhiều thửa)
+        formData.append('file_chinh_shared', blob, scanFileName);
+        formData.append('file_chinh_0', blob, scanFileName);
+      } else {
+        formData.append('file_chinh_0', blob, scanFileName);
+        formData.append('file_chinh_shared', blob, scanFileName);
+      }
 
       // Gửi request tới server đích
       try {
@@ -243,39 +291,45 @@ export async function POST(request: Request) {
           resJson = { raw: resText };
         }
 
-        if (res.ok && resJson?.ok) {
-          results.push({
-            ma_thua: maThua,
-            ok: true,
-            so_to: soTo,
-            so_thua: soThua,
-            message: resJson.message || 'Đã lưu thành công lên máy chủ!',
-          });
-        } else if (res.status === 409) {
-          // Thửa đã được lưu trước đó
-          results.push({
-            ma_thua: maThua,
-            ok: true,
-            alreadyExists: true,
-            so_to: soTo,
-            so_thua: soThua,
-            message: resJson.error || 'Thửa đã tồn tại trên hệ thống máy chủ (đã lưu)',
-          });
-        } else {
+        const isSuccess = (res.ok && resJson?.ok) || res.status === 409;
+        const msg =
+          resJson.message ||
+          (res.status === 409
+            ? 'Thửa đã tồn tại trên hệ thống máy chủ (đã lưu)'
+            : isMulti
+              ? `Đã lưu thành công hồ sơ ${validGroup.length} thửa (dùng chung file quét)!`
+              : 'Đã lưu thành công lên máy chủ!');
+
+        for (const item of validGroup) {
+          const maThua = item.ma_thua || `${item.so_to}_${item.so_thua}`;
+          if (isSuccess) {
+            results.push({
+              ma_thua: maThua,
+              ok: true,
+              so_to: item.so_to,
+              so_thua: item.so_thua,
+              message: msg,
+              isSharedScan: isMulti,
+            });
+          } else {
+            results.push({
+              ma_thua: maThua,
+              ok: false,
+              so_to: item.so_to,
+              so_thua: item.so_thua,
+              error: resJson.error || resJson.message || `Lỗi HTTP ${res.status}`,
+            });
+          }
+        }
+      } catch (postErr: any) {
+        for (const item of validGroup) {
+          const maThua = item.ma_thua || `${item.so_to}_${item.so_thua}`;
           results.push({
             ma_thua: maThua,
             ok: false,
-            so_to: soTo,
-            so_thua: soThua,
-            error: resJson.error || resJson.message || `Lỗi HTTP ${res.status}`,
+            error: postErr.message || 'Không thể kết nối tới server kh2959bmt.net',
           });
         }
-      } catch (postErr: any) {
-        results.push({
-          ma_thua: maThua,
-          ok: false,
-          error: postErr.message || 'Không thể kết nối tới server kh2959bmt.net',
-        });
       }
     }
 

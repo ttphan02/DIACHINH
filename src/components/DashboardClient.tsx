@@ -4843,38 +4843,60 @@ export default function DashboardPage() {
                     setIsSubmittingWeb(true);
                     setBatchProgress({ current: 0, total: validNonOntNhapDuLieuRows.length });
 
+                    // Gom nhóm theo chủ sử dụng để tự động bật "Dùng chung hồ sơ quét (1 đơn nhiều thửa)"
+                    const ownerGroupsMap = new Map<string, any[]>();
+                    for (const r of validNonOntNhapDuLieuRows) {
+                      const p = extractParcelFromRow(r);
+                      const cccd = (p.cccd || '').replace(/\D/g, '');
+                      const ownerName = (p.chu_ho || '').trim().toLowerCase();
+                      const key = cccd || ownerName || p.ma_thua;
+                      if (!ownerGroupsMap.has(key)) ownerGroupsMap.set(key, []);
+                      ownerGroupsMap.get(key)!.push(p);
+                    }
+                    const ownerGroupsList = Array.from(ownerGroupsMap.values());
+
                     let successCount = 0;
                     let failCount = 0;
+                    let processedParcels = 0;
 
-                    for (let i = 0; i < validNonOntNhapDuLieuRows.length; i++) {
-                      const r = validNonOntNhapDuLieuRows[i];
-                      const p = extractParcelFromRow(r);
-                      setBatchProgress({ current: i + 1, total: validNonOntNhapDuLieuRows.length });
-                      setSubmittingRowCode(p.ma_thua);
+                    for (let i = 0; i < ownerGroupsList.length; i++) {
+                      const group = ownerGroupsList[i];
+                      processedParcels += group.length;
+                      setBatchProgress({ current: processedParcels, total: validNonOntNhapDuLieuRows.length });
+                      setSubmittingRowCode(group[0].ma_thua);
 
                       try {
                         const res = await fetch('/api/kh2959/submit', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify(p),
+                          body: JSON.stringify({ parcels: group }),
                         });
                         const data = (await res.json()) as any;
-                        const resItem = data?.results?.[0];
-                        if (resItem?.ok) {
-                          successCount++;
-                          setKh2959ImportedCodes((prev) => {
-                            const next = new Set(prev);
-                            next.add(p.ma_thua);
-                            try {
-                              localStorage.setItem('kh2959_imported_parcels', JSON.stringify(Array.from(next)));
-                            } catch {}
-                            return next;
-                          });
-                        } else {
-                          failCount++;
+                        const items = data?.results || [];
+                        let anyOk = false;
+                        for (const resItem of items) {
+                          if (resItem?.ok) {
+                            anyOk = true;
+                            successCount++;
+                            if (resItem.ma_thua) {
+                              setKh2959ImportedCodes((prev) => {
+                                const next = new Set(prev);
+                                next.add(resItem.ma_thua);
+                                try {
+                                  localStorage.setItem('kh2959_imported_parcels', JSON.stringify(Array.from(next)));
+                                } catch {}
+                                return next;
+                              });
+                            }
+                          } else {
+                            failCount++;
+                          }
+                        }
+                        if (!anyOk && items.length === 0) {
+                          failCount += group.length;
                         }
                       } catch {
-                        failCount++;
+                        failCount += group.length;
                       }
                       await new Promise((resolve) => setTimeout(resolve, 250));
                     }
