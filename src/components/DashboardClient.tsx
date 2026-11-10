@@ -662,7 +662,6 @@ export default function DashboardPage() {
           if (typeof window !== 'undefined') {
             try {
               localStorage.setItem('diachinh_declared_codes', JSON.stringify(data.declaredCodes));
-              localStorage.setItem('diachinh_declarations_map', JSON.stringify(cloudMap));
             } catch (e) {}
           }
         }
@@ -4510,22 +4509,22 @@ export default function DashboardPage() {
                           anh_cccd_sau: '',
                           yeu_cau_thu_cccd: true,
                           ghi_chu: 'Yêu cầu thu thập lại CCCD',
+                          updated_at: new Date().toISOString(),
                         };
                         saveOrUpdateDeclaration(updatedDecl);
                         updatedDecls.push(updatedDecl);
                         newlyUnpackedCodes.push(maThua);
 
                         // Xóa sạch giá trị CCCD trong cellEdits của thửa này nếu có
-                        if (updatedCellEdits[maThua]) {
-                          const copy = { ...updatedCellEdits[maThua] };
-                          for (const colKey of Object.keys(copy)) {
-                            const val = String(copy[Number(colKey)] || '').replace(/\D/g, '');
-                            if (val.length === 12 || val.length === 9 || Number(colKey) === 6) {
-                              copy[Number(colKey)] = '';
-                            }
+                        const copy = { ...(updatedCellEdits[maThua] || {}) };
+                        for (const colKey of Object.keys(copy)) {
+                          const val = String(copy[Number(colKey)] || '').replace(/\D/g, '');
+                          if (val.length === 12 || val.length === 9 || Number(colKey) === 6) {
+                            copy[Number(colKey)] = '';
                           }
-                          updatedCellEdits[maThua] = copy;
                         }
+                        copy[6] = '';
+                        updatedCellEdits[maThua] = copy;
                       }
 
                       setCellEdits(updatedCellEdits);
@@ -4540,6 +4539,9 @@ export default function DashboardPage() {
                           newMap[d.ma_thua] = d;
                         });
                         setDeclarationsMap(newMap);
+                        try {
+                          localStorage.setItem('diachinh_declarations_map', JSON.stringify(newMap));
+                        } catch {}
 
                         // Optimistic UI Update: Di chuyển ngay lập tức giữa 2 sheet
                         const movedMaThuas = new Set(selectedCodes);
@@ -4603,7 +4605,10 @@ export default function DashboardPage() {
                           fetch('/api/declarations', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ batch: updatedDecls }),
+                            body: JSON.stringify({
+                              batch: updatedDecls,
+                              cellEdits: updatedCellEdits,
+                            }),
                           }).then(async (res) => {
                             if (res.ok) {
                               const data = (await res.json()) as any;

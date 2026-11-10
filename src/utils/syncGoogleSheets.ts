@@ -473,7 +473,13 @@ export async function executeSyncToGoogleSheet(
         ? `${chuHoStrict}__${declVillage}`
         : '';
 
-      const isForceUnpacked = Boolean(decl.yeu_cau_thu_cccd);
+      const isForceUnpacked =
+        Boolean(decl.yeu_cau_thu_cccd) ||
+        decl.yeu_cau_thu_cccd === 1 ||
+        decl.yeu_cau_thu_cccd === 'true' ||
+        decl.yeu_cau_thu_cccd === '1' ||
+        decl.ghi_chu === 'Yêu cầu thu thập lại CCCD' ||
+        (decl.chu_dat_cccd === '' && (decl.cccd_url === '' || !decl.cccd_url) && String(decl.ghi_chu || '').includes('thu thập'));
 
       // Nếu thửa đất bị lùi về Chưa có CCCD thì xóa hoàn toàn số CCCD, không lấy lại từ GGS
       if (isForceUnpacked) {
@@ -653,7 +659,7 @@ export async function executeSyncToGoogleSheet(
       }
 
       // 2. Nếu chưa có CCCD hoặc chưa tìm thấy theo số, đối soát CHÍNH XÁC 100% THEO TÊN (KHÔNG DÙNG INCLUDES SUBSTRING)
-      if (!foundCccd && chuHoStrict.length >= 2) {
+      if (!isForceUnpacked && !foundCccd && chuHoStrict.length >= 2) {
         const matchedCf = cccdByStrictName.get(chuHoStrict);
         if (matchedCf) {
           foundCccd = matchedCf.filename;

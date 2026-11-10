@@ -2,16 +2,29 @@ import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { isAgriculturalLand, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN } from '@/utils/textHelpers';
 
 let cachedD1: any = null;
+let schemaInitialized = false;
+
+async function ensureSchemaMigration(db: any) {
+  if (!db || schemaInitialized) return;
+  schemaInitialized = true;
+  try {
+    await db.prepare('ALTER TABLE declarations ADD COLUMN yeu_cau_thu_cccd INTEGER DEFAULT 0').run();
+  } catch {}
+}
 
 /**
  * Lấy D1 Database binding với cơ chế đa tầng (Multi-tier context)
  */
 export async function getD1Binding(): Promise<any | null> {
-  if (cachedD1) return cachedD1;
+  if (cachedD1) {
+    await ensureSchemaMigration(cachedD1);
+    return cachedD1;
+  }
 
   // 1. globalThis.__CF_ENV__
   if ((globalThis as any).__CF_ENV__?.DB) {
     cachedD1 = (globalThis as any).__CF_ENV__.DB;
+    await ensureSchemaMigration(cachedD1);
     return cachedD1;
   }
 
@@ -21,7 +34,8 @@ export async function getD1Binding(): Promise<any | null> {
     if (ctx?.env?.DB) {
       cachedD1 = ctx.env.DB;
       (globalThis as any).__CF_ENV__ = ctx.env;
-      return cachedD1;
+      await ensureSchemaMigration(cachedD1);
+    return cachedD1;
     }
   } catch {}
 
@@ -31,7 +45,8 @@ export async function getD1Binding(): Promise<any | null> {
     if ((env as any)?.DB) {
       cachedD1 = (env as any).DB;
       (globalThis as any).__CF_ENV__ = env;
-      return cachedD1;
+      await ensureSchemaMigration(cachedD1);
+    return cachedD1;
     }
   } catch {}
 
@@ -41,7 +56,8 @@ export async function getD1Binding(): Promise<any | null> {
     if ((env as any)?.DB) {
       cachedD1 = (env as any).DB;
       (globalThis as any).__CF_ENV__ = env;
-      return cachedD1;
+      await ensureSchemaMigration(cachedD1);
+    return cachedD1;
     }
   } catch {}
 

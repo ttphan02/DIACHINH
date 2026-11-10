@@ -508,6 +508,43 @@ export async function POST(request: Request) {
       // 2. Lưu file đơn lẻ R2 song song (~10ms I/O)
       await Promise.all(atomicWrites);
 
+      // Invalidate in-memory caches ngay lập tức
+      memoryAllJsonCache = null;
+
+      // Xử lý cellEdits nếu được gửi kèm
+      if (body.cellEdits) {
+        const edits = body.cellEdits;
+        const bucket = await getR2Binding();
+        if (bucket) {
+          try {
+            await bucket.put('cache/cell_edits.json', JSON.stringify(edits), {
+              httpMetadata: { contentType: 'application/json' },
+            });
+          } catch {}
+        }
+        if (memoryCache?.payload) {
+          memoryCache.payload.cellEdits = edits;
+        }
+      }
+
+      // Cập nhật ngay all.json lên R2 để đảm bảo các request fetch sau đó không bị đọc cache cũ
+      try {
+        const currentPayload = await getDeclarationsFromR2(true);
+        for (const fullDecl of d1Items) {
+          currentPayload.declarationsMap[fullDecl.ma_thua] = fullDecl;
+          if (!currentPayload.declaredCodes.includes(fullDecl.ma_thua)) {
+            currentPayload.declaredCodes.push(fullDecl.ma_thua);
+          }
+        }
+        if (body.cellEdits) {
+          currentPayload.cellEdits = body.cellEdits;
+        }
+        currentPayload.updatedAt = timestamp;
+        await saveDeclarationsToR2(currentPayload);
+      } catch (r2AllErr) {
+        console.warn('Lỗi cập nhật tức thì all.json lên R2:', r2AllErr);
+      }
+
       // 3. Tác vụ nền: Đồng bộ all.json được throttle (tối đa 1 lần / 60s)
       const ctx = await getCloudflareCtx();
       if (ctx && typeof ctx.waitUntil === 'function') {
@@ -671,6 +708,9 @@ export async function POST(request: Request) {
         memoryCache.payload.declarationsMap[ap.ma_thua] = ap;
       }
     }
+
+    // Invalidate in-memory cache
+    memoryAllJsonCache = null;
 
     // Tác vụ nền: Đồng bộ ngầm all.json lên R2 được throttle (tối đa 1 lần / 60 giây)
     const ctx = await getCloudflareCtx();
