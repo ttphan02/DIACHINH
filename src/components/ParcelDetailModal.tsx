@@ -32,6 +32,8 @@ import {
   isValidFullName,
   formatDiaChiThuongTru,
   isOntLand,
+  getCanonicalVillage,
+  cleanVillageDisplay,
 } from '@/utils/textHelpers';
 
 interface ParcelDetailModalProps {
@@ -186,15 +188,29 @@ export default function ParcelDetailModal({
       return;
     }
 
+    const canonicalFromAddr = getCanonicalVillage(cleanedDiaChi);
+    const resolvedThonXa =
+      canonicalFromAddr !== 'Chưa xác định'
+        ? canonicalFromAddr
+        : cleanVillageDisplay(parcel.thon_xa || '', parcel.to_ban_do) || parcel.thon_xa;
+    const normalizedNguonGoc = normalizeNguonGoc(nguonGocSuDung, parcel?.loai_dat);
+
     onSaveDeclaration({
       ma_thua: parcel.ma_thua,
       mode: 'SELF',
+      to_ban_do: parcel.to_ban_do,
+      so_thua: parcel.so_thua,
+      dien_tich: parcel.dien_tich,
+      loai_dat: parcel.loai_dat,
+      thon_xa: resolvedThonXa,
+      dia_chi_thua_dat: resolvedThonXa,
       chu_dat_ten: cleanedTen,
       chu_dat_nam_sinh: cleanedNamSinh,
       chu_dat_gioi_tinh: chuDatGioiTinh,
       chu_dat_cccd: cleanedCccd,
       chu_dat_dia_chi: cleanedDiaChi,
-      nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung, parcel?.loai_dat),
+      nguon_goc: normalizedNguonGoc,
+      nguon_goc_su_dung: normalizedNguonGoc,
       giap_dong: cleanBoundaryText(giapDong),
       giap_tay: cleanBoundaryText(giapTay),
       giap_nam: cleanBoundaryText(giapNam),

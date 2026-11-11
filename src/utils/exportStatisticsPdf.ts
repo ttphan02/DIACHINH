@@ -873,23 +873,25 @@ export async function generateStatisticsPdf(
     );
 
     if (rawChuaCccdRows.length > 0) {
-      // Dùng dữ liệu đồng bộ trực tiếp từ Google Sheets / Cache
+      // Dùng dữ liệu đồng bộ trực tiếp từ Google Sheets / Cache, đồng thời overlay dữ liệu mới nhất trong declarationsMap
       for (const r of rawChuaCccdRows) {
-        const rawVillage = String(r[2] || '');
+        const maThua = String(r[1] || '').trim();
+        if (maThua && HIDDEN_PARCEL_SET.has(maThua)) continue;
+        const decl = maThua ? declarationsMap[maThua] : undefined;
+
+        const rawVillage = String(decl?.dia_chi_thua_dat || decl?.thon_xa || decl?.chu_dat_dia_chi || r[2] || '');
         const vName = getCanonicalVillage(rawVillage);
         if (!villageMissingMap.has(vName)) {
           villageMissingMap.set(vName, new Map());
         }
         const citizenMap = villageMissingMap.get(vName)!;
 
-        const name = String(r[3] || '').trim();
+        const name = String(decl?.chu_dat_ten || decl?.chu_ho || r[3] || '').trim();
         if (!name || name === 'Chưa có tên' || /^\d+$/.test(name) || name.length <= 1) continue;
 
-        const dob = String(r[4] || '').trim();
-        const gender = String(r[5] || '').trim();
-        const rawCccd = String(r[6] || '').replace(/^="|"$/g, '').trim();
-        const maThua = String(r[1] || '').trim();
-        if (maThua && HIDDEN_PARCEL_SET.has(maThua)) continue;
+        const dob = String(decl?.chu_dat_nam_sinh || r[4] || '').trim();
+        const gender = String(decl?.chu_dat_gioi_tinh || r[5] || '').trim();
+        const rawCccd = String((decl?.yeu_cau_thu_cccd ? '' : (decl?.chu_dat_cccd ?? r[6])) || '').replace(/^="|"$/g, '').trim();
 
         const citizenKey = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 

@@ -496,7 +496,15 @@ export async function executeSyncToGoogleSheet(
       // Tự động bổ sung fallback dữ liệu mặc định/ảo nếu thiếu trường
       const rawChuHo = chuHo || (ggsP && ggsP.chu_ho ? cleanName(ggsP.chu_ho) : '') || fallbackOwner || 'Chủ sử dụng';
       const cleanOwner = cleanName(rawChuHo) || 'Chủ sử dụng';
-      const rawAddr = decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || fallbackThon;
+      const briefCanon = getCanonicalVillage(fallbackThon, toMoi);
+      const addrCanon = getCanonicalVillage(decl.chu_dat_dia_chi || '', toMoi);
+      let rawAddr = decl.dia_chi_thua_dat || decl.thon_xa || '';
+      const rawCanon = getCanonicalVillage(rawAddr, toMoi);
+      if ((!rawAddr || rawCanon === briefCanon) && addrCanon !== 'Chưa xác định' && addrCanon !== briefCanon) {
+        rawAddr = decl.chu_dat_dia_chi;
+      } else if (!rawAddr) {
+        rawAddr = decl.chu_dat_dia_chi || fallbackThon;
+      }
       const thonXa = formatDiaChiThuongTru(rawAddr);
       const dienTich = (fallbackDt && parseFloat(fallbackDt) > 0)
         ? String(fallbackDt)

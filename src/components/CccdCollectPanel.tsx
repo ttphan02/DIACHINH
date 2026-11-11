@@ -19,7 +19,21 @@ import {
 import { Parcel, DeclarationFormData } from '@/types';
 import { getOrCreateDeviceId, getSavedCadreName, saveOrUpdateDeclaration } from '@/utils/declaration';
 import { broadcastRealtimeEvent } from '@/utils/realtimeSync';
-import { cleanCccd, cleanName, stripAccents, CANONICAL_VILLAGES, getCanonicalVillage, NGUON_GOC_OPTIONS, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN, getNguonGocShortLabel, normalizeNguonGoc, formatDiaChiThuongTru, isOntLand } from '@/utils/textHelpers';
+import {
+  cleanCccd,
+  cleanName,
+  stripAccents,
+  CANONICAL_VILLAGES,
+  getCanonicalVillage,
+  NGUON_GOC_OPTIONS,
+  getNguonGocShortLabel,
+  normalizeNguonGoc,
+  formatDiaChiThuongTru,
+  isExcludedLandType,
+  isPersonName,
+  isValidBirthYear,
+  isValidCccd,
+} from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
 import digitizedParcelsData from '@/data/digitized_parcels.json';
@@ -29,18 +43,27 @@ const DIGITIZED_SET = new Set(digitizedParcelsData as string[]);
 
 const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
 
+export type CccdListMode = 'declared' | 'unmade_named';
+
 export interface CccdCollectPanelProps {
   onClose: () => void;
   parcels: Parcel[];
   declarationsMap: Record<string, DeclarationFormData | any>;
+  cellEdits?: Record<string, Record<number, string>>;
+  ggsCodes?: Set<string>;
+  kh2959ImportedCodes?: Set<string>;
+  declaredParcelCodes?: Set<string>;
+  initialListMode?: CccdListMode;
   theme?: 'dark' | 'light';
   onDeclarationUpdated?: (updatedDecl: any) => void;
+  onCellEditsUpdated?: (patch: Record<string, Record<number, string>>) => void;
   onToggleCollapse?: () => void;
   onZoomToParcel?: (parcel: Parcel) => void;
 }
 
 interface MissingCccdPerson {
   key: string;
+  sourceType: CccdListMode;
   name: string;
   maThuaList: string[];
   soThuaList: string[];
@@ -51,9 +74,15 @@ interface MissingCccdPerson {
     soThua: string;
     toBanDo: string;
     loaiDat: string;
+    dienTich: string;
   }>;
   thonXa: string;
+  namSinh?: string;
+  gioiTinh?: 'Nam' | 'Nữ';
   cccdNumber?: string;
+  dienTich?: string;
+  loaiDat?: string;
+  nguonGoc?: string;
   deviceId?: string;
 }
 
@@ -63,11 +92,23 @@ export default function CccdCollectPanel({
   onClose,
   parcels,
   declarationsMap,
+  cellEdits = {},
+  ggsCodes,
+  kh2959ImportedCodes,
+  declaredParcelCodes,
+  initialListMode = 'declared',
   theme = 'light',
   onDeclarationUpdated,
+  onCellEditsUpdated,
   onToggleCollapse,
   onZoomToParcel,
 }: CccdCollectPanelProps) {
+  // Chuyển tab giữa: Đã kê khai (chưa CCCD) & Chưa làm có tên (bản đồ)
+  const [listMode, setListMode] = useState<CccdListMode>(initialListMode);
+  useEffect(() => {
+    setListMode(initialListMode);
+    setVisibleCount(PAGE_BATCH_SIZE);
+  }, [initialListMode]);
   // Lọc tìm kiếm & Thôn / Buôn
   const [selectedVillage, setSelectedVillage] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -84,10 +125,20 @@ export default function CccdCollectPanel({
   // Trạng thái đã tích chọn (lưu bền vững vào localStorage)
   const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set());
 
-  // Sub-modal sửa tên / nguồn gốc / di chuyển thôn / buôn
+  // Sub-modal sửa đầy đủ thông tin (tên, năm sinh, giới tính, CCCD, diện tích, loại đất, nguồn gốc, thôn / buôn)
   const [movingPerson, setMovingPerson] = useState<MissingCccdPerson | null>(null);
   const [correctedName, setCorrectedName] = useState<string>('');
+  const [editNamSinh, setEditNamSinh] = useState<string>('');
+  const [initialNamSinh, setInitialNamSinh] = useState<string>('');
+  const [editGioiTinh, setEditGioiTinh] = useState<'Nam' | 'Nữ'>('Nam');
+  const [initialGioiTinh, setInitialGioiTinh] = useState<'Nam' | 'Nữ'>('Nam');
+  const [editCccd, setEditCccd] = useState<string>('');
+  const [initialCccd, setInitialCccd] = useState<string>('');
   const [targetVillage, setTargetVillage] = useState<string>('');
+  const [editDienTich, setEditDienTich] = useState<string>('');
+  const [initialDienTich, setInitialDienTich] = useState<string>('');
+  const [editLoaiDat, setEditLoaiDat] = useState<string>('');
+  const [initialLoaiDat, setInitialLoaiDat] = useState<string>('');
   const [selectedNguonGoc, setSelectedNguonGoc] = useState<string>('Khai Hoang');
   const [initialNguonGoc, setInitialNguonGoc] = useState<string>('Khai Hoang');
   const [isSavingMove, setIsSavingMove] = useState(false);
@@ -244,8 +295,27 @@ export default function CccdCollectPanel({
     [existingCccdSet, r2Filenames.length, r2NormalizedIndex]
   );
 
-  // Lập danh sách công dân ĐÃ KÊ KHAI nhưng CHƯA CÓ CCCD TRÊN R2
-  const missingCccdList = useMemo(() => {
+  // Chuẩn hóa giải quyết Thôn / Buôn ưu tiên chỉnh sửa mới nhất (và tự vá bản ghi cũ bị kẹt thôn_xa == thôn gốc)
+  const resolveDeclVillage = useCallback((decl: any, parcelCode: string): string => {
+    const briefVillage = parcelCode && parcelsBrief[parcelCode] ? parcelsBrief[parcelCode][2] : '';
+    const briefCanon = getCanonicalVillage(briefVillage);
+    const addrCanon = getCanonicalVillage(decl?.chu_dat_dia_chi || '');
+    let rawVillage = decl?.dia_chi_thua_dat || decl?.thon_xa || '';
+    const rawCanon = getCanonicalVillage(rawVillage);
+
+    if ((!rawVillage || rawCanon === briefCanon) && addrCanon !== 'Chưa xác định' && addrCanon !== briefCanon) {
+      rawVillage = decl.chu_dat_dia_chi;
+    } else if (!rawVillage) {
+      rawVillage = decl?.chu_dat_dia_chi || briefVillage || '';
+    }
+
+    const toBanDo = decl?.to_ban_do || (parcelCode ? parcelCode.split('_')[0] : '');
+    const canon = getCanonicalVillage(rawVillage, toBanDo);
+    return canon !== 'Chưa xác định' ? canon : rawVillage.trim() || 'Chưa xác định';
+  }, []);
+
+  // Tab 1: Danh sách công dân ĐÃ KÊ KHAI nhưng CHƯA CÓ CCCD TRÊN R2
+  const declaredMissingCccdList = useMemo(() => {
     const mapByCitizen = new Map<string, MissingCccdPerson>();
 
     const declEntries = Object.entries(declarationsMap);
@@ -254,56 +324,55 @@ export default function CccdCollectPanel({
       if (!decl || HIDDEN_PARCEL_SET.has(parcelCode)) continue;
 
       // 1. Bỏ qua các thửa ĐÃ SỐ HÓA (đã hoàn tất trên GGS)
-      if (DIGITIZED_SET.has(parcelCode)) continue;
+      if (DIGITIZED_SET.has(parcelCode) || ggsCodes?.has(parcelCode) || kh2959ImportedCodes?.has(parcelCode)) continue;
 
       const pBrief = parcelsBrief[parcelCode];
-      const ld = String(decl.loai_dat || (pBrief && pBrief[1]) || '').trim().toUpperCase();
+      const edits = cellEdits?.[parcelCode] || {};
+      const ld = String(edits[8] ?? decl.loai_dat ?? (pBrief && pBrief[1]) ?? parcelsLoaiDatMap.get(parcelCode) ?? '').trim().toUpperCase();
 
       // 2. Bỏ qua các thửa GCN - ONT (đã có CCCD / coi như đã số hóa, không thuộc diện đi thu CCCD)
       if (/ONT/.test(ld)) continue;
 
-      // 3. Bỏ qua toàn bộ thửa đất loại BCS
-      if (ld === 'BCS') continue;
+      // 3. Bỏ qua toàn bộ thửa đất loại BCS hoặc đất không nhập
+      if (ld === 'BCS' || isExcludedLandType(ld)) continue;
 
-      const name = String(decl.chu_dat_ten || decl.chu_ho || '').trim();
+      const rawName = String(edits[3] ?? decl.chu_dat_ten ?? decl.chu_ho ?? decl.ho_va_ten_chu_ho ?? '').trim();
+      const name = cleanName(rawName) || rawName;
       if (!name || name === 'Chưa có tên') continue;
+
+      const mergedForR2 = {
+        ...decl,
+        chu_dat_cccd: edits[6] ?? decl.chu_dat_cccd ?? decl.cccd_chu_ho ?? decl.cccd ?? '',
+      };
 
       // NẾU TÊN NÀO ĐÃ CÓ CCCD TRONG R2 THÌ BỎ TÊN ĐÓ KHỎI DANH SÁCH (Tra cứu O(1))
       // Trừ khi thửa được chủ động đánh dấu yêu cầu thu thập lại CCCD (yeu_cau_thu_cccd)
-      if (!decl.yeu_cau_thu_cccd && hasCccdInR2(decl, name)) {
+      if (!decl.yeu_cau_thu_cccd && hasCccdInR2(mergedForR2, name)) {
         continue;
       }
 
       const maThua = String(decl.ma_thua || parcelCode || '').trim();
-      const soThua = String(decl.so_thua || '').trim();
-      const toBanDo = String(decl.to_ban_do || '').trim();
+      const soThua = String(decl.so_thua || maThua.split('_')[1] || '').trim();
+      const toBanDo = String(decl.to_ban_do || maThua.split('_')[0] || '').trim();
+      const dienTich = String(edits[7] ?? decl.dien_tich ?? (pBrief && pBrief[0]) ?? '').trim();
+      const namSinh = String(edits[4] ?? decl.chu_dat_nam_sinh ?? decl.nam_sinh_chu_ho ?? decl.chu_dat_ngay_sinh ?? '').trim();
+      const gioiTinhRaw = String(edits[5] ?? decl.chu_dat_gioi_tinh ?? decl.gioi_tinh_chu_ho ?? 'Nam').trim();
+      const gioiTinh: 'Nam' | 'Nữ' = gioiTinhRaw === 'Nữ' ? 'Nữ' : 'Nam';
+      const cccdClean = cleanCccd(mergedForR2.chu_dat_cccd || '');
+      const nguonGoc = normalizeNguonGoc(edits[9] ?? decl.nguon_goc_su_dung ?? decl.nguon_goc, ld);
 
-      // Xác định Thôn / Buôn
-      let rawVillage = '';
-      if (decl.thon_xa) {
-        rawVillage = decl.thon_xa;
-      } else if (decl.dia_chi_thua_dat || decl.chu_dat_dia_chi) {
-        rawVillage = decl.dia_chi_thua_dat || decl.chu_dat_dia_chi;
-      } else if (maThua && parcelsBrief[maThua]) {
-        rawVillage = parcelsBrief[maThua][2];
-      }
-      const thonXa = getCanonicalVillage(rawVillage);
-
-      // Lấy loại đất từ kê khai, parcels_brief hoặc parcelsLoaiDatMap (O(1))
-      let loaiDat = String(decl.loai_dat || '').trim();
-      if (!loaiDat && maThua && parcelsBrief[maThua] && parcelsBrief[maThua][1]) {
-        loaiDat = parcelsBrief[maThua][1];
-      }
-      if (!loaiDat && maThua) {
-        loaiDat = parcelsLoaiDatMap.get(maThua) || '';
-      }
-      loaiDat = loaiDat.trim();
+      const thonXa = edits[2]
+        ? getCanonicalVillage(edits[2], toBanDo) !== 'Chưa xác định'
+          ? getCanonicalVillage(edits[2], toBanDo)
+          : edits[2].trim()
+        : resolveDeclVillage(decl, maThua);
 
       const detailItem = {
         maThua,
         soThua,
         toBanDo,
-        loaiDat,
+        loaiDat: ld,
+        dienTich,
       };
 
       // Nhóm theo Tên + Thôn
@@ -313,29 +382,160 @@ export default function CccdCollectPanel({
         if (maThua && !existing.maThuaList.includes(maThua)) existing.maThuaList.push(maThua);
         if (soThua && !existing.soThuaList.includes(soThua)) existing.soThuaList.push(soThua);
         if (toBanDo && !existing.toBanDoList.includes(toBanDo)) existing.toBanDoList.push(toBanDo);
-        if (loaiDat && !existing.loaiDatList.includes(loaiDat)) existing.loaiDatList.push(loaiDat);
+        if (ld && !existing.loaiDatList.includes(ld)) existing.loaiDatList.push(ld);
         if (maThua && !existing.parcelDetails.some((d) => d.maThua === maThua)) {
           existing.parcelDetails.push(detailItem);
         }
+        if (!existing.namSinh && namSinh) existing.namSinh = namSinh;
+        if (!existing.cccdNumber && cccdClean) existing.cccdNumber = cccdClean;
       } else {
-        const cccdClean = cleanCccd(decl.chu_dat_cccd || decl.cccd || '');
         mapByCitizen.set(groupKey, {
           key: groupKey,
+          sourceType: 'declared',
           name,
           maThuaList: maThua ? [maThua] : [],
           soThuaList: soThua ? [soThua] : [],
           toBanDoList: toBanDo ? [toBanDo] : [],
-          loaiDatList: loaiDat ? [loaiDat] : [],
+          loaiDatList: ld ? [ld] : [],
           parcelDetails: maThua ? [detailItem] : [],
           thonXa,
-          cccdNumber: cccdClean.length === 12 ? cccdClean : undefined,
+          namSinh,
+          gioiTinh,
+          cccdNumber: cccdClean || undefined,
+          dienTich,
+          loaiDat: ld,
+          nguonGoc,
           deviceId: decl.device_id,
         });
       }
     }
 
     return Array.from(mapByCitizen.values()).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
-  }, [declarationsMap, hasCccdInR2, parcelsLoaiDatMap]);
+  }, [declarationsMap, cellEdits, ggsCodes, kh2959ImportedCodes, hasCccdInR2, parcelsLoaiDatMap, resolveDeclVillage]);
+
+  // Tab 2: Danh sách công dân CHƯA LÀM CÓ TÊN TRÊN BẢN ĐỒ (chưa kê khai, chưa số hóa, chưa có CCCD R2)
+  const unmadeNamedCccdList = useMemo(() => {
+    const mapByCitizen = new Map<string, MissingCccdPerson>();
+    const seenCodes = new Set<string>();
+
+    const processParcel = (
+      maThua: string,
+      baseName: string,
+      baseVillage: string,
+      baseTo: string,
+      baseSo: string,
+      baseDienTich: string,
+      baseLoaiDat: string,
+      baseDob?: string,
+      baseGender?: string,
+      baseCccd?: string,
+      baseNguonGoc?: string,
+      cccdUrl?: string,
+      fileCccdPdf?: string,
+      cccdFile?: string,
+      trangThai?: string
+    ) => {
+      if (!maThua || seenCodes.has(maThua) || HIDDEN_PARCEL_SET.has(maThua)) return;
+      seenCodes.add(maThua);
+
+      if (DIGITIZED_SET.has(maThua) || ggsCodes?.has(maThua) || kh2959ImportedCodes?.has(maThua)) return;
+      if (declaredParcelCodes?.has(maThua) || Boolean(declarationsMap[maThua])) return;
+      if (trangThai === 'DA_SO_HOA_XANH' || trangThai === 'DA_KE_KHAI_CHUA_SO_HOA_LAM') return;
+
+      const edits = cellEdits?.[maThua] || {};
+      const loaiDat = String(edits[8] ?? baseLoaiDat ?? '').trim().toUpperCase();
+      if (isExcludedLandType(loaiDat)) return;
+
+      const rawName = String(edits[3] ?? baseName ?? '').trim();
+      const cleaned = cleanName(rawName) || rawName;
+      if (!isPersonName(rawName) && !isPersonName(cleaned)) return;
+
+      const cccdClean = cleanCccd(String(edits[6] ?? baseCccd ?? ''));
+      const mockForR2 = {
+        chu_dat_cccd: cccdClean,
+        cccd_url: cccdUrl,
+        file_cccd_pdf: fileCccdPdf,
+        cccd_file: cccdFile,
+      };
+      if (hasCccdInR2(mockForR2, cleaned)) return;
+
+      const rawVillage = String(edits[2] ?? baseVillage ?? '').trim();
+      const canonVillage = getCanonicalVillage(rawVillage, baseTo);
+      const thonXa = canonVillage !== 'Chưa xác định' ? canonVillage : rawVillage || 'Chưa xác định';
+      const dienTich = String(edits[7] ?? baseDienTich ?? '').trim();
+      const namSinh = String(edits[4] ?? baseDob ?? '').trim();
+      const gioiTinhRaw = String(edits[5] ?? baseGender ?? 'Nam').trim();
+      const gioiTinh: 'Nam' | 'Nữ' = gioiTinhRaw === 'Nữ' ? 'Nữ' : 'Nam';
+      const nguonGoc = normalizeNguonGoc(edits[9] ?? baseNguonGoc, loaiDat);
+
+      const detailItem = {
+        maThua,
+        soThua: baseSo,
+        toBanDo: baseTo,
+        loaiDat,
+        dienTich,
+      };
+
+      const groupKey = `unmade___${cleaned.toLowerCase()}___${thonXa.toLowerCase()}`;
+      const existing = mapByCitizen.get(groupKey);
+      if (existing) {
+        if (!existing.maThuaList.includes(maThua)) existing.maThuaList.push(maThua);
+        if (baseSo && !existing.soThuaList.includes(baseSo)) existing.soThuaList.push(baseSo);
+        if (baseTo && !existing.toBanDoList.includes(baseTo)) existing.toBanDoList.push(baseTo);
+        if (loaiDat && !existing.loaiDatList.includes(loaiDat)) existing.loaiDatList.push(loaiDat);
+        if (!existing.parcelDetails.some((d) => d.maThua === maThua)) {
+          existing.parcelDetails.push(detailItem);
+        }
+        if (!existing.namSinh && namSinh) existing.namSinh = namSinh;
+        if (!existing.cccdNumber && cccdClean) existing.cccdNumber = cccdClean;
+      } else {
+        mapByCitizen.set(groupKey, {
+          key: groupKey,
+          sourceType: 'unmade_named',
+          name: cleaned,
+          maThuaList: [maThua],
+          soThuaList: baseSo ? [baseSo] : [],
+          toBanDoList: baseTo ? [baseTo] : [],
+          loaiDatList: loaiDat ? [loaiDat] : [],
+          parcelDetails: [detailItem],
+          thonXa,
+          namSinh,
+          gioiTinh,
+          cccdNumber: cccdClean || undefined,
+          dienTich,
+          loaiDat,
+          nguonGoc,
+        });
+      }
+    };
+
+    for (let i = 0; i < parcels.length; i++) {
+      const p = parcels[i] as any;
+      if (!p?.ma_thua) continue;
+      const parts = String(p.ma_thua).split('_');
+      processParcel(
+        p.ma_thua,
+        p.chu_ho || '',
+        p.thon_xa || parcelsBrief[p.ma_thua]?.[2] || '',
+        String(p.to_ban_do || parts[0] || ''),
+        String(p.so_thua || parts[1] || ''),
+        String(p.dien_tich || parcelsBrief[p.ma_thua]?.[0] || ''),
+        String(p.loai_dat || parcelsBrief[p.ma_thua]?.[1] || ''),
+        p.ngay_sinh,
+        p.gioi_tinh,
+        p.cccd || undefined,
+        p.nguon_goc,
+        p.cccd_url || undefined,
+        p.file_cccd_pdf || undefined,
+        p.cccd_file || undefined,
+        p.trang_thai
+      );
+    }
+
+    return Array.from(mapByCitizen.values()).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  }, [parcels, declarationsMap, cellEdits, ggsCodes, kh2959ImportedCodes, declaredParcelCodes, hasCccdInR2]);
+
+  const missingCccdList = listMode === 'declared' ? declaredMissingCccdList : unmadeNamedCccdList;
 
   // Danh sách các thôn có trong danh sách kèm số lượng
   const availableVillages = useMemo(() => {
@@ -420,103 +620,213 @@ export default function CccdCollectPanel({
     }
   };
 
-  // Mở popup sửa tên đúng hoặc di chuyển thôn / buôn / nguồn gốc sử dụng
+  // Mở popup sửa đầy đủ thông tin (tên, năm sinh, giới tính, CCCD, diện tích, loại đất, nguồn gốc, thôn / buôn)
   const handleOpenMoveModal = (person: MissingCccdPerson) => {
     setMovingPerson(person);
     setCorrectedName(person.name);
     setTargetVillage(person.thonXa);
 
-    let currentNguonGoc = 'Khai Hoang';
-    for (const maThua of person.maThuaList) {
-      const decl = declarationsMap[maThua];
-      if (decl?.nguon_goc_su_dung) {
-        currentNguonGoc = normalizeNguonGoc(decl.nguon_goc_su_dung);
-        break;
-      }
-    }
-    setSelectedNguonGoc(currentNguonGoc);
-    setInitialNguonGoc(currentNguonGoc);
+    const firstCode = person.maThuaList[0];
+    const firstDecl = firstCode ? declarationsMap[firstCode] : undefined;
+    const firstEdits = firstCode ? cellEdits?.[firstCode] || {} : {};
+    const firstDetail = person.parcelDetails[0];
+
+    const initDob = String(
+      firstEdits[4] ?? firstDecl?.chu_dat_nam_sinh ?? firstDecl?.nam_sinh_chu_ho ?? person.namSinh ?? ''
+    ).trim();
+    const initGenderRaw = String(
+      firstEdits[5] ?? firstDecl?.chu_dat_gioi_tinh ?? firstDecl?.gioi_tinh_chu_ho ?? person.gioiTinh ?? 'Nam'
+    ).trim();
+    const initGender: 'Nam' | 'Nữ' = initGenderRaw === 'Nữ' ? 'Nữ' : 'Nam';
+    const initCccdVal = cleanCccd(
+      String(firstEdits[6] ?? firstDecl?.chu_dat_cccd ?? firstDecl?.cccd_chu_ho ?? firstDecl?.cccd ?? person.cccdNumber ?? '')
+    );
+    const initArea = String(
+      firstEdits[7] ?? firstDecl?.dien_tich ?? firstDetail?.dienTich ?? person.dienTich ?? ''
+    ).trim();
+    const initLd = String(
+      firstEdits[8] ?? firstDecl?.loai_dat ?? firstDetail?.loaiDat ?? person.loaiDat ?? ''
+    ).trim().toUpperCase();
+    const initOrigin = normalizeNguonGoc(
+      firstEdits[9] ?? firstDecl?.nguon_goc_su_dung ?? firstDecl?.nguon_goc ?? person.nguonGoc,
+      initLd
+    );
+
+    setEditNamSinh(initDob);
+    setInitialNamSinh(initDob);
+    setEditGioiTinh(initGender);
+    setInitialGioiTinh(initGender);
+    setEditCccd(initCccdVal);
+    setInitialCccd(initCccdVal);
+    setEditDienTich(initArea);
+    setInitialDienTich(initArea);
+    setEditLoaiDat(initLd);
+    setInitialLoaiDat(initLd);
+    setSelectedNguonGoc(initOrigin);
+    setInitialNguonGoc(initOrigin);
   };
 
-  // Xác nhận sửa tên đúng, nguồn gốc sử dụng và/hoặc chuyển thôn / buôn vào Database
+  // Xác nhận sửa thông tin & đồng bộ 2 chiều ngay lập tức giữa Thu thập CCCD <-> Dashboard <-> Bản đồ
   const handleConfirmUpdatePerson = async () => {
     if (!movingPerson) return;
 
     const cleanNewName = cleanName(correctedName) || movingPerson.name;
     const finalVillage = targetVillage || movingPerson.thonXa;
+    const cleanDob = editNamSinh.trim();
+    const cleanCccdVal = cleanCccd(editCccd);
+    const cleanArea = editDienTich.trim();
+    const cleanLd = editLoaiDat.trim().toUpperCase();
+    const normalizedNguonGoc = normalizeNguonGoc(selectedNguonGoc, cleanLd);
+
+    if (cleanDob && !isValidBirthYear(cleanDob)) {
+      alert('Năm sinh không hợp lệ (cần đúng 4 chữ số, từ 1920 đến nay).');
+      return;
+    }
+    if (cleanCccdVal && !isValidCccd(cleanCccdVal)) {
+      alert(`Số CCCD cần đủ 12 chữ số (hiện tại: ${cleanCccdVal.length}/12).`);
+      return;
+    }
 
     const isNameChanged = cleanNewName.toLowerCase() !== movingPerson.name.toLowerCase();
     const isVillageChanged = finalVillage !== movingPerson.thonXa;
-    const isNguonGocChanged = selectedNguonGoc !== initialNguonGoc;
+    const isDobChanged = cleanDob !== initialNamSinh;
+    const isGenderChanged = editGioiTinh !== initialGioiTinh;
+    const isCccdChanged = cleanCccdVal !== initialCccd;
+    const isAreaChanged = cleanArea !== initialDienTich;
+    const isLdChanged = cleanLd !== initialLoaiDat;
+    const isNguonGocChanged = normalizedNguonGoc !== initialNguonGoc;
 
-    if (!isNameChanged && !isVillageChanged && !isNguonGocChanged) {
+    if (
+      !isNameChanged &&
+      !isVillageChanged &&
+      !isDobChanged &&
+      !isGenderChanged &&
+      !isCccdChanged &&
+      !isAreaChanged &&
+      !isLdChanged &&
+      !isNguonGocChanged
+    ) {
       setMovingPerson(null);
       return;
     }
 
     setIsSavingMove(true);
-    const updatedDecls: any[] = [];
-    const cellEditsToSync: Record<string, Record<number, string>> = {};
 
     try {
       const timestamp = new Date().toISOString();
 
-      for (const maThua of movingPerson.maThuaList) {
-        const existing = declarationsMap[maThua];
-        let updated: any;
-        if (existing) {
-          updated = {
-            ...existing,
-            chu_dat_ten: cleanNewName,
-            chu_ho: cleanNewName,
-            ho_va_ten_chu_ho: cleanNewName,
-            thon_xa: finalVillage,
-            dia_chi_thua_dat: finalVillage,
-            chu_dat_dia_chi: formatDiaChiThuongTru(finalVillage),
-            nguon_goc_su_dung: selectedNguonGoc,
-            updated_at: timestamp,
-          };
-        } else {
-          const [toP, thuaP] = maThua.split('_');
-          updated = {
-            ma_thua: maThua,
-            to_ban_do: toP || '',
-            so_thua: thuaP || '',
-            chu_dat_ten: cleanNewName,
-            chu_ho: cleanNewName,
-            ho_va_ten_chu_ho: cleanNewName,
-            thon_xa: finalVillage,
-            dia_chi_thua_dat: finalVillage,
-            chu_dat_dia_chi: formatDiaChiThuongTru(finalVillage),
-            nguon_goc_su_dung: selectedNguonGoc,
-            device_id: getSavedCadreName() || getOrCreateDeviceId(),
-            created_at: timestamp,
-            updated_at: timestamp,
-          };
+      if (movingPerson.sourceType === 'unmade_named') {
+        // Tab 2 (Chưa làm có tên trên bản đồ): Cập nhật thông qua cellEdits chuẩn cột CHƯA THỰC HIỆN (2..9)
+        const patchEdits: Record<string, Record<number, string>> = {};
+        for (const maThua of movingPerson.maThuaList) {
+          const patch: Record<number, string> = {};
+          if (isVillageChanged) patch[2] = finalVillage;
+          if (isNameChanged) patch[3] = cleanNewName;
+          if (isDobChanged) patch[4] = cleanDob;
+          if (isGenderChanged) patch[5] = editGioiTinh;
+          if (isCccdChanged) patch[6] = cleanCccdVal;
+          if (isAreaChanged) patch[7] = cleanArea;
+          if (isLdChanged) patch[8] = cleanLd;
+          if (isNguonGocChanged) patch[9] = normalizedNguonGoc;
+          if (Object.keys(patch).length > 0) {
+            patchEdits[maThua] = patch;
+          }
         }
 
-        saveOrUpdateDeclaration(updated);
-        updatedDecls.push(updated);
-        cellEditsToSync[maThua] = { 0: cleanNewName, 2: finalVillage };
+        if (Object.keys(patchEdits).length > 0) {
+          onCellEditsUpdated?.(patchEdits);
+          broadcastRealtimeEvent({
+            type: 'CELL_EDITS_SYNCED',
+            cellEdits: patchEdits,
+          });
+          await fetch('/api/declarations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'patch_cell_edits', cellEdits: patchEdits }),
+          });
+        }
+      } else {
+        // Tab 1 (Đã kê khai chưa CCCD): Cập nhật trực tiếp từng bản ghi kê khai
+        const updatedDecls: any[] = [];
+        for (const maThua of movingPerson.maThuaList) {
+          const existing = declarationsMap[maThua];
+          const [toP, thuaP] = maThua.split('_');
+          const baseBrief = parcelsBrief[maThua];
+          const resolvedDiaChi =
+            isVillageChanged || !existing?.chu_dat_dia_chi
+              ? formatDiaChiThuongTru(finalVillage)
+              : existing.chu_dat_dia_chi;
 
-        onDeclarationUpdated?.(updated);
-        broadcastRealtimeEvent({
-          type: 'DECLARATION_SAVED',
-          maThua,
-          declaration: updated,
-        });
-      }
+          const updated: any = existing
+            ? {
+                ...existing,
+                chu_dat_ten: cleanNewName,
+                chu_ho: cleanNewName,
+                ho_va_ten_chu_ho: cleanNewName,
+                chu_dat_nam_sinh: isDobChanged ? cleanDob : (existing.chu_dat_nam_sinh ?? cleanDob),
+                nam_sinh_chu_ho: isDobChanged ? cleanDob : (existing.nam_sinh_chu_ho ?? cleanDob),
+                chu_dat_gioi_tinh: isGenderChanged ? editGioiTinh : (existing.chu_dat_gioi_tinh || editGioiTinh),
+                gioi_tinh_chu_ho: isGenderChanged ? editGioiTinh : (existing.gioi_tinh_chu_ho || editGioiTinh),
+                chu_dat_cccd: isCccdChanged ? cleanCccdVal : (existing.chu_dat_cccd ?? cleanCccdVal),
+                cccd: isCccdChanged ? cleanCccdVal : (existing.cccd ?? cleanCccdVal),
+                cccd_chu_ho: isCccdChanged ? cleanCccdVal : (existing.cccd_chu_ho ?? cleanCccdVal),
+                dien_tich: isAreaChanged ? cleanArea : (existing.dien_tich ?? cleanArea),
+                loai_dat: isLdChanged ? cleanLd : (existing.loai_dat ?? cleanLd),
+                thon_xa: finalVillage,
+                dia_chi_thua_dat: finalVillage,
+                chu_dat_dia_chi: resolvedDiaChi,
+                nguon_goc: normalizedNguonGoc,
+                nguon_goc_su_dung: normalizedNguonGoc,
+                updated_at: timestamp,
+              }
+            : {
+                ma_thua: maThua,
+                to_ban_do: toP || '',
+                so_thua: thuaP || '',
+                dien_tich: cleanArea || (baseBrief && baseBrief[0]) || '',
+                loai_dat: cleanLd || (baseBrief && baseBrief[1]) || '',
+                chu_dat_ten: cleanNewName,
+                chu_ho: cleanNewName,
+                ho_va_ten_chu_ho: cleanNewName,
+                chu_dat_nam_sinh: cleanDob,
+                nam_sinh_chu_ho: cleanDob,
+                chu_dat_gioi_tinh: editGioiTinh,
+                gioi_tinh_chu_ho: editGioiTinh,
+                chu_dat_cccd: cleanCccdVal,
+                cccd: cleanCccdVal,
+                cccd_chu_ho: cleanCccdVal,
+                thon_xa: finalVillage,
+                dia_chi_thua_dat: finalVillage,
+                chu_dat_dia_chi: formatDiaChiThuongTru(finalVillage),
+                nguon_goc: normalizedNguonGoc,
+                nguon_goc_su_dung: normalizedNguonGoc,
+                device_id: getSavedCadreName() || getOrCreateDeviceId(),
+                created_at: timestamp,
+                updated_at: timestamp,
+              };
 
-      if (updatedDecls.length > 0) {
-        await fetch('/api/declarations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ batch: updatedDecls, cellEdits: cellEditsToSync }),
-        });
+          saveOrUpdateDeclaration(updated);
+          updatedDecls.push(updated);
+          onDeclarationUpdated?.(updated);
+          broadcastRealtimeEvent({
+            type: 'DECLARATION_SAVED',
+            maThua,
+            declaration: updated,
+          });
+        }
+
+        if (updatedDecls.length > 0) {
+          await fetch('/api/declarations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ batch: updatedDecls }),
+          });
+        }
       }
 
       const oldKey = movingPerson.key;
-      const newKey = `${cleanNewName.toLowerCase()}___${finalVillage.toLowerCase()}`;
+      const keyPrefix = movingPerson.sourceType === 'unmade_named' ? 'unmade___' : '';
+      const newKey = `${keyPrefix}${cleanNewName.toLowerCase()}___${finalVillage.toLowerCase()}`;
       if (checkedKeys.has(oldKey)) {
         setCheckedKeys((prev) => {
           const next = new Set(prev);
@@ -533,11 +843,9 @@ export default function CccdCollectPanel({
       movingPerson.thonXa = finalVillage;
       movingPerson.key = newKey;
 
-      let msg = `✓ Đã cập nhật thành công: "${cleanNewName}"`;
-      if (isNguonGocChanged) msg += ` [${selectedNguonGoc}]`;
-      if (isVillageChanged) msg += ` sang ${finalVillage}`;
-      setToastMessage(msg);
-      setTimeout(() => setToastMessage(null), 3000);
+      let msg = `✓ Đã đồng bộ cập nhật: "${cleanNewName}"`;
+      if (isVillageChanged) msg += ` → ${finalVillage}`;
+      showToast(msg);
     } catch (err: any) {
       alert(`Lỗi khi cập nhật cơ sở dữ liệu: ${err.message || err}`);
     } finally {
@@ -603,6 +911,38 @@ export default function CccdCollectPanel({
             <X className="w-4 h-4" />
           </button>
         </div>
+      </div>
+
+      {/* Thanh chuyển đổi 2 danh sách thu thập CCCD */}
+      <div className="px-3 pt-2.5 pb-2 border-b border-gray-100 bg-white grid grid-cols-2 gap-1.5 shrink-0">
+        <button
+          type="button"
+          onClick={() => {
+            setListMode('declared');
+            setVisibleCount(PAGE_BATCH_SIZE);
+          }}
+          className={`px-2 py-1.5 rounded-xl text-[11px] font-black transition border cursor-pointer flex items-center justify-center gap-1 ${
+            listMode === 'declared'
+              ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+              : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+          }`}
+        >
+          <span className="truncate">Đã kê khai ({declaredMissingCccdList.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setListMode('unmade_named');
+            setVisibleCount(PAGE_BATCH_SIZE);
+          }}
+          className={`px-2 py-1.5 rounded-xl text-[11px] font-black transition border cursor-pointer flex items-center justify-center gap-1 ${
+            listMode === 'unmade_named'
+              ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+              : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+          }`}
+        >
+          <span className="truncate">Chưa làm có tên ({unmadeNamedCccdList.length})</span>
+        </button>
       </div>
 
       {/* Thanh lọc & tìm kiếm chuẩn phản hồi nhanh (deferred search) */}
@@ -853,17 +1193,38 @@ export default function CccdCollectPanel({
         </button>
       </div>
 
-      {/* SUB-MODAL: SỬA TÊN ĐÚNG, NGUỒN GỐC & CHUYỂN THÔN BUÔN */}
+      {/* SUB-MODAL: SỬA ĐẦY ĐỦ THÔNG TIN & CHUYỂN THÔN BUÔN (ĐỒNG BỘ 2 CHIỀU) */}
       {movingPerson && (() => {
         const cleanNewName = cleanName(correctedName);
+        const cleanDob = editNamSinh.trim();
+        const cleanCccdVal = cleanCccd(editCccd);
+        const cleanArea = editDienTich.trim();
+        const cleanLd = editLoaiDat.trim().toUpperCase();
+        const normalizedOrigin = normalizeNguonGoc(selectedNguonGoc, cleanLd);
+
         const isNameChanged = cleanNewName && cleanNewName.toLowerCase() !== movingPerson.name.toLowerCase();
         const isVillageChanged = targetVillage && targetVillage !== movingPerson.thonXa;
-        const isNguonGocChanged = selectedNguonGoc !== initialNguonGoc;
-        const canSave = (isNameChanged || isVillageChanged || isNguonGocChanged) && cleanNewName.length >= 2;
+        const isDobChanged = cleanDob !== initialNamSinh;
+        const isGenderChanged = editGioiTinh !== initialGioiTinh;
+        const isCccdChanged = cleanCccdVal !== initialCccd;
+        const isAreaChanged = cleanArea !== initialDienTich;
+        const isLdChanged = cleanLd !== initialLoaiDat;
+        const isNguonGocChanged = normalizedOrigin !== initialNguonGoc;
+
+        const hasAnyChange =
+          isNameChanged ||
+          isVillageChanged ||
+          isDobChanged ||
+          isGenderChanged ||
+          isCccdChanged ||
+          isAreaChanged ||
+          isLdChanged ||
+          isNguonGocChanged;
+        const canSave = hasAnyChange && cleanNewName.length >= 2;
 
         return (
-          <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center p-3 pb-6 sm:p-4 bg-black/40 backdrop-blur-2xs animate-in fade-in">
-            <div className="w-full max-w-sm p-4 rounded-2xl border border-gray-200 shadow-2xl bg-white space-y-3 animate-in zoom-in-95">
+          <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center p-2 sm:p-4 bg-black/40 backdrop-blur-2xs animate-in fade-in overflow-y-auto">
+            <div className="w-full max-w-md p-4 rounded-2xl border border-gray-200 shadow-2xl bg-white space-y-3 animate-in zoom-in-95 my-auto max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-200/60 shadow-2xs">
@@ -873,7 +1234,9 @@ export default function CccdCollectPanel({
                     <h3 className="text-xs font-black uppercase text-gray-900">
                       Cập Nhật Thông Tin Thửa
                     </h3>
-                    <p className="text-[10px] text-gray-500">Sửa tên, nguồn gốc & thôn buôn</p>
+                    <p className="text-[10px] text-gray-500">
+                      Đồng bộ 2 chiều với Dashboard • {movingPerson.sourceType === 'unmade_named' ? 'Chưa làm có tên' : 'Đã kê khai'}
+                    </p>
                   </div>
                 </div>
                 <button
@@ -885,7 +1248,7 @@ export default function CccdCollectPanel({
                 </button>
               </div>
 
-              <div className="space-y-3 text-xs">
+              <div className="space-y-2.5 text-xs">
                 {/* Thông tin hiện tại */}
                 <div className="p-2.5 rounded-xl bg-gray-50/90 border border-gray-100 space-y-1 text-xs">
                   <div className="flex justify-between items-center">
@@ -932,20 +1295,18 @@ export default function CccdCollectPanel({
                   </div>
                 </div>
 
-                {/* Trường 1: Sửa lại tên đúng chuẩn */}
+                {/* Trường 1: Họ và tên */}
                 <div>
                   <label className="block text-[11px] font-bold mb-1 text-gray-700">
-                    Sửa lại họ và tên đúng (nếu sai chính tả):
+                    Họ và tên:
                   </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={correctedName}
-                      onChange={(e) => setCorrectedName(e.target.value)}
-                      placeholder="Nhập họ và tên đúng..."
-                      className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold uppercase bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition shadow-2xs"
-                    />
-                  </div>
+                  <input
+                    type="text"
+                    value={correctedName}
+                    onChange={(e) => setCorrectedName(e.target.value)}
+                    placeholder="Nhập họ và tên đúng..."
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold uppercase bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition shadow-2xs"
+                  />
                   {isNameChanged && (
                     <p className="text-[10px] text-blue-600 font-bold mt-1 flex items-center gap-1">
                       <span>✓ Tên mới:</span>
@@ -954,12 +1315,96 @@ export default function CccdCollectPanel({
                   )}
                 </div>
 
-                {/* Trường 2: Chọn kiểu Nguồn gốc sử dụng (Mặc định từ đơn, 4 options) */}
+                {/* Trường 2: Năm sinh + Giới tính */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-bold mb-1 text-gray-700">
+                      Năm sinh:
+                    </label>
+                    <input
+                      type="text"
+                      value={editNamSinh}
+                      onChange={(e) => setEditNamSinh(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                      placeholder="Vd: 1985"
+                      className="w-full px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-medium bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold mb-1 text-gray-700">
+                      Giới tính:
+                    </label>
+                    <div className="flex gap-1.5 h-[32px]">
+                      {(['Nam', 'Nữ'] as const).map((g) => (
+                        <button
+                          key={g}
+                          type="button"
+                          onClick={() => setEditGioiTinh(g)}
+                          className={`flex-1 rounded-xl border text-xs font-bold cursor-pointer transition ${
+                            editGioiTinh === g
+                              ? g === 'Nam'
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-pink-600 text-white border-pink-600'
+                              : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                          }`}
+                        >
+                          {g}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Trường 3: Số CCCD */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold text-gray-700">Số CCCD:</label>
+                    <span className={`text-[10px] font-mono font-bold ${cleanCccdVal.length === 12 ? 'text-emerald-600' : 'text-gray-400'}`}>
+                      {cleanCccdVal.length}/12
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    value={editCccd}
+                    onChange={(e) => setEditCccd(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                    placeholder="Nhập 12 số CCCD (nếu có)..."
+                    className="w-full px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-mono font-bold bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
+                  />
+                </div>
+
+                {/* Trường 4: Diện tích + Loại đất */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-bold mb-1 text-gray-700">
+                      Diện tích (m²):
+                    </label>
+                    <input
+                      type="text"
+                      value={editDienTich}
+                      onChange={(e) => setEditDienTich(e.target.value)}
+                      placeholder="Vd: 1200"
+                      className="w-full px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-medium bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold mb-1 text-gray-700">
+                      Loại đất:
+                    </label>
+                    <input
+                      type="text"
+                      value={editLoaiDat}
+                      onChange={(e) => setEditLoaiDat(e.target.value.toUpperCase())}
+                      placeholder="Vd: CLN, BHK..."
+                      className="w-full px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-bold uppercase bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Trường 5: Nguồn gốc sử dụng */}
                 <div>
                   <label className="block text-[11px] font-bold mb-1 text-gray-700 flex items-center justify-between">
                     <span>Nguồn gốc sử dụng đất:</span>
-                    <span className="text-[10px] text-blue-600 font-bold">
-                      {selectedNguonGoc} {selectedNguonGoc === initialNguonGoc ? '(Trong đơn)' : '(Đã đổi)'}
+                    <span className="text-[10px] text-blue-600 font-bold truncate max-w-[180px]">
+                      {getNguonGocShortLabel(selectedNguonGoc)} {isNguonGocChanged ? '(Đã đổi)' : '(Hiện tại)'}
                     </span>
                   </label>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
@@ -981,10 +1426,10 @@ export default function CccdCollectPanel({
                   </div>
                 </div>
 
-                {/* Trường 3: Chọn Thôn / Buôn mới */}
+                {/* Trường 6: Thôn / Buôn */}
                 <div>
                   <label className="block text-[11px] font-bold mb-1 text-gray-700">
-                    Chọn Thôn / Buôn mới để chuyển:
+                    Thôn / Buôn:
                   </label>
                   <div className="relative">
                     <select
@@ -992,6 +1437,9 @@ export default function CccdCollectPanel({
                       onChange={(e) => setTargetVillage(e.target.value)}
                       className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold bg-gray-50/70 text-gray-900 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition appearance-none cursor-pointer"
                     >
+                      {movingPerson.thonXa && !CANONICAL_VILLAGES.includes(movingPerson.thonXa) && (
+                        <option value={movingPerson.thonXa}>{movingPerson.thonXa} (Hiện tại)</option>
+                      )}
                       {CANONICAL_VILLAGES.filter((v) => v !== 'Chưa xác định').map((v) => (
                         <option key={v} value={v}>
                           {v} {v === movingPerson.thonXa ? '(Hiện tại)' : ''}

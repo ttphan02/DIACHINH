@@ -52,6 +52,8 @@ import {
   isPersonName,
   formatDiaChiThuongTru,
   isOntLand,
+  getCanonicalVillage,
+  cleanVillageDisplay,
 } from '@/utils/textHelpers';
 
 interface ParcelDetailPanelProps {
@@ -629,6 +631,13 @@ export default function ParcelDetailPanel({
       return;
     }
 
+    const canonicalFromAddr = getCanonicalVillage(cleanedDiaChi);
+    const resolvedThonXa =
+      canonicalFromAddr !== 'Chưa xác định'
+        ? canonicalFromAddr
+        : cleanVillageDisplay(parcel.thon_xa || '', parcel.to_ban_do) || parcel.thon_xa;
+    const normalizedNguonGoc = normalizeNguonGoc(nguonGocSuDung, parcel?.loai_dat);
+
     try {
       setIsSavingDeclaration(true);
       await onSaveDeclaration({
@@ -637,14 +646,15 @@ export default function ParcelDetailPanel({
         so_thua: parcel.so_thua,
         dien_tich: parcel.dien_tich,
         loai_dat: parcel.loai_dat,
-        thon_xa: parcel.thon_xa,
-        dia_chi_thua_dat: parcel.thon_xa,
+        thon_xa: resolvedThonXa,
+        dia_chi_thua_dat: resolvedThonXa,
         chu_dat_ten: cleanedTen,
         chu_dat_nam_sinh: cleanedNamSinh,
         chu_dat_gioi_tinh: chuDatGioiTinh,
         chu_dat_cccd: cleanedCccd,
         chu_dat_dia_chi: cleanedDiaChi,
-        nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung, parcel?.loai_dat),
+        nguon_goc: normalizedNguonGoc,
+        nguon_goc_su_dung: normalizedNguonGoc,
         giap_dong: cleanBoundaryText(giapDong),
         giap_tay: cleanBoundaryText(giapTay),
         giap_nam: cleanBoundaryText(giapNam),
@@ -691,6 +701,13 @@ export default function ParcelDetailPanel({
       return;
     }
 
+    const canonicalFromAddr = getCanonicalVillage(cleanedDiaChi);
+    const resolvedThonXa =
+      canonicalFromAddr !== 'Chưa xác định'
+        ? canonicalFromAddr
+        : cleanVillageDisplay(parcel.thon_xa || '', parcel.to_ban_do) || parcel.thon_xa;
+    const normalizedNguonGoc = normalizeNguonGoc(nguonGocSuDung, parcel?.loai_dat);
+
     try {
       setIsSavingDeclaration(true);
       await onSaveDeclaration({
@@ -699,14 +716,15 @@ export default function ParcelDetailPanel({
         so_thua: parcel.so_thua,
         dien_tich: parcel.dien_tich,
         loai_dat: parcel.loai_dat,
-        thon_xa: parcel.thon_xa,
-        dia_chi_thua_dat: parcel.thon_xa,
+        thon_xa: resolvedThonXa,
+        dia_chi_thua_dat: resolvedThonXa,
         chu_dat_ten: cleanedTen,
         chu_dat_nam_sinh: cleanedNamSinh,
         chu_dat_gioi_tinh: chuDatGioiTinh,
         chu_dat_cccd: cleanedCccd,
         chu_dat_dia_chi: cleanedDiaChi,
-        nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung),
+        nguon_goc: normalizedNguonGoc,
+        nguon_goc_su_dung: normalizedNguonGoc,
         giap_dong: cleanBoundaryText(giapDong),
         giap_tay: cleanBoundaryText(giapTay),
         giap_nam: cleanBoundaryText(giapNam),

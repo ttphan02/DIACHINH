@@ -44,6 +44,9 @@ import {
   isValidFullName,
   formatDiaChiThuongTru,
   isOntLand,
+  VILLAGE_COLORS,
+  getCanonicalVillage,
+  cleanVillageDisplay,
 } from '@/utils/textHelpers';
 
 interface DeclarationEditModalProps {
@@ -71,6 +74,9 @@ export default function DeclarationEditModal({
   const [chuDatGioiTinh, setChuDatGioiTinh] = useState<'Nam' | 'Nữ'>('Nam');
   const [chuDatCccd, setChuDatCccd] = useState('');
   const [chuDatDiaChi, setChuDatDiaChi] = useState('');
+  const [thonXa, setThonXa] = useState('');
+  const [dienTich, setDienTich] = useState('');
+  const [loaiDat, setLoaiDat] = useState('');
   const [formSubmitted, setFormSubmitted] = useState(false);
 
   // Tự động kiểm tra xem số CCCD đã có file ảnh trên DB hay chưa
@@ -223,8 +229,25 @@ export default function DeclarationEditModal({
         declaration.chu_dat_gioi_tinh === 'Nữ' || parcel.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam'
       );
       setChuDatCccd(declaration.chu_dat_cccd || parcel.cccd || '');
-      setChuDatDiaChi(formatThonAddress(declaration.chu_dat_dia_chi, parcel.thon_xa));
-      setNguonGocSuDung(normalizeNguonGoc(declaration.nguon_goc_su_dung, parcel?.loai_dat));
+
+      const declDiaChi = declaration.chu_dat_dia_chi || '';
+      const rawDeclThon = declaration.dia_chi_thua_dat || declaration.thon_xa || '';
+      const declDiaChiCanon = getCanonicalVillage(declDiaChi);
+      const parcelCanon = getCanonicalVillage(parcel.thon_xa || '', parcel.to_ban_do);
+      // Tự động phục hồi nếu bản ghi cũ bị kẹt thon_xa == parcel.thon_xa nhưng chu_dat_dia_chi đã chuyển thôn khác
+      const effectiveThonRaw =
+        rawDeclThon && rawDeclThon !== parcel.thon_xa
+          ? rawDeclThon
+          : declDiaChiCanon !== 'Chưa xác định' && declDiaChiCanon !== parcelCanon
+          ? declDiaChiCanon
+          : rawDeclThon || parcel.thon_xa || '';
+      const cleanInitThon = cleanVillageDisplay(effectiveThonRaw, parcel.to_ban_do) || effectiveThonRaw;
+
+      setThonXa(cleanInitThon);
+      setDienTich(String(declaration.dien_tich || parcel.dien_tich || ''));
+      setLoaiDat(String(declaration.loai_dat || parcel.loai_dat || ''));
+      setChuDatDiaChi(formatThonAddress(declDiaChi, cleanInitThon));
+      setNguonGocSuDung(normalizeNguonGoc(declaration.nguon_goc_su_dung || declaration.nguon_goc, declaration.loai_dat || parcel?.loai_dat));
       setGiapDong(cleanBoundaryText(declaration.giap_dong || parcel.giap_dong || ''));
       setGiapTay(cleanBoundaryText(declaration.giap_tay || parcel.giap_tay || ''));
       setGiapNam(cleanBoundaryText(declaration.giap_nam || parcel.giap_nam || ''));
@@ -255,9 +278,12 @@ export default function DeclarationEditModal({
       setChuDatNamSinh('');
       setChuDatGioiTinh(parcel.chu_ho?.trim().toLowerCase() === 'nữ' ? 'Nữ' : 'Nam');
       setChuDatCccd('');
-      setChuDatDiaChi(formatThonAddress(undefined, parcel.thon_xa));
+      const initThon = cleanVillageDisplay(parcel.thon_xa || '', parcel.to_ban_do) || parcel.thon_xa || '';
+      setThonXa(initThon);
+      setDienTich(String(parcel.dien_tich || ''));
+      setLoaiDat(String(parcel.loai_dat || ''));
+      setChuDatDiaChi(formatThonAddress(undefined, initThon));
       setNguonGocSuDung(normalizeNguonGoc(undefined, parcel?.loai_dat));
-      setNguonGocSuDung('Khai Hoang');
       setGiapDong(cleanBoundaryText(parcel.giap_dong || ''));
       setGiapTay(cleanBoundaryText(parcel.giap_tay || ''));
       setGiapNam(cleanBoundaryText(parcel.giap_nam || ''));
@@ -378,20 +404,30 @@ export default function DeclarationEditModal({
       return;
     }
 
+    const normalizedNguonGoc = normalizeNguonGoc(nguonGocSuDung, loaiDat || parcel?.loai_dat);
+    const addrCanon = getCanonicalVillage(cleanedDiaChi);
+    const cleanThonInput = thonXa.trim();
+    const finalThon =
+      cleanThonInput ||
+      (addrCanon !== 'Chưa xác định' ? addrCanon : cleanVillageDisplay(parcel.thon_xa || '', parcel.to_ban_do) || parcel.thon_xa || '');
+    const finalDienTich = dienTich.trim() || parcel.dien_tich || '';
+    const finalLoaiDat = loaiDat.trim().toUpperCase() || parcel.loai_dat || '';
+
     const data: DeclarationFormData = {
       ma_thua: parcel.ma_thua,
       to_ban_do: parcel.to_ban_do,
       so_thua: parcel.so_thua,
-      dien_tich: parcel.dien_tich,
-      loai_dat: parcel.loai_dat,
-      thon_xa: parcel.thon_xa,
-      dia_chi_thua_dat: parcel.thon_xa,
+      dien_tich: finalDienTich,
+      loai_dat: finalLoaiDat,
+      thon_xa: finalThon,
+      dia_chi_thua_dat: finalThon,
       chu_dat_ten: cleanedTen,
       chu_dat_nam_sinh: cleanedNamSinh,
       chu_dat_gioi_tinh: chuDatGioiTinh,
       chu_dat_cccd: cleanedCccd,
       chu_dat_dia_chi: cleanedDiaChi,
-      nguon_goc_su_dung: normalizeNguonGoc(nguonGocSuDung, parcel?.loai_dat),
+      nguon_goc: normalizedNguonGoc,
+      nguon_goc_su_dung: normalizedNguonGoc,
       giap_dong: cleanBoundaryText(giapDong),
       giap_tay: cleanBoundaryText(giapTay),
       giap_nam: cleanBoundaryText(giapNam),
@@ -632,6 +668,58 @@ export default function DeclarationEditModal({
                 )}
               </div>
 
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                  Diện tích (m²)
+                </label>
+                <input
+                  type="text"
+                  value={dienTich}
+                  onChange={(e) => setDienTich(e.target.value)}
+                  placeholder="Vd: 1200"
+                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                  Loại đất
+                </label>
+                <input
+                  type="text"
+                  value={loaiDat}
+                  onChange={(e) => setLoaiDat(e.target.value.toUpperCase())}
+                  placeholder="Vd: CLN, ONT, BHK..."
+                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold uppercase"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                  Thôn / Buôn <span className="text-red-400">*</span>
+                </label>
+                <select
+                  value={thonXa}
+                  onChange={(e) => {
+                    const nextThon = e.target.value;
+                    setThonXa(nextThon);
+                    setChuDatDiaChi(formatDiaChiThuongTru(nextThon, nextThon));
+                  }}
+                  className="w-full px-3 py-2 border border-slate-700 rounded-xl bg-slate-900 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                >
+                  {thonXa && !(thonXa in VILLAGE_COLORS) && (
+                    <option value={thonXa}>{thonXa}</option>
+                  )}
+                  {Object.keys(VILLAGE_COLORS)
+                    .filter((v) => v !== 'Chưa xác định')
+                    .map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
               <div className="sm:col-span-2">
                 <label className="text-[11px] font-bold text-slate-300 block mb-1">
                   Địa chỉ thường trú <span className="text-red-400">*</span>
@@ -640,7 +728,14 @@ export default function DeclarationEditModal({
                   type="text"
                   required
                   value={chuDatDiaChi}
-                  onChange={(e) => setChuDatDiaChi(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setChuDatDiaChi(val);
+                    const canon = getCanonicalVillage(val);
+                    if (canon && canon !== 'Chưa xác định') {
+                      setThonXa(canon);
+                    }
+                  }}
                   placeholder="Thôn / Buôn, Xã Cư Pui, Huyện Krông Bông..."
                   className={`w-full px-3 py-2 border rounded-xl bg-slate-900 text-white focus:outline-none transition ${
                     formSubmitted && !chuDatDiaChi.trim()

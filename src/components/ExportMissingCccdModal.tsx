@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import CccdCollectPanel from './CccdCollectPanel';
+import CccdCollectPanel, { CccdListMode } from './CccdCollectPanel';
 import { Parcel, DeclarationFormData } from '@/types';
 
 interface ExportMissingCccdModalProps {
@@ -9,8 +9,14 @@ interface ExportMissingCccdModalProps {
   onClose: () => void;
   parcels: Parcel[];
   declarationsMap: Record<string, DeclarationFormData | any>;
+  cellEdits?: Record<string, Record<number, string>>;
+  ggsCodes?: Set<string>;
+  kh2959ImportedCodes?: Set<string>;
+  declaredParcelCodes?: Set<string>;
+  initialListMode?: CccdListMode;
   theme?: 'dark' | 'light';
   onDeclarationUpdated?: (updatedDecl: any) => void;
+  onCellEditsUpdated?: (patch: Record<string, Record<number, string>>) => void;
 }
 
 export default function ExportMissingCccdModal({
@@ -18,8 +24,14 @@ export default function ExportMissingCccdModal({
   onClose,
   parcels,
   declarationsMap,
+  cellEdits,
+  ggsCodes,
+  kh2959ImportedCodes,
+  declaredParcelCodes,
+  initialListMode = 'declared',
   theme = 'light',
   onDeclarationUpdated,
+  onCellEditsUpdated,
 }: ExportMissingCccdModalProps) {
   if (!isOpen) return null;
 
@@ -30,8 +42,14 @@ export default function ExportMissingCccdModal({
           onClose={onClose}
           parcels={parcels}
           declarationsMap={declarationsMap}
+          cellEdits={cellEdits}
+          ggsCodes={ggsCodes}
+          kh2959ImportedCodes={kh2959ImportedCodes}
+          declaredParcelCodes={declaredParcelCodes}
+          initialListMode={initialListMode}
           theme={theme}
           onDeclarationUpdated={onDeclarationUpdated}
+          onCellEditsUpdated={onCellEditsUpdated}
         />
       </div>
     </div>

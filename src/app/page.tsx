@@ -11,7 +11,7 @@ import CccdUploadBottomSheet from '@/components/CccdUploadBottomSheet';
 import CccdCollectPanel from '@/components/CccdCollectPanel';
 import CadreNameModal from '@/components/CadreNameModal';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
-import { isPersonName, cleanStrictName, stripAccents, isAgriculturalLand, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN , isExcludedLandType } from '@/utils/textHelpers';
+import { isPersonName, cleanStrictName, stripAccents, isAgriculturalLand, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN, isExcludedLandType, cleanVillageDisplay, getCanonicalVillage, cleanCccd, cleanName } from '@/utils/textHelpers';
 import {
   getStoredDeclarations,
   saveOrUpdateDeclaration,
@@ -213,6 +213,7 @@ export default function Home() {
   // Danh sách các thửa đã kê khai trên hệ thống (lưu trong localStorage để bền vững)
   const [declaredParcelCodes, setDeclaredParcelCodes] = useState<Set<string>>(new Set());
   const [declarationsMap, setDeclarationsMap] = useState<Record<string, any>>({});
+  const [cellEdits, setCellEdits] = useState<Record<string, Record<number, string>>>({});
   const [isExportMissingCccdOpen, setIsExportMissingCccdOpen] = useState(false);
 
   // Kê khai gộp nhiều thửa đất chung một phiếu
@@ -406,12 +407,18 @@ export default function Home() {
             ...(data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {}),
           };
 
-          // Hợp nhất các thửa cục bộ (nếu chưa có trên Cloud)
+          // Hợp nhất các thửa cục bộ (nếu chưa có trên Cloud hoặc bản local mới hơn theo updated_at)
           localStored.declaredCodes.forEach((code) => {
-            if (localStored.declarationsMap[code]) {
+            const localDecl = localStored.declarationsMap[code];
+            if (localDecl) {
               mergedCodesSet.add(code);
-              if (!mergedMap[code]) {
-                mergedMap[code] = localStored.declarationsMap[code];
+              const cloudDecl = mergedMap[code];
+              if (!cloudDecl) {
+                mergedMap[code] = localDecl;
+              } else if (localDecl.updated_at && cloudDecl.updated_at) {
+                if (new Date(localDecl.updated_at).getTime() > new Date(cloudDecl.updated_at).getTime()) {
+                  mergedMap[code] = localDecl;
+                }
               }
             }
           });
@@ -421,6 +428,22 @@ export default function Home() {
               mergedMap[code] = pendingMap[code];
             }
           });
+
+          // Đồng bộ cellEdits cho thửa chưa làm có tên (merge cloud + local)
+          if (data.cellEdits && typeof data.cellEdits === 'object') {
+            setCellEdits((prev) => {
+              const nextEdits: Record<string, Record<number, string>> = { ...data.cellEdits };
+              for (const [code, cols] of Object.entries(prev)) {
+                if (!mergedCodesSet.has(code) && cols) {
+                  nextEdits[code] = { ...(nextEdits[code] || {}), ...cols };
+                }
+              }
+              try {
+                localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(nextEdits));
+              } catch {}
+              return nextEdits;
+            });
+          }
 
           const mergedCodes = Array.from(mergedCodesSet);
           const sig = JSON.stringify({ codes: mergedCodes, map: mergedMap });
@@ -525,6 +548,15 @@ export default function Home() {
 
   // Fetch GGS & Cloud Declarations lúc ban đầu và định kỳ realtime giữa Admin & Mobile (Không cần F5)
   useEffect(() => {
+    try {
+      const savedEditsRaw = localStorage.getItem('diachinh_table_cell_edits');
+      if (savedEditsRaw) {
+        const parsedEdits = JSON.parse(savedEditsRaw);
+        if (parsedEdits && typeof parsedEdits === 'object') {
+          setCellEdits(parsedEdits);
+        }
+      }
+    } catch {}
     fetchGgsCodes(false);
     fetchCloudDeclarations();
 
@@ -617,6 +649,23 @@ export default function Home() {
             return next;
           });
         }
+      } else if (event.type === 'CELL_EDITS_SYNCED') {
+        if (event.cellEdits) {
+          setCellEdits((prev) => {
+            const next = { ...prev };
+            for (const [code, cols] of Object.entries(event.cellEdits || {})) {
+              if (!code || !cols) continue;
+              next[code] = {
+                ...(next[code] || {}),
+                ...cols,
+              };
+            }
+            try {
+              localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
+            } catch {}
+            return next;
+          });
+        }
       } else if (event.type === 'FORCE_REFRESH_REPORT') {
         fetchCloudDeclarations();
       }
@@ -701,11 +750,29 @@ export default function Home() {
         cccd = ggsInfo.cccd;
       }
 
-      // 2. ƯU TIÊN TUYỆT ĐỐI dữ liệu kê khai thực địa của cán bộ (savedDecl):
+      const edits = cellEdits[p.ma_thua] || {};
+
+      // 2. ƯU TIÊN TUYỆT ĐỐI dữ liệu kê khai thực địa của cán bộ (savedDecl) và chỉnh sửa nháp (cellEdits):
       // Phiếu kê khai thực địa do cán bộ lập/chỉnh sửa luôn là chân lý và ghi đè hoàn toàn Google Sheets
       if (savedDecl) {
         if (savedDecl.chu_dat_ten && !isInvalidName(savedDecl.chu_dat_ten)) chu_ho = savedDecl.chu_dat_ten;
-        if (savedDecl.chu_dat_cccd) cccd = savedDecl.chu_dat_cccd;
+        if (savedDecl.yeu_cau_thu_cccd) cccd = '';
+        else if (savedDecl.chu_dat_cccd !== undefined) cccd = savedDecl.chu_dat_cccd;
+      } else if (edits[3] !== undefined) {
+        chu_ho = edits[3];
+      }
+      if (!savedDecl && edits[6] !== undefined) {
+        cccd = edits[6];
+      }
+
+      let thon_xa = p.thon_xa || '';
+      if (savedDecl) {
+        const rawDeclThon = savedDecl.dia_chi_thua_dat || savedDecl.thon_xa || savedDecl.chu_dat_dia_chi || '';
+        const cleanedDeclThon = cleanVillageDisplay(rawDeclThon, p.to_ban_do) || rawDeclThon;
+        if (cleanedDeclThon) thon_xa = cleanedDeclThon;
+      } else if (edits[2] !== undefined && String(edits[2]).trim()) {
+        const cleanedEditThon = cleanVillageDisplay(edits[2], p.to_ban_do) || String(edits[2]).trim();
+        thon_xa = cleanedEditThon;
       }
 
       let dien_tich = p.dien_tich ? String(p.dien_tich) : '';
@@ -714,7 +781,9 @@ export default function Home() {
       } else if (dien_tich?.startsWith('w6jp')) {
         dien_tich = '';
       }
-      if (savedDecl?.dien_tich) {
+      if (edits[7] !== undefined && String(edits[7]).trim()) {
+        dien_tich = String(edits[7]).trim();
+      } else if (savedDecl?.dien_tich) {
         dien_tich = String(savedDecl.dien_tich);
       }
 
@@ -724,9 +793,15 @@ export default function Home() {
       } else if (loai_dat?.includes('http') || loai_dat?.startsWith('w6jp')) {
         loai_dat = '';
       }
-      if (savedDecl?.loai_dat) {
+      if (edits[8] !== undefined && String(edits[8]).trim()) {
+        loai_dat = String(edits[8]).trim();
+      } else if (savedDecl?.loai_dat) {
         loai_dat = String(savedDecl.loai_dat);
       }
+
+      const ngay_sinh = String(edits[4] ?? savedDecl?.chu_dat_nam_sinh ?? savedDecl?.nam_sinh_chu_ho ?? (p as any).ngay_sinh ?? '').trim();
+      const gioi_tinh = String(edits[5] ?? savedDecl?.chu_dat_gioi_tinh ?? savedDecl?.gioi_tinh_chu_ho ?? (p as any).gioi_tinh ?? '').trim();
+      const nguon_goc = String(edits[9] ?? savedDecl?.nguon_goc ?? savedDecl?.nguon_goc_su_dung ?? (p as any).nguon_goc ?? '').trim();
 
       // XÁC ĐỊNH TRẠNG THÁI THỬA ĐẤT:
       // 1. Thửa ĐÃ SỐ HÓA (có trên Google Sheets hoặc cccd đã đóng tập hoặc thửa ONT coi như đã số hóa) -> Xanh lá
@@ -759,14 +834,18 @@ export default function Home() {
         ...p,
         chu_ho,
         cccd,
+        thon_xa,
         dien_tich,
         loai_dat,
+        ngay_sinh: ngay_sinh || (p as any).ngay_sinh,
+        gioi_tinh: gioi_tinh || (p as any).gioi_tinh,
+        nguon_goc: nguon_goc || (p as any).nguon_goc,
         trang_thai,
         is_on_ggs: isOnGgs,
         is_declared: isLocallyDeclared,
       };
     });
-  }, [parcels, ggsCodes, ggsParcelsMap, declaredParcelCodes, declarationsMap, isGgsLoaded]);
+  }, [parcels, ggsCodes, ggsParcelsMap, declaredParcelCodes, declarationsMap, cellEdits, isGgsLoaded]);
 
   // Cập nhật selectedParcel khi computedParcels thay đổi
   useEffect(() => {
@@ -1319,9 +1398,35 @@ export default function Home() {
                 {isExportMissingCccdOpen ? (
                   <CccdCollectPanel
                     onClose={handleClosePanel}
-                    parcels={parcels}
+                    parcels={computedParcels}
                     declarationsMap={declarationsMap}
-                    onDeclarationUpdated={() => fetchCloudDeclarations()}
+                    cellEdits={cellEdits}
+                    ggsCodes={ggsCodes}
+                    declaredParcelCodes={declaredParcelCodes}
+                    onDeclarationUpdated={(updatedDecl) => {
+                      if (updatedDecl?.ma_thua) {
+                        const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(updatedDecl);
+                        lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
+                        setDeclaredParcelCodes(new Set(updatedCodes));
+                        setDeclarationsMap(updatedMap);
+                      }
+                    }}
+                    onCellEditsUpdated={(patch) => {
+                      setCellEdits((prev) => {
+                        const next = { ...prev };
+                        for (const [code, cols] of Object.entries(patch || {})) {
+                          if (!code || !cols) continue;
+                          next[code] = {
+                            ...(next[code] || {}),
+                            ...cols,
+                          };
+                        }
+                        try {
+                          localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
+                        } catch {}
+                        return next;
+                      });
+                    }}
                     onToggleCollapse={() => setIsPanelCollapsed((prev) => !prev)}
                     onZoomToParcel={handleZoomToParcelKeepCccd}
                   />

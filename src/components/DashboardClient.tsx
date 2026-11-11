@@ -19,6 +19,7 @@ import CccdHoverPreviewCard from '@/components/CccdHoverPreviewCard';
 import ParcelMapHoverPreviewCard from '@/components/ParcelMapHoverPreviewCard';
 const PdfViewer = dynamic(() => import('@/components/PdfViewer'), { ssr: false });
 const ExportMissingCccdModal = dynamic(() => import('@/components/ExportMissingCccdModal'), { ssr: false });
+import type { CccdListMode } from '@/components/CccdCollectPanel';
 import ScanFileManagerTab from '@/components/ScanFileManagerTab';
 import CadreNameModal from '@/components/CadreNameModal';
 const CadreTrackingTab = dynamic(() => import('@/components/CadreTrackingTab'), { ssr: false });
@@ -318,6 +319,7 @@ export default function DashboardPage() {
   const [savingRowCodes, setSavingRowCodes] = useState<Set<string>>(new Set());
   const [inlineSaveToast, setInlineSaveToast] = useState<string | null>(null);
   const [isExportMissingCccdOpen, setIsExportMissingCccdOpen] = useState(false);
+  const [missingCccdModalMode, setMissingCccdModalMode] = useState<CccdListMode>('declared');
   const [isCommittingAllReady, setIsCommittingAllReady] = useState(false);
   const [isMovingParcelsToUnpack, setIsMovingParcelsToUnpack] = useState(false);
   const [isManualSyncing, setIsManualSyncing] = useState(false);
@@ -726,10 +728,20 @@ export default function DashboardPage() {
         }
       } else if (event.type === 'CELL_EDITS_SYNCED') {
         if (event.cellEdits) {
-          setCellEdits((prev) => ({
-            ...prev,
-            ...event.cellEdits,
-          }));
+          setCellEdits((prev) => {
+            const next = { ...prev };
+            for (const [code, cols] of Object.entries(event.cellEdits || {})) {
+              if (!code || !cols) continue;
+              next[code] = {
+                ...(next[code] || {}),
+                ...cols,
+              };
+            }
+            try {
+              localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
+            } catch {}
+            return next;
+          });
         }
       } else if (event.type === 'FORCE_REFRESH_REPORT') {
         fetchCloudDeclarations();
@@ -831,6 +843,67 @@ export default function DashboardPage() {
     });
   };
 
+  // Cập nhật một bản ghi kê khai vào toàn bộ các sheet đang mở trong syncSheetsData
+  const applyDeclarationToSyncSheets = useCallback((decl: any) => {
+    if (!decl?.ma_thua) return;
+    const targetMa = String(decl.ma_thua).trim();
+    const villageVal = cleanVillageDisplay(decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || '') || decl.dia_chi_thua_dat || decl.thon_xa || '';
+    const nameVal = decl.chu_dat_ten !== undefined ? cleanName(decl.chu_dat_ten) : (decl.chu_ho ? cleanName(decl.chu_ho) : undefined);
+    const dobVal = decl.chu_dat_nam_sinh ?? decl.nam_sinh_chu_ho;
+    const genderVal = decl.chu_dat_gioi_tinh ?? decl.gioi_tinh_chu_ho;
+    const cccdVal = decl.yeu_cau_thu_cccd ? '' : (decl.chu_dat_cccd !== undefined ? cleanCccd(decl.chu_dat_cccd) : undefined);
+    const areaVal = decl.dien_tich;
+    const landTypeVal = decl.loai_dat;
+    const originVal = decl.nguon_goc_su_dung || decl.nguon_goc;
+
+    setSyncSheetsData((prev) => {
+      if (!prev) return prev;
+      let anySheetChanged = false;
+      const nextSheets: Record<string, string[][]> = {};
+      for (const [sName, rows] of Object.entries(prev)) {
+        if (!Array.isArray(rows) || rows.length < 2) {
+          nextSheets[sName] = rows;
+          continue;
+        }
+        const hdrs = rows[0] || [];
+        const normH = hdrs.map((h) => stripAccents(String(h || '')).toLowerCase().replace(/\s+/g, ' ').trim());
+        const maIdx = normH.findIndex((h) => h.includes('ma thua') || h === 'ma_thua');
+        if (maIdx < 0) {
+          nextSheets[sName] = rows;
+          continue;
+        }
+        const vIdx = normH.findIndex((h) => h.includes('thon') || h.includes('buon') || h === 'dia chi');
+        const nIdx = normH.findIndex((h) => h.includes('ho va ten') || h.includes('chu ho') || h.includes('chu dat'));
+        const dIdx = normH.findIndex((h) => h.includes('nam sinh') || h.includes('ngay sinh'));
+        const gIdx = normH.findIndex((h) => h.includes('gioi tinh'));
+        const cIdx = normH.findIndex((h) => (h.includes('cccd') || h.includes('cmnd')) && !h.includes('xem') && !h.includes('file'));
+        const aIdx = normH.findIndex((h) => h.includes('dien tich'));
+        const lIdx = normH.findIndex((h) => h.includes('loai dat'));
+        const oIdx = normH.findIndex((h) => h.includes('nguon goc'));
+
+        let sheetChanged = false;
+        const nextRows = rows.map((r, rIdx) => {
+          if (rIdx === 0) return r;
+          if (String(r[maIdx] || '').trim() !== targetMa) return r;
+          sheetChanged = true;
+          const cloned = [...r];
+          if (vIdx >= 0 && villageVal) cloned[vIdx] = villageVal;
+          if (nIdx >= 0 && nameVal !== undefined) cloned[nIdx] = nameVal;
+          if (dIdx >= 0 && dobVal !== undefined) cloned[dIdx] = String(dobVal);
+          if (gIdx >= 0 && genderVal !== undefined) cloned[gIdx] = String(genderVal);
+          if (cIdx >= 0 && cccdVal !== undefined) cloned[cIdx] = cccdVal;
+          if (aIdx >= 0 && areaVal !== undefined && String(areaVal) !== '') cloned[aIdx] = String(areaVal);
+          if (lIdx >= 0 && landTypeVal) cloned[lIdx] = String(landTypeVal);
+          if (oIdx >= 0 && originVal) cloned[oIdx] = String(originVal);
+          return cloned;
+        });
+        if (sheetChanged) anySheetChanged = true;
+        nextSheets[sName] = sheetChanged ? nextRows : rows;
+      }
+      return anySheetChanged ? nextSheets : prev;
+    });
+  }, []);
+
   // Lưu giá trị vào Local Declarations và đồng bộ Realtime lên Cloudflare R2
   const handleInlineCellCommit = async (
     maThua: string,
@@ -854,25 +927,55 @@ export default function DashboardPage() {
 
     if (!fieldKey) return;
 
-    // Trong danh sách "CHƯA THỰC HIỆN": người dùng đang nhập nháp các ô.
-    // Lưu ngay lập tức lên R2 mà không chờ debounce
-    const updatedEdits = {
-      ...cellEdits,
-      [maThua]: {
-        ...(cellEdits[maThua] || {}),
-        [colIdx]: newValue,
-      },
-    };
-    // Không gọi syncCellEditsToCloud tại đây để tránh bắn 2 request đồng thời gây Error 1102
-    // Vì ngay bên dưới attemptSave() đã lưu trực tiếp declaration hoàn chỉnh lên Cloudflare R2
-    broadcastRealtimeEvent({
-      type: 'CELL_EDITS_SYNCED',
-      cellEdits: updatedEdits,
-    });
+    const existingDecl = declarationsMap[maThua];
+    const isAlreadyDeclared = Boolean(existingDecl) || declaredParcelCodes.has(maThua);
+    const formattedValue =
+      fieldKey === 'chu_dat_cccd'
+        ? cleanCccd(newValue)
+        : fieldKey === 'chu_dat_ten'
+        ? cleanName(newValue)
+        : fieldKey === 'dia_chi_thua_dat'
+        ? (() => {
+            const canon = getCanonicalVillage(newValue);
+            return canon && canon !== 'Chưa xác định' ? canon : newValue.trim();
+          })()
+        : newValue.trim();
+
+    // Nếu đang ở danh sách "CHƯA THỰC HIỆN" và thửa CHƯA được kê khai:
+    // chỉ lưu dưới dạng patch cellEdits để thửa giữ nguyên trạng thái chưa kê khai nhưng vẫn đồng bộ 2 chiều với Danh sách thu CCCD (Chưa làm có tên) & Bản đồ!
+    if (selectedReportSheet === 'CHƯA THỰC HIỆN' && !isAlreadyDeclared) {
+      const patch = { [maThua]: { [colIdx]: formattedValue } };
+      setCellEdits((prev) => {
+        const next = {
+          ...prev,
+          [maThua]: {
+            ...(prev[maThua] || {}),
+            [colIdx]: formattedValue,
+          },
+        };
+        try {
+          localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      broadcastRealtimeEvent({
+        type: 'CELL_EDITS_SYNCED',
+        cellEdits: patch,
+      });
+      try {
+        await fetch('/api/declarations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'patch_cell_edits', cellEdits: patch }),
+          keepalive: true,
+        });
+      } catch {}
+      return;
+    }
 
     // Tìm parcel gốc hoặc dựng từ row (đối với các sheet đã kê khai)
     const p = computedParcels.find((cp) => cp.ma_thua === maThua);
-    const existingDecl = declarationsMap[maThua] || {};
+    const safeDecl = existingDecl || {};
 
     const findColVal = (patterns: RegExp[]): string => {
       if (!currentHeaders || !Array.isArray(row)) return '';
@@ -884,27 +987,25 @@ export default function DashboardPage() {
     };
 
     const [toPart, thuaPart] = maThua.split('_');
-    const toBanDo = existingDecl.to_ban_do || toPart || p?.to_ban_do || '';
-    const soThua = existingDecl.so_thua || thuaPart || p?.so_thua || '';
-    const chuDatTen = existingDecl.chu_dat_ten !== undefined
-      ? existingDecl.chu_dat_ten
-      : (existingDecl.chu_ho || findColVal([/ho va ten/, /chu dat/, /chu ho/]) || p?.chu_ho || '');
-    const chuDatNamSinh = existingDecl.chu_dat_nam_sinh || findColVal([/nam sinh/, /ngay sinh/]) || (p as any)?.ngay_sinh || '';
-    const chuDatGioiTinh = existingDecl.chu_dat_gioi_tinh || findColVal([/gioi tinh/]) || (p as any)?.gioi_tinh || 'Nam';
-    const chuDatCccd = existingDecl.yeu_cau_thu_cccd
+    const toBanDo = safeDecl.to_ban_do || toPart || p?.to_ban_do || '';
+    const soThua = safeDecl.so_thua || thuaPart || p?.so_thua || '';
+    const chuDatTen = safeDecl.chu_dat_ten !== undefined
+      ? safeDecl.chu_dat_ten
+      : (safeDecl.chu_ho || findColVal([/ho va ten/, /chu dat/, /chu ho/]) || p?.chu_ho || '');
+    const chuDatNamSinh = safeDecl.chu_dat_nam_sinh || findColVal([/nam sinh/, /ngay sinh/]) || (p as any)?.ngay_sinh || '';
+    const chuDatGioiTinh = safeDecl.chu_dat_gioi_tinh || findColVal([/gioi tinh/]) || (p as any)?.gioi_tinh || 'Nam';
+    const chuDatCccd = safeDecl.yeu_cau_thu_cccd
       ? ''
-      : cleanCccd(existingDecl.chu_dat_cccd || existingDecl.cccd || findColVal([/cccd/, /cmnd/]) || p?.cccd || '');
-    const diaChiThua = existingDecl.dia_chi_thua_dat || existingDecl.chu_dat_dia_chi || findColVal([/thon/, /buon/]) || (p?.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'Xã Cư Pui');
-    const dienTich = existingDecl.dien_tich || findColVal([/dien tich/]) || p?.dien_tich || '';
-    const loaiDat = existingDecl.loai_dat || findColVal([/loai dat/]) || p?.loai_dat || 'DGT';
+      : cleanCccd(safeDecl.chu_dat_cccd || safeDecl.cccd || findColVal([/cccd/, /cmnd/]) || p?.cccd || '');
+    const diaChiThua = safeDecl.dia_chi_thua_dat || safeDecl.thon_xa || safeDecl.chu_dat_dia_chi || findColVal([/thon/, /buon/]) || (p?.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'Xã Cư Pui');
+    const dienTich = safeDecl.dien_tich || findColVal([/dien tich/]) || p?.dien_tich || '';
+    const loaiDat = safeDecl.loai_dat || findColVal([/loai dat/]) || p?.loai_dat || 'DGT';
     const defaultOrigin = isOntLand(loaiDat) ? 'Khai hoang' : NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
-    const rawOrigin = existingDecl.nguon_goc || existingDecl.nguon_goc_su_dung || findColVal([/nguon goc/]) || defaultOrigin;
+    const rawOrigin = safeDecl.nguon_goc || safeDecl.nguon_goc_su_dung || findColVal([/nguon goc/]) || defaultOrigin;
     const nguonGoc = normalizeNguonGoc(rawOrigin, loaiDat);
 
-    const formattedValue = fieldKey === 'chu_dat_cccd' ? cleanCccd(newValue) : newValue.trim();
-
     const baseDecl: DeclarationFormData = {
-      ...existingDecl,
+      ...safeDecl,
       ma_thua: maThua,
       to_ban_do: toBanDo,
       so_thua: soThua,
@@ -916,10 +1017,10 @@ export default function DashboardPage() {
       dien_tich: dienTich,
       loai_dat: loaiDat,
       nguon_goc: nguonGoc,
-      device_id: existingDecl.device_id || getOrCreateDeviceId(),
+      device_id: safeDecl.device_id || getOrCreateDeviceId(),
     };
 
-    if (baseDecl[fieldKey] === formattedValue && (!existingDecl.yeu_cau_thu_cccd || !formattedValue)) return;
+    if (baseDecl[fieldKey] === formattedValue && (!safeDecl.yeu_cau_thu_cccd || !formattedValue)) return;
 
     const updatedDecl: DeclarationFormData = {
       ...baseDecl,
@@ -936,6 +1037,12 @@ export default function DashboardPage() {
     if (fieldKey === 'chu_dat_ten') {
       (updatedDecl as any).chu_ho = formattedValue;
       (updatedDecl as any).ho_va_ten_chu_ho = formattedValue;
+    }
+    if (fieldKey === 'chu_dat_nam_sinh') {
+      (updatedDecl as any).nam_sinh_chu_ho = formattedValue;
+    }
+    if (fieldKey === 'chu_dat_gioi_tinh') {
+      (updatedDecl as any).gioi_tinh_chu_ho = formattedValue;
     }
     if (fieldKey === 'dia_chi_thua_dat') {
       const canonical = getCanonicalVillage(formattedValue);
@@ -959,29 +1066,12 @@ export default function DashboardPage() {
 
     // 1. Cập nhật ngay tức thì vào React State & LocalStorage (0ms latency)
     const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(updatedDecl);
+    lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
     setDeclaredParcelCodes(new Set(updatedCodes));
     setDeclarationsMap(updatedMap);
 
-    // 2. Cập nhật syncSheetsData cho sheet hiện tại
-    setSyncSheetsData((prev) => {
-      if (!prev || !prev[selectedReportSheet]) return prev;
-      const sheet = prev[selectedReportSheet];
-      const updatedRows = sheet.map((r, rIdx) => {
-        if (rIdx === 0) return r;
-        if (String(r[1] || '').trim() === maThua) {
-          const nextRow = [...r];
-          if (colIdx >= 0 && colIdx < nextRow.length) {
-            nextRow[colIdx] = formattedValue;
-          }
-          return nextRow;
-        }
-        return r;
-      });
-      return {
-        ...prev,
-        [selectedReportSheet]: updatedRows,
-      };
-    });
+    // 2. Cập nhật syncSheetsData trên toàn bộ các sheet (bao gồm cả THỬA ĐANG KÊ KHAI, ĐÓNG TẬP, GCN-ONT, NHẬP DỮ LIỆU...)
+    applyDeclarationToSyncSheets(updatedDecl);
 
     // 3. Xóa ô nháp trong cellEdits sau khi commit thành công
     setCellEdits((prev) => {
@@ -1054,18 +1144,23 @@ export default function DashboardPage() {
     const diaChi = formatDiaChiThuongTru(thonXa);
     const deviceId = getOrCreateDeviceId();
 
+    const canonVillage = getCanonicalVillage(thonXa, toBanDo);
+    const finalThon = canonVillage && canonVillage !== 'Chưa xác định' ? canonVillage : thonXa;
     const newDecl: DeclarationFormData = {
       ma_thua: maThua,
       to_ban_do: toBanDo,
       so_thua: soThua,
+      thon_xa: finalThon,
+      dia_chi_thua_dat: finalThon,
       chu_dat_ten: chuDatTen || (p?.chu_ho && p.chu_ho !== 'Chưa có tên' ? cleanName(p.chu_ho) : `Chủ Thửa ${soThua}`),
       chu_dat_nam_sinh: chuDatNamSinh,
       chu_dat_gioi_tinh: chuDatGioiTinh || 'Nam',
       chu_dat_cccd: cleanCccdVal,
       chu_dat_dia_chi: diaChi,
-      dien_tich: dienTich,
-      loai_dat: loaiDat,
+      dien_tich: String(edits[7] ?? p?.dien_tich ?? row[7] ?? '').trim(),
+      loai_dat: String(edits[8] ?? p?.loai_dat ?? row[8] ?? 'DGT').trim(),
       nguon_goc: nguonGoc,
+      nguon_goc_su_dung: nguonGoc,
       ghi_chu: ghiChu,
       device_id: deviceId,
     };
@@ -1314,16 +1409,43 @@ export default function DashboardPage() {
   };
 
   const handleSaveEditedDeclaration = (data: DeclarationFormData) => {
-    const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(data);
+    const normalizedDecl: DeclarationFormData = {
+      ...data,
+      chu_dat_ten: cleanName(data.chu_dat_ten),
+      chu_ho: cleanName(data.chu_dat_ten),
+      ho_va_ten_chu_ho: cleanName(data.chu_dat_ten),
+      thon_xa: data.dia_chi_thua_dat || data.thon_xa,
+      dia_chi_thua_dat: data.dia_chi_thua_dat || data.thon_xa,
+      nguon_goc: data.nguon_goc || data.nguon_goc_su_dung,
+      nguon_goc_su_dung: data.nguon_goc_su_dung || data.nguon_goc,
+      updated_at: new Date().toISOString(),
+    } as any;
+    const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(normalizedDecl);
     lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
     setDeclaredParcelCodes(new Set(updatedCodes));
     setDeclarationsMap(updatedMap);
+    applyDeclarationToSyncSheets(normalizedDecl);
+    setCellEdits((prev) => {
+      if (!prev[normalizedDecl.ma_thua]) return prev;
+      const next = { ...prev };
+      delete next[normalizedDecl.ma_thua];
+      try {
+        localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+    broadcastRealtimeEvent({
+      type: 'DECLARATION_SAVED',
+      maThua: normalizedDecl.ma_thua,
+      declaration: normalizedDecl,
+      declaredCodes: updatedCodes,
+    });
     setIsEditModalOpen(false);
     setEditingParcel(null);
     setEditingDeclaration(null);
 
     // Nếu vừa kê khai từ danh sách CHƯA THỰC HIỆN, tự động kiểm tra và chuyển qua danh sách tiếp theo:
-    const cleanCccdVal = cleanCccd(data.chu_dat_cccd);
+    const cleanCccdVal = cleanCccd(normalizedDecl.chu_dat_cccd);
     if (selectedReportSheet === 'CHƯA THỰC HIỆN') {
       const nextSheet = cleanCccdVal
         ? 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'
@@ -1336,21 +1458,29 @@ export default function DashboardPage() {
     fetch('/api/declarations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(normalizedDecl),
       keepalive: true,
     })
       .then(async (res) => {
         if (res.ok) {
-          removePendingDeclaration(data.ma_thua);
+          removePendingDeclaration(normalizedDecl.ma_thua);
           const result = (await res.json()) as any;
-          if (result.success && Array.isArray(result.declaredCodes)) {
-            const cloudMap =
-              result.declarationsMap && Object.keys(result.declarationsMap).length > 0
-                ? result.declarationsMap
-                : updatedMap;
-            lastCloudSigRef.current = JSON.stringify({ codes: result.declaredCodes, map: cloudMap });
-            setDeclaredParcelCodes(new Set(result.declaredCodes));
-            setDeclarationsMap(cloudMap);
+          if (result.success) {
+            setDeclarationsMap((prev) => {
+              const merged = {
+                ...prev,
+                ...(result.declarationsMap || {}),
+                [normalizedDecl.ma_thua]: result.declarationsMap?.[normalizedDecl.ma_thua] || normalizedDecl,
+              };
+              lastCloudSigRef.current = JSON.stringify({
+                codes: Array.isArray(result.declaredCodes) ? Array.from(new Set([...updatedCodes, ...result.declaredCodes])) : updatedCodes,
+                map: merged,
+              });
+              return merged;
+            });
+            if (Array.isArray(result.declaredCodes)) {
+              setDeclaredParcelCodes((prev) => new Set([...prev, ...result.declaredCodes]));
+            }
           }
         }
       })
@@ -1509,12 +1639,23 @@ export default function DashboardPage() {
       const isOnGgs = isDigitized;
       const isDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(savedDecl);
 
-      // Gộp thêm dữ liệu kê khai mới nhất từ LocalStorage (nếu có)
-      const mergedChuHo = savedDecl?.chu_dat_ten !== undefined ? savedDecl.chu_dat_ten : p.chu_ho;
-      const mergedCccd = savedDecl?.chu_dat_cccd !== undefined ? savedDecl.chu_dat_cccd : p.cccd;
-
       const edits = cellEdits[p.ma_thua] || {};
+      // Gộp thêm dữ liệu kê khai / chỉnh sửa mới nhất (cả cho thửa đã kê khai và thửa chưa kê khai có cellEdits)
+      const mergedChuHo = edits[3] ?? (savedDecl?.chu_dat_ten !== undefined ? savedDecl.chu_dat_ten : p.chu_ho);
+      const mergedCccd = edits[6] ?? (savedDecl?.yeu_cau_thu_cccd ? '' : (savedDecl?.chu_dat_cccd !== undefined ? savedDecl.chu_dat_cccd : p.cccd));
+      const mergedThon =
+        edits[2] ??
+        (savedDecl
+          ? cleanVillageDisplay(savedDecl.dia_chi_thua_dat || savedDecl.thon_xa || savedDecl.chu_dat_dia_chi || '', p.to_ban_do) ||
+            savedDecl.dia_chi_thua_dat ||
+            savedDecl.thon_xa ||
+            p.thon_xa
+          : p.thon_xa);
+      const mergedDienTich = String(edits[7] ?? savedDecl?.dien_tich ?? p.dien_tich ?? '').trim();
       const loaiDat = String(edits[8] ?? savedDecl?.loai_dat ?? p.loai_dat ?? '').trim();
+      const mergedNamSinh = String(edits[4] ?? savedDecl?.chu_dat_nam_sinh ?? savedDecl?.nam_sinh_chu_ho ?? (p as any).ngay_sinh ?? '').trim();
+      const mergedGioiTinh = String(edits[5] ?? savedDecl?.chu_dat_gioi_tinh ?? savedDecl?.gioi_tinh_chu_ho ?? (p as any).gioi_tinh ?? '').trim();
+      const mergedNguonGoc = String(edits[9] ?? savedDecl?.nguon_goc ?? savedDecl?.nguon_goc_su_dung ?? (p as any).nguon_goc ?? '').trim();
       const isOntParcel = /ont/i.test(loaiDat);
 
       let finalStatus: ParcelStatus;
@@ -1538,12 +1679,18 @@ export default function DashboardPage() {
         ...p,
         chu_ho: mergedChuHo,
         cccd: mergedCccd,
+        thon_xa: mergedThon,
+        dien_tich: mergedDienTich || p.dien_tich,
+        loai_dat: loaiDat || p.loai_dat,
+        ngay_sinh: mergedNamSinh || (p as any).ngay_sinh,
+        gioi_tinh: mergedGioiTinh || (p as any).gioi_tinh,
+        nguon_goc: mergedNguonGoc || (p as any).nguon_goc,
         trang_thai: finalStatus,
         is_on_ggs: isOnGgs,
         is_declared: isDeclared,
       };
     });
-  }, [parcels, ggsCodes, ggsParcelsMap, declaredParcelCodes, declarationsMap, kh2959ImportedCodes]);
+  }, [parcels, ggsCodes, ggsParcelsMap, declaredParcelCodes, declarationsMap, kh2959ImportedCodes, cellEdits]);
 
   // Map tra cứu nhanh thửa đất theo mã thửa (sử dụng computedParcels với trạng thái mới nhất)
   const parcelsMap = useMemo(() => {
@@ -3911,12 +4058,37 @@ export default function DashboardPage() {
                   const isGcnOntSheet = selectedReportSheet === 'GCN - ONT';
                   const isKhongNhapSheet = selectedReportSheet === 'THỬA KHÔNG NHẬP (DCS, DGD...)' || selectedReportSheet === 'KHÔNG NHẬP';
 
+                  const cccdColIdx = headers.findIndex((h) => /cccd/i.test(h) && !/xem|file/i.test(h));
+
+                  // Đọc giá trị hiệu lực của từng ô (ưu tiên: cellEdits -> declarationsMap -> dữ liệu gốc của row)
+                  const getEffectiveRowVal = (maThua: string, row: any[], cIdx: number): string => {
+                    if (cIdx < 0) return '';
+                    if (cellEdits[maThua]?.[cIdx] !== undefined) {
+                      return String(cellEdits[maThua][cIdx] ?? '');
+                    }
+                    const decl = declarationsMap[maThua];
+                    if (decl && selectedReportSheet !== 'CHƯA THỰC HIỆN') {
+                      if (cIdx === nameColIdx && (decl.chu_dat_ten !== undefined || decl.chu_ho !== undefined)) {
+                        return String(decl.chu_dat_ten ?? decl.chu_ho ?? '');
+                      }
+                      if (cIdx === villageColIdx && (decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi)) {
+                        return cleanVillageDisplay(decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || '');
+                      }
+                      if (cIdx === cccdColIdx) {
+                        if (decl.yeu_cau_thu_cccd) return '';
+                        if (decl.chu_dat_cccd !== undefined) return cleanCccd(decl.chu_dat_cccd);
+                        if (decl.cccd !== undefined) return cleanCccd(decl.cccd);
+                      }
+                    }
+                    return String(row[cIdx] ?? '');
+                  };
+
                   // Thống kê Thôn / Buôn và số lượng thửa
                   const villageCounts: Record<string, number> = {};
                   allRows.forEach((r) => {
                     if (villageColIdx >= 0) {
                       const maThua = String(r[1] || '').trim();
-                      const rawV = cellEdits[maThua]?.[villageColIdx] ?? r[villageColIdx] ?? '';
+                      const rawV = getEffectiveRowVal(maThua, r, villageColIdx);
                       const v = cleanVillageDisplay(rawV);
                       if (v) villageCounts[v] = (villageCounts[v] || 0) + 1;
                     }
@@ -3929,7 +4101,7 @@ export default function DashboardPage() {
                   if (isChuaThucHienSheet && nameColIdx >= 0) {
                     allRows.forEach((r) => {
                       const maThua = String(r[1] || '').trim();
-                      const nameVal = String(cellEdits[maThua]?.[nameColIdx] || r[nameColIdx] || '').trim();
+                      const nameVal = getEffectiveRowVal(maThua, r, nameColIdx).trim();
                       const isNamed =
                         nameVal &&
                         nameVal !== 'Chưa có tên' &&
@@ -3991,21 +4163,20 @@ export default function DashboardPage() {
                       })
                     : [];
 
-                  const cccdColIdx = headers.findIndex((h) => /cccd/i.test(h) && !/xem|file/i.test(h));
                   const searchQ = deferredReportSearchQuery ? stripAccents(deferredReportSearchQuery) : '';
 
                   // Áp dụng bộ lọc
                   const filtered = allRows.filter((row) => {
                     const maThua = String(row[1] || '').trim();
 
-                    // 1. Tìm kiếm text (soát cả giá trị vừa nhập trực tiếp)
+                    // 1. Tìm kiếm text (soát cả giá trị vừa nhập trực tiếp và declarationsMap)
                     if (searchQ) {
                       // Short-circuit: Kiểm tra trước các cột thường tìm kiếm (mã thửa, tên, CCCD, thôn)
                       const fastCandidates = [
                         maThua,
-                        nameColIdx >= 0 ? String(cellEdits[maThua]?.[nameColIdx] ?? row[nameColIdx] ?? '') : '',
-                        cccdColIdx >= 0 ? String(cellEdits[maThua]?.[cccdColIdx] ?? row[cccdColIdx] ?? '') : '',
-                        villageColIdx >= 0 ? String(cellEdits[maThua]?.[villageColIdx] ?? row[villageColIdx] ?? '') : '',
+                        nameColIdx >= 0 ? getEffectiveRowVal(maThua, row, nameColIdx) : '',
+                        cccdColIdx >= 0 ? getEffectiveRowVal(maThua, row, cccdColIdx) : '',
+                        villageColIdx >= 0 ? getEffectiveRowVal(maThua, row, villageColIdx) : '',
                       ];
                       let match = fastCandidates.some((val) => val && stripAccents(val).includes(searchQ));
                       if (!match) {
@@ -4020,7 +4191,7 @@ export default function DashboardPage() {
 
                     // 2. Lọc theo Thôn / Buôn
                     if (reportVillageFilter !== 'ALL' && villageColIdx >= 0) {
-                      const rawV = cellEdits[maThua]?.[villageColIdx] ?? row[villageColIdx] ?? '';
+                      const rawV = getEffectiveRowVal(maThua, row, villageColIdx);
                       const v = cleanVillageDisplay(rawV);
                       if (v !== reportVillageFilter) return false;
                     }
@@ -4030,8 +4201,6 @@ export default function DashboardPage() {
                       const st = getChuaCoCccdRowStatus(maThua, row);
                       if (st !== reportStatusFilter) return false;
                     }
-
-
 
                     // 5. Lọc theo danh sách Mã thửa đã chọn từ dropdown Excel (cho sheet Chưa thực hiện)
                     if (isChuaThucHienSheet && appliedMaThuas.size > 0) {
@@ -4053,8 +4222,8 @@ export default function DashboardPage() {
                     filtered.sort((a, b) => {
                       const maA = String(a[1] || '').trim();
                       const maB = String(b[1] || '').trim();
-                      const nameA = String(cellEdits[maA]?.[nameColIdx] ?? a[nameColIdx] ?? '').trim();
-                      const nameB = String(cellEdits[maB]?.[nameColIdx] ?? b[nameColIdx] ?? '').trim();
+                      const nameA = getEffectiveRowVal(maA, a, nameColIdx).trim();
+                      const nameB = getEffectiveRowVal(maB, b, nameColIdx).trim();
 
                       const isAValid = Boolean(nameA && !nameA.toLowerCase().includes('chưa có tên'));
                       const isBValid = Boolean(nameB && !nameB.toLowerCase().includes('chưa có tên'));
@@ -4197,18 +4366,23 @@ export default function DashboardPage() {
                         const nguonGoc = normalizeNguonGoc(String(edits[9] ?? r[9] ?? '').trim(), loaiDat);
                         const diaChi = formatDiaChiThuongTru(thonXa);
 
+                        const canonVillage = getCanonicalVillage(thonXa, toBanDo);
+                        const finalThon = canonVillage && canonVillage !== 'Chưa xác định' ? canonVillage : thonXa;
                         const newDecl: DeclarationFormData = {
                           ma_thua: code,
                           to_ban_do: toBanDo,
                           so_thua: soThua,
+                          thon_xa: finalThon,
+                          dia_chi_thua_dat: finalThon,
                           chu_dat_ten: chuDatTen || (p?.chu_ho && p.chu_ho !== 'Chưa có tên' ? cleanName(p.chu_ho) : `Chủ Thửa ${soThua}`),
                           chu_dat_nam_sinh: chuDatNamSinh,
                           chu_dat_gioi_tinh: chuDatGioiTinh || 'Nam',
                           chu_dat_cccd: cleanCccdVal,
                           chu_dat_dia_chi: diaChi,
-                          dien_tich: dienTich,
-                          loai_dat: loaiDat,
+                          dien_tich: String(edits[7] ?? p?.dien_tich ?? r[7] ?? '').trim(),
+                          loai_dat: String(edits[8] ?? p?.loai_dat ?? r[8] ?? 'DGT').trim(),
                           nguon_goc: nguonGoc,
+                          nguon_goc_su_dung: nguonGoc,
                           ghi_chu: '',
                           device_id: deviceId,
                         };
@@ -4971,7 +5145,10 @@ export default function DashboardPage() {
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => setIsExportMissingCccdOpen(true)}
+                                onClick={() => {
+                                  setMissingCccdModalMode('declared');
+                                  setIsExportMissingCccdOpen(true);
+                                }}
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold shadow-md transition cursor-pointer bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20"
                                 title="Xuất ảnh danh sách cần thu thập CCCD (Tỷ lệ 16:9 dọc gửi Zalo)"
                               >
@@ -5241,6 +5418,19 @@ export default function DashboardPage() {
                                   <span>{isCommittingAllReady ? 'Đang kê khai...' : `Kê khai (${readyCount} thửa)`}</span>
                                 </button>
                               )}
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMissingCccdModalMode('unmade_named');
+                                  setIsExportMissingCccdOpen(true);
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold shadow-md transition cursor-pointer bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20"
+                                title="Mở danh sách thu thập CCCD cho những thửa chưa làm có tên trên bản đồ (chỉnh sửa đồng bộ 2 chiều)"
+                              >
+                                <Users className="w-3.5 h-3.5 text-white" />
+                                <span>DS Thu CCCD (Có tên)</span>
+                              </button>
                             </div>
                           )}
 
@@ -6367,8 +6557,8 @@ export default function DashboardPage() {
                                           effectiveVal = cleanVillageDisplay(declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi || declForParcel.thon_xa);
                                         } else if (isOriginCol && (declForParcel.nguon_goc || declForParcel.nguon_goc_su_dung)) {
                                           effectiveVal = normalizeNguonGoc(declForParcel.nguon_goc || declForParcel.nguon_goc_su_dung, declForParcel.loai_dat || rowLoaiDat);
-                                        } else if (isAreaCol && (!cleanText || cleanText === '0' || cleanText === '1000') && declForParcel.dien_tich && declForParcel.ma_thua === maThua) {
-                                          effectiveVal = declForParcel.dien_tich;
+                                        } else if (isAreaCol && declForParcel.dien_tich !== undefined && String(declForParcel.dien_tich).trim() !== '' && declForParcel.ma_thua === maThua) {
+                                          effectiveVal = String(declForParcel.dien_tich);
                                         } else if (isLandTypeCol && declForParcel.loai_dat) {
                                           effectiveVal = declForParcel.loai_dat;
                                         }
@@ -7079,13 +7269,51 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Modal Xuất Danh Sách Cần Thu Thập CCCD Dạng Ảnh 16:9 Dọc */}
+      {/* Modal Xuất Danh Sách Cần Thu Thập CCCD & Đồng bộ 2 chiều */}
       <ExportMissingCccdModal
         isOpen={isExportMissingCccdOpen}
         onClose={() => setIsExportMissingCccdOpen(false)}
         parcels={computedParcels}
         declarationsMap={declarationsMap}
+        cellEdits={cellEdits}
+        ggsCodes={ggsCodes}
+        kh2959ImportedCodes={kh2959ImportedCodes}
+        declaredParcelCodes={declaredParcelCodes}
+        initialListMode={missingCccdModalMode}
         theme={theme}
+        onDeclarationUpdated={(updatedDecl) => {
+          if (!updatedDecl?.ma_thua) return;
+          const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(updatedDecl);
+          lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
+          setDeclaredParcelCodes(new Set(updatedCodes));
+          setDeclarationsMap(updatedMap);
+          applyDeclarationToSyncSheets(updatedDecl);
+          setCellEdits((prev) => {
+            if (!prev[updatedDecl.ma_thua]) return prev;
+            const next = { ...prev };
+            delete next[updatedDecl.ma_thua];
+            try {
+              localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
+            } catch {}
+            return next;
+          });
+        }}
+        onCellEditsUpdated={(patch) => {
+          setCellEdits((prev) => {
+            const next = { ...prev };
+            for (const [code, cols] of Object.entries(patch || {})) {
+              if (!code || !cols) continue;
+              next[code] = {
+                ...(next[code] || {}),
+                ...cols,
+              };
+            }
+            try {
+              localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
+            } catch {}
+            return next;
+          });
+        }}
       />
 
       {/* Modal Nhập/Đổi Tên Cán Bộ Kê Khai */}

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { DeclarationFormData } from '@/types';
-import { isAgriculturalLand } from '@/utils/textHelpers';
+import { isAgriculturalLand, stripAccents } from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
 import {
   getD1Binding,
@@ -22,6 +22,8 @@ const R2_BUCKET = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'diachinh-storage';
 const R2_PUBLIC_URL = process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL || 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
 
 const KEY_ALL_DECLARATIONS = 'declarations/all.json';
+const KEY_SYNC_CACHE = 'cache/sync_sheets.json';
+const KEY_CELL_EDITS = 'cache/cell_edits.json';
 
 interface StoragePayload {
   declaredCodes: string[];
@@ -55,6 +57,270 @@ async function syncAllJsonToR2Background(): Promise<void> {
   } catch (e) {
     console.warn('Lỗi syncAllJsonToR2Background:', e);
   }
+}
+
+/**
+ * Đồng bộ bảng cell_edits trong D1 để tránh mất chỉnh sửa thửa chưa kê khai khi fallback D1
+ */
+async function syncCellEditsToD1(
+  db: any,
+  editsMap: Record<string, Record<number, string>>,
+  replaceAll = false
+): Promise<void> {
+  if (!db) return;
+  try {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS cell_edits (
+      ma_thua TEXT,
+      col_idx INTEGER,
+      val TEXT,
+      updated_at TEXT,
+      PRIMARY KEY (ma_thua, col_idx)
+    )`).run();
+
+    const nowIso = new Date().toISOString();
+    if (replaceAll) {
+      await db.prepare('DELETE FROM cell_edits').run();
+    }
+
+    const statements: any[] = [];
+    for (const [maThua, cols] of Object.entries(editsMap || {})) {
+      if (!maThua || !cols || typeof cols !== 'object') continue;
+      for (const [colKey, rawVal] of Object.entries(cols)) {
+        const colIdx = Number(colKey);
+        if (!Number.isFinite(colIdx)) continue;
+        statements.push(
+          db
+            .prepare(
+              `INSERT INTO cell_edits (ma_thua, col_idx, val, updated_at) VALUES (?1, ?2, ?3, ?4)
+               ON CONFLICT(ma_thua, col_idx) DO UPDATE SET val = excluded.val, updated_at = excluded.updated_at`
+            )
+            .bind(String(maThua), colIdx, rawVal == null ? '' : String(rawVal), nowIso)
+        );
+      }
+    }
+    const CHUNK = 50;
+    for (let i = 0; i < statements.length; i += CHUNK) {
+      await db.batch(statements.slice(i, i + CHUNK));
+    }
+  } catch (err) {
+    console.warn('Lỗi lưu cell_edits vào D1:', err);
+  }
+}
+
+async function deleteCellEditsForCodesInD1(db: any, codes: string[]): Promise<void> {
+  if (!db || !codes.length) return;
+  try {
+    const stmts = codes.map((c) => db.prepare('DELETE FROM cell_edits WHERE ma_thua = ?1').bind(String(c)));
+    const CHUNK = 50;
+    for (let i = 0; i < stmts.length; i += CHUNK) {
+      await db.batch(stmts.slice(i, i + CHUNK));
+    }
+  } catch {}
+}
+
+/**
+ * Đọc nhanh payload all.json từ R2 (hoặc D1 fallback) để vá delta tức thì
+ */
+async function readAllJsonFast(bucket: any): Promise<StoragePayload> {
+  if (bucket) {
+    try {
+      const obj = await bucket.get(KEY_ALL_DECLARATIONS);
+      if (obj) {
+        const data = JSON.parse(await obj.text());
+        return {
+          declaredCodes: Array.isArray(data.declaredCodes) ? data.declaredCodes : [],
+          declarationsMap: data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {},
+          cellEdits: data.cellEdits && typeof data.cellEdits === 'object' ? data.cellEdits : {},
+          updatedAt: data.updatedAt || new Date().toISOString(),
+        };
+      }
+    } catch {}
+  }
+  return getDeclarationsFromR2(true);
+}
+
+/**
+ * Vá trực tiếp snapshot cache/sync_sheets.json trên R2 theo header từng sheet (tuyệt đối KHÔNG xóa KEY_SYNC_CACHE)
+ */
+async function patchSyncSheetsSnapshotInR2(
+  bucket: any,
+  declItems: any[],
+  cellEditsPatch?: Record<string, Record<number, string>>,
+  deletedCodes?: string[]
+): Promise<void> {
+  if (!bucket) return;
+  if ((!declItems || declItems.length === 0) && (!cellEditsPatch || Object.keys(cellEditsPatch).length === 0) && (!deletedCodes || deletedCodes.length === 0)) {
+    return;
+  }
+
+  try {
+    const obj = await bucket.get(KEY_SYNC_CACHE);
+    if (!obj) return;
+    const snapshot = JSON.parse(await obj.text());
+    if (!snapshot || !snapshot.sheetsData || typeof snapshot.sheetsData !== 'object') return;
+
+    const declByCode = new Map<string, any>();
+    for (const d of declItems || []) {
+      if (d?.ma_thua) declByCode.set(String(d.ma_thua), d);
+    }
+    const deletedSet = new Set((deletedCodes || []).map((c) => String(c)));
+
+    let modified = false;
+
+    for (const [sheetName, rows] of Object.entries(snapshot.sheetsData as Record<string, any[][]>)) {
+      if (!Array.isArray(rows) || rows.length < 2) continue;
+      const header = rows[0] || [];
+      const normHeaders = header.map((h) => stripAccents(String(h || '')).toLowerCase().replace(/\s+/g, ' ').trim());
+
+      const findCol = (preds: ((h: string) => boolean)[]) =>
+        normHeaders.findIndex((h) => preds.some((fn) => fn(h)));
+
+      const maThuaCol = findCol([(h) => h.includes('ma thua') || h === 'ma_thua']);
+      if (maThuaCol < 0) continue;
+
+      const villageCol = findCol([
+        (h) => h.includes('thon / buon') || h.includes('thon/buon') || h.includes('thon buon') || h === 'thon xa' || h === 'thon_xa',
+      ]);
+      const nameCol = findCol([
+        (h) => h.includes('ho va ten') || h.includes('chu ho') || h === 'chu_dat_ten' || h === 'ten chu',
+      ]);
+      const dobCol = findCol([(h) => h.includes('nam sinh') || h.includes('ngay sinh')]);
+      const genderCol = findCol([(h) => h.includes('gioi tinh')]);
+      const cccdCol = findCol([(h) => h.includes('cccd') || h.includes('cmnd')]);
+      const areaCol = findCol([(h) => h.includes('dien tich')]);
+      const landTypeCol = findCol([(h) => h.includes('loai dat')]);
+      const originCol = findCol([(h) => h.includes('nguon goc')]);
+      const addressCol = findCol([(h) => h.includes('dia chi')]);
+
+      const nextRows: any[][] = [header];
+      for (let rIdx = 1; rIdx < rows.length; rIdx++) {
+        const row = rows[rIdx];
+        if (!Array.isArray(row)) {
+          nextRows.push(row);
+          continue;
+        }
+        const code = String(row[maThuaCol] || '').trim();
+        if (code && deletedSet.has(code)) {
+          modified = true;
+          continue;
+        }
+
+        const cloned = [...row];
+        const decl = code ? declByCode.get(code) : undefined;
+        if (decl) {
+          const villageVal = decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || '';
+          const nameVal = decl.chu_dat_ten || decl.chu_ho || decl.ho_va_ten_chu_ho || '';
+          const dobVal = decl.chu_dat_nam_sinh || decl.nam_sinh_chu_ho || '';
+          const genderVal = decl.chu_dat_gioi_tinh || decl.gioi_tinh_chu_ho || '';
+          const cccdVal = decl.chu_dat_cccd || decl.cccd || decl.cccd_chu_ho || '';
+          const areaVal = decl.dien_tich ?? '';
+          const landTypeVal = decl.loai_dat || '';
+          const originVal = decl.nguon_goc_su_dung || decl.nguon_goc || '';
+          const addrVal = decl.chu_dat_dia_chi || villageVal;
+
+          if (villageCol >= 0 && villageVal) cloned[villageCol] = villageVal;
+          if (nameCol >= 0 && nameVal !== undefined) cloned[nameCol] = nameVal;
+          if (dobCol >= 0 && dobVal !== undefined) cloned[dobCol] = dobVal;
+          if (genderCol >= 0 && genderVal !== undefined) cloned[genderCol] = genderVal;
+          if (cccdCol >= 0 && cccdVal !== undefined) cloned[cccdCol] = cccdVal;
+          if (areaCol >= 0 && areaVal !== '') cloned[areaCol] = String(areaVal);
+          if (landTypeCol >= 0 && landTypeVal) cloned[landTypeCol] = landTypeVal;
+          if (originCol >= 0 && originVal !== undefined) cloned[originCol] = originVal;
+          if (addressCol >= 0 && addrVal) cloned[addressCol] = addrVal;
+          modified = true;
+        }
+
+        const cEdit = code && cellEditsPatch ? cellEditsPatch[code] : undefined;
+        if (cEdit && typeof cEdit === 'object') {
+          if (cEdit[2] !== undefined && villageCol >= 0) cloned[villageCol] = cEdit[2];
+          if (cEdit[3] !== undefined && nameCol >= 0) cloned[nameCol] = cEdit[3];
+          if (cEdit[4] !== undefined && dobCol >= 0) cloned[dobCol] = cEdit[4];
+          if (cEdit[5] !== undefined && genderCol >= 0) cloned[genderCol] = cEdit[5];
+          if (cEdit[6] !== undefined && cccdCol >= 0) cloned[cccdCol] = cEdit[6];
+          if (cEdit[7] !== undefined && areaCol >= 0) cloned[areaCol] = cEdit[7];
+          if (cEdit[8] !== undefined && landTypeCol >= 0) cloned[landTypeCol] = cEdit[8];
+          if (cEdit[9] !== undefined && originCol >= 0) cloned[originCol] = cEdit[9];
+          if (cEdit[2] !== undefined && addressCol >= 0 && !decl) cloned[addressCol] = cEdit[2];
+          modified = true;
+        }
+
+        nextRows.push(cloned);
+      }
+      snapshot.sheetsData[sheetName] = nextRows;
+    }
+
+    if (modified) {
+      snapshot.cachedAt = Date.now();
+      await bucket.put(KEY_SYNC_CACHE, JSON.stringify(snapshot), {
+        httpMetadata: { contentType: 'application/json' },
+      });
+    }
+  } catch (err) {
+    console.warn('Lỗi vá snapshot cache/sync_sheets.json trên R2:', err);
+  }
+}
+
+/**
+ * Vá ngay cả declarations/all.json và cache/sync_sheets.json sau mọi thao tác lưu/sửa/xóa
+ */
+async function patchAllJsonAndSyncSheets(options: {
+  declItems?: any[];
+  cellEditsPatch?: Record<string, Record<number, string>>;
+  replaceCellEdits?: Record<string, Record<number, string>>;
+  deletedCodes?: string[];
+  timestamp?: string;
+}): Promise<Record<string, Record<number, string>>> {
+  const bucket = await getR2Binding();
+  const timestamp = options.timestamp || new Date().toISOString();
+  const declItems = options.declItems || [];
+  const deletedSet = new Set((options.deletedCodes || []).map((c) => String(c)));
+
+  const currentPayload = await readAllJsonFast(bucket);
+  const nextCellEdits: Record<string, Record<number, string>> = options.replaceCellEdits
+    ? { ...options.replaceCellEdits }
+    : { ...(currentPayload.cellEdits || {}) };
+
+  if (options.cellEditsPatch) {
+    for (const [code, cols] of Object.entries(options.cellEditsPatch)) {
+      if (!code || !cols || typeof cols !== 'object') continue;
+      nextCellEdits[code] = { ...(nextCellEdits[code] || {}), ...cols };
+    }
+  }
+
+  for (const decl of declItems) {
+    if (!decl?.ma_thua) continue;
+    const code = String(decl.ma_thua);
+    currentPayload.declarationsMap[code] = decl;
+    if (!currentPayload.declaredCodes.includes(code)) {
+      currentPayload.declaredCodes.push(code);
+    }
+    delete nextCellEdits[code];
+  }
+
+  if (deletedSet.size > 0) {
+    currentPayload.declaredCodes = currentPayload.declaredCodes.filter((c) => !deletedSet.has(c));
+    deletedSet.forEach((c) => {
+      delete currentPayload.declarationsMap[c];
+      delete nextCellEdits[c];
+    });
+  }
+
+  currentPayload.cellEdits = nextCellEdits;
+  currentPayload.updatedAt = timestamp;
+
+  await Promise.all([
+    saveDeclarationsToR2(currentPayload),
+    bucket
+      ? bucket
+          .put(KEY_CELL_EDITS, JSON.stringify(nextCellEdits), {
+            httpMetadata: { contentType: 'application/json' },
+          })
+          .catch(() => {})
+      : Promise.resolve(),
+    patchSyncSheetsSnapshotInR2(bucket, declItems, options.cellEditsPatch || options.replaceCellEdits, options.deletedCodes),
+  ]);
+
+  return nextCellEdits;
 }
 
 let cachedR2Bucket: any = null;
@@ -430,36 +696,30 @@ export async function POST(request: Request) {
   try {
     const body: any = await request.json();
 
-    // Đồng bộ nhanh các ô nhập nháp (cellEdits) qua các máy tính khác nhau (Siêu nhẹ <1ms CPU, triệt tiêu Error 1102)
-    if (body && body.type === 'cell_edits') {
-      const edits = body.cellEdits || {};
-      const bucket = await getR2Binding();
-      if (bucket) {
-        await bucket.put('cache/cell_edits.json', JSON.stringify(edits), {
-          httpMetadata: { contentType: 'application/json' },
-        });
+    // Vá từng ô nháp (cellEdits) an toàn không ghi đè mất chỉnh sửa của thửa khác
+    if (body && body.type === 'patch_cell_edits') {
+      const editsPatch: Record<string, Record<number, string>> = body.cellEdits || {};
+      const db = await getD1Binding();
+      if (db && Object.keys(editsPatch).length > 0) {
+        await syncCellEditsToD1(db, editsPatch, false);
       }
-      if (memoryCache?.payload) {
-        memoryCache.payload.cellEdits = edits;
-      }
-      return NextResponse.json({ success: true, cellEdits: edits });
+      const mergedCellEdits = await patchAllJsonAndSyncSheets({
+        cellEditsPatch: editsPatch,
+      });
+      return NextResponse.json({ success: true, cellEdits: mergedCellEdits, patched: editsPatch });
     }
 
-    // Xử lý khi chỉ có cellEdits hoặc batch rỗng
+    // Đồng bộ nhanh các ô nhập nháp (cellEdits) qua các máy tính khác nhau
     if (body && (body.type === 'cell_edits' || (!body.ma_thua && body.cellEdits && (!body.batch || body.batch.length === 0)))) {
-      const edits = body.cellEdits || {};
-      const bucket = await getR2Binding();
-      if (bucket) {
-        try {
-          await bucket.put('cache/cell_edits.json', JSON.stringify(edits), {
-            httpMetadata: { contentType: 'application/json' },
-          });
-        } catch {}
+      const edits: Record<string, Record<number, string>> = body.cellEdits || {};
+      const db = await getD1Binding();
+      if (db) {
+        await syncCellEditsToD1(db, edits, true);
       }
-      if (memoryCache?.payload) {
-        memoryCache.payload.cellEdits = edits;
-      }
-      return NextResponse.json({ success: true, cellEdits: edits });
+      const mergedCellEdits = await patchAllJsonAndSyncSheets({
+        replaceCellEdits: edits,
+      });
+      return NextResponse.json({ success: true, cellEdits: mergedCellEdits });
     }
 
     // Hỗ trợ lưu hàng loạt (batch) trực tiếp vào D1 SQL Database và R2 (Siêu tốc O(1) CPU, không đọc/ghi all.json)
@@ -500,6 +760,7 @@ export async function POST(request: Request) {
         const db = await getD1Binding();
         if (db && d1Items.length > 0) {
           await batchUpsertD1Declarations(db, d1Items);
+          await deleteCellEditsForCodesInD1(db, savedCodes);
         }
       } catch (d1Err) {
         console.warn('Lỗi batch ghi D1:', d1Err);
@@ -511,50 +772,27 @@ export async function POST(request: Request) {
       // Invalidate in-memory caches ngay lập tức
       memoryAllJsonCache = null;
 
-      // Xử lý cellEdits nếu được gửi kèm
-      if (body.cellEdits) {
-        const edits = body.cellEdits;
-        const bucket = await getR2Binding();
-        if (bucket) {
-          try {
-            await bucket.put('cache/cell_edits.json', JSON.stringify(edits), {
-              httpMetadata: { contentType: 'application/json' },
-            });
-          } catch {}
-        }
-        if (memoryCache?.payload) {
-          memoryCache.payload.cellEdits = edits;
-        }
-      }
-
-      // Cập nhật ngay all.json lên R2 để đảm bảo các request fetch sau đó không bị đọc cache cũ
+      // Xử lý cellEdits nếu được gửi kèm và vá ngay all.json + cache/sync_sheets.json trên R2
       try {
-        const currentPayload = await getDeclarationsFromR2(true);
-        for (const fullDecl of d1Items) {
-          currentPayload.declarationsMap[fullDecl.ma_thua] = fullDecl;
-          if (!currentPayload.declaredCodes.includes(fullDecl.ma_thua)) {
-            currentPayload.declaredCodes.push(fullDecl.ma_thua);
-          }
-        }
-        if (body.cellEdits) {
-          currentPayload.cellEdits = body.cellEdits;
-        }
-        currentPayload.updatedAt = timestamp;
-        await saveDeclarationsToR2(currentPayload);
+        await patchAllJsonAndSyncSheets({
+          declItems: d1Items,
+          replaceCellEdits: body.cellEdits || undefined,
+          timestamp,
+        });
       } catch (r2AllErr) {
-        console.warn('Lỗi cập nhật tức thì all.json lên R2:', r2AllErr);
+        console.warn('Lỗi cập nhật tức thì all.json & sync_sheets lên R2:', r2AllErr);
       }
 
-      // 3. Tác vụ nền: Đồng bộ all.json được throttle (tối đa 1 lần / 60s)
-      const ctx = await getCloudflareCtx();
-      if (ctx && typeof ctx.waitUntil === 'function') {
-        ctx.waitUntil(syncAllJsonToR2Background());
+      const savedDeltaMap: Record<string, any> = {};
+      for (const fullDecl of d1Items) {
+        savedDeltaMap[fullDecl.ma_thua] = fullDecl;
       }
 
       return NextResponse.json({
         success: true,
         batchCount: d1Items.length,
         declaredCodes: savedCodes,
+        declarationsMap: savedDeltaMap,
         updatedAt: timestamp,
       });
     }
@@ -618,9 +856,9 @@ export async function POST(request: Request) {
 
     const rootParts = rootMaThua.split('_');
     const rootBrief = parcelsBrief[rootMaThua];
-    const rootDienTich = (rootBrief && rootBrief[0]) || formData.dien_tich || '1000';
+    const rootDienTich = formData.dien_tich || (rootBrief && rootBrief[0]) || '1000';
     const rootLoaiDat = formData.loai_dat || (rootBrief && rootBrief[1]) || 'LUK';
-    const rootThonXa = formData.thon_xa || formData.dia_chi_thua_dat || (rootBrief && rootBrief[2]) || 'xã Cư Pui';
+    const rootThonXa = formData.dia_chi_thua_dat || formData.thon_xa || (rootBrief && rootBrief[2]) || 'xã Cư Pui';
 
     const rootDeclData = {
       ...formData,
@@ -650,7 +888,7 @@ export async function POST(request: Request) {
         const apCode = ap.ma_thua;
         const apParts = apCode.split('_');
         const apBrief = parcelsBrief[apCode];
-        const apDienTich = (apBrief && apBrief[0]) || ap.dien_tich || '1000';
+        const apDienTich = ap.dien_tich || (apBrief && apBrief[0]) || '1000';
         const apLoaiDat = ap.loai_dat || (apBrief && apBrief[1]) || rootLoaiDat;
         const apThonXa = ap.thon_xa || (apBrief && apBrief[2]) || rootThonXa;
         const defaultApOrigin = isAgriculturalLand(apLoaiDat) ? 'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất' : 'Khai hoang';
@@ -687,6 +925,7 @@ export async function POST(request: Request) {
         for (const apDecl of attachedDecls) {
           await upsertD1Declaration(db, apDecl);
         }
+        await deleteCellEditsForCodesInD1(db, Array.from(targetCodes));
       } catch (d1SaveErr) {
         console.warn('Lỗi ghi D1 (vẫn lưu R2 đơn lẻ):', d1SaveErr);
       }
@@ -712,10 +951,21 @@ export async function POST(request: Request) {
     // Invalidate in-memory cache
     memoryAllJsonCache = null;
 
-    // Tác vụ nền: Đồng bộ ngầm all.json lên R2 được throttle (tối đa 1 lần / 60 giây)
-    const ctx = await getCloudflareCtx();
-    if (ctx && typeof ctx.waitUntil === 'function') {
-      ctx.waitUntil(syncAllJsonToR2Background());
+    // Vá tức thì declarations/all.json & cache/sync_sheets.json trên R2 (không bị chặn bởi throttle 60s)
+    const removedAttached =
+      previousDecl && Array.isArray(previousDecl.thua_kem_theo)
+        ? previousDecl.thua_kem_theo
+            .map((ap: any) => ap?.ma_thua)
+            .filter((c: string) => Boolean(c) && !targetCodes.has(c))
+        : [];
+    try {
+      await patchAllJsonAndSyncSheets({
+        declItems: [rootDeclData, ...attachedDecls],
+        deletedCodes: removedAttached,
+        timestamp,
+      });
+    } catch (patchErr) {
+      console.warn('Lỗi vá all.json / sync_sheets sau khi lưu đơn lẻ:', patchErr);
     }
 
     // Trả về delta chỉ chứa các thửa vừa lưu (siêu nhẹ <1KB, phản hồi ngay lập tức ~1ms)
@@ -782,10 +1032,13 @@ export async function DELETE(request: Request) {
       }
     }
 
-    // 4. Tác vụ nền: Đồng bộ ngầm all.json (throttled)
-    const ctx = await getCloudflareCtx();
-    if (ctx && typeof ctx.waitUntil === 'function') {
-      ctx.waitUntil(syncAllJsonToR2Background());
+    // 4. Vá tức thì all.json & sync_sheets.json sau khi xóa
+    try {
+      await patchAllJsonAndSyncSheets({
+        deletedCodes: [targetMaThua],
+      });
+    } catch (patchErr) {
+      console.warn('Lỗi vá all.json sau khi xóa:', patchErr);
     }
 
     return NextResponse.json({
