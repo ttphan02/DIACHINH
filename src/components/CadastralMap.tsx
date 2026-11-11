@@ -982,7 +982,7 @@ export default function CadastralMap({
   }, [map, userLocation, onToggleLocation]);
 
   return (
-    <div className="relative w-full h-full overflow-hidden bg-slate-900">
+    <div className="relative isolate z-0 w-full h-full overflow-hidden bg-slate-900">
       <div ref={mapContainerRef} className="w-full h-full bg-slate-900" />
 
       {/* Tooltip nhẹ nhàng khi rê chuột trên máy tính */}
@@ -1046,7 +1046,15 @@ export default function CadastralMap({
       </div>
 
       {/* NÚT TRÒN ĐỊNH VỊ & ĐIỀU KHIỂN NỔI (GOOGLE MAPS STYLE) */}
-      <div className="absolute bottom-20 right-3.5 sm:bottom-24 sm:right-4 z-[1000] flex flex-col items-end gap-2">
+      <div
+        className={`absolute z-[1000] flex-col items-end gap-2 transition-all duration-300 ${
+          isBottomPanelActive
+            ? mobilePanelHeightRatio <= 0.55
+              ? 'flex bottom-[calc(50dvh+10px)] right-3 lg:bottom-24 lg:right-4'
+              : 'hidden lg:flex bottom-24 right-4'
+            : 'flex bottom-20 right-3.5 sm:bottom-24 sm:right-4'
+        }`}
+      >
         {/* Nút bật/tắt hiển thị tên trên bản đồ */}
         <button
           type="button"
@@ -1104,7 +1112,15 @@ export default function CadastralMap({
       </div>
 
       {/* Mobile Dot Count & Selection Badge */}
-      <div className="absolute bottom-4 left-3 z-[1000] lg:hidden bg-slate-950/90 px-2.5 py-1 rounded-full text-[11px] font-bold text-white border border-slate-700/60 shadow-lg pointer-events-none flex items-center gap-2">
+      <div
+        className={`absolute left-3 z-[1000] lg:hidden bg-slate-950/90 px-2.5 py-1 rounded-full text-[11px] font-bold text-white border border-slate-700/60 shadow-lg pointer-events-none items-center gap-2 transition-all duration-300 ${
+          isBottomPanelActive
+            ? mobilePanelHeightRatio <= 0.55
+              ? 'flex bottom-[calc(50dvh+10px)]'
+              : 'hidden'
+            : 'flex bottom-4'
+        }`}
+      >
         {selectedParcel ? (
           <span className="flex items-center gap-1.5 text-red-400">
             <span className="w-2.5 h-2.5 rounded-full bg-red-600 ring-2 ring-white" />
