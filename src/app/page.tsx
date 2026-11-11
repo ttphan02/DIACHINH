@@ -11,7 +11,7 @@ import CccdUploadBottomSheet from '@/components/CccdUploadBottomSheet';
 import CccdCollectPanel from '@/components/CccdCollectPanel';
 import CadreNameModal from '@/components/CadreNameModal';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
-import { isPersonName, cleanStrictName, stripAccents, isAgriculturalLand, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN, isExcludedLandType, cleanVillageDisplay, getCanonicalVillage, cleanCccd, cleanName } from '@/utils/textHelpers';
+import { isPersonName, cleanStrictName, stripAccents, isAgriculturalLand, isExcludedLandType, cleanVillageDisplay, getCanonicalVillage, cleanCccd, cleanName } from '@/utils/textHelpers';
 import {
   getStoredDeclarations,
   saveOrUpdateDeclaration,

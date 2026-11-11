@@ -137,12 +137,12 @@ export function isExcludedLandType(loaiDat?: string | null): boolean {
   return false;
 }
 
-// Nguồn gốc sử dụng đất chuẩn hóa theo Luật Đất đai
+// Nguồn gốc sử dụng đất sử dụng riêng khi nhập lên web KH2959
 export const NGUON_GOC_NN_GIAO_KHONG_THU_TIEN =
   'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất';
 
+// Trên hệ thống chỉ sử dụng 4 nguồn gốc sử dụng đất
 export const NGUON_GOC_OPTIONS = [
-  NGUON_GOC_NN_GIAO_KHONG_THU_TIEN,
   'Khai Hoang',
   'Thừa Kế',
   'Tặng Cho',
@@ -161,45 +161,41 @@ export function isAgriculturalLand(loaiDat?: string): boolean {
 
 // Nhãn ngắn gọn hiển thị trên các nút bấm UI
 export function getNguonGocShortLabel(val?: string): string {
-  if (!val) return 'NN công nhận (không thu tiền)';
+  if (!val) return 'Khai Hoang';
+  const s = stripAccents(val).toLowerCase();
   if (
     val === NGUON_GOC_NN_GIAO_KHONG_THU_TIEN ||
-    val.includes('khong thu tien') ||
-    val.includes('không thu tiền') ||
-    val.includes('công nhận')
+    s.includes('khong thu tien') ||
+    s.includes('cong nhan') ||
+    s.includes('giao dat')
   ) {
-    return 'NN công nhận (không thu tiền)';
+    return 'Khai Hoang';
   }
-  return val;
+  return normalizeNguonGoc(val);
 }
 
-// Chuẩn hóa nguồn gốc sử dụng đất:
-// - Tất cả loại đất ngoài ONT hoặc ONT+...: Luôn là "Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất"
-// - Riêng loại đất ONT hoặc ONT+...: Cho phép giữ/chọn các nguồn gốc khác (Khai Hoang, Thừa Kế, Tặng Cho, Chuyển Nhượng...)
-export function normalizeNguonGoc(val?: string, loaiDat?: string): string {
-  // Nếu loại đất không phải ONT hoặc ONT+... (phi-ONT)
-  if (loaiDat && !isOntLand(loaiDat)) {
-    return NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
-  }
-
-  // Với đất ONT hoặc ONT+... (hoặc khi chưa truyền loaiDat)
+// Chuẩn hóa nguồn gốc sử dụng đất trên hệ thống về 1 trong 4 loại:
+// Khai Hoang, Thừa Kế, Tặng Cho, Chuyển Nhượng
+// (Loại "Nhà nước công nhận..." chỉ dùng khi nộp lên hệ thống web KH2959)
+export function normalizeNguonGoc(val?: string, _loaiDat?: string): string {
   if (!val) {
-    if (loaiDat && !isOntLand(loaiDat)) {
-      return NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
-    }
     return 'Khai Hoang';
   }
 
   const s = stripAccents(val).toLowerCase();
-  if (s.includes('khong thu tien') || s.includes('cong nhan') || s.includes('giao dat')) {
-    return NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
-  }
   if (s.includes('thua ke')) return 'Thừa Kế';
   if (s.includes('tang cho')) return 'Tặng Cho';
   if (s.includes('chuyen nhuong')) return 'Chuyển Nhượng';
-  if (s.includes('khai hoang')) return 'Khai Hoang';
+  if (
+    s.includes('khai hoang') ||
+    s.includes('khong thu tien') ||
+    s.includes('cong nhan') ||
+    s.includes('giao dat')
+  ) {
+    return 'Khai Hoang';
+  }
 
-  return val.trim();
+  return 'Khai Hoang';
 }
 
 // Kiểm tra tính hợp lệ của CCCD: đúng 12 chữ số (hoặc 9 số CMND)

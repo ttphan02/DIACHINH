@@ -42,7 +42,6 @@ import {
   stripHonorifics,
   cleanBoundaryText,
   NGUON_GOC_OPTIONS,
-  NGUON_GOC_NN_GIAO_KHONG_THU_TIEN,
   getNguonGocShortLabel,
   isAgriculturalLand,
   normalizeNguonGoc,
@@ -1948,7 +1947,7 @@ export default function ParcelDetailPanel({
                 <span>Nguồn gốc sử dụng đất <span className="text-red-500">*</span></span>
                 <span className="text-[10px] text-blue-600 font-bold">{getNguonGocShortLabel(nguonGocSuDung)}</span>
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-2 gap-1.5">
                 {NGUON_GOC_OPTIONS.map((opt) => (
                   <button
                     key={opt}

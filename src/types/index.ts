@@ -54,15 +54,10 @@ export interface AutoBoundariesResult {
 export type DeclarationMode = 'SELF' | 'SURVEYOR';
 
 export type NguonGocSuDung =
-  | 'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất'
   | 'Khai Hoang'
   | 'Thừa Kế'
   | 'Tặng Cho'
   | 'Chuyển Nhượng'
-  | 'Khai hoang'
-  | 'Nhận Thừa Kế'
-  | 'Nhận Tặng Cho'
-  | 'Nhận chuyển nhượng'
   | string;
 
 export interface AdditionalParcel {

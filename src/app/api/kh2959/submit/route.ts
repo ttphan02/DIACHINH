@@ -2,8 +2,6 @@ import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import {
   normalizeNguonGoc,
-  isAgriculturalLand,
-  isOntLand,
   formatDiaChiThuongTru,
   NGUON_GOC_NN_GIAO_KHONG_THU_TIEN,
 } from '@/utils/textHelpers';
@@ -170,10 +168,10 @@ export async function POST(request: Request) {
           const maDinhDanh = item.ma_dinh_danh || (await lookupGeohash('24478', soTo, soThua)) || '';
           const dienTichVal = String(item.dien_tich || '1000').replace(',', '.').trim();
 
-          const isOnt = isOntLand(loaiDat);
-          const nguonGocVal = !isOnt
-            ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN
-            : normalizeNguonGoc(item.nguon_goc, loaiDat);
+          // 4 nguồn gốc trên hệ thống (Khai Hoang, Thừa Kế, Tặng Cho, Chuyển Nhượng)
+          // khi nhập lên hệ thống web KH2959 đều sử dụng NN công nhận quyền sử dụng đất như NN giao đất không thu tiền
+          const systemOrigin = normalizeNguonGoc(item.nguon_goc, loaiDat);
+          const nguonGocVal = systemOrigin ? NGUON_GOC_NN_GIAO_KHONG_THU_TIEN : NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
 
           return {
             thua: {

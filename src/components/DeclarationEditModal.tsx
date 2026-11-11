@@ -35,7 +35,6 @@ import {
   stripHonorifics,
   cleanBoundaryText,
   NGUON_GOC_OPTIONS,
-  NGUON_GOC_NN_GIAO_KHONG_THU_TIEN,
   getNguonGocShortLabel,
   isAgriculturalLand,
   normalizeNguonGoc,
@@ -761,7 +760,7 @@ export default function DeclarationEditModal({
               </span>
               <span className="text-[10px] text-blue-400 font-bold">{getNguonGocShortLabel(nguonGocSuDung)}</span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {NGUON_GOC_OPTIONS.map((opt) => (
                 <button
                   key={opt}
@@ -990,7 +989,7 @@ export default function DeclarationEditModal({
               </div>
 
               {anhGcnList.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {anhGcnList.map((url, idx) => (
                     <div
                       key={idx}

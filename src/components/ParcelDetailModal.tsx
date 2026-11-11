@@ -23,7 +23,6 @@ import {
   cleanName,
   cleanBoundaryText,
   NGUON_GOC_OPTIONS,
-  NGUON_GOC_NN_GIAO_KHONG_THU_TIEN,
   getNguonGocShortLabel,
   isAgriculturalLand,
   normalizeNguonGoc,
@@ -633,7 +632,7 @@ export default function ParcelDetailModal({
                   </label>
                   <span className="text-xs font-bold text-blue-600">{getNguonGocShortLabel(nguonGocSuDung)}</span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {NGUON_GOC_OPTIONS.map((ng) => (
                     <button
                       type="button"

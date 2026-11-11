@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredVa
 import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
-import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, cleanVillageDisplay, normalizeNguonGoc, NGUON_GOC_OPTIONS, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN, isAgriculturalLand, getNguonGocShortLabel, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName, isOntLand, formatDiaChiThuongTru, isExcludedLandType } from '@/utils/textHelpers';
+import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, cleanVillageDisplay, normalizeNguonGoc, NGUON_GOC_OPTIONS, isAgriculturalLand, getNguonGocShortLabel, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName, isOntLand, formatDiaChiThuongTru, isExcludedLandType } from '@/utils/textHelpers';
 import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName, removePendingDeclaration, clearPendingDeclarations, syncAllLocalDataToServer } from '@/utils/declaration';
 import { broadcastRealtimeEvent, onRealtimeEvent } from '@/utils/realtimeSync';
 import dynamic from 'next/dynamic';
@@ -1000,7 +1000,7 @@ export default function DashboardPage() {
     const diaChiThua = safeDecl.dia_chi_thua_dat || safeDecl.thon_xa || safeDecl.chu_dat_dia_chi || findColVal([/thon/, /buon/]) || (p?.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'Xã Cư Pui');
     const dienTich = safeDecl.dien_tich || findColVal([/dien tich/]) || p?.dien_tich || '';
     const loaiDat = safeDecl.loai_dat || findColVal([/loai dat/]) || p?.loai_dat || 'DGT';
-    const defaultOrigin = isOntLand(loaiDat) ? 'Khai hoang' : NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
+    const defaultOrigin = 'Khai Hoang';
     const rawOrigin = safeDecl.nguon_goc || safeDecl.nguon_goc_su_dung || findColVal([/nguon goc/]) || defaultOrigin;
     const nguonGoc = normalizeNguonGoc(rawOrigin, loaiDat);
 
@@ -1056,12 +1056,6 @@ export default function DashboardPage() {
       const loaiDatForOrigin = updatedDecl.loai_dat || p?.loai_dat || '';
       updatedDecl.nguon_goc = normalizeNguonGoc(formattedValue, loaiDatForOrigin);
       (updatedDecl as any).nguon_goc_su_dung = updatedDecl.nguon_goc;
-    }
-    if (fieldKey === 'loai_dat') {
-      if (!isOntLand(formattedValue)) {
-        updatedDecl.nguon_goc = NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
-        (updatedDecl as any).nguon_goc_su_dung = NGUON_GOC_NN_GIAO_KHONG_THU_TIEN;
-      }
     }
 
     // 1. Cập nhật ngay tức thì vào React State & LocalStorage (0ms latency)
@@ -3999,7 +3993,7 @@ export default function DashboardPage() {
                         cccdVal ? `="${cccdVal}"` : '',
                         decl.dien_tich || p.dien_tich || '',
                         ld,
-                        'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất',
+                        'Khai Hoang',
                         `Đất ${ld} chuyên dùng/công cộng - Không kê khai`
                       ];
                     });

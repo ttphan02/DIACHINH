@@ -1,5 +1,5 @@
 import { DeclarationFormData } from '@/types';
-import { isAgriculturalLand, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN } from '@/utils/textHelpers';
+import { isAgriculturalLand } from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
 
 const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;

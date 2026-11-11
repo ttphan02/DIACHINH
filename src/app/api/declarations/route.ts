@@ -891,7 +891,7 @@ export async function POST(request: Request) {
         const apDienTich = ap.dien_tich || (apBrief && apBrief[0]) || '1000';
         const apLoaiDat = ap.loai_dat || (apBrief && apBrief[1]) || rootLoaiDat;
         const apThonXa = ap.thon_xa || (apBrief && apBrief[2]) || rootThonXa;
-        const defaultApOrigin = isAgriculturalLand(apLoaiDat) ? 'Nhà nước công nhận quyền sử dụng đất như Nhà nước giao đất không thu tiền sử dụng đất' : 'Khai hoang';
+        const defaultApOrigin = 'Khai Hoang';
         const apNguonGoc = ap.nguon_goc || formData.nguon_goc_su_dung || defaultApOrigin;
 
         const attachedDeclData = {

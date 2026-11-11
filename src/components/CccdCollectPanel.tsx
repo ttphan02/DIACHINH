@@ -125,7 +125,7 @@ export default function CccdCollectPanel({
   // Trạng thái đã tích chọn (lưu bền vững vào localStorage)
   const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set());
 
-  // Sub-modal sửa đầy đủ thông tin (tên, năm sinh, giới tính, CCCD, diện tích, loại đất, nguồn gốc, thôn / buôn)
+  // Sub-modal sửa thông tin (tên, năm sinh, giới tính, CCCD [chỉ tab Chưa làm], nguồn gốc [chỉ tab Chưa làm], thôn / buôn)
   const [movingPerson, setMovingPerson] = useState<MissingCccdPerson | null>(null);
   const [correctedName, setCorrectedName] = useState<string>('');
   const [editNamSinh, setEditNamSinh] = useState<string>('');
@@ -135,10 +135,6 @@ export default function CccdCollectPanel({
   const [editCccd, setEditCccd] = useState<string>('');
   const [initialCccd, setInitialCccd] = useState<string>('');
   const [targetVillage, setTargetVillage] = useState<string>('');
-  const [editDienTich, setEditDienTich] = useState<string>('');
-  const [initialDienTich, setInitialDienTich] = useState<string>('');
-  const [editLoaiDat, setEditLoaiDat] = useState<string>('');
-  const [initialLoaiDat, setInitialLoaiDat] = useState<string>('');
   const [selectedNguonGoc, setSelectedNguonGoc] = useState<string>('Khai Hoang');
   const [initialNguonGoc, setInitialNguonGoc] = useState<string>('Khai Hoang');
   const [isSavingMove, setIsSavingMove] = useState(false);
@@ -620,7 +616,7 @@ export default function CccdCollectPanel({
     }
   };
 
-  // Mở popup sửa đầy đủ thông tin (tên, năm sinh, giới tính, CCCD, diện tích, loại đất, nguồn gốc, thôn / buôn)
+  // Mở popup sửa thông tin (Tab 1: tên, năm sinh, giới tính, thôn/buôn; Tab 2: thêm CCCD và nguồn gốc)
   const handleOpenMoveModal = (person: MissingCccdPerson) => {
     setMovingPerson(person);
     setCorrectedName(person.name);
@@ -629,7 +625,6 @@ export default function CccdCollectPanel({
     const firstCode = person.maThuaList[0];
     const firstDecl = firstCode ? declarationsMap[firstCode] : undefined;
     const firstEdits = firstCode ? cellEdits?.[firstCode] || {} : {};
-    const firstDetail = person.parcelDetails[0];
 
     const initDob = String(
       firstEdits[4] ?? firstDecl?.chu_dat_nam_sinh ?? firstDecl?.nam_sinh_chu_ho ?? person.namSinh ?? ''
@@ -641,15 +636,8 @@ export default function CccdCollectPanel({
     const initCccdVal = cleanCccd(
       String(firstEdits[6] ?? firstDecl?.chu_dat_cccd ?? firstDecl?.cccd_chu_ho ?? firstDecl?.cccd ?? person.cccdNumber ?? '')
     );
-    const initArea = String(
-      firstEdits[7] ?? firstDecl?.dien_tich ?? firstDetail?.dienTich ?? person.dienTich ?? ''
-    ).trim();
-    const initLd = String(
-      firstEdits[8] ?? firstDecl?.loai_dat ?? firstDetail?.loaiDat ?? person.loaiDat ?? ''
-    ).trim().toUpperCase();
     const initOrigin = normalizeNguonGoc(
-      firstEdits[9] ?? firstDecl?.nguon_goc_su_dung ?? firstDecl?.nguon_goc ?? person.nguonGoc,
-      initLd
+      firstEdits[9] ?? firstDecl?.nguon_goc_su_dung ?? firstDecl?.nguon_goc ?? person.nguonGoc
     );
 
     setEditNamSinh(initDob);
@@ -658,10 +646,6 @@ export default function CccdCollectPanel({
     setInitialGioiTinh(initGender);
     setEditCccd(initCccdVal);
     setInitialCccd(initCccdVal);
-    setEditDienTich(initArea);
-    setInitialDienTich(initArea);
-    setEditLoaiDat(initLd);
-    setInitialLoaiDat(initLd);
     setSelectedNguonGoc(initOrigin);
     setInitialNguonGoc(initOrigin);
   };
@@ -670,19 +654,18 @@ export default function CccdCollectPanel({
   const handleConfirmUpdatePerson = async () => {
     if (!movingPerson) return;
 
+    const isDeclaredTab = movingPerson.sourceType !== 'unmade_named';
     const cleanNewName = cleanName(correctedName) || movingPerson.name;
     const finalVillage = targetVillage || movingPerson.thonXa;
     const cleanDob = editNamSinh.trim();
     const cleanCccdVal = cleanCccd(editCccd);
-    const cleanArea = editDienTich.trim();
-    const cleanLd = editLoaiDat.trim().toUpperCase();
-    const normalizedNguonGoc = normalizeNguonGoc(selectedNguonGoc, cleanLd);
+    const normalizedNguonGoc = normalizeNguonGoc(selectedNguonGoc);
 
     if (cleanDob && !isValidBirthYear(cleanDob)) {
       alert('Năm sinh không hợp lệ (cần đúng 4 chữ số, từ 1920 đến nay).');
       return;
     }
-    if (cleanCccdVal && !isValidCccd(cleanCccdVal)) {
+    if (!isDeclaredTab && cleanCccdVal && !isValidCccd(cleanCccdVal)) {
       alert(`Số CCCD cần đủ 12 chữ số (hiện tại: ${cleanCccdVal.length}/12).`);
       return;
     }
@@ -691,10 +674,8 @@ export default function CccdCollectPanel({
     const isVillageChanged = finalVillage !== movingPerson.thonXa;
     const isDobChanged = cleanDob !== initialNamSinh;
     const isGenderChanged = editGioiTinh !== initialGioiTinh;
-    const isCccdChanged = cleanCccdVal !== initialCccd;
-    const isAreaChanged = cleanArea !== initialDienTich;
-    const isLdChanged = cleanLd !== initialLoaiDat;
-    const isNguonGocChanged = normalizedNguonGoc !== initialNguonGoc;
+    const isCccdChanged = !isDeclaredTab && cleanCccdVal !== initialCccd;
+    const isNguonGocChanged = !isDeclaredTab && normalizedNguonGoc !== initialNguonGoc;
 
     if (
       !isNameChanged &&
@@ -702,8 +683,6 @@ export default function CccdCollectPanel({
       !isDobChanged &&
       !isGenderChanged &&
       !isCccdChanged &&
-      !isAreaChanged &&
-      !isLdChanged &&
       !isNguonGocChanged
     ) {
       setMovingPerson(null);
@@ -715,8 +694,8 @@ export default function CccdCollectPanel({
     try {
       const timestamp = new Date().toISOString();
 
-      if (movingPerson.sourceType === 'unmade_named') {
-        // Tab 2 (Chưa làm có tên trên bản đồ): Cập nhật thông qua cellEdits chuẩn cột CHƯA THỰC HIỆN (2..9)
+      if (!isDeclaredTab) {
+        // Tab 2 (Chưa làm có tên trên bản đồ): Không sửa diện tích/loại đất, chỉ cập nhật các cột cho phép
         const patchEdits: Record<string, Record<number, string>> = {};
         for (const maThua of movingPerson.maThuaList) {
           const patch: Record<number, string> = {};
@@ -725,8 +704,6 @@ export default function CccdCollectPanel({
           if (isDobChanged) patch[4] = cleanDob;
           if (isGenderChanged) patch[5] = editGioiTinh;
           if (isCccdChanged) patch[6] = cleanCccdVal;
-          if (isAreaChanged) patch[7] = cleanArea;
-          if (isLdChanged) patch[8] = cleanLd;
           if (isNguonGocChanged) patch[9] = normalizedNguonGoc;
           if (Object.keys(patch).length > 0) {
             patchEdits[maThua] = patch;
@@ -746,7 +723,7 @@ export default function CccdCollectPanel({
           });
         }
       } else {
-        // Tab 1 (Đã kê khai chưa CCCD): Cập nhật trực tiếp từng bản ghi kê khai
+        // Tab 1 (Đã kê khai chưa CCCD): Chỉ cập nhật tên, năm sinh, giới tính, thôn/buôn; giữ nguyên diện tích, loại đất, nguồn gốc, CCCD
         const updatedDecls: any[] = [];
         for (const maThua of movingPerson.maThuaList) {
           const existing = declarationsMap[maThua];
@@ -767,24 +744,17 @@ export default function CccdCollectPanel({
                 nam_sinh_chu_ho: isDobChanged ? cleanDob : (existing.nam_sinh_chu_ho ?? cleanDob),
                 chu_dat_gioi_tinh: isGenderChanged ? editGioiTinh : (existing.chu_dat_gioi_tinh || editGioiTinh),
                 gioi_tinh_chu_ho: isGenderChanged ? editGioiTinh : (existing.gioi_tinh_chu_ho || editGioiTinh),
-                chu_dat_cccd: isCccdChanged ? cleanCccdVal : (existing.chu_dat_cccd ?? cleanCccdVal),
-                cccd: isCccdChanged ? cleanCccdVal : (existing.cccd ?? cleanCccdVal),
-                cccd_chu_ho: isCccdChanged ? cleanCccdVal : (existing.cccd_chu_ho ?? cleanCccdVal),
-                dien_tich: isAreaChanged ? cleanArea : (existing.dien_tich ?? cleanArea),
-                loai_dat: isLdChanged ? cleanLd : (existing.loai_dat ?? cleanLd),
                 thon_xa: finalVillage,
                 dia_chi_thua_dat: finalVillage,
                 chu_dat_dia_chi: resolvedDiaChi,
-                nguon_goc: normalizedNguonGoc,
-                nguon_goc_su_dung: normalizedNguonGoc,
                 updated_at: timestamp,
               }
             : {
                 ma_thua: maThua,
                 to_ban_do: toP || '',
                 so_thua: thuaP || '',
-                dien_tich: cleanArea || (baseBrief && baseBrief[0]) || '',
-                loai_dat: cleanLd || (baseBrief && baseBrief[1]) || '',
+                dien_tich: (baseBrief && baseBrief[0]) || '',
+                loai_dat: (baseBrief && baseBrief[1]) || '',
                 chu_dat_ten: cleanNewName,
                 chu_ho: cleanNewName,
                 ho_va_ten_chu_ho: cleanNewName,
@@ -792,14 +762,11 @@ export default function CccdCollectPanel({
                 nam_sinh_chu_ho: cleanDob,
                 chu_dat_gioi_tinh: editGioiTinh,
                 gioi_tinh_chu_ho: editGioiTinh,
-                chu_dat_cccd: cleanCccdVal,
-                cccd: cleanCccdVal,
-                cccd_chu_ho: cleanCccdVal,
                 thon_xa: finalVillage,
                 dia_chi_thua_dat: finalVillage,
                 chu_dat_dia_chi: formatDiaChiThuongTru(finalVillage),
-                nguon_goc: normalizedNguonGoc,
-                nguon_goc_su_dung: normalizedNguonGoc,
+                nguon_goc: normalizeNguonGoc(movingPerson.nguonGoc),
+                nguon_goc_su_dung: normalizeNguonGoc(movingPerson.nguonGoc),
                 device_id: getSavedCadreName() || getOrCreateDeviceId(),
                 created_at: timestamp,
                 updated_at: timestamp,
@@ -1193,23 +1160,20 @@ export default function CccdCollectPanel({
         </button>
       </div>
 
-      {/* SUB-MODAL: SỬA ĐẦY ĐỦ THÔNG TIN & CHUYỂN THÔN BUÔN (ĐỒNG BỘ 2 CHIỀU) */}
+      {/* SUB-MODAL: SỬA THÔNG TIN & CHUYỂN THÔN BUÔN (ĐỒNG BỘ 2 CHIỀU) */}
       {movingPerson && (() => {
+        const isDeclaredTab = movingPerson.sourceType !== 'unmade_named';
         const cleanNewName = cleanName(correctedName);
         const cleanDob = editNamSinh.trim();
         const cleanCccdVal = cleanCccd(editCccd);
-        const cleanArea = editDienTich.trim();
-        const cleanLd = editLoaiDat.trim().toUpperCase();
-        const normalizedOrigin = normalizeNguonGoc(selectedNguonGoc, cleanLd);
+        const normalizedOrigin = normalizeNguonGoc(selectedNguonGoc);
 
         const isNameChanged = cleanNewName && cleanNewName.toLowerCase() !== movingPerson.name.toLowerCase();
         const isVillageChanged = targetVillage && targetVillage !== movingPerson.thonXa;
         const isDobChanged = cleanDob !== initialNamSinh;
         const isGenderChanged = editGioiTinh !== initialGioiTinh;
-        const isCccdChanged = cleanCccdVal !== initialCccd;
-        const isAreaChanged = cleanArea !== initialDienTich;
-        const isLdChanged = cleanLd !== initialLoaiDat;
-        const isNguonGocChanged = normalizedOrigin !== initialNguonGoc;
+        const isCccdChanged = !isDeclaredTab && cleanCccdVal !== initialCccd;
+        const isNguonGocChanged = !isDeclaredTab && normalizedOrigin !== initialNguonGoc;
 
         const hasAnyChange =
           isNameChanged ||
@@ -1217,8 +1181,6 @@ export default function CccdCollectPanel({
           isDobChanged ||
           isGenderChanged ||
           isCccdChanged ||
-          isAreaChanged ||
-          isLdChanged ||
           isNguonGocChanged;
         const canSave = hasAnyChange && cleanNewName.length >= 2;
 
@@ -1235,7 +1197,7 @@ export default function CccdCollectPanel({
                       Cập Nhật Thông Tin Thửa
                     </h3>
                     <p className="text-[10px] text-gray-500">
-                      Đồng bộ 2 chiều với Dashboard • {movingPerson.sourceType === 'unmade_named' ? 'Chưa làm có tên' : 'Đã kê khai'}
+                      Đồng bộ 2 chiều với Dashboard • {isDeclaredTab ? 'Đã kê khai' : 'Chưa làm có tên'}
                     </p>
                   </div>
                 </div>
@@ -1249,7 +1211,7 @@ export default function CccdCollectPanel({
               </div>
 
               <div className="space-y-2.5 text-xs">
-                {/* Thông tin hiện tại */}
+                {/* Thông tin hiện tại (Không hiển thị Diện tích & Loại đất) */}
                 <div className="p-2.5 rounded-xl bg-gray-50/90 border border-gray-100 space-y-1 text-xs">
                   <div className="flex justify-between items-center">
                     <span className="text-gray-500">Tên hiện tại:</span>
@@ -1261,37 +1223,28 @@ export default function CccdCollectPanel({
                     <span className="text-gray-500">Thôn hiện tại:</span>
                     <span className="font-bold text-rose-600">{movingPerson.thonXa}</span>
                   </div>
-                  <div className="flex justify-between items-center py-0.5">
-                    <span className="text-gray-500 font-medium">Loại đất:</span>
-                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                  <div className="flex justify-between items-center gap-2 pt-0.5">
+                    <span className="text-gray-500 shrink-0">Số thửa đất:</span>
+                    <div className="flex items-center gap-1 flex-wrap justify-end">
                       {movingPerson.parcelDetails && movingPerson.parcelDetails.length > 0 ? (
-                        movingPerson.parcelDetails.map((pd, pdIdx) => {
-                          const loaiDatDisplay = pd.loaiDat
-                            ? `(${pd.loaiDat})`
-                            : (pd.soThua ? `(Thửa ${pd.soThua})` : '(Đất)');
-                          return (
-                            <button
-                              key={pdIdx}
-                              type="button"
-                              onClick={() => handleZoomToParcel(pd.maThua)}
-                              className="inline-flex items-center px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-black rounded-lg border border-blue-200 text-xs transition cursor-pointer shadow-2xs active:scale-95"
-                              title="Bấm để định vị thửa đất này trên bản đồ"
-                            >
-                              <span>{loaiDatDisplay}</span>
-                              <MapPin className="w-2.5 h-2.5 ml-0.5 text-blue-600" />
-                            </button>
-                          );
-                        })
+                        movingPerson.parcelDetails.map((pd, pdIdx) => (
+                          <button
+                            key={pdIdx}
+                            type="button"
+                            onClick={() => handleZoomToParcel(pd.maThua)}
+                            className="inline-flex items-center px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-black rounded-lg border border-blue-200 text-[11px] transition cursor-pointer shadow-2xs active:scale-95"
+                            title="Bấm để định vị thửa đất này trên bản đồ"
+                          >
+                            <span>{pd.soThua || pd.maThua}</span>
+                            <MapPin className="w-2.5 h-2.5 ml-0.5 text-blue-600" />
+                          </button>
+                        ))
                       ) : (
-                        <span className="text-gray-400">Chưa rõ</span>
+                        <span className="font-black text-gray-900">
+                          {movingPerson.soThuaList.join(', ') || movingPerson.maThuaList.join(', ')}
+                        </span>
                       )}
                     </div>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-500">Số thửa đất:</span>
-                    <span className="font-black text-gray-900">
-                      {movingPerson.soThuaList.join(', ') || movingPerson.maThuaList.join(', ')}
-                    </span>
                   </div>
                 </div>
 
@@ -1354,79 +1307,54 @@ export default function CccdCollectPanel({
                   </div>
                 </div>
 
-                {/* Trường 3: Số CCCD */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-[11px] font-bold text-gray-700">Số CCCD:</label>
-                    <span className={`text-[10px] font-mono font-bold ${cleanCccdVal.length === 12 ? 'text-emerald-600' : 'text-gray-400'}`}>
-                      {cleanCccdVal.length}/12
-                    </span>
-                  </div>
-                  <input
-                    type="text"
-                    value={editCccd}
-                    onChange={(e) => setEditCccd(e.target.value.replace(/\D/g, '').slice(0, 12))}
-                    placeholder="Nhập 12 số CCCD (nếu có)..."
-                    className="w-full px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-mono font-bold bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
-                  />
-                </div>
+                {/* Số CCCD & Nguồn gốc sử dụng đất: CHỈ hiển thị & cho sửa ở tab Chưa làm có tên (Đã kê khai không hiển thị/sửa) */}
+                {!isDeclaredTab && (
+                  <>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-bold text-gray-700">Số CCCD:</label>
+                        <span className={`text-[10px] font-mono font-bold ${cleanCccdVal.length === 12 ? 'text-emerald-600' : 'text-gray-400'}`}>
+                          {cleanCccdVal.length}/12
+                        </span>
+                      </div>
+                      <input
+                        type="text"
+                        value={editCccd}
+                        onChange={(e) => setEditCccd(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                        placeholder="Nhập 12 số CCCD (nếu có)..."
+                        className="w-full px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-mono font-bold bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
+                      />
+                    </div>
 
-                {/* Trường 4: Diện tích + Loại đất */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[11px] font-bold mb-1 text-gray-700">
-                      Diện tích (m²):
-                    </label>
-                    <input
-                      type="text"
-                      value={editDienTich}
-                      onChange={(e) => setEditDienTich(e.target.value)}
-                      placeholder="Vd: 1200"
-                      className="w-full px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-medium bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold mb-1 text-gray-700">
-                      Loại đất:
-                    </label>
-                    <input
-                      type="text"
-                      value={editLoaiDat}
-                      onChange={(e) => setEditLoaiDat(e.target.value.toUpperCase())}
-                      placeholder="Vd: CLN, BHK..."
-                      className="w-full px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-bold uppercase bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
-                    />
-                  </div>
-                </div>
+                    <div>
+                      <label className="block text-[11px] font-bold mb-1 text-gray-700 flex items-center justify-between">
+                        <span>Nguồn gốc sử dụng đất:</span>
+                        <span className="text-[10px] text-blue-600 font-bold truncate max-w-[180px]">
+                          {getNguonGocShortLabel(selectedNguonGoc)} {isNguonGocChanged ? '(Đã đổi)' : '(Hiện tại)'}
+                        </span>
+                      </label>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {NGUON_GOC_OPTIONS.map((opt) => (
+                          <button
+                            type="button"
+                            key={opt}
+                            title={opt}
+                            onClick={() => setSelectedNguonGoc(opt)}
+                            className={`py-1.5 px-2 rounded-xl border text-[11px] font-bold transition text-center cursor-pointer ${
+                              selectedNguonGoc === opt
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                : 'bg-gray-50/80 text-gray-700 border-gray-200 hover:bg-gray-100'
+                            }`}
+                          >
+                            {getNguonGocShortLabel(opt)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
 
-                {/* Trường 5: Nguồn gốc sử dụng */}
-                <div>
-                  <label className="block text-[11px] font-bold mb-1 text-gray-700 flex items-center justify-between">
-                    <span>Nguồn gốc sử dụng đất:</span>
-                    <span className="text-[10px] text-blue-600 font-bold truncate max-w-[180px]">
-                      {getNguonGocShortLabel(selectedNguonGoc)} {isNguonGocChanged ? '(Đã đổi)' : '(Hiện tại)'}
-                    </span>
-                  </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
-                    {NGUON_GOC_OPTIONS.map((opt) => (
-                      <button
-                        type="button"
-                        key={opt}
-                        title={opt}
-                        onClick={() => setSelectedNguonGoc(opt)}
-                        className={`py-1.5 px-1 rounded-xl border text-[11px] font-bold transition text-center cursor-pointer ${
-                          selectedNguonGoc === opt
-                            ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                            : 'bg-gray-50/80 text-gray-700 border-gray-200 hover:bg-gray-100'
-                        }`}
-                      >
-                        {getNguonGocShortLabel(opt)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Trường 6: Thôn / Buôn */}
+                {/* Thôn / Buôn */}
                 <div>
                   <label className="block text-[11px] font-bold mb-1 text-gray-700">
                     Thôn / Buôn:

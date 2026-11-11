@@ -1,5 +1,5 @@
 import { getCloudflareContext } from '@opennextjs/cloudflare';
-import { isAgriculturalLand, NGUON_GOC_NN_GIAO_KHONG_THU_TIEN } from '@/utils/textHelpers';
+import { isAgriculturalLand } from '@/utils/textHelpers';
 
 let cachedD1: any = null;
 let schemaInitialized = false;
