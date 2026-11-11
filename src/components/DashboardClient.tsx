@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredVa
 import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
-import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, cleanVillageDisplay, normalizeNguonGoc, NGUON_GOC_OPTIONS, isAgriculturalLand, getNguonGocShortLabel, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName, isOntLand, formatDiaChiThuongTru, isExcludedLandType } from '@/utils/textHelpers';
+import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, cleanVillageDisplay, normalizeNguonGoc, NGUON_GOC_OPTIONS, isAgriculturalLand, getNguonGocShortLabel, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName, isOntLand, isGcnOntRoute, formatDiaChiThuongTru, isExcludedLandType } from '@/utils/textHelpers';
 import { applyDeclarationToState, removeDeclarationFromState, clearLegacyLocalDataStorage, getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
 import { broadcastRealtimeEvent, onRealtimeEvent } from '@/utils/realtimeSync';
 import dynamic from 'next/dynamic';
@@ -1664,11 +1664,6 @@ export default function DashboardPage() {
       const savedDecl = declarationsMap[p.ma_thua];
       const ggsInfo = ggsParcelsMap[p.ma_thua];
 
-      // Nếu mã thửa có trên Google Sheet Cột BF hoặc thuộc DIGITIZED_SET -> ĐÃ SỐ HÓA!
-      const isDigitized = DIGITIZED_SET.has(p.ma_thua) || ggsCodes.has(p.ma_thua) || kh2959ImportedCodes.has(p.ma_thua);
-      const isOnGgs = isDigitized;
-      const isDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(savedDecl);
-
       const edits = cellEdits[p.ma_thua] || {};
       // Gộp thêm dữ liệu kê khai / chỉnh sửa mới nhất (cả cho thửa đã kê khai và thửa chưa kê khai có cellEdits)
       const mergedChuHo = edits[3] ?? (savedDecl?.chu_dat_ten !== undefined ? savedDecl.chu_dat_ten : p.chu_ho);
@@ -1686,13 +1681,19 @@ export default function DashboardPage() {
       const mergedNamSinh = String(edits[4] ?? savedDecl?.chu_dat_nam_sinh ?? savedDecl?.nam_sinh_chu_ho ?? (p as any).ngay_sinh ?? '').trim();
       const mergedGioiTinh = String(edits[5] ?? savedDecl?.chu_dat_gioi_tinh ?? savedDecl?.gioi_tinh_chu_ho ?? (p as any).gioi_tinh ?? '').trim();
       const mergedNguonGoc = String(edits[9] ?? savedDecl?.nguon_goc ?? savedDecl?.nguon_goc_su_dung ?? (p as any).nguon_goc ?? '').trim();
-      const isOntParcel = /ont/i.test(loaiDat);
+      const isGcnOntParcel = isGcnOntRoute(loaiDat, mergedThon, p.to_ban_do);
+      const isBypassDigitizedOnt = isOntLand(loaiDat) && !isGcnOntParcel;
+
+      // Nếu mã thửa có trên Google Sheet Cột BF, KH2959, hoặc DIGITIZED_SET (trừ ONT của 5 thôn miễn GCN-ONT) -> ĐÃ SỐ HÓA!
+      const isDigitized = (DIGITIZED_SET.has(p.ma_thua) && !isBypassDigitizedOnt) || ggsCodes.has(p.ma_thua) || kh2959ImportedCodes.has(p.ma_thua);
+      const isOnGgs = isDigitized;
+      const isDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(savedDecl);
 
       let finalStatus: ParcelStatus;
       if (isOnGgs) {
         finalStatus = 'DA_SO_HOA_XANH';
       } else if (isDeclared) {
-        if (isOntParcel) {
+        if (isGcnOntParcel) {
           finalStatus = 'DA_SO_HOA_XANH';
         } else {
           finalStatus = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
@@ -1804,12 +1805,16 @@ export default function DashboardPage() {
 
   // Danh sách các thửa chưa số hóa trên GGS
   const nonGgsParcels = useMemo(() => {
-    return computedParcels.filter(
-      (p) => p.trang_thai !== 'DA_SO_HOA_XANH' && !DIGITIZED_SET.has(p.ma_thua) && !khongNhapCodes.has(p.ma_thua)
-    );
+    return computedParcels.filter((p) => {
+      if (khongNhapCodes.has(p.ma_thua)) return false;
+      if (p.trang_thai === 'DA_SO_HOA_XANH') return false;
+      const isBypassDigitizedOnt = isOntLand(p.loai_dat) && !isGcnOntRoute(p.loai_dat, p.thon_xa, p.to_ban_do);
+      if (DIGITIZED_SET.has(p.ma_thua) && !isBypassDigitizedOnt) return false;
+      return true;
+    });
   }, [computedParcels, ggsCodes, khongNhapCodes]);
 
-  // 1. THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD): Thửa đã kê khai + CCCD 12 số + có file trên R2 (ĐÃ LỌC BỎ THỬA ONT ĐỂ BỔ SUNG SAU)
+  // 1. THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD): Thửa đã kê khai + CCCD 12 số + có file trên R2 (loại trừ luồng GCN - ONT, giữ 5 thôn miễn GCN-ONT)
   const readyToPackParcels = useMemo(() => {
     return nonGgsParcels.filter((p) => {
       const isDeclared =
@@ -1823,8 +1828,9 @@ export default function DashboardPage() {
       if (decl.yeu_cau_thu_cccd) return false;
       const edits = cellEdits[p.ma_thua] || {};
       const loaiDat = String(edits[8] ?? decl.loai_dat ?? p.loai_dat ?? '').trim();
-      // Nếu loại đất là ONT hoặc có ONT: Tự động chuyển qua danh sách "GCN - ONT" để bổ sung sau
-      if (/ont/i.test(loaiDat)) return false;
+      const vAddr = edits[2] ?? decl.dia_chi_thua_dat ?? decl.thon_xa ?? decl.chu_dat_dia_chi ?? p.thon_xa;
+      // Nếu thuộc luồng GCN - ONT (ngoài 5 thôn Ea Bar, Ea Uôl, Ea Lang, Cư Tê, Ea Rớt): chuyển sang tab GCN - ONT
+      if (isGcnOntRoute(loaiDat, vAddr, p.to_ban_do)) return false;
 
       const rawCccd = edits[6] ?? decl.chu_dat_cccd ?? decl.cccd_chu_ho ?? decl.cccd ?? p.cccd;
       const cccdUrl = decl.cccd_url || p.cccd_url;
@@ -1841,7 +1847,7 @@ export default function DashboardPage() {
       .filter(Boolean) as Parcel[];
   }, [parcels]);
 
-  // Danh sách thửa đất ONT chờ bổ sung sau (GCN - ONT) - GIỮ ĐỦ 226 THỬA ĐẤT ONT ĐÃ KÊ KHAI
+  // Danh sách thửa đất ONT chờ bổ sung sau (GCN - ONT, loại trừ 5 thôn Ea Bar, Ea Uôl, Ea Lang, Cư Tê, Ea Rớt)
   const gcnOntParcels = useMemo(() => {
     return parcels.filter((p) => {
       if (HIDDEN_PARCEL_SET.has(p.ma_thua) || khongNhapCodes.has(p.ma_thua)) return false;
@@ -1857,11 +1863,12 @@ export default function DashboardPage() {
 
       const edits = cellEdits[p.ma_thua] || {};
       const loaiDat = String(edits[8] ?? decl?.loai_dat ?? p.loai_dat ?? '').trim();
-      return /ont/i.test(loaiDat);
+      const vAddr = edits[2] ?? decl?.dia_chi_thua_dat ?? decl?.thon_xa ?? decl?.chu_dat_dia_chi ?? p.thon_xa;
+      return isGcnOntRoute(loaiDat, vAddr, p.to_ban_do);
     });
   }, [parcels, declaredParcelCodes, declarationsMap, ggsCodes, kh2959ImportedCodes, cellEdits]);
 
-  // 2. THỬA ĐANG KÊ KHAI (CHƯA CÓ CCCD): Thửa đã kê khai NHƯNG chưa có CCCD hoặc chưa có file R2 (đã lọc bỏ ONT)
+  // 2. THỬA ĐANG KÊ KHAI (CHƯA CÓ CCCD): Thửa đã kê khai NHƯNG chưa có CCCD hoặc chưa có file R2 (loại trừ luồng GCN - ONT)
   const dangKeKhaiChuaCccdParcels = useMemo(() => {
     return nonGgsParcels.filter((p) => {
       const isDeclared =
@@ -1874,7 +1881,8 @@ export default function DashboardPage() {
       const decl = declarationsMap[p.ma_thua] || {};
       const edits = cellEdits[p.ma_thua] || {};
       const loaiDat = String(edits[8] ?? decl.loai_dat ?? p.loai_dat ?? '').trim();
-      if (/ont/i.test(loaiDat)) return false;
+      const vAddr = edits[2] ?? decl.dia_chi_thua_dat ?? decl.thon_xa ?? decl.chu_dat_dia_chi ?? p.thon_xa;
+      if (isGcnOntRoute(loaiDat, vAddr, p.to_ban_do)) return false;
 
       if (decl.yeu_cau_thu_cccd) return true;
 
@@ -4557,7 +4565,8 @@ export default function DashboardPage() {
                           const fileUrl = `/api/image/cccd/${encodeURIComponent(fileName)}`;
                           const fileFormula = `=HYPERLINK("${fileUrl}"; "${fileName}")`;
                           const loaiDat = String(decl?.loai_dat || r[8] || 'DGT');
-                          const isOnt = /ont/i.test(loaiDat);
+                          const villageAddr = String(decl?.dia_chi_thua_dat || decl?.thon_xa || decl?.chu_dat_dia_chi || r[2] || '');
+                          const isOnt = isGcnOntRoute(loaiDat, villageAddr, maThua.split('_')[0]);
 
                           const rowData = [
                             '',
@@ -4930,9 +4939,11 @@ export default function DashboardPage() {
                   const validNonOntNhapDuLieuRows = isNhapDuLieuSheet
                     ? allRows.filter((r) => {
                         const maThua = String(r[1] || '').trim();
-                        if (!maThua || kh2959ImportedCodes.has(maThua) || DIGITIZED_SET.has(maThua)) return false;
+                        if (!maThua || kh2959ImportedCodes.has(maThua)) return false;
                         const p = extractParcelFromRow(r);
-                        return !/ont/i.test(p.loai_dat || '');
+                        if (isGcnOntRoute(p.loai_dat, p.thon_xa, p.so_to)) return false;
+                        if (DIGITIZED_SET.has(maThua) && !isOntLand(p.loai_dat)) return false;
+                        return true;
                       })
                     : [];
 
@@ -4940,7 +4951,7 @@ export default function DashboardPage() {
                   const handleSingleImportToKh2959 = async (r: any[]) => {
                     const p = extractParcelFromRow(r);
                     if (!p.ma_thua || isSubmittingWeb) return;
-                    if (/ont/i.test(p.loai_dat || '')) {
+                    if (isGcnOntRoute(p.loai_dat, p.thon_xa, p.so_to)) {
                       alert(`Thửa ${p.so_thua} (Tờ ${p.so_to}) có loại đất ${p.loai_dat} (ONT) - Thuộc diện bổ sung sau, vui lòng xem tại tab 'GCN - ONT'!`);
                       return;
                     }
@@ -6348,14 +6359,17 @@ export default function DashboardPage() {
                                 const maThua = String(row[1] || '').trim();
                                 const isChecked = isGcnOntSheet ? gcnOntSelectedCodes.has(maThua) : readyToPackSelectedCodes.has(maThua);
                                 const landTypeIdx = headers.findIndex((h) => /loại đất|mục đích/i.test(h));
+                                const villageIdx = headers.findIndex((h) => /thôn|buôn/i.test(h));
                                 const rowLoaiDat = String(landTypeIdx !== -1 ? row[landTypeIdx] : '').trim();
-                                const isOntRow = /ont/i.test(rowLoaiDat) || isGcnOntSheet;
+                                const rowVillage = String(villageIdx !== -1 ? row[villageIdx] : '').trim();
+                                const isOntRow = isGcnOntRoute(rowLoaiDat, rowVillage, maThua.split('_')[0]) || isGcnOntSheet;
+                                const isBypassDigitizedOntRow = isOntLand(rowLoaiDat) && !isOntRow;
                                 const isReadyToDeclare = !isOntRow && isChuaThucHienSheet && checkIsRowReadyToDeclare(maThua, row);
                                 const isCanTimCccd = isChuaCoCccdSheet && getChuaCoCccdRowStatus(maThua, row) === 'CẦN TÌM CCCD';
                                 const isSaving = savingRowCodes.has(maThua);
                                 const hasEdited = Boolean(cellEdits[maThua]);
-                                // Tuyệt đối KHÔNG tô màu xanh cho thửa ONT, ONT+ trên bất kỳ danh sách nào
-                                const isImportedWeb = !isOntRow && (kh2959ImportedCodes.has(maThua) || DIGITIZED_SET.has(maThua));
+                                // Tuyệt đối KHÔNG tô màu xanh cho thửa thuộc luồng GCN - ONT
+                                const isImportedWeb = !isOntRow && (kh2959ImportedCodes.has(maThua) || (DIGITIZED_SET.has(maThua) && !isBypassDigitizedOntRow));
 
                                 return (
                                   <tr

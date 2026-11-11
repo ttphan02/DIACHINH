@@ -87,6 +87,7 @@ async function getDeclarationsMap(): Promise<Record<string, any>> {
 }
 
 const KEY_SYNC_CACHE = 'cache/sync_sheets.json';
+const SYNC_SHEETS_SCHEMA_VERSION = '2026-11-11-ont-5villages';
 let cachedSyncResult: any = null;
 let lastSyncTime = 0;
 const SYNC_CACHE_TTL = 60 * 1000; // 60 giây cache (giảm 85% tải tính toán Worker)
@@ -96,11 +97,11 @@ export async function GET(req: Request) {
   const force = url.searchParams.get('force') === 'true';
   const now = Date.now();
   const bucket = await getR2Binding();
-  const previousResult = cachedSyncResult;
+  const previousResult = cachedSyncResult?.schemaVersion === SYNC_SHEETS_SCHEMA_VERSION ? cachedSyncResult : null;
 
   // Khi yêu cầu làm mới dữ liệu bắt buộc (force=true)
   // Chống spam: nếu vừa tính toán xong trong vòng 15 giây, trả về ngay kết quả gần nhất để bảo vệ Worker
-  if (force && cachedSyncResult && now - lastSyncTime < 15000) {
+  if (force && cachedSyncResult && cachedSyncResult.schemaVersion === SYNC_SHEETS_SCHEMA_VERSION && now - lastSyncTime < 15000) {
     return NextResponse.json({
       ...cachedSyncResult,
       sheetsData: sanitizeSheetsPayload(cachedSyncResult.sheetsData),
@@ -115,32 +116,40 @@ export async function GET(req: Request) {
     try {
       const obj = await bucket.get(KEY_SYNC_CACHE);
       if (obj) {
-        const etag = obj.httpEtag || `"${obj.uploaded?.getTime() || 'sync-v1'}"`;
-        const clientEtag = req.headers.get('if-none-match');
-        if (clientEtag && (clientEtag === etag || clientEtag.includes(etag))) {
-          return new Response(null, {
-            status: 304,
+        const text = await obj.text();
+        let isValidSchema = false;
+        try {
+          const parsed = JSON.parse(text);
+          isValidSchema = parsed?.schemaVersion === SYNC_SHEETS_SCHEMA_VERSION;
+        } catch {}
+
+        if (isValidSchema) {
+          const etag = obj.httpEtag || `"${obj.uploaded?.getTime() || 'sync-v1'}"`;
+          const clientEtag = req.headers.get('if-none-match');
+          if (clientEtag && (clientEtag === etag || clientEtag.includes(etag))) {
+            return new Response(null, {
+              status: 304,
+              headers: {
+                'ETag': etag,
+                'Cache-Control': 'no-store, no-cache, must-revalidate',
+                'CDN-Cache-Control': 'no-store',
+                'Access-Control-Allow-Origin': '*',
+              },
+            });
+          }
+          const byteLen = new TextEncoder().encode(text).length;
+          return new Response(text, {
+            status: 200,
             headers: {
-              'ETag': etag,
+              'Content-Type': 'application/json; charset=utf-8',
+              'Content-Length': String(byteLen),
               'Cache-Control': 'no-store, no-cache, must-revalidate',
               'CDN-Cache-Control': 'no-store',
+              'ETag': etag,
               'Access-Control-Allow-Origin': '*',
             },
           });
         }
-        const text = await obj.text();
-        const byteLen = new TextEncoder().encode(text).length;
-        return new Response(text, {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Content-Length': String(byteLen),
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-            'CDN-Cache-Control': 'no-store',
-            'ETag': etag,
-            'Access-Control-Allow-Origin': '*',
-          },
-        });
       }
     } catch (cacheErr) {
       console.warn('Lỗi đọc cache sync-sheets từ R2:', cacheErr);
@@ -156,14 +165,22 @@ export async function GET(req: Request) {
       });
       if (res.ok) {
         const text = await res.text();
-        return new Response(text, {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Cache-Control': 'public, max-age=15, s-maxage=30',
-            'Access-Control-Allow-Origin': '*',
-          },
-        });
+        let isValidSchema = false;
+        try {
+          const parsed = JSON.parse(text);
+          isValidSchema = parsed?.schemaVersion === SYNC_SHEETS_SCHEMA_VERSION;
+        } catch {}
+
+        if (isValidSchema) {
+          return new Response(text, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Cache-Control': 'public, max-age=15, s-maxage=30',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
       }
     } catch (err) {
       console.warn('Lỗi khi fetch cache sync-sheets từ public R2:', err);
@@ -171,7 +188,7 @@ export async function GET(req: Request) {
   }
 
   // 3. In-memory cache fallback (khi KHÔNG force)
-  if (!force && cachedSyncResult) {
+  if (!force && cachedSyncResult && cachedSyncResult.schemaVersion === SYNC_SHEETS_SCHEMA_VERSION) {
     return NextResponse.json({
       ...cachedSyncResult,
       sheetsData: sanitizeSheetsPayload(cachedSyncResult.sheetsData),
@@ -186,6 +203,7 @@ export async function GET(req: Request) {
     const result = await executeSyncToGoogleSheet(declarationsMap, bucket);
 
     const payload = {
+      schemaVersion: SYNC_SHEETS_SCHEMA_VERSION,
       success: result.success,
       message: result.message,
       durationMs: Date.now() - t0,
@@ -266,6 +284,7 @@ export async function POST(req: Request) {
           } catch {}
         }
         const updatedPayload = {
+          schemaVersion: SYNC_SHEETS_SCHEMA_VERSION,
           success: true,
           durationMs: 0,
           totalDeclarations: body.totalDeclarations ?? currentSnapshot.totalDeclarations ?? 0,

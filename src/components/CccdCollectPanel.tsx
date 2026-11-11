@@ -25,6 +25,8 @@ import {
   normalizeNguonGoc,
   formatDiaChiThuongTru,
   isExcludedLandType,
+  isOntLand,
+  isGcnOntRoute,
   isPersonName,
   isValidBirthYear,
   isValidCccd,
@@ -315,15 +317,23 @@ export default function CccdCollectPanel({
       const [parcelCode, decl] = declEntries[i];
       if (!decl || HIDDEN_PARCEL_SET.has(parcelCode)) continue;
 
-      // 1. Bỏ qua các thửa ĐÃ SỐ HÓA (đã hoàn tất trên GGS)
-      if (DIGITIZED_SET.has(parcelCode) || ggsCodes?.has(parcelCode) || kh2959ImportedCodes?.has(parcelCode)) continue;
-
       const pBrief = parcelsBrief[parcelCode];
       const edits = cellEdits?.[parcelCode] || {};
       const ld = String(edits[8] ?? decl.loai_dat ?? (pBrief && pBrief[1]) ?? parcelsLoaiDatMap.get(parcelCode) ?? '').trim().toUpperCase();
+      const maThua = String(decl.ma_thua || parcelCode || '').trim();
+      const toBanDo = String(decl.to_ban_do || maThua.split('_')[0] || '').trim();
+      const thonXa = edits[2]
+        ? getCanonicalVillage(edits[2], toBanDo) !== 'Chưa xác định'
+          ? getCanonicalVillage(edits[2], toBanDo)
+          : edits[2].trim()
+        : resolveDeclVillage(decl, maThua);
 
-      // 2. Bỏ qua các thửa GCN - ONT (đã có CCCD / coi như đã số hóa, không thuộc diện đi thu CCCD)
-      if (/ONT/.test(ld)) continue;
+      // 1. Bỏ qua các thửa ĐÃ SỐ HÓA (trên GGS / KH2959, hoặc DIGITIZED_SET phi-ONT)
+      if (ggsCodes?.has(parcelCode) || kh2959ImportedCodes?.has(parcelCode)) continue;
+      if (DIGITIZED_SET.has(parcelCode) && !isOntLand(ld)) continue;
+
+      // 2. Bỏ qua các thửa đi theo luồng GCN - ONT (giữ lại ONT của 5 thôn Ea Bar, Ea Uôl, Ea Lang, Cư Tê, Ea Rớt vào diện đi thu CCCD)
+      if (isGcnOntRoute(ld, thonXa, toBanDo)) continue;
 
       // 3. Bỏ qua toàn bộ thửa đất loại BCS hoặc đất không nhập
       if (ld === 'BCS' || isExcludedLandType(ld)) continue;
@@ -343,21 +353,13 @@ export default function CccdCollectPanel({
         continue;
       }
 
-      const maThua = String(decl.ma_thua || parcelCode || '').trim();
       const soThua = String(decl.so_thua || maThua.split('_')[1] || '').trim();
-      const toBanDo = String(decl.to_ban_do || maThua.split('_')[0] || '').trim();
       const dienTich = String(edits[7] ?? decl.dien_tich ?? (pBrief && pBrief[0]) ?? '').trim();
       const namSinh = String(edits[4] ?? decl.chu_dat_nam_sinh ?? decl.nam_sinh_chu_ho ?? decl.chu_dat_ngay_sinh ?? '').trim();
       const gioiTinhRaw = String(edits[5] ?? decl.chu_dat_gioi_tinh ?? decl.gioi_tinh_chu_ho ?? 'Nam').trim();
       const gioiTinh: 'Nam' | 'Nữ' = gioiTinhRaw === 'Nữ' ? 'Nữ' : 'Nam';
       const cccdClean = cleanCccd(mergedForR2.chu_dat_cccd || '');
       const nguonGoc = normalizeNguonGoc(edits[9] ?? decl.nguon_goc_su_dung ?? decl.nguon_goc, ld);
-
-      const thonXa = edits[2]
-        ? getCanonicalVillage(edits[2], toBanDo) !== 'Chưa xác định'
-          ? getCanonicalVillage(edits[2], toBanDo)
-          : edits[2].trim()
-        : resolveDeclVillage(decl, maThua);
 
       const detailItem = {
         maThua,

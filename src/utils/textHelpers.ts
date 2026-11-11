@@ -104,6 +104,27 @@ export function isOntLand(loaiDat?: string | null): boolean {
   return /ONT/i.test(loaiDat);
 }
 
+// Danh sách 5 thôn/buôn có đất ONT nhưng KHÔNG gom vào danh sách "GCN - ONT"
+// (vẫn xử lý theo quy trình kê khai thông thường: Chưa có CCCD -> Sẵn sàng đóng tập -> Nhập dữ liệu)
+export const NON_GCN_ONT_VILLAGES = new Set([
+  'Thôn Ea Bar',
+  'Thôn Ea Uôl',
+  'Thôn Ea Lang',
+  'Thôn Cư Tê',
+  'Thôn Ea Rớt',
+]);
+
+// Kiểm tra thửa đất có đi theo luồng riêng "GCN - ONT" hay không
+export function isGcnOntRoute(
+  loaiDat?: string | null,
+  villageOrAddr?: string | null,
+  toBanDo?: string | null
+): boolean {
+  if (!isOntLand(loaiDat)) return false;
+  const canonical = getCanonicalVillage(String(villageOrAddr || ''), toBanDo ? String(toBanDo) : undefined);
+  return !NON_GCN_ONT_VILLAGES.has(canonical);
+}
+
 // Danh sách các loại đất chuyên dùng, công cộng không kê khai, không nhập:
 // DCS: Đất xây dựng trụ sở cơ quan
 // DGD: Đất xây dựng cơ sở giáo dục và đào tạo

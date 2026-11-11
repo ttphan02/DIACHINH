@@ -3,6 +3,7 @@ import { getCloudflareContext } from '@opennextjs/cloudflare';
 import {
   normalizeNguonGoc,
   formatDiaChiThuongTru,
+  isGcnOntRoute,
   NGUON_GOC_NN_GIAO_KHONG_THU_TIEN,
 } from '@/utils/textHelpers';
 
@@ -125,7 +126,7 @@ export async function POST(request: Request) {
         const soThua = String(item.so_thua || '').trim();
         const loaiDat = String(item.loai_dat || 'CLN').trim().toUpperCase();
 
-        if (/ONT/i.test(loaiDat)) {
+        if (isGcnOntRoute(loaiDat, item.thon_xa || item.dia_chi_thua_dat || item.chu_dat_dia_chi || '', soTo)) {
           results.push({
             ma_thua: maThua,
             ok: false,

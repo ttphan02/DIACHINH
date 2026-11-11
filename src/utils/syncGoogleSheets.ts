@@ -49,6 +49,7 @@ import {
   normalizeNguonGoc,
   formatDiaChiThuongTru,
   isOntLand,
+  isGcnOntRoute,
   isExcludedLandType,
 } from './textHelpers';
 
@@ -565,10 +566,9 @@ export async function executeSyncToGoogleSheet(
         continue;
       }
 
-      // GIAI ĐOẠN ĐẶC BIỆT: GCN - ONT (Toàn bộ các thửa đất có loại đất chứa ONT)
-      // Thửa đất ở ONT luôn được gom vào danh sách GCN - ONT để quản lý hồ sơ riêng biệt
+      // GIAI ĐOẠN ĐẶC BIỆT: GCN - ONT (Các thửa đất ONT theo luồng riêng, TRỪ 5 thôn Ea Bar, Ea Uôl, Ea Lang, Cư Tê, Ea Rớt)
       // (Bắt buộc kiểm tra TRƯỚC DIGITIZED_SET để không bị nuốt vào Đã giải quyết)
-      if (/ont/i.test(item.loai_dat || '')) {
+      if (isGcnOntRoute(item.loai_dat, thonXa, toMoi)) {
         const toNum = String(parseInt(String(toMoi || ''), 10) || toMoi || '');
         const thuaNum = String(parseInt(String(thuaMoi || ''), 10) || thuaMoi || '');
         const toThuaKey = `${toNum}_${thuaNum}`;
@@ -611,7 +611,8 @@ export async function executeSyncToGoogleSheet(
       }
 
       // GIAI ĐOẠN 4B: CÁC THỬA ĐÃ SỐ HÓA KHÁC (PHI-ONT)
-      if (DIGITIZED_SET.has(maThua)) {
+      // Không nuốt thửa ONT của 5 thôn miễn GCN-ONT vào Đã giải quyết khi chưa có trên GGS/KH2959
+      if (DIGITIZED_SET.has(maThua) && !isOntLand(item.loai_dat)) {
         if (ggsP) {
           if (ggsP.chu_ho) item.chu_ho = ggsP.chu_ho;
           if (ggsP.cccd) item.cccd = cleanCccd(ggsP.cccd);
@@ -636,8 +637,8 @@ export async function executeSyncToGoogleSheet(
 
       if (foundScan) {
         item.scan_file = foundScan;
-        // Nếu loại đất là ONT hoặc có ONT: Tự động chuyển qua danh sách "GCN - ONT" để bổ sung sau
-        if (/ont/i.test(item.loai_dat || '')) {
+        // Nếu thuộc luồng GCN - ONT (ngoài 5 thôn Ea Bar, Ea Uôl, Ea Lang, Cư Tê, Ea Rớt): chuyển sang GCN - ONT
+        if (isGcnOntRoute(item.loai_dat, thonXa, toMoi)) {
           item.nguon_chuyen = 'Từ Nhập dữ liệu (Đã có scan)';
           stageGcnOnt.push(item);
         } else {
@@ -708,8 +709,8 @@ export async function executeSyncToGoogleSheet(
 
       if (hasCccdAndFile) {
         item.cccd_file = foundCccd;
-        // Nếu loại đất là ONT hoặc có ONT: Tự động chuyển qua danh sách "GCN - ONT" để bổ sung sau
-        if (/ont/i.test(item.loai_dat || '')) {
+        // Nếu thuộc luồng GCN - ONT: Tự động chuyển qua danh sách "GCN - ONT" để bổ sung sau
+        if (isGcnOntRoute(item.loai_dat, thonXa, toMoi)) {
           item.nguon_chuyen = 'Từ Đơn kê khai có CCCD';
           stageGcnOnt.push(item);
         } else {

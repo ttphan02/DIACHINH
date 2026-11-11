@@ -11,7 +11,7 @@ import CccdUploadBottomSheet from '@/components/CccdUploadBottomSheet';
 import CccdCollectPanel from '@/components/CccdCollectPanel';
 import CadreNameModal from '@/components/CadreNameModal';
 import { findNearbyParcels, removeVietnameseTones, calculateDistanceMeters, formatDistance } from '@/utils/geo';
-import { isPersonName, cleanStrictName, stripAccents, isAgriculturalLand, isExcludedLandType, cleanVillageDisplay, getCanonicalVillage, cleanCccd, cleanName } from '@/utils/textHelpers';
+import { isPersonName, cleanStrictName, stripAccents, isAgriculturalLand, isExcludedLandType, isOntLand, isGcnOntRoute, cleanVillageDisplay, getCanonicalVillage, cleanCccd, cleanName } from '@/utils/textHelpers';
 import {
   applyDeclarationToState,
   removeDeclarationFromState,
@@ -720,15 +720,16 @@ export default function Home() {
       // 3. Thửa CHƯA KÊ KHAI CÓ TÊN (tên người thật) -> Vàng
       // 4. Thửa CHƯA KÊ KHAI CHƯA CÓ TÊN (không phải tên người, địa danh, công cộng...) -> Trắng
       let trang_thai: ParcelStatus;
-      const isOntParcel = /ont/i.test(loai_dat);
+      const isGcnOntParcel = isGcnOntRoute(loai_dat, thon_xa, p.to_ban_do);
+      const isBypassDigitizedOnt = isOntLand(loai_dat) && !isGcnOntParcel;
 
-      if (isOnGgs || DIGITIZED_SET.has(p.ma_thua)) {
+      if (isOnGgs || (DIGITIZED_SET.has(p.ma_thua) && !isBypassDigitizedOnt)) {
         trang_thai = 'DA_SO_HOA_XANH';
       } else if (isLocallyDeclared) {
         // Thửa đất thuộc danh sách GCN - ONT: coi như đã số hóa trên bản đồ (xanh lá) NẾU ĐÃ CÓ CCCD
-        // Nếu ONT chưa có CCCD thì vẫn ở trạng thái Đang kê khai (Xanh lam) để cán bộ đi thu thập CCCD
+        // Riêng 5 thôn Ea Bar, Ea Uôl, Ea Lang, Cư Tê, Ea Rớt vẫn đi theo quy trình kê khai thông thường
         const hasValidCccd = Boolean(cccd && cccd.length >= 9);
-        if (isOntParcel && hasValidCccd) {
+        if (isGcnOntParcel && hasValidCccd) {
           trang_thai = 'DA_SO_HOA_XANH';
         } else {
           trang_thai = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
