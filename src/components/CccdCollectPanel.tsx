@@ -1211,7 +1211,7 @@ export default function CccdCollectPanel({
               </div>
 
               <div className="space-y-2.5 text-xs">
-                {/* Thông tin hiện tại (Không hiển thị Diện tích & Loại đất) */}
+                {/* Thông tin hiện tại */}
                 <div className="p-2.5 rounded-xl bg-gray-50/90 border border-gray-100 space-y-1 text-xs">
                   <div className="flex justify-between items-center">
                     <span className="text-gray-500">Tên hiện tại:</span>
@@ -1224,7 +1224,7 @@ export default function CccdCollectPanel({
                     <span className="font-bold text-rose-600">{movingPerson.thonXa}</span>
                   </div>
                   <div className="flex justify-between items-center gap-2 pt-0.5">
-                    <span className="text-gray-500 shrink-0">Số thửa đất:</span>
+                    <span className="text-gray-500 shrink-0">Loại đất:</span>
                     <div className="flex items-center gap-1 flex-wrap justify-end">
                       {movingPerson.parcelDetails && movingPerson.parcelDetails.length > 0 ? (
                         movingPerson.parcelDetails.map((pd, pdIdx) => (
@@ -1233,15 +1233,15 @@ export default function CccdCollectPanel({
                             type="button"
                             onClick={() => handleZoomToParcel(pd.maThua)}
                             className="inline-flex items-center px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-black rounded-lg border border-blue-200 text-[11px] transition cursor-pointer shadow-2xs active:scale-95"
-                            title="Bấm để định vị thửa đất này trên bản đồ"
+                            title={`Thửa ${pd.soThua || pd.maThua} • Bấm để định vị thửa đất này trên bản đồ`}
                           >
-                            <span>{pd.soThua || pd.maThua}</span>
+                            <span>{pd.loaiDat || 'Chưa rõ'}</span>
                             <MapPin className="w-2.5 h-2.5 ml-0.5 text-blue-600" />
                           </button>
                         ))
                       ) : (
                         <span className="font-black text-gray-900">
-                          {movingPerson.soThuaList.join(', ') || movingPerson.maThuaList.join(', ')}
+                          {movingPerson.loaiDatList.join(', ') || movingPerson.loaiDat || 'Chưa rõ'}
                         </span>
                       )}
                     </div>
