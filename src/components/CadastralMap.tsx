@@ -1049,8 +1049,8 @@ export default function CadastralMap({
       <div
         className={`absolute z-[1000] flex-col items-end gap-2 transition-all duration-300 ${
           isBottomPanelActive
-            ? mobilePanelHeightRatio <= 0.55
-              ? 'flex bottom-[calc(50dvh+10px)] right-3 lg:bottom-24 lg:right-4'
+            ? mobilePanelHeightRatio <= 0.6
+              ? 'flex bottom-[calc(60dvh+10px)] right-3 lg:bottom-24 lg:right-4'
               : 'hidden lg:flex bottom-24 right-4'
             : 'flex bottom-20 right-3.5 sm:bottom-24 sm:right-4'
         }`}
@@ -1115,8 +1115,8 @@ export default function CadastralMap({
       <div
         className={`absolute left-3 z-[1000] lg:hidden bg-slate-950/90 px-2.5 py-1 rounded-full text-[11px] font-bold text-white border border-slate-700/60 shadow-lg pointer-events-none items-center gap-2 transition-all duration-300 ${
           isBottomPanelActive
-            ? mobilePanelHeightRatio <= 0.55
-              ? 'flex bottom-[calc(50dvh+10px)]'
+            ? mobilePanelHeightRatio <= 0.6
+              ? 'flex bottom-[calc(60dvh+10px)]'
               : 'hidden'
             : 'flex bottom-4'
         }`}
