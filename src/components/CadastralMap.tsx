@@ -20,6 +20,7 @@ interface CadastralMapProps {
   isLocating?: boolean;
   onToggleLocation?: () => void;
   isBottomPanelActive?: boolean;
+  mobilePanelHeightRatio?: number;
 }
 
 interface RenderedPoint {
@@ -44,6 +45,7 @@ export default function CadastralMap({
   isLocating = false,
   onToggleLocation,
   isBottomPanelActive = true,
+  mobilePanelHeightRatio = 0.6,
 }: CadastralMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<LeafletMap | null>(null);
@@ -645,14 +647,14 @@ export default function CadastralMap({
       const targetZoom = Math.max(map.getZoom(), 19);
       let centerLatLng: [number, number] = [selectedParcel.lat, selectedParcel.lng];
 
-      // Trên điện thoại khi form kê khai hoặc ds thu thập CCCD đang mở (chiếm nửa dưới):
-      // Dịch tâm bản đồ xuống dưới để thửa đất nằm ở trung tâm 2/5 phía trên màn hình (vùng map hiển thị)
+      // Trên điện thoại khi form đang mở ở nửa dưới màn hình:
+      // Dịch tâm bản đồ xuống dưới đúng nửa chiều cao form để thửa đất nằm giữa phần bản đồ phía trên
       const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
       if (isMobile && isBottomPanelActive) {
         try {
           const mapSize = map.getSize();
           const mapHeight = mapSize.y || (typeof window !== 'undefined' ? window.innerHeight : 800);
-          const dy = mapHeight * 0.3; // Dịch tâm xuống 30% để thửa nằm ở ~20% từ trên xuống (giữa 2/5 phía trên)
+          const dy = mapHeight * (mobilePanelHeightRatio * 0.5);
           const targetPoint = map.project([selectedParcel.lat, selectedParcel.lng], targetZoom);
           const offsetLatLng = map.unproject([targetPoint.x, targetPoint.y + dy], targetZoom);
           centerLatLng = [offsetLatLng.lat, offsetLatLng.lng];
@@ -666,7 +668,7 @@ export default function CadastralMap({
         duration: 0.55,
       });
     }
-  }, [map, selectedParcel, isBottomPanelActive]);
+  }, [map, selectedParcel, isBottomPanelActive, mobilePanelHeightRatio]);
 
   // 3. CẬP NHẬT DỮ LIỆU THỬA ĐẤT CHO BATCH CANVAS (SIÊU NHANH < 1ms)
   useEffect(() => {

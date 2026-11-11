@@ -215,6 +215,7 @@ export default function Home() {
   const [declarationsMap, setDeclarationsMap] = useState<Record<string, any>>({});
   const [cellEdits, setCellEdits] = useState<Record<string, Record<number, string>>>({});
   const [isExportMissingCccdOpen, setIsExportMissingCccdOpen] = useState(false);
+  const [isCccdSplitView, setIsCccdSplitView] = useState(false);
 
   // Kê khai gộp nhiều thửa đất chung một phiếu
   const [additionalParcels, setAdditionalParcels] = useState<AdditionalParcel[]>([]);
@@ -1054,6 +1055,7 @@ export default function Home() {
     setIsPanelCollapsed(false);
     setIsCccdUploadOpen(false);
     setIsExportMissingCccdOpen(false);
+    setIsCccdSplitView(false);
 
     // Kích hoạt animation trượt vào mượt mà
     requestAnimationFrame(() => {
@@ -1061,13 +1063,14 @@ export default function Home() {
     });
   };
 
-  // Định vị zoom thửa đất trên bản đồ khi bấm loại đất từ danh sách thu thập CCCD, GIỮ NGUYÊN FORM
+  // Định vị zoom thửa đất trên bản đồ khi bấm loại đất từ danh sách thu thập CCCD, tự động chia 1:1 trên điện thoại
   const handleZoomToParcelKeepCccd = (p: Parcel) => {
     const latest = computedParcels.find((cp) => cp.ma_thua === p.ma_thua) || p;
     const nbs = findNearbyParcels(latest, computedParcels, 450, 12);
     setNeighborParcels(nbs);
     setSelectedParcel({ ...latest, _forceZoom: Date.now() } as any);
     setIsExportMissingCccdOpen(true);
+    setIsCccdSplitView(true);
     setIsPanelOpen(true);
     setIsPanelCollapsed(false);
   };
@@ -1075,6 +1078,7 @@ export default function Home() {
   const handleClosePanel = () => {
     setIsPanelOpen(false);
     setIsExportMissingCccdOpen(false);
+    setIsCccdSplitView(false);
     setIsPanelCollapsed(false);
     setIsPickingAdditional(false);
     if (typeof window !== 'undefined') {
@@ -1390,7 +1394,11 @@ export default function Home() {
                 (isPanelOpen && selectedParcel) || isExportMissingCccdOpen
                   ? isPanelCollapsed
                     ? 'w-full lg:w-[420px] h-[65vh] max-h-[85vh] lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-0 translate-y-full lg:-translate-x-full border-0 pointer-events-none'
-                    : 'w-full lg:w-[420px] h-[65vh] max-h-[85vh] lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-100 translate-y-0 lg:translate-x-0 rounded-t-3xl lg:rounded-none border-t lg:border-t-0 lg:border-r border-gray-200 pointer-events-auto'
+                    : isExportMissingCccdOpen
+                      ? isCccdSplitView
+                        ? 'w-full lg:w-[420px] h-[50dvh] max-h-[50dvh] lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-100 translate-y-0 lg:translate-x-0 rounded-t-3xl lg:rounded-none border-t lg:border-t-0 lg:border-r border-gray-200 pointer-events-auto'
+                        : 'w-full lg:w-[420px] h-[92dvh] max-h-[94dvh] lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-100 translate-y-0 lg:translate-x-0 rounded-t-3xl lg:rounded-none border-t lg:border-t-0 lg:border-r border-gray-200 pointer-events-auto'
+                      : 'w-full lg:w-[420px] h-[65vh] max-h-[85vh] lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-100 translate-y-0 lg:translate-x-0 rounded-t-3xl lg:rounded-none border-t lg:border-t-0 lg:border-r border-gray-200 pointer-events-auto'
                   : 'w-full lg:w-0 h-0 lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-0 translate-y-full lg:-translate-x-full border-0 pointer-events-none'
               }`}
             >
@@ -1429,6 +1437,7 @@ export default function Home() {
                     }}
                     onToggleCollapse={() => setIsPanelCollapsed((prev) => !prev)}
                     onZoomToParcel={handleZoomToParcelKeepCccd}
+                    onSplitModeChange={setIsCccdSplitView}
                   />
                 ) : selectedParcel ? (
                   <ParcelDetailPanel
@@ -1741,6 +1750,7 @@ export default function Home() {
                     setSelectedParcel(null);
                     setIsPanelOpen(false);
                     setIsPanelCollapsed(false);
+                    setIsCccdSplitView(false);
                     setIsExportMissingCccdOpen((prev) => !prev);
                   }}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl transition shrink-0 border border-blue-200 shadow-2xs cursor-pointer"
@@ -1810,6 +1820,7 @@ export default function Home() {
               isLocating={isLocating}
               onToggleLocation={handleToggleLocation}
               isBottomPanelActive={((isPanelOpen && !!selectedParcel) || isExportMissingCccdOpen) && !isPanelCollapsed}
+              mobilePanelHeightRatio={isExportMissingCccdOpen ? (isCccdSplitView ? 0.5 : 0.92) : 0.6}
             />
           </div>
 

@@ -1,20 +1,15 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback, useDeferredValue, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   X,
-  Search,
-  Filter,
   Check,
-  Users,
   RefreshCw,
   MapPin,
   ArrowRightLeft,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
-  ShieldCheck,
-  FileText,
 } from 'lucide-react';
 import { Parcel, DeclarationFormData } from '@/types';
 import { getOrCreateDeviceId, getSavedCadreName, saveOrUpdateDeclaration } from '@/utils/declaration';
@@ -59,6 +54,7 @@ export interface CccdCollectPanelProps {
   onCellEditsUpdated?: (patch: Record<string, Record<number, string>>) => void;
   onToggleCollapse?: () => void;
   onZoomToParcel?: (parcel: Parcel) => void;
+  onSplitModeChange?: (isSplit: boolean) => void;
 }
 
 interface MissingCccdPerson {
@@ -102,6 +98,7 @@ export default function CccdCollectPanel({
   onCellEditsUpdated,
   onToggleCollapse,
   onZoomToParcel,
+  onSplitModeChange,
 }: CccdCollectPanelProps) {
   // Chuyển tab giữa: Đã kê khai (chưa CCCD) & Chưa làm có tên (bản đồ)
   const [listMode, setListMode] = useState<CccdListMode>(initialListMode);
@@ -109,10 +106,9 @@ export default function CccdCollectPanel({
     setListMode(initialListMode);
     setVisibleCount(PAGE_BATCH_SIZE);
   }, [initialListMode]);
-  // Lọc tìm kiếm & Thôn / Buôn
+  // Bộ lọc Thôn / Buôn & chế độ chia đôi 1:1 với bản đồ trên điện thoại
   const [selectedVillage, setSelectedVillage] = useState<string>('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
-  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const [isSplitView, setIsSplitView] = useState<boolean>(false);
 
   // Số lượng hàng đang hiển thị (cuộn vô tận phân đợt để tránh đơ DOM trên điện thoại)
   const [visibleCount, setVisibleCount] = useState<number>(PAGE_BATCH_SIZE);
@@ -547,27 +543,11 @@ export default function CccdCollectPanel({
     }));
   }, [missingCccdList]);
 
-  // Lọc theo Thôn được chọn và từ khóa tìm kiếm (sử dụng deferredSearchQuery để không đơ bàn phím điện thoại)
+  // Lọc theo Thôn / Buôn được chọn
   const filteredCitizens = useMemo(() => {
-    let list = missingCccdList;
-
-    if (selectedVillage !== 'ALL') {
-      list = list.filter((item) => item.thonXa === selectedVillage);
-    }
-
-    const q = deferredSearchQuery.toLowerCase().trim();
-    if (q) {
-      list = list.filter(
-        (item) =>
-          item.name.toLowerCase().includes(q) ||
-          item.thonXa.toLowerCase().includes(q) ||
-          item.maThuaList.some((mt) => mt.toLowerCase().includes(q)) ||
-          item.soThuaList.some((st) => st.includes(q))
-      );
-    }
-
-    return list;
-  }, [missingCccdList, selectedVillage, deferredSearchQuery]);
+    if (selectedVillage === 'ALL') return missingCccdList;
+    return missingCccdList.filter((item) => item.thonXa === selectedVillage);
+  }, [missingCccdList, selectedVillage]);
 
   // TỐI ƯU CỰC ĐỘ 3: Phân đợt hiển thị cho điện thoại (chỉ render visibleCount người đầu tiên)
   const displayedCitizens = useMemo(() => {
@@ -583,17 +563,14 @@ export default function CccdCollectPanel({
     return pairs;
   }, [displayedCitizens]);
 
-  // Đếm thống kê
-  const totalInView = filteredCitizens.length;
-  const checkedInView = useMemo(() => {
-    let cnt = 0;
-    for (let i = 0; i < filteredCitizens.length; i++) {
-      if (checkedKeys.has(filteredCitizens[i].key)) cnt++;
-    }
-    return cnt;
-  }, [filteredCitizens, checkedKeys]);
+  // Đóng popup sửa thông tin & khôi phục tỷ lệ hiển thị danh sách trên điện thoại
+  const closeMoveModal = () => {
+    setMovingPerson(null);
+    setIsSplitView(false);
+    onSplitModeChange?.(false);
+  };
 
-  // Phóng to và định vị thửa đất trên bản đồ
+  // Phóng to và định vị thửa đất trên bản đồ (tự động chia tỷ lệ 1:1 trên điện thoại)
   const handleZoomToParcel = (maThua: string, e?: React.MouseEvent) => {
     if (e) {
       e.stopPropagation();
@@ -607,6 +584,8 @@ export default function CccdCollectPanel({
     }
 
     if (targetParcel) {
+      setIsSplitView(true);
+      onSplitModeChange?.(true);
       if (onZoomToParcel) {
         onZoomToParcel(targetParcel);
       }
@@ -685,7 +664,7 @@ export default function CccdCollectPanel({
       !isCccdChanged &&
       !isNguonGocChanged
     ) {
-      setMovingPerson(null);
+      closeMoveModal();
       return;
     }
 
@@ -817,7 +796,7 @@ export default function CccdCollectPanel({
       alert(`Lỗi khi cập nhật cơ sở dữ liệu: ${err.message || err}`);
     } finally {
       setIsSavingMove(false);
-      setMovingPerson(null);
+      closeMoveModal();
     }
   };
 
@@ -829,72 +808,74 @@ export default function CccdCollectPanel({
   return (
     <div className="h-full w-full flex flex-col bg-white overflow-hidden select-none">
       {/* Mobile Drag Handle */}
-      <div className="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mt-2 mb-0.5 lg:hidden shrink-0" />
+      <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mt-1.5 mb-0.5 lg:hidden shrink-0" />
 
-      {/* Top Header của Panel */}
-      <div className="p-3.5 border-b border-gray-100 bg-gray-50/90 flex items-start justify-between gap-2 shrink-0">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-base font-black text-gray-900">
+      {/* Top Header của Panel: Tiêu đề + Bộ lọc Thôn / Buôn */}
+      <div className="px-3 py-2 border-b border-gray-100 bg-gray-50/90 space-y-2 shrink-0">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <h2 className="text-sm font-black text-gray-900 truncate">
               Thu Thập <span className="text-blue-600 font-black">CCCD</span>
             </h2>
-            <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200/60 inline-flex items-center gap-1 shadow-2xs">
-              <Users className="w-3 h-3 text-blue-600" />
-              <span>{filteredCitizens.length} người</span>
-            </span>
-            {isLoadingR2 && <RefreshCw className="w-3.5 h-3.5 text-blue-500 animate-spin" />}
+            {isLoadingR2 && <RefreshCw className="w-3.5 h-3.5 text-blue-500 animate-spin shrink-0" />}
           </div>
-          <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1 flex-wrap">
-            <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-            <span className="capitalize font-medium text-gray-700">
-              {selectedVillage === 'ALL' ? 'Toàn xã Cư Pui' : selectedVillage}
-            </span>
-            <span className="text-gray-300">•</span>
-            <span className="text-[10px] font-bold bg-emerald-100/90 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200 inline-flex items-center gap-1">
-              <ShieldCheck className="w-3 h-3 text-emerald-600" />
-              Đã thu: {checkedInView}/{totalInView}
-            </span>
-          </p>
-        </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          {onToggleCollapse && (
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onToggleCollapse && (
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50/80 rounded-xl transition border border-gray-200/80 shadow-2xs cursor-pointer flex items-center justify-center"
+                title="Thu gọn bảng"
+              >
+                <ChevronLeft className="w-4 h-4 hidden lg:block" />
+                <ChevronDown className="w-4 h-4 block lg:hidden" />
+              </button>
+            )}
             <button
               type="button"
-              onClick={onToggleCollapse}
-              className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50/80 rounded-xl transition border border-gray-200/80 shadow-2xs cursor-pointer flex items-center justify-center"
-              title="Thu gọn bảng"
+              onClick={onClose}
+              className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 rounded-xl transition cursor-pointer"
+              title="Đóng bảng"
             >
-              <ChevronLeft className="w-4 h-4 hidden lg:block" />
-              <ChevronDown className="w-4 h-4 block lg:hidden" />
+              <X className="w-4 h-4" />
             </button>
-          )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 rounded-xl transition cursor-pointer"
-            title="Đóng bảng"
+          </div>
+        </div>
+
+        {/* Bộ lọc Thôn / Buôn đặt ngay trên Header */}
+        <div className="relative">
+          <select
+            value={selectedVillage}
+            onChange={(e) => handleSelectVillage(e.target.value)}
+            className="w-full pl-3 pr-8 py-1.5 rounded-xl border border-gray-200 text-xs font-bold bg-white text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition cursor-pointer appearance-none shadow-2xs"
           >
-            <X className="w-4 h-4" />
-          </button>
+            <option value="ALL">-- Tất cả Thôn / Buôn --</option>
+            {availableVillages.map((v) => (
+              <option key={v.village} value={v.village}>
+                {v.village}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
       </div>
 
       {/* Thanh chuyển đổi 2 danh sách thu thập CCCD */}
-      <div className="px-3 pt-2.5 pb-2 border-b border-gray-100 bg-white grid grid-cols-2 gap-1.5 shrink-0">
+      <div className="px-3 py-1.5 border-b border-gray-100 bg-white grid grid-cols-2 gap-1.5 shrink-0">
         <button
           type="button"
           onClick={() => {
             setListMode('declared');
             setVisibleCount(PAGE_BATCH_SIZE);
           }}
-          className={`px-2 py-1.5 rounded-xl text-[11px] font-black transition border cursor-pointer flex items-center justify-center gap-1 ${
+          className={`px-2 py-1.5 rounded-xl text-[11px] font-black transition border cursor-pointer flex items-center justify-center ${
             listMode === 'declared'
               ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
               : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
           }`}
         >
-          <span className="truncate">Đã kê khai ({declaredMissingCccdList.length})</span>
+          <span className="truncate">Đã kê khai</span>
         </button>
         <button
           type="button"
@@ -902,55 +883,14 @@ export default function CccdCollectPanel({
             setListMode('unmade_named');
             setVisibleCount(PAGE_BATCH_SIZE);
           }}
-          className={`px-2 py-1.5 rounded-xl text-[11px] font-black transition border cursor-pointer flex items-center justify-center gap-1 ${
+          className={`px-2 py-1.5 rounded-xl text-[11px] font-black transition border cursor-pointer flex items-center justify-center ${
             listMode === 'unmade_named'
               ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
               : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
           }`}
         >
-          <span className="truncate">Chưa làm có tên ({unmadeNamedCccdList.length})</span>
+          <span className="truncate">Chưa làm có tên</span>
         </button>
-      </div>
-
-      {/* Thanh lọc & tìm kiếm chuẩn phản hồi nhanh (deferred search) */}
-      <div className="p-3 border-b border-gray-100 bg-white space-y-2 shrink-0">
-        {/* Dropdown Thôn/Buôn */}
-        <div className="relative">
-          <select
-            value={selectedVillage}
-            onChange={(e) => handleSelectVillage(e.target.value)}
-            className="w-full pl-3 pr-8 py-2 rounded-xl border border-gray-200 text-xs font-bold bg-gray-50/70 text-gray-800 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition cursor-pointer appearance-none shadow-2xs"
-          >
-            <option value="ALL">-- Tất cả Thôn / Buôn ({missingCccdList.length} người) --</option>
-            {availableVillages.map((v) => (
-              <option key={v.village} value={v.village}>
-                {v.village} ({v.count} người cần thu)
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-        </div>
-
-        {/* Ô tìm kiếm họ tên & số thửa - Mượt mà trên điện thoại */}
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1 min-w-0">
-            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setVisibleCount(PAGE_BATCH_SIZE);
-              }}
-              placeholder="Tìm tên chủ đất, số thửa..."
-              className="w-full pl-7 pr-3 py-1.5 rounded-xl border border-gray-200 text-xs bg-gray-50/70 text-gray-800 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition"
-            />
-          </div>
-
-          <div className="px-2.5 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-[11px] font-black text-blue-700 shrink-0 shadow-2xs">
-            {totalInView > 0 ? `${Math.round((checkedInView / totalInView) * 100)}%` : '0%'}
-          </div>
-        </div>
       </div>
 
       {/* Thông báo Toast */}
@@ -1141,25 +1081,6 @@ export default function CccdCollectPanel({
         )}
       </div>
 
-      {/* Footer mỏng dưới cùng với style màu chuẩn */}
-      <div className="p-3 border-t border-gray-100 bg-gray-50/90 flex items-center justify-between text-xs text-gray-600 shrink-0">
-        <div className="flex items-center gap-1.5">
-          <span>Tổng số: </span>
-          <strong className="text-gray-900 font-black">{filteredCitizens.length}</strong>
-          <span className="text-gray-300">•</span>
-          <span>Đã thu: </span>
-          <strong className="text-emerald-600 font-black">{checkedInView}</strong>
-        </div>
-
-        <button
-          type="button"
-          onClick={onToggleCollapse || onClose}
-          className="px-3 py-1.5 rounded-xl bg-white hover:bg-gray-100 text-gray-700 font-bold text-xs border border-gray-200 shadow-2xs transition cursor-pointer"
-        >
-          Thu gọn
-        </button>
-      </div>
-
       {/* SUB-MODAL: SỬA THÔNG TIN & CHUYỂN THÔN BUÔN (ĐỒNG BỘ 2 CHIỀU) */}
       {movingPerson && (() => {
         const isDeclaredTab = movingPerson.sourceType !== 'unmade_named';
@@ -1185,8 +1106,20 @@ export default function CccdCollectPanel({
         const canSave = hasAnyChange && cleanNewName.length >= 2;
 
         return (
-          <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center p-2 sm:p-4 bg-black/40 backdrop-blur-2xs animate-in fade-in overflow-y-auto">
-            <div className="w-full max-w-md p-4 rounded-2xl border border-gray-200 shadow-2xl bg-white space-y-3 animate-in zoom-in-95 my-auto max-h-[90vh] overflow-y-auto">
+          <div
+            className={
+              isSplitView
+                ? 'fixed inset-x-0 bottom-0 top-auto h-[50dvh] z-[2000] flex items-end justify-center p-0 lg:inset-0 lg:h-auto lg:items-center lg:p-4 lg:bg-black/40 lg:backdrop-blur-2xs'
+                : 'fixed inset-0 z-[2000] flex items-end sm:items-center justify-center p-2 sm:p-4 bg-black/40 backdrop-blur-2xs animate-in fade-in overflow-y-auto'
+            }
+          >
+            <div
+              className={
+                isSplitView
+                  ? 'w-full h-full lg:h-auto lg:max-w-md p-3.5 sm:p-4 rounded-t-3xl lg:rounded-2xl border-t lg:border border-gray-200 shadow-2xl bg-white space-y-3 overflow-y-auto lg:max-h-[90vh]'
+                  : 'w-full max-w-md p-4 rounded-2xl border border-gray-200 shadow-2xl bg-white space-y-3 animate-in zoom-in-95 my-auto max-h-[90vh] overflow-y-auto'
+              }
+            >
               <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-200/60 shadow-2xs">
@@ -1203,7 +1136,7 @@ export default function CccdCollectPanel({
                 </div>
                 <button
                   type="button"
-                  onClick={() => setMovingPerson(null)}
+                  onClick={closeMoveModal}
                   className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition cursor-pointer"
                 >
                   <X className="w-4 h-4" />
@@ -1383,7 +1316,7 @@ export default function CccdCollectPanel({
                 <button
                   type="button"
                   disabled={isSavingMove}
-                  onClick={() => setMovingPerson(null)}
+                  onClick={closeMoveModal}
                   className="px-3 py-2 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50 transition cursor-pointer"
                 >
                   Hủy
