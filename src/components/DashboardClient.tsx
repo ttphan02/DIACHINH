@@ -6743,7 +6743,7 @@ export default function DashboardPage() {
                                                 <option value="">-- Chọn Thôn / Buôn --</option>
                                                 {villageList16.map((opt) => (
                                                   <option key={opt} value={opt}>
-                                                    {getNguonGocShortLabel(opt)}
+                                                    {opt}
                                                   </option>
                                                 ))}
                                                 <option value="__CUSTOM__">✏️ Nơi khác (Tự nhập tay)...</option>
