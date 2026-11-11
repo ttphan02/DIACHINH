@@ -1109,14 +1109,14 @@ export default function CccdCollectPanel({
           <div
             className={
               isSplitView
-                ? 'fixed inset-x-0 bottom-0 top-auto h-[50dvh] z-[2000] flex items-end justify-center p-0 lg:inset-0 lg:h-auto lg:items-center lg:p-4 lg:bg-black/40 lg:backdrop-blur-2xs'
+                ? 'fixed inset-x-0 bottom-0 top-auto z-[2000] flex items-end justify-center p-0 pointer-events-none lg:pointer-events-auto lg:inset-0 lg:items-center lg:p-4 lg:bg-black/40 lg:backdrop-blur-2xs'
                 : 'fixed inset-0 z-[2000] flex items-end sm:items-center justify-center p-2 sm:p-4 bg-black/40 backdrop-blur-2xs animate-in fade-in overflow-y-auto'
             }
           >
             <div
               className={
                 isSplitView
-                  ? 'w-full h-full lg:h-auto lg:max-w-md p-3.5 sm:p-4 rounded-t-3xl lg:rounded-2xl border-t lg:border border-gray-200 shadow-2xl bg-white space-y-3 overflow-y-auto lg:max-h-[90vh]'
+                  ? 'pointer-events-auto w-full h-auto max-h-[90vh] lg:max-w-md p-3.5 sm:p-4 rounded-t-3xl lg:rounded-2xl border-t lg:border border-gray-200 shadow-2xl bg-white space-y-3 overflow-y-auto'
                   : 'w-full max-w-md p-4 rounded-2xl border border-gray-200 shadow-2xl bg-white space-y-3 animate-in zoom-in-95 my-auto max-h-[90vh] overflow-y-auto'
               }
             >

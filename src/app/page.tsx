@@ -1396,7 +1396,7 @@ export default function Home() {
                     ? 'w-full lg:w-[420px] h-[65vh] max-h-[85vh] lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-0 translate-y-full lg:-translate-x-full border-0 pointer-events-none'
                     : isExportMissingCccdOpen
                       ? isCccdSplitView
-                        ? 'w-full lg:w-[420px] h-[50dvh] max-h-[50dvh] lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-100 translate-y-0 lg:translate-x-0 rounded-t-3xl lg:rounded-none border-t lg:border-t-0 lg:border-r border-gray-200 pointer-events-auto'
+                        ? 'w-full lg:w-[420px] h-[35dvh] max-h-[35dvh] lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-100 translate-y-0 lg:translate-x-0 rounded-t-3xl lg:rounded-none border-t lg:border-t-0 lg:border-r border-gray-200 pointer-events-auto'
                         : 'w-full lg:w-[420px] h-[92dvh] max-h-[94dvh] lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-100 translate-y-0 lg:translate-x-0 rounded-t-3xl lg:rounded-none border-t lg:border-t-0 lg:border-r border-gray-200 pointer-events-auto'
                       : 'w-full lg:w-[420px] h-[65vh] max-h-[85vh] lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-100 translate-y-0 lg:translate-x-0 rounded-t-3xl lg:rounded-none border-t lg:border-t-0 lg:border-r border-gray-200 pointer-events-auto'
                   : 'w-full lg:w-0 h-0 lg:h-full lg:max-h-none lg:inset-y-0 bottom-0 lg:bottom-auto lg:top-0 left-0 opacity-0 translate-y-full lg:-translate-x-full border-0 pointer-events-none'
@@ -1820,7 +1820,7 @@ export default function Home() {
               isLocating={isLocating}
               onToggleLocation={handleToggleLocation}
               isBottomPanelActive={((isPanelOpen && !!selectedParcel) || isExportMissingCccdOpen) && !isPanelCollapsed}
-              mobilePanelHeightRatio={isExportMissingCccdOpen ? (isCccdSplitView ? 0.5 : 0.92) : 0.6}
+              mobilePanelHeightRatio={isExportMissingCccdOpen ? (isCccdSplitView ? 0.65 : 0.92) : 0.6}
             />
           </div>
 
