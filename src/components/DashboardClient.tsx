@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
 import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, cleanVillageDisplay, normalizeNguonGoc, NGUON_GOC_OPTIONS, isAgriculturalLand, getNguonGocShortLabel, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName, isOntLand, formatDiaChiThuongTru, isExcludedLandType } from '@/utils/textHelpers';
-import { getStoredDeclarations, saveOrUpdateDeclaration, removeDeclaration, getOrCreateDeviceId, getSavedCadreName, removePendingDeclaration, clearPendingDeclarations, syncAllLocalDataToServer } from '@/utils/declaration';
+import { applyDeclarationToState, removeDeclarationFromState, clearLegacyLocalDataStorage, getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
 import { broadcastRealtimeEvent, onRealtimeEvent } from '@/utils/realtimeSync';
 import dynamic from 'next/dynamic';
 import type { PrintableDeclarationItem } from '@/components/DeclarationPrintModal';
@@ -148,11 +148,19 @@ export default function DashboardPage() {
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [declaredParcelCodes, setDeclaredParcelCodes] = useState<Set<string>>(new Set());
   const [declarationsMap, setDeclarationsMap] = useState<Record<string, any>>({});
+  const declaredCodesRef = useRef<Set<string>>(new Set());
+  const declarationsMapRef = useRef<Record<string, any>>({});
+  useEffect(() => {
+    declaredCodesRef.current = declaredParcelCodes;
+  }, [declaredParcelCodes]);
+  useEffect(() => {
+    declarationsMapRef.current = declarationsMap;
+  }, [declarationsMap]);
   const lastCloudSigRef = useRef<string>('');
   const lastCloudUpdatedAtRef = useRef<string>('');
 
-  // Hàng đợi debounce gom nhóm các ô sửa trên Dashboard để tránh flood request gây 403 / 503
-  const inlineCommitQueueRef = useRef<Map<string, DeclarationFormData>>(new Map());
+  // Hàng đợi debounce theo từng trường dữ liệu để cập nhật thẳng vào D1 Database mà không ghi đè cột của thiết bị khác
+  const inlineCommitQueueRef = useRef<Map<string, { ma_thua: string; fields: Record<string, any>; fallbackDecl: DeclarationFormData }>>(new Map());
   const inlineCommitTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const flushInlineCommitQueue = useCallback(async () => {
@@ -162,18 +170,52 @@ export default function DashboardPage() {
     const codes = items.map((i) => i.ma_thua);
 
     try {
-      const payload = items.length === 1 ? items[0] : { batch: items };
-      const res = await fetch('/api/declarations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        keepalive: true,
+      const results = await Promise.all(
+        items.map(async (item) => {
+          const res = await fetch('/api/declarations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'patch_declaration_fields',
+              ma_thua: item.ma_thua,
+              fields: item.fields,
+              fallbackDecl: item.fallbackDecl,
+            }),
+            keepalive: true,
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return (await res.json()) as any;
+        })
+      );
+
+      let hasError = false;
+      results.forEach((result) => {
+        if (result?.success && result.declaration?.ma_thua) {
+          const code = result.declaration.ma_thua;
+          setDeclarationsMap((prev) => {
+            const next = { ...prev, [code]: result.declaration };
+            declarationsMapRef.current = next;
+            return next;
+          });
+          setDeclaredParcelCodes((prev) => {
+            const next = new Set(prev);
+            next.add(code);
+            declaredCodesRef.current = next;
+            return next;
+          });
+        } else {
+          hasError = true;
+        }
       });
-      if (res.ok) {
-        codes.forEach((c) => removePendingDeclaration(c));
+
+      if (hasError) {
+        setInlineSaveToast('❌ Một số ô chưa lưu được lên Database. Đang đồng bộ lại...');
+        setTimeout(() => setInlineSaveToast(null), 3500);
       }
     } catch (err) {
-      console.warn('Lỗi lưu inline commit batch:', err);
+      console.warn('Lỗi lưu inline field patch vào Database:', err);
+      setInlineSaveToast('❌ Lỗi lưu Database! Vui lòng kiểm tra mạng và thử lại.');
+      setTimeout(() => setInlineSaveToast(null), 3500);
     } finally {
       setSavingRowCodes((prev) => {
         const next = new Set(prev);
@@ -183,16 +225,21 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const queueInlineCommit = useCallback((decl: DeclarationFormData) => {
-    inlineCommitQueueRef.current.set(decl.ma_thua, decl);
-    setSavingRowCodes((prev) => new Set(prev).add(decl.ma_thua));
+  const queueInlineCommit = useCallback((maThua: string, fields: Record<string, any>, fallbackDecl: DeclarationFormData) => {
+    const existing = inlineCommitQueueRef.current.get(maThua);
+    inlineCommitQueueRef.current.set(maThua, {
+      ma_thua: maThua,
+      fields: { ...(existing?.fields || {}), ...fields },
+      fallbackDecl,
+    });
+    setSavingRowCodes((prev) => new Set(prev).add(maThua));
 
     if (inlineCommitTimerRef.current) {
       clearTimeout(inlineCommitTimerRef.current);
     }
     inlineCommitTimerRef.current = setTimeout(() => {
       flushInlineCommitQueue();
-    }, 1200);
+    }, 500);
   }, [flushInlineCommitQueue]);
 
   useEffect(() => {
@@ -328,25 +375,18 @@ export default function DashboardPage() {
     if (isManualSyncing) return;
     setIsManualSyncing(true);
     try {
-      const res = await syncAllLocalDataToServer();
-      await fetchCloudDeclarations();
-      await fetchSyncSheetsReport(true);
-      setInlineSaveToast(`✓ Đã đồng bộ 100% toàn bộ dữ liệu từ trình duyệt lên máy chủ Cloudflare!`);
+      await Promise.all([fetchCloudDeclarations(true), fetchSyncSheetsReport(true)]);
+      setInlineSaveToast('✓ Đã làm mới dữ liệu trực tiếp từ Database!');
       setTimeout(() => setInlineSaveToast(null), 3000);
     } catch (e: any) {
-      alert('Lỗi đồng bộ: ' + (e.message || 'Lỗi không xác định'));
+      alert('Lỗi làm mới dữ liệu: ' + (e.message || 'Lỗi không xác định'));
     } finally {
       setIsManualSyncing(false);
     }
   };
 
   useEffect(() => {
-    // Tự động đẩy sạch bất kỳ phiếu pending nào còn sót trong localStorage lên Cloud khi mở dashboard
-    syncAllLocalDataToServer().then((res) => {
-      if (res && res.count > 0) {
-        console.log(`✓ Đã đồng bộ sạch sẽ ${res.count} thửa pending từ localStorage lên máy chủ.`);
-      }
-    });
+    clearLegacyLocalDataStorage();
   }, []);
 
   // Trạng thái nhập hồ sơ tự động lên web KH2959 (khởi tạo với các thửa đã được kiểm tra thực tế trên KH2959)
@@ -394,10 +434,6 @@ export default function DashboardPage() {
       const saved = localStorage.getItem('diachinh_dashboard_col_widths');
       if (saved) {
         setColWidths(JSON.parse(saved));
-      }
-      const savedEdits = localStorage.getItem('diachinh_table_cell_edits');
-      if (savedEdits) {
-        setCellEdits(JSON.parse(savedEdits));
       }
     } catch {}
   }, []);
@@ -591,15 +627,15 @@ export default function DashboardPage() {
   const lastFetchTimeRef = useRef(0);
   const lastCloudEtagRef = useRef<string | null>(null);
 
-  // 1. Đồng bộ danh sách kê khai từ Cloud R2 theo thời gian thực (Không cần F5)
-  const fetchCloudDeclarations = useCallback(async () => {
+  // 1. Đồng bộ danh sách kê khai trực tiếp từ Database (Cloudflare D1) theo thời gian thực (Không dùng localStorage, Không cần F5)
+  const fetchCloudDeclarations = useCallback(async (force = false) => {
     if (isFetchingCloudRef.current) return;
     isFetchingCloudRef.current = true;
     lastFetchTimeRef.current = Date.now();
     try {
       const headers: Record<string, string> = {};
-      if (lastCloudEtagRef.current) headers['If-None-Match'] = lastCloudEtagRef.current;
-      const res = await fetch('/api/declarations', { headers });
+      if (lastCloudEtagRef.current && !force) headers['If-None-Match'] = lastCloudEtagRef.current;
+      const res = await fetch('/api/declarations', { headers, cache: 'no-store' });
       if (res.status === 304) return;
       if (!res.ok) return;
       const etag = res.headers.get('ETag');
@@ -608,65 +644,35 @@ export default function DashboardPage() {
       let data: any = null;
       try {
         data = JSON.parse(text);
-      } catch (jsonErr) {
-        // Nếu luồng truyền tải bị ngắt kết nối do mạng, bỏ qua lần này một cách êm ái
+      } catch {
         return;
       }
       if (data && Array.isArray(data.declaredCodes)) {
-          if (data.updatedAt && data.updatedAt === lastCloudUpdatedAtRef.current) return;
-          const cloudMap = data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {};
-          const cloudEdits = data.cellEdits && typeof data.cellEdits === 'object' ? data.cellEdits : {};
-          const sig = JSON.stringify({ codes: data.declaredCodes, map: cloudMap, edits: cloudEdits });
-          if (sig === lastCloudSigRef.current) {
-            if (data.updatedAt) lastCloudUpdatedAtRef.current = data.updatedAt;
-            return;
-          }
-          lastCloudSigRef.current = sig;
+        const cloudMap = data.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {};
+        const cloudEdits = data.cellEdits && typeof data.cellEdits === 'object' ? data.cellEdits : {};
+        const sig = JSON.stringify({ codes: data.declaredCodes, map: cloudMap, edits: cloudEdits });
+        if (sig === lastCloudSigRef.current && !force) {
           if (data.updatedAt) lastCloudUpdatedAtRef.current = data.updatedAt;
-
-          // CẬP NHẬT DỮ LIỆU ĐỒNG BỘ CHÍNH XÁC TỪ CLOUD R2
-          const cloudCodesSet = new Set<string>(data.declaredCodes);
-          setDeclaredParcelCodes(cloudCodesSet);
-
-          // Hợp nhất declarationsMap: Giữ lại các thay đổi mới hơn trên máy tính này
-          setDeclarationsMap((prev) => {
-            const merged: Record<string, any> = { ...cloudMap };
-            for (const [code, localDecl] of Object.entries(prev)) {
-              if (!merged[code]) {
-                merged[code] = localDecl;
-              } else if (localDecl?.updated_at && merged[code]?.updated_at) {
-                if (new Date(localDecl.updated_at).getTime() > new Date(merged[code].updated_at).getTime()) {
-                  merged[code] = localDecl;
-                }
-              }
-            }
-            try {
-              localStorage.setItem('diachinh_declarations_map', JSON.stringify(merged));
-            } catch {}
-            return merged;
-          });
-
-          // Đồng bộ cellEdits: Giữ 100% các ô người dùng vừa chỉnh sửa trên máy này (prev luôn ưu tiên hơn cloudEdits)
-          setCellEdits((prev) => {
-            const merged: Record<string, Record<number, string>> = { ...cloudEdits };
-            for (const code of Object.keys(prev)) {
-              merged[code] = {
-                ...(merged[code] || {}),
-                ...prev[code],
-              };
-            }
-            try {
-              localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(merged));
-            } catch (e) {}
-            return merged;
-          });
-
-          if (typeof window !== 'undefined') {
-            try {
-              localStorage.setItem('diachinh_declared_codes', JSON.stringify(data.declaredCodes));
-            } catch (e) {}
-          }
+          return;
         }
+        const hadLoadedOnce = lastCloudSigRef.current !== '';
+        lastCloudSigRef.current = sig;
+        if (data.updatedAt) lastCloudUpdatedAtRef.current = data.updatedAt;
+
+        const cloudCodesSet = new Set<string>(data.declaredCodes);
+        declaredCodesRef.current = cloudCodesSet;
+        declarationsMapRef.current = cloudMap;
+        setDeclaredParcelCodes(cloudCodesSet);
+        setDeclarationsMap(cloudMap);
+        setCellEdits(cloudEdits);
+
+        if (hadLoadedOnce) {
+          if (realtimeReloadTimeoutRef.current) clearTimeout(realtimeReloadTimeoutRef.current);
+          realtimeReloadTimeoutRef.current = setTimeout(() => {
+            fetchSyncSheetsReportRef.current?.(false);
+          }, 800);
+        }
+      }
     } catch (err) {
       console.warn('Lỗi đồng bộ declarations trên Dashboard:', err);
     } finally {
@@ -675,17 +681,17 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    const { declaredCodes, declarationsMap: map } = getStoredDeclarations();
-    setDeclaredParcelCodes(declaredCodes);
-    setDeclarationsMap(map);
-    fetchCloudDeclarations();
+    fetchCloudDeclarations(true);
 
-    // Tự động đồng bộ mỗi 30 giây (tiết kiệm CPU worker, không cần F5)
-    const interval = setInterval(fetchCloudDeclarations, 30000);
+    // Tự động kiểm tra đồng bộ mỗi 5 giây khi tab đang mở (304 Not Modified < 1ms nếu DB chưa đổi)
+    const interval = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchCloudDeclarations(false);
+      }
+    }, 5000);
     const onFocus = () => {
-      // Chỉ đồng bộ khi focus nếu lần fetch trước cách ít nhất 10 giây
-      if (Date.now() - lastFetchTimeRef.current > 10000) {
-        fetchCloudDeclarations();
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchCloudDeclarations(true);
       }
     };
     window.addEventListener('focus', onFocus);
@@ -696,33 +702,44 @@ export default function DashboardPage() {
       if (event.type === 'DECLARATION_SAVED' && event.maThua) {
         const targetMaThua = event.maThua;
         if (event.declaration) {
-          setDeclarationsMap((prev) => ({
-            ...prev,
-            [targetMaThua]: event.declaration,
-          }));
+          setDeclarationsMap((prev) => {
+            const next = { ...prev, [targetMaThua]: event.declaration };
+            declarationsMapRef.current = next;
+            return next;
+          });
         }
         if (event.declaredCodes) {
-          setDeclaredParcelCodes(new Set(event.declaredCodes));
+          const nextSet = new Set(event.declaredCodes);
+          declaredCodesRef.current = nextSet;
+          setDeclaredParcelCodes(nextSet);
         } else {
-          setDeclaredParcelCodes((prev) => new Set([...prev, targetMaThua]));
+          setDeclaredParcelCodes((prev) => {
+            const nextSet = new Set([...prev, targetMaThua]);
+            declaredCodesRef.current = nextSet;
+            return nextSet;
+          });
         }
         if (realtimeReloadTimeoutRef.current) clearTimeout(realtimeReloadTimeoutRef.current);
         realtimeReloadTimeoutRef.current = setTimeout(() => {
           fetchSyncSheetsReportRef.current?.(false);
-        }, 2500);
+        }, 1200);
       } else if (event.type === 'DECLARATION_DELETED' && event.maThua) {
         const targetMaThua = event.maThua;
         setDeclarationsMap((prev) => {
           const next = { ...prev };
           delete next[targetMaThua];
+          declarationsMapRef.current = next;
           return next;
         });
         if (event.declaredCodes) {
-          setDeclaredParcelCodes(new Set(event.declaredCodes));
+          const nextSet = new Set(event.declaredCodes);
+          declaredCodesRef.current = nextSet;
+          setDeclaredParcelCodes(nextSet);
         } else {
           setDeclaredParcelCodes((prev) => {
             const next = new Set(prev);
             next.delete(targetMaThua);
+            declaredCodesRef.current = next;
             return next;
           });
         }
@@ -737,14 +754,11 @@ export default function DashboardPage() {
                 ...cols,
               };
             }
-            try {
-              localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
-            } catch {}
             return next;
           });
         }
       } else if (event.type === 'FORCE_REFRESH_REPORT') {
-        fetchCloudDeclarations();
+        fetchCloudDeclarations(true);
       }
     });
 
@@ -798,49 +812,18 @@ export default function DashboardPage() {
     }
   };
 
-  const cellEditsSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const realtimeReloadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fetchSyncSheetsReportRef = useRef<((force?: boolean) => Promise<void>) | null>(null);
 
-  const syncCellEditsToCloud = useCallback((edits: Record<string, Record<number, string>>, immediate = false) => {
-    if (cellEditsSyncTimeoutRef.current) {
-      clearTimeout(cellEditsSyncTimeoutRef.current);
-    }
-    const doSync = async () => {
-      try {
-        await fetch('/api/declarations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'cell_edits', cellEdits: edits }),
-          keepalive: true,
-        });
-      } catch (err) {
-        console.warn('Lỗi đồng bộ cellEdits lên R2:', err);
-      }
-    };
-    if (immediate) {
-      doSync();
-    } else {
-      cellEditsSyncTimeoutRef.current = setTimeout(doSync, 3000);
-    }
-  }, []);
-
-  // Cập nhật giá trị ô trực tiếp khi người dùng gõ phím
+  // Cập nhật giá trị ô trong bộ nhớ tạm khi người dùng đang gõ (chỉ lưu Database khi rời ô / commit)
   const handleInlineCellChange = (maThua: string, colIdx: number, val: string) => {
-    setCellEdits((prev) => {
-      const next = {
-        ...prev,
-        [maThua]: {
-          ...(prev[maThua] || {}),
-          [colIdx]: val,
-        },
-      };
-      try {
-        localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
-      } catch {}
-      syncCellEditsToCloud(next);
-      return next;
-    });
+    setCellEdits((prev) => ({
+      ...prev,
+      [maThua]: {
+        ...(prev[maThua] || {}),
+        [colIdx]: val,
+      },
+    }));
   };
 
   // Cập nhật một bản ghi kê khai vào toàn bộ các sheet đang mở trong syncSheetsData
@@ -945,31 +928,30 @@ export default function DashboardPage() {
     // chỉ lưu dưới dạng patch cellEdits để thửa giữ nguyên trạng thái chưa kê khai nhưng vẫn đồng bộ 2 chiều với Danh sách thu CCCD (Chưa làm có tên) & Bản đồ!
     if (selectedReportSheet === 'CHƯA THỰC HIỆN' && !isAlreadyDeclared) {
       const patch = { [maThua]: { [colIdx]: formattedValue } };
-      setCellEdits((prev) => {
-        const next = {
-          ...prev,
-          [maThua]: {
-            ...(prev[maThua] || {}),
-            [colIdx]: formattedValue,
-          },
-        };
-        try {
-          localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
-        } catch {}
-        return next;
-      });
+      setCellEdits((prev) => ({
+        ...prev,
+        [maThua]: {
+          ...(prev[maThua] || {}),
+          [colIdx]: formattedValue,
+        },
+      }));
       broadcastRealtimeEvent({
         type: 'CELL_EDITS_SYNCED',
         cellEdits: patch,
       });
       try {
-        await fetch('/api/declarations', {
+        const res = await fetch('/api/declarations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: 'patch_cell_edits', cellEdits: patch }),
           keepalive: true,
         });
-      } catch {}
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch (err) {
+        console.warn('Lỗi lưu patch_cell_edits lên Database:', err);
+        setInlineSaveToast('❌ Chưa lưu được vào Database! Vui lòng thử lại.');
+        setTimeout(() => setInlineSaveToast(null), 3500);
+      }
       return;
     }
 
@@ -1022,61 +1004,82 @@ export default function DashboardPage() {
 
     if (baseDecl[fieldKey] === formattedValue && (!safeDecl.yeu_cau_thu_cccd || !formattedValue)) return;
 
+    const updatedAt = new Date().toISOString();
     const updatedDecl: DeclarationFormData = {
       ...baseDecl,
       [fieldKey]: formattedValue,
+      updated_at: updatedAt,
+    };
+    const patchFields: Record<string, any> = {
+      [fieldKey]: formattedValue,
+      updated_at: updatedAt,
     };
     if (fieldKey === 'chu_dat_cccd') {
       updatedDecl.chu_dat_cccd = formattedValue;
       updatedDecl.cccd_chu_ho = formattedValue;
       (updatedDecl as any).cccd = formattedValue;
+      patchFields.chu_dat_cccd = formattedValue;
+      patchFields.cccd_chu_ho = formattedValue;
+      patchFields.cccd = formattedValue;
       if (formattedValue) {
         delete (updatedDecl as any).yeu_cau_thu_cccd;
+        patchFields.yeu_cau_thu_cccd = undefined;
       }
     }
     if (fieldKey === 'chu_dat_ten') {
       (updatedDecl as any).chu_ho = formattedValue;
       (updatedDecl as any).ho_va_ten_chu_ho = formattedValue;
+      patchFields.chu_ho = formattedValue;
+      patchFields.ho_va_ten_chu_ho = formattedValue;
     }
     if (fieldKey === 'chu_dat_nam_sinh') {
       (updatedDecl as any).nam_sinh_chu_ho = formattedValue;
+      patchFields.nam_sinh_chu_ho = formattedValue;
     }
     if (fieldKey === 'chu_dat_gioi_tinh') {
       (updatedDecl as any).gioi_tinh_chu_ho = formattedValue;
+      patchFields.gioi_tinh_chu_ho = formattedValue;
     }
     if (fieldKey === 'dia_chi_thua_dat') {
       const canonical = getCanonicalVillage(formattedValue);
       const finalAddr = canonical && canonical !== 'Chưa xác định' ? canonical : formattedValue.trim();
       updatedDecl.thon_xa = finalAddr;
       updatedDecl.dia_chi_thua_dat = finalAddr;
-      // Địa chỉ thường trú: nếu người ngoài xã Cư Pui (tự nhập thay vì chọn 16 thôn buôn) thì ghi địa chỉ thường trú y như khi nhập
       updatedDecl.chu_dat_dia_chi = formatDiaChiThuongTru(finalAddr);
+      patchFields.thon_xa = finalAddr;
+      patchFields.dia_chi_thua_dat = finalAddr;
+      patchFields.chu_dat_dia_chi = updatedDecl.chu_dat_dia_chi;
     }
     if (fieldKey === 'nguon_goc') {
       const loaiDatForOrigin = updatedDecl.loai_dat || p?.loai_dat || '';
       updatedDecl.nguon_goc = normalizeNguonGoc(formattedValue, loaiDatForOrigin);
       (updatedDecl as any).nguon_goc_su_dung = updatedDecl.nguon_goc;
+      patchFields.nguon_goc = updatedDecl.nguon_goc;
+      patchFields.nguon_goc_su_dung = updatedDecl.nguon_goc;
     }
 
-    // 1. Cập nhật ngay tức thì vào React State & LocalStorage (0ms latency)
-    const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(updatedDecl);
+    // 1. Cập nhật React State tạm thời trong phiên hiện tại
+    const { updatedCodes, updatedMap } = applyDeclarationToState(
+      declaredCodesRef.current,
+      declarationsMapRef.current,
+      updatedDecl
+    );
+    const nextSet = new Set(updatedCodes);
+    declaredCodesRef.current = nextSet;
+    declarationsMapRef.current = updatedMap;
     lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
-    setDeclaredParcelCodes(new Set(updatedCodes));
+    setDeclaredParcelCodes(nextSet);
     setDeclarationsMap(updatedMap);
 
-    // 2. Cập nhật syncSheetsData trên toàn bộ các sheet (bao gồm cả THỬA ĐANG KÊ KHAI, ĐÓNG TẬP, GCN-ONT, NHẬP DỮ LIỆU...)
+    // 2. Cập nhật syncSheetsData trên toàn bộ các sheet
     applyDeclarationToSyncSheets(updatedDecl);
 
-    // 3. Xóa ô nháp trong cellEdits sau khi commit thành công
+    // 3. Xóa ô nháp trong cellEdits
     setCellEdits((prev) => {
       if (!prev[maThua] || prev[maThua][colIdx] === undefined) return prev;
       const nextParcelEdits = { ...prev[maThua] };
       delete nextParcelEdits[colIdx];
-      const next = { ...prev, [maThua]: nextParcelEdits };
-      try {
-        localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
-      } catch {}
-      return next;
+      return { ...prev, [maThua]: nextParcelEdits };
     });
 
     // 4. Phát tín hiệu realtime ngay lập tức cho các tab khác
@@ -1106,8 +1109,8 @@ export default function DashboardPage() {
       }
     }
 
-    // 5. Gom nhóm bằng Debounce Queue để gửi theo batch (giảm 90% số request, chống 403 WAF và triệt tiêu 503)
-    queueInlineCommit(updatedDecl);
+    // 5. Gửi patch theo từng trường dữ liệu thẳng lên Database (không ghi đè cột của thiết bị khác)
+    queueInlineCommit(maThua, patchFields, updatedDecl);
   };
 
   // Xác nhận kê khai thửa đất từ danh sách CHƯA THỰC HIỆN
@@ -1162,38 +1165,7 @@ export default function DashboardPage() {
     // Đánh dấu đang lưu
     setSavingRowCodes((prev) => new Set(prev).add(maThua));
 
-    // Cập nhật state local
-    const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(newDecl);
-    lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
-    setDeclaredParcelCodes(new Set(updatedCodes));
-    setDeclarationsMap(updatedMap);
-
-    // Xóa nháp của mã thửa này khỏi cellEdits
-    setCellEdits((prev) => {
-      const next = { ...prev };
-      delete next[maThua];
-      try {
-        localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
-      } catch {}
-      syncCellEditsToCloud(next, true);
-      return next;
-    });
-
-    // Bỏ chọn nếu mã thửa này đang được chọn
-    setChuaThucHienSelectedCodes((prev) => {
-      if (!prev.has(maThua)) return prev;
-      const next = new Set(prev);
-      next.delete(maThua);
-      return next;
-    });
-
-    // Xác định danh sách đích
-    const hasCccd = cleanCccdVal && cleanCccdVal.length === 12;
-    const targetLabel = hasCccd ? 'Sẵn Sàng Đóng Tập (Có CCCD)' : 'Đang Kê Khai (Chưa có CCCD)';
-    setInlineSaveToast(`✓ Đã kê khai Thửa ${soThua} (Tờ ${toBanDo}). Dữ liệu đã chuyển sang [${targetLabel}]!`);
-    setTimeout(() => setInlineSaveToast(null), 4500);
-
-    // Gửi realtime lên Cloudflare R2 với retry và broadcast
+    // Gửi trực tiếp lên Database (Cloudflare D1) trước khi xác nhận hoàn tất
     const attemptSaveCommit = async (retryCount = 0): Promise<boolean> => {
       try {
         const res = await fetch('/api/declarations', {
@@ -1203,19 +1175,54 @@ export default function DashboardPage() {
           keepalive: true,
         });
         if (res.ok) {
-          removePendingDeclaration(maThua);
+          const result = (await res.json()) as any;
+          if (!result?.success) throw new Error(result?.error || 'Lưu thất bại');
+
+          const { updatedCodes, updatedMap } = applyDeclarationToState(
+            declaredCodesRef.current,
+            declarationsMapRef.current,
+            newDecl
+          );
+          const nextSet = new Set(updatedCodes);
+          declaredCodesRef.current = nextSet;
+          declarationsMapRef.current = updatedMap;
+          lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
+          setDeclaredParcelCodes(nextSet);
+          setDeclarationsMap(updatedMap);
+
+          setCellEdits((prev) => {
+            if (!prev[maThua]) return prev;
+            const next = { ...prev };
+            delete next[maThua];
+            return next;
+          });
+
+          setChuaThucHienSelectedCodes((prev) => {
+            if (!prev.has(maThua)) return prev;
+            const next = new Set(prev);
+            next.delete(maThua);
+            return next;
+          });
+
           broadcastRealtimeEvent({
             type: 'DECLARATION_SAVED',
             maThua,
             declaration: newDecl,
             declaredCodes: updatedCodes,
           });
+
+          const hasCccd = cleanCccdVal && cleanCccdVal.length === 12;
+          const targetLabel = hasCccd ? 'Sẵn Sàng Đóng Tập (Có CCCD)' : 'Đang Kê Khai (Chưa có CCCD)';
+          setInlineSaveToast(`✓ Đã lưu Thửa ${soThua} (Tờ ${toBanDo}) vào Database -> [${targetLabel}]!`);
+          setTimeout(() => setInlineSaveToast(null), 4500);
           return true;
         } else {
           if (retryCount < 2) {
             await new Promise((r) => setTimeout(r, 600 * (retryCount + 1)));
             return await attemptSaveCommit(retryCount + 1);
           }
+          setInlineSaveToast(`❌ Lỗi lưu Thửa ${soThua} vào Database! Vui lòng thử lại.`);
+          setTimeout(() => setInlineSaveToast(null), 4000);
           return false;
         }
       } catch (err) {
@@ -1223,18 +1230,18 @@ export default function DashboardPage() {
           await new Promise((r) => setTimeout(r, 800 * (retryCount + 1)));
           return await attemptSaveCommit(retryCount + 1);
         }
+        setInlineSaveToast(`❌ Mất kết nối Database khi lưu Thửa ${soThua}! Vui lòng thử lại.`);
+        setTimeout(() => setInlineSaveToast(null), 4000);
         return false;
       } finally {
-        if (retryCount === 0) {
-          setSavingRowCodes((prev) => {
-            const next = new Set(prev);
-            next.delete(maThua);
-            return next;
-          });
-        }
+        setSavingRowCodes((prev) => {
+          const next = new Set(prev);
+          next.delete(maThua);
+          return next;
+        });
       }
     };
-    attemptSaveCommit(0);
+    await attemptSaveCommit(0);
   };
 
   // -------------------------------------------------------------
@@ -1402,7 +1409,7 @@ export default function DashboardPage() {
     });
   };
 
-  const handleSaveEditedDeclaration = (data: DeclarationFormData) => {
+  const handleSaveEditedDeclaration = async (data: DeclarationFormData) => {
     const normalizedDecl: DeclarationFormData = {
       ...data,
       chu_dat_ten: cleanName(data.chu_dat_ten),
@@ -1414,18 +1421,23 @@ export default function DashboardPage() {
       nguon_goc_su_dung: data.nguon_goc_su_dung || data.nguon_goc,
       updated_at: new Date().toISOString(),
     } as any;
-    const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(normalizedDecl);
+
+    const { updatedCodes, updatedMap } = applyDeclarationToState(
+      declaredCodesRef.current,
+      declarationsMapRef.current,
+      normalizedDecl
+    );
+    const nextSet = new Set(updatedCodes);
+    declaredCodesRef.current = nextSet;
+    declarationsMapRef.current = updatedMap;
     lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
-    setDeclaredParcelCodes(new Set(updatedCodes));
+    setDeclaredParcelCodes(nextSet);
     setDeclarationsMap(updatedMap);
     applyDeclarationToSyncSheets(normalizedDecl);
     setCellEdits((prev) => {
       if (!prev[normalizedDecl.ma_thua]) return prev;
       const next = { ...prev };
       delete next[normalizedDecl.ma_thua];
-      try {
-        localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
-      } catch {}
       return next;
     });
     broadcastRealtimeEvent({
@@ -1438,7 +1450,6 @@ export default function DashboardPage() {
     setEditingParcel(null);
     setEditingDeclaration(null);
 
-    // Nếu vừa kê khai từ danh sách CHƯA THỰC HIỆN, tự động kiểm tra và chuyển qua danh sách tiếp theo:
     const cleanCccdVal = cleanCccd(normalizedDecl.chu_dat_cccd);
     if (selectedReportSheet === 'CHƯA THỰC HIỆN') {
       const nextSheet = cleanCccdVal
@@ -1448,69 +1459,94 @@ export default function DashboardPage() {
       setReportPage(1);
     }
 
-    // Đẩy cập nhật lên máy chủ Cloudflare R2 ngay lập tức
-    fetch('/api/declarations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(normalizedDecl),
-      keepalive: true,
-    })
-      .then(async (res) => {
-        if (res.ok) {
-          removePendingDeclaration(normalizedDecl.ma_thua);
-          const result = (await res.json()) as any;
-          if (result.success) {
-            setDeclarationsMap((prev) => {
-              const merged = {
-                ...prev,
-                ...(result.declarationsMap || {}),
-                [normalizedDecl.ma_thua]: result.declarationsMap?.[normalizedDecl.ma_thua] || normalizedDecl,
-              };
-              lastCloudSigRef.current = JSON.stringify({
-                codes: Array.isArray(result.declaredCodes) ? Array.from(new Set([...updatedCodes, ...result.declaredCodes])) : updatedCodes,
-                map: merged,
-              });
-              return merged;
-            });
-            if (Array.isArray(result.declaredCodes)) {
-              setDeclaredParcelCodes((prev) => new Set([...prev, ...result.declaredCodes]));
-            }
-          }
+    // Lưu trực tiếp vào Cloudflare D1 Database
+    try {
+      const res = await fetch('/api/declarations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(normalizedDecl),
+        keepalive: true,
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const result = (await res.json()) as any;
+      if (result.success) {
+        setDeclarationsMap((prev) => {
+          const merged = {
+            ...prev,
+            ...(result.declarationsMap || {}),
+            [normalizedDecl.ma_thua]: result.declarationsMap?.[normalizedDecl.ma_thua] || normalizedDecl,
+          };
+          declarationsMapRef.current = merged;
+          const finalCodes = Array.isArray(result.declaredCodes)
+            ? Array.from(new Set([...updatedCodes, ...result.declaredCodes]))
+            : updatedCodes;
+          lastCloudSigRef.current = JSON.stringify({ codes: finalCodes, map: merged });
+          return merged;
+        });
+        if (Array.isArray(result.declaredCodes)) {
+          setDeclaredParcelCodes((prev) => {
+            const next = new Set([...prev, ...result.declaredCodes]);
+            declaredCodesRef.current = next;
+            return next;
+          });
         }
-      })
-      .catch((err) => console.warn('Lỗi khi lưu chỉnh sửa lên Cloud:', err));
+        setInlineSaveToast('✓ Đã lưu trực tiếp vào Database!');
+        setTimeout(() => setInlineSaveToast(null), 2500);
+      }
+    } catch (err) {
+      console.warn('Lỗi khi lưu chỉnh sửa vào Database:', err);
+      setInlineSaveToast('❌ Lỗi lưu Database! Đang đồng bộ lại...');
+      setTimeout(() => setInlineSaveToast(null), 3500);
+      fetchCloudDeclarations(true);
+    }
   };
 
-  const handleDeleteDeclaration = (maThua: string) => {
-    const { updatedCodes, updatedMap } = removeDeclaration(maThua);
-    lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
-    setDeclaredParcelCodes(new Set(updatedCodes));
-    setDeclarationsMap(updatedMap);
+  const handleDeleteDeclaration = async (maThua: string) => {
     setDeletingParcel(null);
     if (activeParcelDetail && activeParcelDetail.ma_thua === maThua) {
       setIsDetailModalOpen(false);
       setActiveParcelDetail(null);
     }
 
-    // Xóa trên máy chủ Cloudflare R2 để mọi thiết bị khác tự mất ngay lập tức
-    fetch(`/api/declarations?ma_thua=${encodeURIComponent(maThua)}`, {
-      method: 'DELETE',
-    })
-      .then(async (res) => {
-        if (res.ok) {
-          const result = (await res.json()) as any;
-          if (result.success && Array.isArray(result.declaredCodes)) {
-            const cloudMap =
-              result.declarationsMap && Object.keys(result.declarationsMap).length > 0
-                ? result.declarationsMap
-                : updatedMap;
-            lastCloudSigRef.current = JSON.stringify({ codes: result.declaredCodes, map: cloudMap });
-            setDeclaredParcelCodes(new Set(result.declaredCodes));
-            setDeclarationsMap(cloudMap);
-          }
-        }
-      })
-      .catch((err) => console.warn('Lỗi khi xóa phiếu trên Cloud:', err));
+    // Xóa trực tiếp trên Database Cloudflare D1 để mọi thiết bị khác tự cập nhật ngay lập tức
+    try {
+      const res = await fetch(`/api/declarations?ma_thua=${encodeURIComponent(maThua)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const result = (await res.json()) as any;
+      const { updatedCodes, updatedMap } = removeDeclarationFromState(
+        declaredCodesRef.current,
+        declarationsMapRef.current,
+        maThua
+      );
+      const finalCodes =
+        result?.success && Array.isArray(result.declaredCodes) ? (result.declaredCodes as string[]) : updatedCodes;
+      const finalMap =
+        result?.success && result.declarationsMap && typeof result.declarationsMap === 'object'
+          ? result.declarationsMap
+          : updatedMap;
+
+      const finalSet = new Set<string>(finalCodes);
+      declaredCodesRef.current = finalSet;
+      declarationsMapRef.current = finalMap;
+      lastCloudSigRef.current = JSON.stringify({ codes: finalCodes, map: finalMap });
+      setDeclaredParcelCodes(finalSet);
+      setDeclarationsMap(finalMap);
+
+      broadcastRealtimeEvent({
+        type: 'DECLARATION_DELETED',
+        maThua,
+        declaredCodes: finalCodes,
+      });
+      setInlineSaveToast('✓ Đã xóa phiếu kê khai khỏi Database!');
+      setTimeout(() => setInlineSaveToast(null), 2500);
+    } catch (err) {
+      console.warn('Lỗi khi xóa phiếu trên Database:', err);
+      setInlineSaveToast('❌ Lỗi xóa trên Database! Đang đồng bộ lại...');
+      setTimeout(() => setInlineSaveToast(null), 3500);
+      fetchCloudDeclarations(true);
+    }
   };
 
   // 2. Nạp báo cáo thống kê 16 thôn & đóng tập từ API nội bộ
@@ -3556,7 +3592,7 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            {/* Trạng thái đồng bộ máy chủ 100% (Bấm để kích hoạt đồng bộ toàn bộ) */}
+            {/* Trạng thái Database Realtime trực tiếp (Bấm để làm mới ngay) */}
             <button
               type="button"
               onClick={handleForceSyncAll}
@@ -3566,17 +3602,17 @@ export default function DashboardPage() {
                   ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
                   : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 active:scale-95'
               }`}
-              title="Bấm để đồng bộ toàn bộ dữ liệu từ trình duyệt (localStorage) lên Cloudflare Database ngay lập tức"
+              title="Kết nối trực tiếp Cloudflare D1 (tự động cập nhật 5s). Bấm để làm mới ngay."
             >
               {savingRowCodes.size > 0 || isManualSyncing ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
-                  <span className="hidden sm:inline">Đang đồng bộ...</span>
+                  <span className="hidden sm:inline">Đang lưu DB...</span>
                 </>
               ) : (
                 <>
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  <span className="hidden sm:inline">Đồng bộ 100%</span>
+                  <span className="hidden sm:inline">Realtime DB</span>
                 </>
               )}
             </button>
@@ -4382,46 +4418,58 @@ export default function DashboardPage() {
                         };
                         newDecls.push(newDecl);
                         newlyDeclaredCodes.push(code);
-                        saveOrUpdateDeclaration(newDecl);
                       }
 
-                      // Gửi 1 request BATCH duy nhất lên Cloudflare R2
+                      // Gửi 1 request BATCH trực tiếp lên Database Cloudflare D1
                       const res = await fetch('/api/declarations', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ batch: newDecls }),
                       });
-
-                      if (res.ok) {
-                        const data = (await res.json()) as any;
-                        if (data && data.declaredCodes) {
-                          setDeclaredParcelCodes(new Set(data.declaredCodes));
-                        }
-                        setDeclarationsMap((prev) => {
-                          const next = { ...prev };
-                          newDecls.forEach((d) => {
-                            next[d.ma_thua] = d;
-                          });
-                          return next;
-                        });
+                      if (!res.ok) {
+                        throw new Error(`HTTP ${res.status}`);
                       }
+
+                      const data = (await res.json()) as any;
+                      if (!data?.success) {
+                        throw new Error(data?.error || 'Lưu batch thất bại');
+                      }
+
+                      setDeclaredParcelCodes((prev) => {
+                        const next = new Set([
+                          ...prev,
+                          ...newlyDeclaredCodes,
+                          ...(Array.isArray(data?.declaredCodes) ? data.declaredCodes : []),
+                        ]);
+                        declaredCodesRef.current = next;
+                        return next;
+                      });
+                      setDeclarationsMap((prev) => {
+                        const next = {
+                          ...prev,
+                          ...(data?.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {}),
+                        };
+                        newDecls.forEach((d) => {
+                          next[d.ma_thua] = d;
+                        });
+                        declarationsMapRef.current = next;
+                        return next;
+                      });
 
                       // Dọn dẹp cellEdits của các thửa này
                       setCellEdits((prev) => {
                         const next = { ...prev };
                         newlyDeclaredCodes.forEach((c) => delete next[c]);
-                        try {
-                          localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
-                        } catch {}
                         return next;
                       });
 
-                      clearPendingDeclarations(newDecls.map((d) => d.ma_thua));
-                    setInlineSaveToast(`✓ Đã kê khai thành công ${newDecls.length} thửa đất đủ thông tin! Dữ liệu đã chuyển sang danh sách tương ứng.`);
+                      setInlineSaveToast(`✓ Đã lưu trực tiếp ${newDecls.length} thửa đất vào Database!`);
                       setTimeout(() => setInlineSaveToast(null), 4500);
                       await fetchSyncSheetsReport(true);
                     } catch (err) {
                       console.error('Lỗi kê khai các thửa đủ thông tin:', err);
+                      setInlineSaveToast('❌ Lỗi lưu Database! Vui lòng kiểm tra mạng và thử lại.');
+                      setTimeout(() => setInlineSaveToast(null), 4000);
                     } finally {
                       setIsCommittingAllReady(false);
                     }
@@ -4469,7 +4517,6 @@ export default function DashboardPage() {
                             cccd_chu_ho: cleanVal,
                             cccd: cleanVal,
                           };
-                          saveOrUpdateDeclaration(updatedDecl);
                           updatedDecls.push(updatedDecl);
                         }
                       }
@@ -4482,9 +4529,6 @@ export default function DashboardPage() {
                         setCellEdits((prev) => {
                           const next = { ...prev };
                           updatedDecls.forEach((d) => delete next[d.ma_thua]);
-                          try {
-                            localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
-                          } catch {}
                           return next;
                         });
 
@@ -4566,26 +4610,12 @@ export default function DashboardPage() {
 
                         if (nextSummary) setSyncSummary(nextSummary);
 
-                        // Gửi đồng bộ lưu R2 song song: vừa lưu declaration vừa cập nhật tức thì cache sync-sheets
-                        await Promise.all([
+                        // Gửi đồng bộ lưu D1 + R2 song song: vừa lưu declaration vừa cập nhật cache sync-sheets
+                        const [declRes] = await Promise.all([
                           fetch('/api/declarations', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ batch: updatedDecls }),
-                          }).then(async (res) => {
-                            if (res.ok) {
-                              const data = (await res.json()) as any;
-                              if (data && data.declaredCodes) {
-                                setDeclaredParcelCodes(new Set(data.declaredCodes));
-                              }
-                              setDeclarationsMap((prev) => {
-                                const next = { ...prev };
-                                updatedDecls.forEach((d) => {
-                                  next[d.ma_thua] = d;
-                                });
-                                return next;
-                              });
-                            }
                           }),
                           fetch('/api/sync-sheets', {
                             method: 'POST',
@@ -4596,9 +4626,33 @@ export default function DashboardPage() {
                             }),
                           }),
                         ]);
+
+                        if (!declRes.ok) {
+                          throw new Error(`HTTP ${declRes.status}`);
+                        }
+                        const data = (await declRes.json()) as any;
+                        setDeclaredParcelCodes((prev) => {
+                          const next = new Set([
+                            ...prev,
+                            ...updatedDecls.map((d) => d.ma_thua),
+                            ...(Array.isArray(data?.declaredCodes) ? data.declaredCodes : []),
+                          ]);
+                          declaredCodesRef.current = next;
+                          return next;
+                        });
+                        setDeclarationsMap((prev) => {
+                          const next = {
+                            ...prev,
+                            ...(data?.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {}),
+                          };
+                          updatedDecls.forEach((d) => {
+                            next[d.ma_thua] = d;
+                          });
+                          declarationsMapRef.current = next;
+                          return next;
+                        });
                       }
 
-                      clearPendingDeclarations(updatedDecls.map((d) => d.ma_thua));
                       const toastMsg = newlyOntRows.length > 0 && newlyPackedRows.length > 0
                         ? `✓ Đã chuyển thành công ${newlyPackedRows.length} thửa sang Sẵn Sàng Đóng Tập và ${newlyOntRows.length} thửa sang GCN - ONT!`
                         : (newlyOntRows.length > 0
@@ -4613,6 +4667,9 @@ export default function DashboardPage() {
                       }
                     } catch (err) {
                       console.error('Lỗi chuyển thửa sang đóng tập:', err);
+                      setInlineSaveToast('❌ Lỗi lưu Database! Đang tải lại dữ liệu gốc...');
+                      setTimeout(() => setInlineSaveToast(null), 4000);
+                      fetchCloudDeclarations(true);
                     } finally {
                       setIsMovingParcelsToPack(false);
                     }
@@ -4679,7 +4736,6 @@ export default function DashboardPage() {
                           ghi_chu: 'Yêu cầu thu thập lại CCCD',
                           updated_at: new Date().toISOString(),
                         };
-                        saveOrUpdateDeclaration(updatedDecl);
                         updatedDecls.push(updatedDecl);
                         newlyUnpackedCodes.push(maThua);
 
@@ -4696,20 +4752,15 @@ export default function DashboardPage() {
                       }
 
                       setCellEdits(updatedCellEdits);
-                      try {
-                        localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(updatedCellEdits));
-                      } catch {}
 
                       if (updatedDecls.length > 0) {
-                        // Cập nhật declarationsMap
+                        // Cập nhật declarationsMap trong bộ nhớ phiên hiện tại
                         const newMap = { ...declarationsMap };
                         updatedDecls.forEach((d) => {
                           newMap[d.ma_thua] = d;
                         });
+                        declarationsMapRef.current = newMap;
                         setDeclarationsMap(newMap);
-                        try {
-                          localStorage.setItem('diachinh_declarations_map', JSON.stringify(newMap));
-                        } catch {}
 
                         // Optimistic UI Update: Di chuyển ngay lập tức giữa 2 sheet
                         const movedMaThuas = new Set(selectedCodes);
@@ -4768,29 +4819,12 @@ export default function DashboardPage() {
                           return next;
                         });
 
-                        // Gửi đồng bộ lưu R2 song song: vừa lưu declaration vừa cập nhật tức thì cache sync-sheets
-                        await Promise.all([
+                        // Gửi đồng bộ lưu D1 + R2 song song: KHÔNG gửi nguyên cục cellEdits để tránh ghi đè ô của thiết bị khác
+                        const [declRes] = await Promise.all([
                           fetch('/api/declarations', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              batch: updatedDecls,
-                              cellEdits: updatedCellEdits,
-                            }),
-                          }).then(async (res) => {
-                            if (res.ok) {
-                              const data = (await res.json()) as any;
-                              if (data && data.declaredCodes) {
-                                setDeclaredParcelCodes(new Set(data.declaredCodes));
-                              }
-                              setDeclarationsMap((prev) => {
-                                const next = { ...prev };
-                                updatedDecls.forEach((d) => {
-                                  next[d.ma_thua] = d;
-                                });
-                                return next;
-                              });
-                            }
+                            body: JSON.stringify({ batch: updatedDecls }),
                           }),
                           fetch('/api/sync-sheets', {
                             method: 'POST',
@@ -4801,13 +4835,39 @@ export default function DashboardPage() {
                             }),
                           }),
                         ]);
+                        if (!declRes.ok) {
+                          throw new Error(`HTTP ${declRes.status}`);
+                        }
+                        const data = (await declRes.json()) as any;
+                        setDeclaredParcelCodes((prev) => {
+                          const next = new Set([
+                            ...prev,
+                            ...updatedDecls.map((d) => d.ma_thua),
+                            ...(Array.isArray(data?.declaredCodes) ? data.declaredCodes : []),
+                          ]);
+                          declaredCodesRef.current = next;
+                          return next;
+                        });
+                        setDeclarationsMap((prev) => {
+                          const next = {
+                            ...prev,
+                            ...(data?.declarationsMap && typeof data.declarationsMap === 'object' ? data.declarationsMap : {}),
+                          };
+                          updatedDecls.forEach((d) => {
+                            next[d.ma_thua] = d;
+                          });
+                          declarationsMapRef.current = next;
+                          return next;
+                        });
                       }
 
-                      clearPendingDeclarations(updatedDecls.map((d) => d.ma_thua));
-                    setInlineSaveToast(`✓ Đã chuyển ${updatedDecls.length} thửa về danh sách "Chưa có CCCD" để thu thập lại!`);
+                      setInlineSaveToast(`✓ Đã chuyển ${updatedDecls.length} thửa về danh sách "Chưa có CCCD" để thu thập lại!`);
                       setTimeout(() => setInlineSaveToast(null), 4000);
                     } catch (err) {
                       console.error('Lỗi chuyển thửa về Chưa CCCD:', err);
+                      setInlineSaveToast('❌ Lỗi lưu Database! Đang tải lại dữ liệu gốc...');
+                      setTimeout(() => setInlineSaveToast(null), 4000);
+                      fetchCloudDeclarations(true);
                     } finally {
                       setIsMovingParcelsToUnpack(false);
                     }
@@ -7277,18 +7337,22 @@ export default function DashboardPage() {
         theme={theme}
         onDeclarationUpdated={(updatedDecl) => {
           if (!updatedDecl?.ma_thua) return;
-          const { updatedCodes, updatedMap } = saveOrUpdateDeclaration(updatedDecl);
+          const { updatedCodes, updatedMap } = applyDeclarationToState(
+            declaredCodesRef.current,
+            declarationsMapRef.current,
+            updatedDecl
+          );
+          const nextSet = new Set(updatedCodes);
+          declaredCodesRef.current = nextSet;
+          declarationsMapRef.current = updatedMap;
           lastCloudSigRef.current = JSON.stringify({ codes: updatedCodes, map: updatedMap });
-          setDeclaredParcelCodes(new Set(updatedCodes));
+          setDeclaredParcelCodes(nextSet);
           setDeclarationsMap(updatedMap);
           applyDeclarationToSyncSheets(updatedDecl);
           setCellEdits((prev) => {
             if (!prev[updatedDecl.ma_thua]) return prev;
             const next = { ...prev };
             delete next[updatedDecl.ma_thua];
-            try {
-              localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
-            } catch {}
             return next;
           });
         }}
@@ -7302,9 +7366,6 @@ export default function DashboardPage() {
                 ...cols,
               };
             }
-            try {
-              localStorage.setItem('diachinh_table_cell_edits', JSON.stringify(next));
-            } catch {}
             return next;
           });
         }}

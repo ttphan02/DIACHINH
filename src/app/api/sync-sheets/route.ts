@@ -122,7 +122,8 @@ export async function GET(req: Request) {
             status: 304,
             headers: {
               'ETag': etag,
-              'Cache-Control': 'public, max-age=15, s-maxage=30, stale-while-revalidate=60',
+              'Cache-Control': 'no-store, no-cache, must-revalidate',
+              'CDN-Cache-Control': 'no-store',
               'Access-Control-Allow-Origin': '*',
             },
           });
@@ -134,8 +135,8 @@ export async function GET(req: Request) {
           headers: {
             'Content-Type': 'application/json; charset=utf-8',
             'Content-Length': String(byteLen),
-            'Cache-Control': 'public, max-age=15, s-maxage=30, stale-while-revalidate=60',
-            'CDN-Cache-Control': 'public, max-age=30',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'CDN-Cache-Control': 'no-store',
             'ETag': etag,
             'Access-Control-Allow-Origin': '*',
           },
@@ -210,7 +211,8 @@ export async function GET(req: Request) {
 
     return NextResponse.json(payload, {
       headers: {
-        'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=120',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'CDN-Cache-Control': 'no-store',
       },
     });
   } catch (error: any) {

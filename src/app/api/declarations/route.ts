@@ -9,6 +9,8 @@ import {
   upsertD1Declaration,
   batchUpsertD1Declarations,
   deleteD1Declaration,
+  getD1SyncVersion,
+  bumpD1SyncVersion,
 } from '@/utils/d1Database';
 
 const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
@@ -32,10 +34,7 @@ interface StoragePayload {
   updatedAt?: string;
 }
 
-// In-memory cache ngắn hạn (15 giây) giúp giảm tải triệt để I/O và CPU trên Cloudflare Worker
-let memoryCache: { payload: StoragePayload; timestamp: number } | null = null;
 let memoryAllJsonCache: { text: string; etag: string; byteLength: number; timestamp: number } | null = null;
-const MEMORY_CACHE_TTL = 15000;
 let lastAllJsonSyncTime = 0;
 
 /**
@@ -60,12 +59,12 @@ async function syncAllJsonToR2Background(): Promise<void> {
 }
 
 /**
- * Đồng bộ bảng cell_edits trong D1 để tránh mất chỉnh sửa thửa chưa kê khai khi fallback D1
+ * Cập nhật từng ô cell_edits trong D1 (MERGE theo cặp ma_thua + col_idx, KHÔNG BAO GIỜ xóa toàn bảng gây mất sửa đổi của máy khác)
  */
 async function syncCellEditsToD1(
   db: any,
   editsMap: Record<string, Record<number, string>>,
-  replaceAll = false
+  _replaceAll = false
 ): Promise<void> {
   if (!db) return;
   try {
@@ -78,10 +77,6 @@ async function syncCellEditsToD1(
     )`).run();
 
     const nowIso = new Date().toISOString();
-    if (replaceAll) {
-      await db.prepare('DELETE FROM cell_edits').run();
-    }
-
     const statements: any[] = [];
     for (const [maThua, cols] of Object.entries(editsMap || {})) {
       if (!maThua || !cols || typeof cols !== 'object') continue;
@@ -98,10 +93,12 @@ async function syncCellEditsToD1(
         );
       }
     }
+    if (statements.length === 0) return;
     const CHUNK = 50;
     for (let i = 0; i < statements.length; i += CHUNK) {
       await db.batch(statements.slice(i, i + CHUNK));
     }
+    await bumpD1SyncVersion(db);
   } catch (err) {
     console.warn('Lỗi lưu cell_edits vào D1:', err);
   }
@@ -276,12 +273,13 @@ async function patchAllJsonAndSyncSheets(options: {
   const deletedSet = new Set((options.deletedCodes || []).map((c) => String(c)));
 
   const currentPayload = await readAllJsonFast(bucket);
-  const nextCellEdits: Record<string, Record<number, string>> = options.replaceCellEdits
-    ? { ...options.replaceCellEdits }
-    : { ...(currentPayload.cellEdits || {}) };
+  const nextCellEdits: Record<string, Record<number, string>> = {
+    ...(currentPayload.cellEdits || {}),
+  };
 
-  if (options.cellEditsPatch) {
-    for (const [code, cols] of Object.entries(options.cellEditsPatch)) {
+  const patchSource = options.cellEditsPatch || options.replaceCellEdits;
+  if (patchSource) {
+    for (const [code, cols] of Object.entries(patchSource)) {
       if (!code || !cols || typeof cols !== 'object') continue;
       nextCellEdits[code] = { ...(nextCellEdits[code] || {}), ...cols };
     }
@@ -422,12 +420,9 @@ async function saveSingleDeclarationToR2(maThua: string, declData: any): Promise
   }
 }
 
-// Đọc danh sách phiếu kê khai từ Cloudflare R2
-async function getDeclarationsFromR2(forceRefresh = false): Promise<StoragePayload> {
+// Đọc danh sách phiếu kê khai trực tiếp từ D1 / R2 (không giữ cache stale trong memory worker)
+async function getDeclarationsFromR2(_forceRefresh = false): Promise<StoragePayload> {
   const now = Date.now();
-  if (!forceRefresh && memoryCache && now - memoryCache.timestamp < MEMORY_CACHE_TTL) {
-    return memoryCache.payload;
-  }
 
   // 1. Ưu tiên đọc trực tiếp từ Cloudflare D1 SQL Database
   try {
@@ -435,7 +430,6 @@ async function getDeclarationsFromR2(forceRefresh = false): Promise<StoragePaylo
     if (db) {
       const d1Data = await getAllD1Declarations(db);
       if (d1Data && d1Data.declaredCodes.length > 0) {
-        memoryCache = { payload: d1Data, timestamp: now };
         return d1Data;
       }
     }
@@ -457,7 +451,6 @@ async function getDeclarationsFromR2(forceRefresh = false): Promise<StoragePaylo
           cellEdits: data.cellEdits && typeof data.cellEdits === 'object' ? data.cellEdits : {},
           updatedAt: data.updatedAt || new Date().toISOString(),
         };
-        memoryCache = { payload, timestamp: now };
         return payload;
       }
     }
@@ -465,7 +458,7 @@ async function getDeclarationsFromR2(forceRefresh = false): Promise<StoragePaylo
     console.warn('Lỗi khi đọc declarations qua R2 binding:', err);
   }
 
-  // 2. Fallback đọc qua R2 Public URL
+  // 3. Fallback đọc qua R2 Public URL
   try {
     const res = await fetch(`${R2_PUBLIC_URL}/${KEY_ALL_DECLARATIONS}?t=${now}`, {
       headers: { 'Cache-Control': 'no-cache' },
@@ -479,16 +472,13 @@ async function getDeclarationsFromR2(forceRefresh = false): Promise<StoragePaylo
         cellEdits: data.cellEdits && typeof data.cellEdits === 'object' ? data.cellEdits : {},
         updatedAt: data.updatedAt || new Date().toISOString(),
       };
-      memoryCache = { payload, timestamp: now };
       return payload;
     }
   } catch (err) {
     console.warn('Lỗi khi fetch declarations từ public R2:', err);
   }
 
-  const fallback: StoragePayload = { declaredCodes: [], declarationsMap: {}, cellEdits: {}, updatedAt: new Date().toISOString() };
-  memoryCache = { payload: fallback, timestamp: now };
-  return fallback;
+  return { declaredCodes: [], declarationsMap: {}, cellEdits: {}, updatedAt: new Date().toISOString() };
 }
 
 // Lưu danh sách phiếu kê khai vào Cloudflare R2
@@ -496,7 +486,6 @@ async function saveDeclarationsToR2(payload: StoragePayload): Promise<{ success:
   const jsonStr = JSON.stringify({ success: true, ...payload });
   const byteLen = new TextEncoder().encode(jsonStr).length;
   const etag = `"${Date.now()}"`;
-  memoryCache = { payload, timestamp: Date.now() };
   memoryAllJsonCache = { text: jsonStr, etag, byteLength: byteLen, timestamp: Date.now() };
 
   try {
@@ -533,7 +522,14 @@ async function saveDeclarationsToR2(payload: StoragePayload): Promise<{ success:
   return { success: false, error: 'R2 Binding DIACHINH_STORAGE không khả dụng' };
 }
 
-// GET: Lấy toàn bộ hoặc từng phiếu kê khai (ưu tiên Cloudflare D1 SQL Database)
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate',
+  'CDN-Cache-Control': 'no-store',
+  'Pragma': 'no-cache',
+  'Access-Control-Allow-Origin': '*',
+};
+
+// GET: Đọc trực tiếp từ Cloudflare D1 SQL Database (nguồn chân lý duy nhất, không CDN cache cũ)
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
@@ -553,51 +549,108 @@ export async function GET(request: Request) {
           if (row.anh_gcn_list) {
             try { anhGcnList = JSON.parse(row.anh_gcn_list); } catch {}
           }
-          return NextResponse.json({
-            success: true,
-            declaration: {
-              ...row,
-              thua_kem_theo: thuaKemTheo,
-              anh_gcn_list: anhGcnList,
-              is_thua_kem_theo: Boolean(row.is_thua_kem_theo),
+          return NextResponse.json(
+            {
+              success: true,
+              declaration: {
+                ...row,
+                thua_kem_theo: thuaKemTheo,
+                anh_gcn_list: anhGcnList,
+                is_thua_kem_theo: Boolean(row.is_thua_kem_theo),
+              },
+              source: 'd1_sql_database',
             },
-            source: 'd1_sql_database',
-          });
+            { headers: NO_STORE_HEADERS }
+          );
         }
       } catch (singleErr) {
         console.warn('Lỗi đọc đơn lẻ thửa từ D1:', singleErr);
       }
     }
 
-    // 1. Kiểm tra ETag và in-memory cache siêu tốc (< 0.1ms CPU, 0 I/O)
     const clientEtag = request.headers.get('if-none-match');
-    if (memoryAllJsonCache && Date.now() - memoryAllJsonCache.timestamp < 15000) {
-      const etag = memoryAllJsonCache.etag;
-      if (clientEtag && (clientEtag === etag || clientEtag.includes(etag))) {
-        return new Response(null, {
-          status: 304,
-          headers: {
-            'ETag': etag,
-            'Cache-Control': 'public, max-age=5, s-maxage=15, stale-while-revalidate=30',
-            'Access-Control-Allow-Origin': '*',
-          },
-        });
-      }
 
-      return new Response(memoryAllJsonCache.text, {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Content-Length': String(memoryAllJsonCache.byteLength),
-          'Cache-Control': 'public, max-age=5, s-maxage=15, stale-while-revalidate=30',
-          'CDN-Cache-Control': 'public, max-age=15',
-          'ETag': etag,
-          'Access-Control-Allow-Origin': '*',
-        },
-      });
+    // 1. Ưu tiên đọc trực tiếp từ D1 SQL Database (kiểm tra phiên bản 1 row để trả 304 <1ms nếu chưa có thay đổi)
+    if (db) {
+      try {
+        const currentVersion = await getD1SyncVersion(db);
+        const etag = currentVersion ? `"${currentVersion}"` : undefined;
+
+        if (clientEtag && etag && (clientEtag === etag || clientEtag.includes(etag))) {
+          return new Response(null, {
+            status: 304,
+            headers: {
+              'ETag': etag,
+              ...NO_STORE_HEADERS,
+            },
+          });
+        }
+
+        if (memoryAllJsonCache && etag && memoryAllJsonCache.etag === etag) {
+          return new Response(memoryAllJsonCache.text, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Content-Length': String(memoryAllJsonCache.byteLength),
+              'ETag': etag,
+              ...NO_STORE_HEADERS,
+            },
+          });
+        }
+
+        const d1Data = await getAllD1Declarations(db);
+        if (d1Data) {
+          // Đồng bộ bổ sung 1 lần nếu D1 cell_edits chưa có dữ liệu cũ từ R2
+          if (Object.keys(d1Data.cellEdits).length === 0) {
+            try {
+              const bucket = await getR2Binding();
+              if (bucket) {
+                const obj = await bucket.get(KEY_ALL_DECLARATIONS);
+                if (obj) {
+                  const r2Parsed = JSON.parse(await obj.text());
+                  if (r2Parsed?.cellEdits && Object.keys(r2Parsed.cellEdits).length > 0) {
+                    await syncCellEditsToD1(db, r2Parsed.cellEdits, false);
+                    d1Data.cellEdits = r2Parsed.cellEdits;
+                  }
+                }
+              }
+            } catch {}
+          }
+
+          const finalVersion = d1Data.version || currentVersion || `d1-${d1Data.declaredCodes.length}`;
+          const finalEtag = `"${finalVersion}"`;
+          const text = JSON.stringify({
+            success: true,
+            source: 'd1_sql_database',
+            declaredCodes: d1Data.declaredCodes,
+            declarationsMap: d1Data.declarationsMap,
+            cellEdits: d1Data.cellEdits,
+            updatedAt: finalVersion,
+          });
+          const byteLen = new TextEncoder().encode(text).length;
+          memoryAllJsonCache = {
+            text,
+            etag: finalEtag,
+            byteLength: byteLen,
+            timestamp: Date.now(),
+          };
+
+          return new Response(text, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Content-Length': String(byteLen),
+              'ETag': finalEtag,
+              ...NO_STORE_HEADERS,
+            },
+          });
+        }
+      } catch (d1Err) {
+        console.warn('Lỗi truy vấn declarations từ D1 SQL Database:', d1Err);
+      }
     }
 
-    // 2. Đọc trực tiếp từ Cloudflare R2 với đầy đủ Content-Length (Loại bỏ 100% nguy cơ stream bị cắt đứt giữa chừng)
+    // 2. Fallback R2 nếu D1 tạm thời chưa khả dụng
     const bucket = await getR2Binding();
     if (bucket) {
       const obj = await bucket.get(KEY_ALL_DECLARATIONS);
@@ -608,60 +661,25 @@ export async function GET(request: Request) {
             status: 304,
             headers: {
               'ETag': etag,
-              'Cache-Control': 'public, max-age=5, s-maxage=15, stale-while-revalidate=30',
-              'Access-Control-Allow-Origin': '*',
+              ...NO_STORE_HEADERS,
             },
           });
         }
-
         const text = await obj.text();
         const byteLen = new TextEncoder().encode(text).length;
-        memoryAllJsonCache = {
-          text,
-          etag,
-          byteLength: byteLen,
-          timestamp: Date.now(),
-        };
-
         return new Response(text, {
           status: 200,
           headers: {
             'Content-Type': 'application/json; charset=utf-8',
             'Content-Length': String(byteLen),
-            'Cache-Control': 'public, max-age=5, s-maxage=15, stale-while-revalidate=30',
-            'CDN-Cache-Control': 'public, max-age=15',
             'ETag': etag,
-            'Access-Control-Allow-Origin': '*',
+            ...NO_STORE_HEADERS,
           },
         });
       }
     }
 
-    // 2. Dự phòng: Truy vấn từ Cloudflare D1 SQL Database nếu R2 chưa có cache
-    if (db) {
-      try {
-        const d1Data = await getAllD1Declarations(db);
-        if (d1Data && d1Data.declaredCodes.length > 0) {
-          return NextResponse.json(
-            {
-              success: true,
-              ...d1Data,
-              source: 'd1_sql_database',
-            },
-            {
-              headers: {
-                'Cache-Control': 'public, max-age=3, s-maxage=10, stale-while-revalidate=30',
-              },
-            }
-          );
-        }
-      } catch (d1Err) {
-        console.warn('Lỗi truy vấn declarations từ D1 SQL Database:', d1Err);
-      }
-    }
-
-    // 2. Fallback khi R2 Binding chưa sẵn sàng
-    const r2Data = await getDeclarationsFromR2();
+    const r2Data = await getDeclarationsFromR2(true);
     return NextResponse.json(
       {
         success: true,
@@ -671,33 +689,112 @@ export async function GET(request: Request) {
         cellEdits: r2Data.cellEdits || {},
         updatedAt: r2Data.updatedAt || new Date().toISOString(),
       },
-      {
-        headers: {
-          'Cache-Control': 'public, max-age=5, s-maxage=15, stale-while-revalidate=30',
-          'CDN-Cache-Control': 'public, max-age=15',
-        },
-      }
+      { headers: NO_STORE_HEADERS }
     );
   } catch (error: any) {
     console.error('Lỗi GET /api/declarations:', error);
     return NextResponse.json(
       { success: false, error: error.message || 'Lỗi đọc dữ liệu kê khai' },
-      { status: 500 }
+      { status: 500, headers: NO_STORE_HEADERS }
     );
   }
 }
 
-// POST: Client (Điện thoại hoặc Máy tính) gửi phiếu kê khai mới hoặc nháp cellEdits lên Cloudflare R2
+// POST: Client ghi trực tiếp vào Cloudflare D1 SQL Database và vá R2 đồng bộ
 export async function POST(request: Request) {
-  // 1. Kích hoạt lấy R2 Binding ngay từ đầu request handler trước bất kỳ stream parsing nào
   await getR2Binding();
   memoryAllJsonCache = null;
 
   try {
     const body: any = await request.json();
 
+    // Vá từng trường của 1 phiếu kê khai trực tiếp trên D1 (an toàn khi nhiều máy cùng sửa khác cột trên 1 thửa)
+    if (body && body.type === 'patch_declaration_fields' && body.ma_thua) {
+      const maThua = String(body.ma_thua).trim();
+      const fields = body.fields && typeof body.fields === 'object' ? body.fields : {};
+      const fallbackDecl = body.fallbackDecl && typeof body.fallbackDecl === 'object' ? body.fallbackDecl : {};
+      const timestamp = new Date().toISOString();
+      const db = await getD1Binding();
+
+      let latest: any = null;
+      if (db) {
+        try {
+          const row = await db.prepare('SELECT * FROM declarations WHERE ma_thua = ?1').bind(maThua).first();
+          if (row) {
+            let tkt: any[] = [];
+            if (row.thua_kem_theo_json) {
+              try { tkt = JSON.parse(row.thua_kem_theo_json); } catch {}
+            }
+            let gcnList: string[] = [];
+            if (row.anh_gcn_list) {
+              try { gcnList = JSON.parse(row.anh_gcn_list); } catch {}
+            }
+            latest = {
+              ...row,
+              chu_ho: row.chu_dat_ten,
+              ho_va_ten_chu_ho: row.chu_dat_ten,
+              nam_sinh_chu_ho: row.chu_dat_nam_sinh,
+              gioi_tinh_chu_ho: row.chu_dat_gioi_tinh,
+              cccd: row.chu_dat_cccd,
+              cccd_chu_ho: row.chu_dat_cccd,
+              nguon_goc: row.nguon_goc_su_dung,
+              thua_kem_theo: tkt.length > 0 ? tkt : undefined,
+              anh_gcn_list: gcnList,
+              is_thua_kem_theo: Boolean(row.is_thua_kem_theo),
+              yeu_cau_thu_cccd: Boolean(row.yeu_cau_thu_cccd),
+            };
+          }
+        } catch {}
+      }
+      if (!latest) {
+        const current = await readAllJsonFast(await getR2Binding());
+        latest = current.declarationsMap?.[maThua] || null;
+      }
+
+      const [toPart, thuaPart] = maThua.split('_');
+      const brief = parcelsBrief[maThua];
+      const mergedDecl: any = {
+        to_ban_do: toPart || '',
+        so_thua: thuaPart || '',
+        dien_tich: (brief && brief[0]) || '',
+        loai_dat: (brief && brief[1]) || 'DGT',
+        thon_xa: (brief && brief[2]) || 'xã Cư Pui',
+        ...fallbackDecl,
+        ...(latest || {}),
+        ...fields,
+        ma_thua: maThua,
+        created_at: latest?.created_at || fallbackDecl?.created_at || timestamp,
+        updated_at: timestamp,
+      };
+      mergedDecl.dia_chi_thua_dat = mergedDecl.dia_chi_thua_dat || mergedDecl.thon_xa || 'xã Cư Pui';
+      mergedDecl.thon_xa = mergedDecl.thon_xa || mergedDecl.dia_chi_thua_dat;
+      mergedDecl.chu_dat_dia_chi = mergedDecl.chu_dat_dia_chi || mergedDecl.dia_chi_thua_dat;
+
+      if (db) {
+        await upsertD1Declaration(db, mergedDecl);
+        await deleteCellEditsForCodesInD1(db, [maThua]);
+      }
+      await saveSingleDeclarationToR2(maThua, mergedDecl);
+      memoryAllJsonCache = null;
+      try {
+        await patchAllJsonAndSyncSheets({
+          declItems: [mergedDecl],
+          timestamp,
+        });
+      } catch {}
+
+      return NextResponse.json({
+        success: true,
+        savedParcel: maThua,
+        declaration: mergedDecl,
+        declarationsMap: { [maThua]: mergedDecl },
+        declaredCodes: [maThua],
+        updatedAt: timestamp,
+      });
+    }
+
     // Vá từng ô nháp (cellEdits) an toàn không ghi đè mất chỉnh sửa của thửa khác
-    if (body && body.type === 'patch_cell_edits') {
+    if (body && (body.type === 'patch_cell_edits' || body.type === 'cell_edits' || (!body.ma_thua && body.cellEdits && (!body.batch || body.batch.length === 0)))) {
       const editsPatch: Record<string, Record<number, string>> = body.cellEdits || {};
       const db = await getD1Binding();
       if (db && Object.keys(editsPatch).length > 0) {
@@ -706,23 +803,11 @@ export async function POST(request: Request) {
       const mergedCellEdits = await patchAllJsonAndSyncSheets({
         cellEditsPatch: editsPatch,
       });
+      memoryAllJsonCache = null;
       return NextResponse.json({ success: true, cellEdits: mergedCellEdits, patched: editsPatch });
     }
 
-    // Đồng bộ nhanh các ô nhập nháp (cellEdits) qua các máy tính khác nhau
-    if (body && (body.type === 'cell_edits' || (!body.ma_thua && body.cellEdits && (!body.batch || body.batch.length === 0)))) {
-      const edits: Record<string, Record<number, string>> = body.cellEdits || {};
-      const db = await getD1Binding();
-      if (db) {
-        await syncCellEditsToD1(db, edits, true);
-      }
-      const mergedCellEdits = await patchAllJsonAndSyncSheets({
-        replaceCellEdits: edits,
-      });
-      return NextResponse.json({ success: true, cellEdits: mergedCellEdits });
-    }
-
-    // Hỗ trợ lưu hàng loạt (batch) trực tiếp vào D1 SQL Database và R2 (Siêu tốc O(1) CPU, không đọc/ghi all.json)
+    // Hỗ trợ lưu hàng loạt (batch) trực tiếp vào D1 SQL Database và R2
     if (body && Array.isArray(body.batch) && body.batch.length > 0) {
       const timestamp = new Date().toISOString();
       const d1Items: any[] = [];
@@ -743,40 +828,27 @@ export async function POST(request: Request) {
         savedCodes.push(code);
         d1Items.push(fullDeclData);
         atomicWrites.push(saveSingleDeclarationToR2(code, fullDeclData));
+      }
 
-        if (memoryCache?.payload) {
-          if (!memoryCache.payload.declaredCodes.includes(code)) {
-            memoryCache.payload.declaredCodes.push(code);
-          }
-          memoryCache.payload.declarationsMap[code] = fullDeclData;
-          if (memoryCache.payload.cellEdits) {
-            delete memoryCache.payload.cellEdits[code];
-          }
+      // 1. Lưu trực tiếp vào Cloudflare D1 SQL Database theo batch (ACID ~2ms)
+      const db = await getD1Binding();
+      if (db && d1Items.length > 0) {
+        await batchUpsertD1Declarations(db, d1Items);
+        await deleteCellEditsForCodesInD1(db, savedCodes);
+        if (body.cellEditsPatch && typeof body.cellEditsPatch === 'object') {
+          await syncCellEditsToD1(db, body.cellEditsPatch, false);
         }
       }
 
-      // 1. Lưu trực tiếp vào Cloudflare D1 SQL Database theo batch (siêu tốc, ACID ~2ms)
-      try {
-        const db = await getD1Binding();
-        if (db && d1Items.length > 0) {
-          await batchUpsertD1Declarations(db, d1Items);
-          await deleteCellEditsForCodesInD1(db, savedCodes);
-        }
-      } catch (d1Err) {
-        console.warn('Lỗi batch ghi D1:', d1Err);
-      }
-
-      // 2. Lưu file đơn lẻ R2 song song (~10ms I/O)
+      // 2. Lưu file đơn lẻ R2 song song
       await Promise.all(atomicWrites);
-
-      // Invalidate in-memory caches ngay lập tức
       memoryAllJsonCache = null;
 
-      // Xử lý cellEdits nếu được gửi kèm và vá ngay all.json + cache/sync_sheets.json trên R2
+      // 3. Vá tức thì all.json & cache/sync_sheets.json trên R2 (tuyệt đối KHÔNG xóa/replace cellEdits của thửa khác)
       try {
         await patchAllJsonAndSyncSheets({
           declItems: d1Items,
-          replaceCellEdits: body.cellEdits || undefined,
+          cellEditsPatch: body.cellEditsPatch || undefined,
           timestamp,
         });
       } catch (r2AllErr) {
@@ -819,8 +891,6 @@ export async function POST(request: Request) {
           previousDecl = { ...row, thua_kem_theo: oldTkt };
         }
       } catch (e) {}
-    } else if (memoryCache?.payload?.declarationsMap?.[rootMaThua]) {
-      previousDecl = memoryCache.payload.declarationsMap[rootMaThua];
     }
 
     // Thu thập mã thửa trong phiếu
@@ -840,11 +910,6 @@ export async function POST(request: Request) {
             try {
               await db.prepare('DELETE FROM declarations WHERE ma_thua = ?1 AND parent_ma_thua = ?2').bind(ap.ma_thua, rootMaThua).run();
             } catch {}
-          }
-          if (memoryCache?.payload) {
-            const idx = memoryCache.payload.declaredCodes.indexOf(ap.ma_thua);
-            if (idx >= 0) memoryCache.payload.declaredCodes.splice(idx, 1);
-            delete memoryCache.payload.declarationsMap[ap.ma_thua];
           }
           const bucket = await getR2Binding();
           if (bucket) {
@@ -931,23 +996,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // Cập nhật O(1) in-memory cache nếu đang có
-    if (memoryCache?.payload) {
-      if (!memoryCache.payload.declaredCodes.includes(rootMaThua)) {
-        memoryCache.payload.declaredCodes.push(rootMaThua);
-      }
-      memoryCache.payload.declarationsMap[rootMaThua] = rootDeclData;
-      if (memoryCache.payload.cellEdits) {
-        delete memoryCache.payload.cellEdits[rootMaThua];
-      }
-      for (const ap of attachedDecls) {
-        if (!memoryCache.payload.declaredCodes.includes(ap.ma_thua)) {
-          memoryCache.payload.declaredCodes.push(ap.ma_thua);
-        }
-        memoryCache.payload.declarationsMap[ap.ma_thua] = ap;
-      }
-    }
-
     // Invalidate in-memory cache
     memoryAllJsonCache = null;
 
@@ -1021,16 +1069,8 @@ export async function DELETE(request: Request) {
       bucket.delete(`declarations/parcels/${targetMaThua}.json`).catch(() => {});
     }
 
-    // 3. Cập nhật O(1) trong in-memory cache nếu có
+    // 3. Invalidate cached JSON response (etag changes via bumpD1SyncVersion)
     memoryAllJsonCache = null;
-    if (memoryCache?.payload) {
-      const idx = memoryCache.payload.declaredCodes.indexOf(targetMaThua);
-      if (idx >= 0) memoryCache.payload.declaredCodes.splice(idx, 1);
-      delete memoryCache.payload.declarationsMap[targetMaThua];
-      if (memoryCache.payload.cellEdits) {
-        delete memoryCache.payload.cellEdits[targetMaThua];
-      }
-    }
 
     // 4. Vá tức thì all.json & sync_sheets.json sau khi xóa
     try {

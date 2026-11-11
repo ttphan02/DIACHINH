@@ -10,6 +10,55 @@ async function ensureSchemaMigration(db: any) {
   try {
     await db.prepare('ALTER TABLE declarations ADD COLUMN yeu_cau_thu_cccd INTEGER DEFAULT 0').run();
   } catch {}
+  try {
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS sync_meta (
+          key TEXT PRIMARY KEY,
+          version TEXT,
+          updated_at TEXT
+        )`
+      )
+      .run();
+  } catch {}
+}
+
+/**
+ * Đọc phiên bản đồng bộ hiện tại từ D1 (tốn đúng 1 row read, <1ms)
+ */
+export async function getD1SyncVersion(db: any): Promise<string | null> {
+  if (!db) return null;
+  try {
+    const row = await db.prepare("SELECT version FROM sync_meta WHERE key = 'declarations'").first();
+    if (row?.version) return String(row.version);
+    const v = `v-${Date.now()}`;
+    await db
+      .prepare("INSERT INTO sync_meta (key, version, updated_at) VALUES ('declarations', ?1, ?2) ON CONFLICT(key) DO NOTHING")
+      .bind(v, new Date().toISOString())
+      .run();
+    const check = await db.prepare("SELECT version FROM sync_meta WHERE key = 'declarations'").first();
+    return check?.version ? String(check.version) : v;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Tăng phiên bản đồng bộ ngay sau mọi thao tác ghi/sửa/xóa trên D1
+ */
+export async function bumpD1SyncVersion(db: any, customVersion?: string): Promise<string> {
+  const version = customVersion || `v-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  if (!db) return version;
+  try {
+    await db
+      .prepare(
+        `INSERT INTO sync_meta (key, version, updated_at) VALUES ('declarations', ?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET version = excluded.version, updated_at = excluded.updated_at`
+      )
+      .bind(version, new Date().toISOString())
+      .run();
+  } catch {}
+  return version;
 }
 
 /**
@@ -112,6 +161,11 @@ export async function initD1Schema(db: any): Promise<void> {
       val TEXT,
       updated_at TEXT,
       PRIMARY KEY (ma_thua, col_idx)
+    )`,
+    `CREATE TABLE IF NOT EXISTS sync_meta (
+      key TEXT PRIMARY KEY,
+      version TEXT,
+      updated_at TEXT
     )`
   ];
 
@@ -221,6 +275,7 @@ export async function upsertD1Declaration(db: any, decl: any): Promise<boolean> 
     String(decl.updated_at || timestamp)
   ).run();
 
+  await bumpD1SyncVersion(db);
   return true;
 }
 
@@ -327,6 +382,9 @@ export async function batchUpsertD1Declarations(db: any, decls: any[]): Promise<
     totalSaved += chunk.length;
   }
 
+  if (totalSaved > 0) {
+    await bumpD1SyncVersion(db);
+  }
   return totalSaved;
 }
 
@@ -336,6 +394,8 @@ export async function batchUpsertD1Declarations(db: any, decls: any[]): Promise<
 export async function deleteD1Declaration(db: any, maThua: string): Promise<boolean> {
   if (!db || !maThua) return false;
   await db.prepare('DELETE FROM declarations WHERE ma_thua = ?1 OR parent_ma_thua = ?1').bind(maThua).run();
+  await db.prepare('DELETE FROM cell_edits WHERE ma_thua = ?1').bind(maThua).run().catch(() => {});
+  await bumpD1SyncVersion(db);
   return true;
 }
 
@@ -347,12 +407,13 @@ export async function getAllD1Declarations(db: any): Promise<{
   declarationsMap: Record<string, any>;
   cellEdits: Record<string, Record<number, string>>;
   updatedAt: string;
+  version?: string;
 } | null> {
   if (!db) return null;
 
   try {
     const { results } = await db.prepare('SELECT * FROM declarations').all();
-    if (!results || results.length === 0) return null;
+    if (!results) return null;
 
     const declaredCodes: string[] = [];
     const declarationsMap: Record<string, any> = {};
@@ -427,11 +488,14 @@ export async function getAllD1Declarations(db: any): Promise<{
       }
     } catch {}
 
+    const version = (await getD1SyncVersion(db)) || `v-${declaredCodes.length}`;
+
     return {
       declaredCodes,
       declarationsMap,
       cellEdits,
-      updatedAt: new Date().toISOString(),
+      updatedAt: version,
+      version,
     };
   } catch (err) {
     console.warn('Lỗi đọc toàn bộ declarations từ D1:', err);

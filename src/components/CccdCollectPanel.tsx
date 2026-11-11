@@ -12,7 +12,7 @@ import {
   ChevronLeft,
 } from 'lucide-react';
 import { Parcel, DeclarationFormData } from '@/types';
-import { getOrCreateDeviceId, getSavedCadreName, saveOrUpdateDeclaration } from '@/utils/declaration';
+import { getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
 import { broadcastRealtimeEvent } from '@/utils/realtimeSync';
 import {
   cleanCccd,
@@ -690,20 +690,22 @@ export default function CccdCollectPanel({
         }
 
         if (Object.keys(patchEdits).length > 0) {
+          const res = await fetch('/api/declarations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'patch_cell_edits', cellEdits: patchEdits }),
+          });
+          if (!res.ok) {
+            throw new Error(`Máy chủ từ chối cập nhật (${res.status})`);
+          }
           onCellEditsUpdated?.(patchEdits);
           broadcastRealtimeEvent({
             type: 'CELL_EDITS_SYNCED',
             cellEdits: patchEdits,
           });
-          await fetch('/api/declarations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'patch_cell_edits', cellEdits: patchEdits }),
-          });
         }
       } else {
-        // Tab 1 (Đã kê khai chưa CCCD): Chỉ cập nhật tên, năm sinh, giới tính, thôn/buôn; giữ nguyên diện tích, loại đất, nguồn gốc, CCCD
-        const updatedDecls: any[] = [];
+        // Tab 1 (Đã kê khai chưa CCCD): Vá đúng các trường đã sửa trực tiếp trên Database D1 (không ghi đè field khác)
         for (const maThua of movingPerson.maThuaList) {
           const existing = declarationsMap[maThua];
           const [toP, thuaP] = maThua.split('_');
@@ -713,59 +715,71 @@ export default function CccdCollectPanel({
               ? formatDiaChiThuongTru(finalVillage)
               : existing.chu_dat_dia_chi;
 
-          const updated: any = existing
-            ? {
-                ...existing,
-                chu_dat_ten: cleanNewName,
-                chu_ho: cleanNewName,
-                ho_va_ten_chu_ho: cleanNewName,
-                chu_dat_nam_sinh: isDobChanged ? cleanDob : (existing.chu_dat_nam_sinh ?? cleanDob),
-                nam_sinh_chu_ho: isDobChanged ? cleanDob : (existing.nam_sinh_chu_ho ?? cleanDob),
-                chu_dat_gioi_tinh: isGenderChanged ? editGioiTinh : (existing.chu_dat_gioi_tinh || editGioiTinh),
-                gioi_tinh_chu_ho: isGenderChanged ? editGioiTinh : (existing.gioi_tinh_chu_ho || editGioiTinh),
-                thon_xa: finalVillage,
-                dia_chi_thua_dat: finalVillage,
-                chu_dat_dia_chi: resolvedDiaChi,
-                updated_at: timestamp,
-              }
-            : {
-                ma_thua: maThua,
-                to_ban_do: toP || '',
-                so_thua: thuaP || '',
-                dien_tich: (baseBrief && baseBrief[0]) || '',
-                loai_dat: (baseBrief && baseBrief[1]) || '',
-                chu_dat_ten: cleanNewName,
-                chu_ho: cleanNewName,
-                ho_va_ten_chu_ho: cleanNewName,
-                chu_dat_nam_sinh: cleanDob,
-                nam_sinh_chu_ho: cleanDob,
-                chu_dat_gioi_tinh: editGioiTinh,
-                gioi_tinh_chu_ho: editGioiTinh,
-                thon_xa: finalVillage,
-                dia_chi_thua_dat: finalVillage,
-                chu_dat_dia_chi: formatDiaChiThuongTru(finalVillage),
-                nguon_goc: normalizeNguonGoc(movingPerson.nguonGoc),
-                nguon_goc_su_dung: normalizeNguonGoc(movingPerson.nguonGoc),
-                device_id: getSavedCadreName() || getOrCreateDeviceId(),
-                created_at: timestamp,
-                updated_at: timestamp,
-              };
+          const fields: Record<string, any> = {
+            updated_at: timestamp,
+          };
+          if (isNameChanged || !existing?.chu_dat_ten) {
+            fields.chu_dat_ten = cleanNewName;
+            fields.chu_ho = cleanNewName;
+            fields.ho_va_ten_chu_ho = cleanNewName;
+          }
+          if (isDobChanged) {
+            fields.chu_dat_nam_sinh = cleanDob;
+            fields.nam_sinh_chu_ho = cleanDob;
+          }
+          if (isGenderChanged) {
+            fields.chu_dat_gioi_tinh = editGioiTinh;
+            fields.gioi_tinh_chu_ho = editGioiTinh;
+          }
+          if (isVillageChanged || !existing?.thon_xa) {
+            fields.thon_xa = finalVillage;
+            fields.dia_chi_thua_dat = finalVillage;
+            fields.chu_dat_dia_chi = resolvedDiaChi;
+          }
 
-          saveOrUpdateDeclaration(updated);
-          updatedDecls.push(updated);
-          onDeclarationUpdated?.(updated);
+          const fallbackDecl = {
+            ma_thua: maThua,
+            to_ban_do: toP || '',
+            so_thua: thuaP || '',
+            dien_tich: (baseBrief && baseBrief[0]) || '',
+            loai_dat: (baseBrief && baseBrief[1]) || '',
+            chu_dat_ten: cleanNewName,
+            chu_ho: cleanNewName,
+            ho_va_ten_chu_ho: cleanNewName,
+            chu_dat_nam_sinh: cleanDob,
+            nam_sinh_chu_ho: cleanDob,
+            chu_dat_gioi_tinh: editGioiTinh,
+            gioi_tinh_chu_ho: editGioiTinh,
+            thon_xa: finalVillage,
+            dia_chi_thua_dat: finalVillage,
+            chu_dat_dia_chi: formatDiaChiThuongTru(finalVillage),
+            nguon_goc: normalizeNguonGoc(movingPerson.nguonGoc),
+            nguon_goc_su_dung: normalizeNguonGoc(movingPerson.nguonGoc),
+            device_id: getSavedCadreName() || getOrCreateDeviceId(),
+            created_at: timestamp,
+            updated_at: timestamp,
+          };
+
+          const res = await fetch('/api/declarations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'patch_declaration_fields',
+              ma_thua: maThua,
+              fields,
+              fallbackDecl,
+            }),
+          });
+          if (!res.ok) {
+            throw new Error(`Máy chủ từ chối cập nhật thửa ${maThua} (${res.status})`);
+          }
+          const result = (await res.json()) as any;
+          const savedDecl = result?.declaration || { ...(existing || fallbackDecl), ...fields };
+          onDeclarationUpdated?.(savedDecl);
           broadcastRealtimeEvent({
             type: 'DECLARATION_SAVED',
             maThua,
-            declaration: updated,
-          });
-        }
-
-        if (updatedDecls.length > 0) {
-          await fetch('/api/declarations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ batch: updatedDecls }),
+            declaration: savedDecl,
           });
         }
       }

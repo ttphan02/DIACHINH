@@ -1,106 +1,28 @@
 import { DeclarationFormData } from '@/types';
-import { isAgriculturalLand } from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
 
 const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
 
-export const DECLARED_CODES_KEY = 'diachinh_declared_codes';
-export const DECLARATIONS_MAP_KEY = 'diachinh_declarations_map';
 export const DEVICE_ID_KEY = 'diachinh_device_id';
 export const CADRE_NAME_KEY = 'diachinh_cadre_name';
-export const PENDING_DECLARATIONS_KEY = 'diachinh_pending_declarations';
+
+const LEGACY_DATA_KEYS = [
+  'diachinh_declared_codes',
+  'diachinh_declarations_map',
+  'diachinh_pending_declarations',
+  'diachinh_table_cell_edits',
+  'diachinh_corrections',
+];
 
 /**
- * Lấy danh sách phiếu kê khai đang chờ đẩy lên Cloud (chưa được Cloud xác nhận)
+ * Dọn sạch các key dữ liệu kê khai / chỉnh sửa cũ từng lưu trong localStorage
+ * để đảm bảo trình duyệt không còn giữ bản cache cũ gây xung đột với Database.
  */
-export function getPendingDeclarations(): Record<string, DeclarationFormData> {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = localStorage.getItem(PENDING_DECLARATIONS_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Thêm hoặc cập nhật phiếu kê khai vào hàng đợi đồng bộ Cloud
- */
-export function savePendingDeclaration(formData: DeclarationFormData): void {
-  if (typeof window === 'undefined' || !formData?.ma_thua) return;
-  try {
-    const pending = getPendingDeclarations();
-    pending[formData.ma_thua] = formData;
-    localStorage.setItem(PENDING_DECLARATIONS_KEY, JSON.stringify(pending));
-  } catch {}
-}
-
-/**
- * Xóa một hoặc nhiều phiếu khỏi hàng đợi đồng bộ Cloud khi đã đồng bộ thành công
- */
-export function removePendingDeclaration(maThua: string): void {
-  if (typeof window === 'undefined' || !maThua) return;
-  try {
-    const pending = getPendingDeclarations();
-    if (pending[maThua]) {
-      delete pending[maThua];
-      localStorage.setItem(PENDING_DECLARATIONS_KEY, JSON.stringify(pending));
-    }
-  } catch {}
-}
-
-export function clearPendingDeclarations(maThuaList?: string[]): void {
+export function clearLegacyLocalDataStorage(): void {
   if (typeof window === 'undefined') return;
   try {
-    if (!maThuaList) {
-      localStorage.removeItem(PENDING_DECLARATIONS_KEY);
-      return;
-    }
-    const pending = getPendingDeclarations();
-    maThuaList.forEach((code) => delete pending[code]);
-    localStorage.setItem(PENDING_DECLARATIONS_KEY, JSON.stringify(pending));
+    LEGACY_DATA_KEYS.forEach((k) => localStorage.removeItem(k));
   } catch {}
-}
-
-/**
- * Đẩy toàn bộ dữ liệu đang lưu trên localStorage (pending declarations + cell edits) lên server trong 1 batch duy nhất
- */
-export async function syncAllLocalDataToServer(): Promise<{ success: boolean; count: number; error?: string }> {
-  if (typeof window === 'undefined') return { success: true, count: 0 };
-  try {
-    const pending = getPendingDeclarations();
-    const items = Object.values(pending);
-
-    let cellEdits: any = {};
-    try {
-      const rawEdits = localStorage.getItem('diachinh_table_cell_edits');
-      if (rawEdits) cellEdits = JSON.parse(rawEdits);
-    } catch {}
-
-    if (items.length === 0 && Object.keys(cellEdits).length === 0) {
-      return { success: true, count: 0 };
-    }
-
-    const res = await fetch('/api/declarations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        batch: items,
-        cellEdits: Object.keys(cellEdits).length > 0 ? cellEdits : undefined,
-      }),
-      keepalive: true,
-    });
-
-    if (res.ok) {
-      clearPendingDeclarations();
-      return { success: true, count: items.length };
-    } else {
-      const err = await res.text();
-      return { success: false, count: 0, error: err };
-    }
-  } catch (e: any) {
-    return { success: false, count: 0, error: e?.message || String(e) };
-  }
 }
 
 /**
@@ -119,7 +41,7 @@ export function formatCadreName(input: string): string {
 }
 
 /**
- * Lấy tên cán bộ đã lưu từ localStorage hoặc cookie (nếu chưa có thì trả về rỗng)
+ * Lấy tên cán bộ đã lưu (chỉ là thông tin định danh người thao tác, không phải dữ liệu đất)
  */
 export function getSavedCadreName(): string {
   if (typeof window === 'undefined') return '';
@@ -132,7 +54,7 @@ export function getSavedCadreName(): string {
 }
 
 /**
- * Lưu tên cán bộ vào localStorage và cookie vĩnh viễn
+ * Lưu tên cán bộ vào cài đặt trình duyệt và cookie
  */
 export function saveCadreName(name: string): string {
   const formatted = formatCadreName(name);
@@ -140,7 +62,6 @@ export function saveCadreName(name: string): string {
     try {
       localStorage.setItem(CADRE_NAME_KEY, formatted);
       localStorage.setItem(DEVICE_ID_KEY, formatted);
-      // Ghi cookie 1 năm để trình duyệt giữ vĩnh viễn
       document.cookie = `${CADRE_NAME_KEY}=${formatted}; path=/; max-age=31536000; SameSite=Lax`;
     } catch {}
   }
@@ -148,7 +69,7 @@ export function saveCadreName(name: string): string {
 }
 
 /**
- * Lấy hoặc khởi tạo mã định danh duy nhất: ưu tiên Tên Cán Bộ nếu đã lưu
+ * Lấy hoặc khởi tạo mã định danh cán bộ / thiết bị
  */
 export function getOrCreateDeviceId(): string {
   if (typeof window === 'undefined') return 'SERVER';
@@ -169,49 +90,26 @@ export function getOrCreateDeviceId(): string {
 }
 
 /**
- * Cho phép cán bộ đổi tên thiết bị / tên cán bộ theo ý muốn (vd: PHANTHANHTRUC)
+ * Đổi tên thiết bị / tên cán bộ
  */
 export function setCustomDeviceId(newId: string): void {
   saveCadreName(newId);
 }
 
 /**
- * Đọc an toàn danh sách mã thửa đã kê khai và bản đồ phiếu kê khai từ localStorage
+ * Tính toán danh sách mã & map trong bộ nhớ RAM sau khi xóa một phiếu trên Database
+ * (KHÔNG đọc hay ghi localStorage)
  */
-export function getStoredDeclarations(): {
-  declaredCodes: Set<string>;
-  declarationsMap: Record<string, any>;
-} {
-  if (typeof window === 'undefined') {
-    return { declaredCodes: new Set(), declarationsMap: {} };
-  }
-
-  try {
-    const rawCodes = localStorage.getItem(DECLARED_CODES_KEY);
-    const declaredCodes = new Set<string>(rawCodes ? JSON.parse(rawCodes) : []);
-
-    const rawMap = localStorage.getItem(DECLARATIONS_MAP_KEY);
-    const declarationsMap = rawMap ? JSON.parse(rawMap) : {};
-
-    return { declaredCodes, declarationsMap };
-  } catch (e) {
-    console.error('Lỗi khi đọc dữ liệu kê khai từ localStorage:', e);
-    return { declaredCodes: new Set(), declarationsMap: {} };
-  }
-}
-
-/**
- * Xóa một phiếu kê khai (bao gồm thửa chính và toàn bộ các thửa kèm theo)
- * Trả về danh sách các mã thửa bị ảnh hưởng để cập nhật giao diện
- */
-export function removeDeclaration(targetMaThua: string): {
+export function removeDeclarationFromState(
+  currentCodes: Set<string>,
+  currentMap: Record<string, any>,
+  targetMaThua: string
+): {
   removedCodes: string[];
   updatedCodes: string[];
   updatedMap: Record<string, any>;
 } {
-  const { declaredCodes, declarationsMap } = getStoredDeclarations();
-  const decl = declarationsMap[targetMaThua];
-
+  const decl = currentMap[targetMaThua];
   const codesToRemove = new Set<string>();
   codesToRemove.add(targetMaThua);
 
@@ -219,17 +117,15 @@ export function removeDeclaration(targetMaThua: string): {
     codesToRemove.add(decl.ma_thua);
   }
 
-  // Thêm tất cả thửa kèm theo trong phiếu
   if (Array.isArray(decl?.thua_kem_theo)) {
     decl.thua_kem_theo.forEach((ap: any) => {
       if (ap?.ma_thua) codesToRemove.add(ap.ma_thua);
     });
   }
 
-  // Quét toàn bộ map để tìm các thửa cùng thuộc phiếu này
   const rootMaThua = decl?.ma_thua || targetMaThua;
-  Object.entries(declarationsMap).forEach(([code, d]: [string, any]) => {
-    if (d?.ma_thua === rootMaThua || code === rootMaThua) {
+  Object.entries(currentMap).forEach(([code, d]: [string, any]) => {
+    if (d?.ma_thua === rootMaThua || code === rootMaThua || d?.parent_ma_thua === rootMaThua) {
       codesToRemove.add(code);
       if (Array.isArray(d?.thua_kem_theo)) {
         d.thua_kem_theo.forEach((ap: any) => {
@@ -240,43 +136,34 @@ export function removeDeclaration(targetMaThua: string): {
   });
 
   const removedCodes = Array.from(codesToRemove);
+  const nextCodesSet = new Set(currentCodes);
+  removedCodes.forEach((c) => nextCodesSet.delete(c));
+  const updatedCodes = Array.from(nextCodesSet);
 
-  // Xóa khỏi declaredCodes
-  removedCodes.forEach((c) => declaredCodes.delete(c));
-  const updatedCodes = Array.from(declaredCodes);
-
-  // Xóa khỏi declarationsMap
-  const updatedMap = { ...declarationsMap };
+  const updatedMap = { ...currentMap };
   removedCodes.forEach((c) => delete updatedMap[c]);
-
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(DECLARED_CODES_KEY, JSON.stringify(updatedCodes));
-      localStorage.setItem(DECLARATIONS_MAP_KEY, JSON.stringify(updatedMap));
-      removedCodes.forEach((c) => removePendingDeclaration(c));
-    } catch (e) {
-      console.error('Lỗi lưu localStorage khi xóa phiếu:', e);
-    }
-  }
 
   return { removedCodes, updatedCodes, updatedMap };
 }
 
 /**
- * Lưu hoặc cập nhật phiếu kê khai
- * Xử lý tự động trường hợp người dùng bớt/gỡ thửa kèm theo khỏi phiếu
+ * Chuẩn hóa dữ liệu phiếu kê khai & cập nhật state trong bộ nhớ RAM sau khi lưu lên Database
+ * (KHÔNG đọc hay ghi localStorage)
  */
-export function saveOrUpdateDeclaration(formData: DeclarationFormData): {
+export function applyDeclarationToState(
+  currentCodes: Set<string>,
+  currentMap: Record<string, any>,
+  formData: DeclarationFormData
+): {
+  rootDeclData: DeclarationFormData;
   addedCodes: string[];
   removedCodes: string[];
   updatedCodes: string[];
   updatedMap: Record<string, any>;
 } {
-  const { declaredCodes, declarationsMap } = getStoredDeclarations();
   const rootMaThua = formData.ma_thua;
-  const previousDecl = declarationsMap[rootMaThua];
+  const previousDecl = currentMap[rootMaThua];
 
-  // Tập hợp các mã thửa cũ trong phiếu này
   const previousCodes = new Set<string>();
   if (previousDecl) {
     previousCodes.add(rootMaThua);
@@ -287,7 +174,6 @@ export function saveOrUpdateDeclaration(formData: DeclarationFormData): {
     }
   }
 
-  // Tập hợp các mã thửa mới trong phiếu này
   const newCodes = new Set<string>();
   newCodes.add(rootMaThua);
   if (Array.isArray(formData.thua_kem_theo)) {
@@ -296,17 +182,15 @@ export function saveOrUpdateDeclaration(formData: DeclarationFormData): {
     });
   }
 
-  // Thửa nào trước đây có nhưng bây giờ bị xóa khỏi phiếu -> cần hoàn trả trạng thái ban đầu
   const removedCodes = Array.from(previousCodes).filter((c) => !newCodes.has(c));
   const addedCodes = Array.from(newCodes);
 
-  // Cập nhật declaredCodes
-  removedCodes.forEach((c) => declaredCodes.delete(c));
-  addedCodes.forEach((c) => declaredCodes.add(c));
-  const updatedCodes = Array.from(declaredCodes);
+  const nextCodesSet = new Set(currentCodes);
+  removedCodes.forEach((c) => nextCodesSet.delete(c));
+  addedCodes.forEach((c) => nextCodesSet.add(c));
+  const updatedCodes = Array.from(nextCodesSet);
 
-  // Cập nhật declarationsMap
-  const updatedMap = { ...declarationsMap };
+  const updatedMap = { ...currentMap };
   removedCodes.forEach((c) => delete updatedMap[c]);
 
   const timestamp = new Date().toISOString();
@@ -318,7 +202,7 @@ export function saveOrUpdateDeclaration(formData: DeclarationFormData): {
   const rootLoaiDat = formData.loai_dat || (rootBrief && rootBrief[1]) || 'LUK';
   const rootThonXa = formData.thon_xa || formData.dia_chi_thua_dat || (rootBrief && rootBrief[2]) || 'xã Cư Pui';
 
-  const rootDeclData = {
+  const rootDeclData: DeclarationFormData = {
     ...formData,
     ma_thua: rootMaThua,
     to_ban_do: rootParts[0] || formData.to_ban_do || '',
@@ -335,7 +219,6 @@ export function saveOrUpdateDeclaration(formData: DeclarationFormData): {
 
   updatedMap[rootMaThua] = rootDeclData;
 
-  // Xử lý thửa kèm theo nếu có
   if (Array.isArray(formData.thua_kem_theo)) {
     formData.thua_kem_theo.forEach((ap) => {
       if (!ap?.ma_thua) return;
@@ -366,22 +249,5 @@ export function saveOrUpdateDeclaration(formData: DeclarationFormData): {
     });
   }
 
-  // Tự động gán device_id cho các thửa cũ đã kê khai trên máy này nếu chưa có
-  Object.keys(updatedMap).forEach((code) => {
-    if (updatedMap[code] && !updatedMap[code].device_id) {
-      updatedMap[code].device_id = currentDeviceId;
-    }
-  });
-
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(DECLARED_CODES_KEY, JSON.stringify(updatedCodes));
-      localStorage.setItem(DECLARATIONS_MAP_KEY, JSON.stringify(updatedMap));
-      savePendingDeclaration(rootDeclData);
-    } catch (e) {
-      console.error('Lỗi lưu localStorage khi lưu phiếu:', e);
-    }
-  }
-
-  return { addedCodes, removedCodes, updatedCodes, updatedMap };
+  return { rootDeclData, addedCodes, removedCodes, updatedCodes, updatedMap };
 }
