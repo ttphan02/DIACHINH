@@ -482,17 +482,20 @@ async function getDeclarationsFromR2(_forceRefresh = false): Promise<StoragePayl
 }
 
 // Lưu danh sách phiếu kê khai vào Cloudflare R2
-async function saveDeclarationsToR2(payload: StoragePayload): Promise<{ success: boolean; error?: string }> {
+async function saveDeclarationsToR2(
+  payload: StoragePayload,
+  version?: string
+): Promise<{ success: boolean; error?: string }> {
   const jsonStr = JSON.stringify({ success: true, ...payload });
-  const byteLen = new TextEncoder().encode(jsonStr).length;
-  const etag = `"${Date.now()}"`;
-  memoryAllJsonCache = { text: jsonStr, etag, byteLength: byteLen, timestamp: Date.now() };
+  const etag = `"${version || Date.now()}"`;
+  memoryAllJsonCache = { text: jsonStr, etag, byteLength: jsonStr.length, timestamp: Date.now() };
 
   try {
     const bucket = await getR2Binding();
     if (bucket) {
       await bucket.put(KEY_ALL_DECLARATIONS, jsonStr, {
         httpMetadata: { contentType: 'application/json' },
+        ...(version ? { customMetadata: { version } } : {}),
       });
       return { success: true };
     }
@@ -586,12 +589,29 @@ export async function GET(request: Request) {
           });
         }
 
+        // Zero-CPU R2 stream: nếu declarations/all.json trên R2 đang khớp đúng version hiện tại của D1 -> stream thẳng body, không cần parse/stringify 1.2MB
+        const bucket = await getR2Binding();
+        if (bucket && currentVersion) {
+          try {
+            const r2Obj = await bucket.get(KEY_ALL_DECLARATIONS);
+            if (r2Obj?.body && r2Obj.customMetadata?.version === currentVersion) {
+              return new Response(r2Obj.body, {
+                status: 200,
+                headers: {
+                  'Content-Type': 'application/json; charset=utf-8',
+                  'ETag': etag!,
+                  ...NO_STORE_HEADERS,
+                },
+              });
+            }
+          } catch {}
+        }
+
         if (memoryAllJsonCache && etag && memoryAllJsonCache.etag === etag) {
           return new Response(memoryAllJsonCache.text, {
             status: 200,
             headers: {
               'Content-Type': 'application/json; charset=utf-8',
-              'Content-Length': String(memoryAllJsonCache.byteLength),
               'ETag': etag,
               ...NO_STORE_HEADERS,
             },
@@ -603,7 +623,6 @@ export async function GET(request: Request) {
           // Đồng bộ bổ sung 1 lần nếu D1 cell_edits chưa có dữ liệu cũ từ R2
           if (Object.keys(d1Data.cellEdits).length === 0) {
             try {
-              const bucket = await getR2Binding();
               if (bucket) {
                 const obj = await bucket.get(KEY_ALL_DECLARATIONS);
                 if (obj) {
@@ -627,19 +646,24 @@ export async function GET(request: Request) {
             cellEdits: d1Data.cellEdits,
             updatedAt: finalVersion,
           });
-          const byteLen = new TextEncoder().encode(text).length;
           memoryAllJsonCache = {
             text,
             etag: finalEtag,
-            byteLength: byteLen,
+            byteLength: text.length,
             timestamp: Date.now(),
           };
+
+          if (bucket && finalVersion) {
+            await bucket.put(KEY_ALL_DECLARATIONS, text, {
+              httpMetadata: { contentType: 'application/json' },
+              customMetadata: { version: finalVersion },
+            }).catch(() => {});
+          }
 
           return new Response(text, {
             status: 200,
             headers: {
               'Content-Type': 'application/json; charset=utf-8',
-              'Content-Length': String(byteLen),
               'ETag': finalEtag,
               ...NO_STORE_HEADERS,
             },
