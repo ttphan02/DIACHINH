@@ -3,6 +3,7 @@ import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { PDFDocument } from 'pdf-lib';
 import { cleanCccd, cleanName } from '@/utils/textHelpers';
 import { decodeCccd12 } from '@/utils/cccdOcrHelpers';
+import { isLocalNodeRuntime } from '@/utils/localFileDb';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,6 +14,7 @@ const R2_SECRET_KEY = process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY;
 const R2_BUCKET = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'diachinh-storage';
 
 async function getR2Binding(): Promise<any | null> {
+  if (isLocalNodeRuntime()) return null;
   try {
     const { env } = await getCloudflareContext({ async: true });
     return (env as any)?.DIACHINH_STORAGE || null;

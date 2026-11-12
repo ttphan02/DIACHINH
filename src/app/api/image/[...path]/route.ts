@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
+import { isLocalNodeRuntime } from '@/utils/localFileDb';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,7 @@ const R2_PUBLIC_BASE =
 let cachedR2Bucket: any = null;
 
 async function getR2Binding(): Promise<any | null> {
+  if (isLocalNodeRuntime()) return null;
   if (cachedR2Bucket) return cachedR2Bucket;
 
   // 1. globalThis.__CF_ENV__

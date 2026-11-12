@@ -17,6 +17,7 @@ const NO_STORE_HEADERS = {
 };
 
 async function getR2Binding(): Promise<any | null> {
+  if (isLocalNodeRuntime()) return null;
   if ((globalThis as any).__CF_ENV__?.DIACHINH_STORAGE) {
     return (globalThis as any).__CF_ENV__.DIACHINH_STORAGE;
   }

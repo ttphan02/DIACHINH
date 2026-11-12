@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { CadreLocationRecord, CadreBreadcrumb, CadreWorkStatus } from '@/types';
 import { formatCadreName } from '@/utils/declaration';
+import { isLocalNodeRuntime } from '@/utils/localFileDb';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,6 +72,7 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 }
 
 async function getR2Binding(): Promise<any | null> {
+  if (isLocalNodeRuntime()) return null;
   try {
     const { env } = await getCloudflareContext({ async: true });
     return (env as any)?.DIACHINH_STORAGE || null;

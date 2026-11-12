@@ -344,6 +344,7 @@ let cachedR2Bucket: any = null;
  * 5. getCloudflareContext({ async: false })
  */
 async function getR2Binding(): Promise<any | null> {
+  if (isLocalNodeRuntime()) return null;
   if (cachedR2Bucket) return cachedR2Bucket;
 
   // 1. Kiểm tra globalThis.__CF_ENV__

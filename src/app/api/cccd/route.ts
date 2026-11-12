@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { cleanCccd, cleanName } from '@/utils/textHelpers';
 import { getD1Binding } from '@/utils/d1Database';
+import { isLocalNodeRuntime } from '@/utils/localFileDb';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +33,7 @@ const checkResultCache = new Map<string, { data: any; timestamp: number }>();
 const GGS_CCCD_SET = new Set<string>();
 
 async function getR2Binding(): Promise<any | null> {
+  if (isLocalNodeRuntime()) return null;
   try {
     const { env } = await getCloudflareContext({ async: true });
     return (env as any)?.DIACHINH_STORAGE || null;
@@ -133,7 +135,7 @@ export async function GET(request: Request) {
 
       // Chỉ chạy S3 fallback ở local dev mode nếu không có R2 binding (tuyệt đối không chạy trên Cloudflare Worker)
       const isWorkerEnv = typeof (globalThis as any).WebSocketPair !== 'undefined' || typeof (globalThis as any).caches !== 'undefined';
-      if (!found && !bucket && !isWorkerEnv && process.env.NODE_ENV !== 'production') {
+      if (!found && !bucket && !isWorkerEnv) {
         const s3 = await getS3Client();
         if (s3) {
           try {

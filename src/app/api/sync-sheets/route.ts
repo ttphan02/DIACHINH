@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { executeSyncToGoogleSheet, invalidateR2Cache } from '@/utils/syncGoogleSheets';
 import { getD1Binding, getAllD1Declarations } from '@/utils/d1Database';
+import { isLocalNodeRuntime, readLocalJson } from '@/utils/localFileDb';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +34,7 @@ const KEY_ALL_DECLARATIONS = 'declarations/all.json';
 const R2_PUBLIC_URL = process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL || 'https://pub-8fc16192d16e4e6695117bf29e1314f4.r2.dev';
 
 async function getR2Binding(): Promise<any | null> {
+  if (isLocalNodeRuntime()) return null;
   try {
     const { env } = await getCloudflareContext({ async: true });
     return (env as any)?.DIACHINH_STORAGE || null;
@@ -42,6 +44,12 @@ async function getR2Binding(): Promise<any | null> {
 }
 
 async function getDeclarationsMap(): Promise<Record<string, any>> {
+  if (isLocalNodeRuntime()) {
+    const localData = await readLocalJson<any>('declarations.json');
+    if (localData?.declarationsMap && Object.keys(localData.declarationsMap).length > 0) {
+      return localData.declarationsMap;
+    }
+  }
   // 1. Ưu tiên đọc trực tiếp từ Cloudflare D1 SQL Database (nguồn dữ liệu tức thời và chính xác nhất)
   try {
     const db = await getD1Binding();
