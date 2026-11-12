@@ -218,6 +218,11 @@ export async function POST(request: Request) {
           cacheControl: 'public, max-age=31536000, immutable',
         },
       });
+      // Xóa snapshot cache CCCD để lần tải sau cập nhật ngay file mới (Zero-CPU cho các request đọc)
+      await Promise.allSettled([
+        bucket.delete('cache/cccd_list_only.json'),
+        bucket.delete('cache/cccd_full.json'),
+      ]);
     } else {
       const s3 = await getS3Client();
       if (s3) {

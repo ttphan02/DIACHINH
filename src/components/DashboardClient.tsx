@@ -1619,7 +1619,7 @@ export default function DashboardPage() {
   const fetchR2CccdList = useCallback(async () => {
     setIsLoadingR2Cccd(true);
     try {
-      const res = await fetch(`/api/cccd?list_only=1&t=${Date.now()}`);
+      const res = await fetch(`/api/cccd?list_only=1&t=${Math.floor(Date.now() / 60000)}`);
       const data: any = await res.json();
       if (data && data.success && Array.isArray(data.cccdList)) {
         setR2CccdSet(new Set(data.cccdList));

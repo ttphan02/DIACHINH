@@ -9,6 +9,8 @@ import { getD1Binding } from '@/utils/d1Database';
 export const dynamic = 'force-dynamic';
 
 const KEY_ALL_DECLARATIONS = 'declarations/all.json';
+const KEY_CCCD_LIST_ONLY_CACHE = 'cache/cccd_list_only.json';
+const KEY_CCCD_FULL_CACHE = 'cache/cccd_full.json';
 const R2_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const R2_ACCESS_KEY = process.env.CLOUDFLARE_R2_ACCESS_KEY_ID;
 const R2_SECRET_KEY = process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY;
@@ -188,9 +190,9 @@ export async function GET(request: Request) {
       return NextResponse.json(notFoundData);
     }
 
-    // 2. Lấy danh sách tóm tắt tất cả các số CCCD đã có file PDF trên R2 (có cache 30s)
+    // 2. Lấy danh sách tóm tắt tất cả các số CCCD đã có file PDF trên R2 (có cache 60s + R2 snapshot Zero-CPU)
     if (searchParams.get('list_only')) {
-      const forceRefresh = searchParams.get('force') === 'true';
+      const forceRefresh = searchParams.get('force') === 'true' || searchParams.get('refresh') === '1';
       const now = Date.now();
       if (!forceRefresh && listOnlyCache && now - listOnlyCache.timestamp < LIST_ONLY_CACHE_TTL) {
         return NextResponse.json(listOnlyCache.data, {
@@ -201,6 +203,23 @@ export async function GET(request: Request) {
       }
 
       const bucket = await getR2Binding();
+      if (!forceRefresh && bucket) {
+        try {
+          const cachedObj = await bucket.get(KEY_CCCD_LIST_ONLY_CACHE);
+          if (cachedObj?.body) {
+            return new NextResponse(cachedObj.body, {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Cache-Control': 'public, max-age=60, s-maxage=120, stale-while-revalidate=180',
+                'CDN-Cache-Control': 'public, max-age=120',
+                'X-Cccd-Cache': 'r2-snapshot',
+              },
+            });
+          }
+        } catch {}
+      }
+
       let objects: Array<{ key: string }> = [];
 
       if (bucket) {
@@ -241,13 +260,17 @@ export async function GET(request: Request) {
 
       const cccdSet = new Set<string>();
       const filenames: string[] = [];
-      for (const o of objects) {
-        const fn = o.key.replace(/^cccd\//, '').replace(/\.pdf$/i, '').trim();
-        filenames.push(fn);
-        const m = fn.match(/\b\d{9,12}\b/);
-        const clean = m ? cleanCccd(m[0]) : cleanCccd(fn);
-        if (clean && clean.length === 12) {
-          cccdSet.add(clean);
+      for (let i = 0; i < objects.length; i++) {
+        const rawKey = objects[i].key;
+        const fn = rawKey.startsWith('cccd/') ? rawKey.slice(5) : rawKey;
+        const cleanFn = fn.endsWith('.pdf') || fn.endsWith('.PDF') ? fn.slice(0, -4).trim() : fn.trim();
+        filenames.push(cleanFn);
+        const m = cleanFn.match(/\b\d{9,12}\b/);
+        const digits = m ? m[0] : cleanFn.replace(/\D/g, '');
+        if (digits.length === 12) {
+          cccdSet.add(digits);
+        } else if (digits.length === 10 || digits.length === 11) {
+          cccdSet.add(digits.padStart(12, '0'));
         }
       }
       const cccdNumbers = Array.from(cccdSet);
@@ -259,9 +282,18 @@ export async function GET(request: Request) {
         filenames,
       };
       listOnlyCache = { data: payload, timestamp: now };
+      const jsonStr = JSON.stringify(payload);
 
-      return NextResponse.json(payload, {
+      if (bucket) {
+        await bucket.put(KEY_CCCD_LIST_ONLY_CACHE, jsonStr, {
+          httpMetadata: { contentType: 'application/json' },
+        }).catch(() => {});
+      }
+
+      return new NextResponse(jsonStr, {
+        status: 200,
         headers: {
+          'Content-Type': 'application/json; charset=utf-8',
           'Cache-Control': 'public, max-age=60, s-maxage=120, stale-while-revalidate=180',
           'CDN-Cache-Control': 'public, max-age=120',
         },
@@ -270,12 +302,28 @@ export async function GET(request: Request) {
 
     // 3. Toàn bộ danh sách Kho CCCD (R2) phục vụ giao diện CccdManagerTab
     const now = Date.now();
-    const forceRefresh = searchParams.get('force') === 'true';
+    const forceRefresh = searchParams.get('force') === 'true' || searchParams.get('refresh') === '1';
     if (!forceRefresh && cccdCache && now - cccdCache.timestamp < CCCD_CACHE_TTL) {
       return NextResponse.json(cccdCache.data);
     }
 
     const bucket = await getR2Binding();
+    if (!forceRefresh && bucket) {
+      try {
+        const cachedObj = await bucket.get(KEY_CCCD_FULL_CACHE);
+        if (cachedObj?.body) {
+          return new NextResponse(cachedObj.body, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=120',
+              'CDN-Cache-Control': 'public, max-age=60',
+              'X-Cccd-Cache': 'r2-snapshot',
+            },
+          });
+        }
+      } catch {}
+    }
     let objects: Array<{ key: string; size: number; uploaded?: string | Date | null }> = [];
     let declarationsMap: Record<string, any> = {};
 
@@ -384,30 +432,36 @@ export async function GET(request: Request) {
       }
     }
 
-    // Index 1 lần duy nhất để tra cứu O(1) - KHÔNG lặp lồng O(N*M) làm quá tải CPU Worker gây lỗi 503
+    // Index 1 lần duy nhất để tra cứu O(1) - KHÔNG lặp lồng O(N*M) và hạn chế gọi regex nặng trong vòng lặp 1500+ bản ghi
     const cccdToDecl = new Map<string, { maThua: string; chuHo: string }>();
     const declaredCodesSet = new Set<string>();
 
     for (const [maThua, decl] of Object.entries(declarationsMap)) {
       declaredCodesSet.add(maThua);
-      const c1 = cleanCccd(decl.cccd_chu_ho || decl.cccd || decl.chu_dat_cccd);
-      const name = cleanName(decl.ho_va_ten_chu_ho || decl.chu_ho || decl.chu_dat_ten);
+      const rawC = String(decl.cccd_chu_ho || decl.cccd || decl.chu_dat_cccd || '');
+      const digits = rawC.replace(/\D/g, '');
+      const c1 = digits.length === 10 || digits.length === 11 ? digits.padStart(12, '0') : digits;
       if (c1) {
-        cccdToDecl.set(c1, { maThua, chuHo: name });
+        const rawName = String(decl.ho_va_ten_chu_ho || decl.chu_ho || decl.chu_dat_ten || '').trim();
+        cccdToDecl.set(c1, { maThua, chuHo: rawName });
       }
     }
 
     const files = objects
       .map((obj: any) => {
         const fullKey = obj.key;
-        const filename = fullKey.replace(/^cccd\//, '');
+        const filename = fullKey.startsWith('cccd/') ? fullKey.slice(5) : fullKey;
         if (!filename) return null;
 
         // Trích xuất số CCCD và Tên từ tên file: e.g. "020064002073_Phan Thanh Truc.pdf"
-        const nameNoExt = filename.replace(/\.[^/.]+$/, '');
-        const parts = nameNoExt.split('_');
-        const cccdCandidate = cleanCccd(parts[0]);
-        const nameCandidate = parts.slice(1).join(' ').trim();
+        const dotIdx = filename.lastIndexOf('.');
+        const nameNoExt = dotIdx > 0 ? filename.slice(0, dotIdx) : filename;
+        const underscoreIdx = nameNoExt.indexOf('_');
+        const firstPart = underscoreIdx >= 0 ? nameNoExt.slice(0, underscoreIdx) : nameNoExt;
+        const digits0 = firstPart.replace(/\D/g, '');
+        const cccdCandidate =
+          digits0.length === 10 || digits0.length === 11 ? digits0.padStart(12, '0') : digits0;
+        const nameCandidate = underscoreIdx >= 0 ? nameNoExt.slice(underscoreIdx + 1).replace(/_/g, ' ').trim() : '';
 
         // Kiểm tra khớp nhanh O(1)
         let matchedParcel = '';
@@ -417,7 +471,7 @@ export async function GET(request: Request) {
           const match = cccdToDecl.get(cccdCandidate)!;
           matchedParcel = match.maThua;
           if (!matchedOwner && match.chuHo) matchedOwner = match.chuHo;
-        } else {
+        } else if (underscoreIdx >= 0) {
           // Khớp mã thửa theo regex mẫu to_thua (O(1)) thay vì lặp toàn bộ mảng declarations
           const parcelMatch = nameNoExt.match(/\b(\d+_\d+)\b/);
           if (parcelMatch && declaredCodesSet.has(parcelMatch[1])) {
@@ -426,12 +480,19 @@ export async function GET(request: Request) {
           }
         }
 
-        const uploadedMs = obj.uploaded ? new Date(obj.uploaded).getTime() : 0;
+        const isDateObj = obj.uploaded instanceof Date;
+        const uploadedMs = isDateObj ? obj.uploaded.getTime() : obj.uploaded ? Date.parse(obj.uploaded) || 0 : 0;
+        const uploadedAt = isDateObj
+          ? obj.uploaded.toISOString()
+          : uploadedMs
+          ? new Date(uploadedMs).toISOString()
+          : null;
+
         return {
           key: fullKey,
           filename,
           size: obj.size,
-          uploadedAt: uploadedMs ? new Date(uploadedMs).toISOString() : null,
+          uploadedAt,
           _uploadedMs: uploadedMs,
           url: `/api/image/${encodeURI(fullKey)}`,
           cccdNumber: cccdCandidate || '',
@@ -450,9 +511,18 @@ export async function GET(request: Request) {
     };
 
     cccdCache = { data: result, timestamp: now };
+    const jsonStr = JSON.stringify(result);
 
-    return NextResponse.json(result, {
+    if (bucket) {
+      await bucket.put(KEY_CCCD_FULL_CACHE, jsonStr, {
+        httpMetadata: { contentType: 'application/json' },
+      }).catch(() => {});
+    }
+
+    return new NextResponse(jsonStr, {
+      status: 200,
       headers: {
+        'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=120',
         'CDN-Cache-Control': 'public, max-age=60',
       },
@@ -501,6 +571,12 @@ export async function DELETE(request: Request) {
     const cccdCandidate = cleanCccd(cleanFn.split('_')[0]);
 
     const bucket = await getR2Binding();
+    if (bucket) {
+      await Promise.allSettled([
+        bucket.delete(KEY_CCCD_LIST_ONLY_CACHE),
+        bucket.delete(KEY_CCCD_FULL_CACHE),
+      ]);
+    }
     let updatedDeclarations: Record<string, any> = {};
 
     try {

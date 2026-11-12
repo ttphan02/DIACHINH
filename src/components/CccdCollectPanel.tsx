@@ -167,7 +167,7 @@ export default function CccdCollectPanel({
   const fetchExistingCccdList = async () => {
     setIsLoadingR2(true);
     try {
-      const res = await fetch(`/api/cccd?list_only=1&t=${Date.now()}`);
+      const res = await fetch(`/api/cccd?list_only=1&t=${Math.floor(Date.now() / 60000)}`);
       if (res.ok) {
         const data = (await res.json()) as {
           success?: boolean;
