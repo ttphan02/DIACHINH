@@ -800,6 +800,155 @@ export async function GET(request: Request) {
   }
 }
 
+const BLOCKED_SYNC_OWNER_NAMES = new Set([
+  'chưa xác định',
+  'chua xac dinh',
+  'chưa rõ',
+  'chua ro',
+  'không rõ',
+  'khong ro',
+  'ubnd',
+  'ubnd xã',
+  'ubnd xa',
+  'đất công',
+  'dat cong',
+  'tập thể',
+  'tap the',
+  'hộ gia đình',
+  'ho gia dinh',
+  'cộng đồng',
+  'cong dong',
+  '-',
+  '...',
+]);
+
+function normalizeOwnerNameForSync(name: any): string {
+  const s = String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  if (!s || s.length < 2 || BLOCKED_SYNC_OWNER_NAMES.has(s)) return '';
+  return s;
+}
+
+function clean12CccdForSync(val: any): string {
+  const digits = String(val || '').replace(/\D/g, '');
+  return digits.length === 12 ? digits : '';
+}
+
+function buildPersonSyncPatch(sourceDecl: any, editedFields?: Record<string, any>): Record<string, any> {
+  const patch: Record<string, any> = {};
+  const isFullSave = !editedFields;
+  const hasField = (keys: string[]) =>
+    isFullSave || keys.some((k) => Object.prototype.hasOwnProperty.call(editedFields, k));
+
+  const nameEdited = !isFullSave && hasField(['chu_dat_ten', 'chu_ho', 'ho_va_ten_chu_ho']);
+
+  if (isFullSave || nameEdited || hasField(['chu_dat_nam_sinh', 'nam_sinh_chu_ho'])) {
+    const v = String(sourceDecl.chu_dat_nam_sinh ?? sourceDecl.nam_sinh_chu_ho ?? '').trim();
+    if (v || (!isFullSave && !nameEdited)) {
+      patch.chu_dat_nam_sinh = v;
+      patch.nam_sinh_chu_ho = v;
+    }
+  }
+
+  if (isFullSave || nameEdited || hasField(['chu_dat_gioi_tinh', 'gioi_tinh_chu_ho'])) {
+    const v = String(sourceDecl.chu_dat_gioi_tinh ?? sourceDecl.gioi_tinh_chu_ho ?? '').trim();
+    if (v || (!isFullSave && !nameEdited)) {
+      patch.chu_dat_gioi_tinh = v;
+      patch.gioi_tinh_chu_ho = v;
+    }
+  }
+
+  if (isFullSave || nameEdited || hasField(['chu_dat_cccd', 'cccd_chu_ho', 'cccd'])) {
+    const v = String(sourceDecl.chu_dat_cccd ?? sourceDecl.cccd_chu_ho ?? sourceDecl.cccd ?? '').trim();
+    if (v || (!isFullSave && !nameEdited)) {
+      patch.chu_dat_cccd = v;
+      patch.cccd_chu_ho = v;
+      patch.cccd = v;
+      if (v) {
+        patch.yeu_cau_thu_cccd = false;
+      }
+    }
+  }
+
+  if (isFullSave || nameEdited || hasField(['chu_dat_dia_chi', 'dia_chi_thua_dat', 'thon_xa'])) {
+    const addr = String(sourceDecl.chu_dat_dia_chi ?? '').trim();
+    if (addr || (!isFullSave && !nameEdited && hasField(['chu_dat_dia_chi']))) {
+      patch.chu_dat_dia_chi = addr;
+    }
+    if (!isFullSave && hasField(['dia_chi_thua_dat', 'thon_xa'])) {
+      const village = String(sourceDecl.dia_chi_thua_dat ?? sourceDecl.thon_xa ?? '').trim();
+      if (village) {
+        patch.dia_chi_thua_dat = village;
+        patch.thon_xa = village;
+      }
+    }
+  }
+
+  return patch;
+}
+
+function findSameOwnerSiblingUpdates(
+  allMap: Record<string, any> | undefined,
+  sourceDecl: any,
+  previousDecl: any,
+  timestamp: string,
+  editedFields?: Record<string, any>,
+  excludeCodes?: Set<string>
+): any[] {
+  if (!allMap || !sourceDecl?.ma_thua) return [];
+  const normName = normalizeOwnerNameForSync(
+    sourceDecl.chu_dat_ten || sourceDecl.chu_ho || sourceDecl.ho_va_ten_chu_ho
+  );
+  if (!normName) return [];
+
+  const personPatch = buildPersonSyncPatch(sourceDecl, editedFields);
+  const patchKeys = Object.keys(personPatch);
+  if (patchKeys.length === 0) return [];
+
+  const sourceCccd = clean12CccdForSync(
+    sourceDecl.chu_dat_cccd || sourceDecl.cccd_chu_ho || sourceDecl.cccd
+  );
+  const prevCccd = clean12CccdForSync(
+    previousDecl?.chu_dat_cccd || previousDecl?.cccd_chu_ho || previousDecl?.cccd
+  );
+
+  const updates: any[] = [];
+  for (const [code, other] of Object.entries(allMap)) {
+    if (!other || code === sourceDecl.ma_thua || excludeCodes?.has(code)) continue;
+    const otherNormName = normalizeOwnerNameForSync(
+      other.chu_dat_ten || other.chu_ho || other.ho_va_ten_chu_ho
+    );
+    if (otherNormName !== normName) continue;
+
+    // Bảo vệ trường hợp trùng tên nhưng là 2 người khác nhau đã có 2 số CCCD 12 số khác nhau
+    const otherCccd = clean12CccdForSync(other.chu_dat_cccd || other.cccd_chu_ho || other.cccd);
+    if (otherCccd && sourceCccd && otherCccd !== sourceCccd && otherCccd !== prevCccd) {
+      continue;
+    }
+
+    let changed = false;
+    for (const k of patchKeys) {
+      if ((other[k] ?? '') !== (personPatch[k] ?? '')) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) continue;
+
+    const updatedOther: any = {
+      ...other,
+      ...personPatch,
+      ma_thua: code,
+      updated_at: timestamp,
+    };
+    if (personPatch.chu_dat_cccd) {
+      delete updatedOther.yeu_cau_thu_cccd;
+    }
+    updates.push(updatedOther);
+  }
+
+  return updates;
+}
+
 // POST: Client ghi trực tiếp vào Cloudflare D1 SQL Database và vá R2 đồng bộ
 export async function POST(request: Request) {
   await getR2Binding();
@@ -860,9 +1009,9 @@ export async function POST(request: Request) {
           }
         } catch {}
       }
+      const currentAll = await readAllJsonFast(await getR2Binding());
       if (!latest) {
-        const current = await readAllJsonFast(await getR2Binding());
-        latest = current.declarationsMap?.[maThua] || null;
+        latest = currentAll.declarationsMap?.[maThua] || null;
       }
 
       const [toPart, thuaPart] = maThua.split('_');
@@ -884,25 +1033,48 @@ export async function POST(request: Request) {
       mergedDecl.thon_xa = mergedDecl.thon_xa || mergedDecl.dia_chi_thua_dat;
       mergedDecl.chu_dat_dia_chi = mergedDecl.chu_dat_dia_chi || mergedDecl.dia_chi_thua_dat;
 
+      // Tự động đồng bộ thông tin cá nhân (địa chỉ, năm sinh, giới tính, CCCD) sang mọi thửa khác cùng tên chủ đất
+      const siblingDecls = findSameOwnerSiblingUpdates(
+        currentAll.declarationsMap,
+        mergedDecl,
+        latest,
+        timestamp,
+        fields
+      );
+      const allSavedItems = [mergedDecl, ...siblingDecls];
+
       if (db) {
-        await upsertD1Declaration(db, mergedDecl);
-        await deleteCellEditsForCodesInD1(db, [maThua]);
+        for (const item of allSavedItems) {
+          await upsertD1Declaration(db, item);
+        }
+        await deleteCellEditsForCodesInD1(
+          db,
+          allSavedItems.map((i) => i.ma_thua)
+        );
       }
-      await saveSingleDeclarationToR2(maThua, mergedDecl);
+      await Promise.all(allSavedItems.map((item) => saveSingleDeclarationToR2(item.ma_thua, item)));
       memoryAllJsonCache = null;
       try {
         await patchAllJsonAndSyncSheets({
-          declItems: [mergedDecl],
+          declItems: allSavedItems,
           timestamp,
         });
       } catch {}
+
+      const responseMap: Record<string, any> = {};
+      const responseCodes: string[] = [];
+      for (const item of allSavedItems) {
+        responseMap[item.ma_thua] = item;
+        responseCodes.push(item.ma_thua);
+      }
 
       return NextResponse.json({
         success: true,
         savedParcel: maThua,
         declaration: mergedDecl,
-        declarationsMap: { [maThua]: mergedDecl },
-        declaredCodes: [maThua],
+        declarationsMap: responseMap,
+        declaredCodes: responseCodes,
+        syncedCount: siblingDecls.length,
         updatedAt: timestamp,
       });
     }
@@ -1094,6 +1266,23 @@ export async function POST(request: Request) {
       });
     }
 
+    // Đồng bộ thông tin cá nhân (địa chỉ, năm sinh, giới tính, CCCD) sang mọi thửa khác cùng tên chủ đất
+    let siblingDecls: any[] = [];
+    try {
+      const currentAll = await readAllJsonFast(await getR2Binding());
+      siblingDecls = findSameOwnerSiblingUpdates(
+        currentAll.declarationsMap,
+        rootDeclData,
+        previousDecl,
+        timestamp,
+        undefined,
+        targetCodes
+      );
+      for (const sibling of siblingDecls) {
+        atomicWrites.push(saveSingleDeclarationToR2(sibling.ma_thua, sibling));
+      }
+    } catch {}
+
     // Đợi lưu song song các file đơn lẻ (chỉ mất ~10-15ms I/O)
     await Promise.all(atomicWrites);
 
@@ -1103,6 +1292,9 @@ export async function POST(request: Request) {
         await upsertD1Declaration(db, rootDeclData);
         for (const apDecl of attachedDecls) {
           await upsertD1Declaration(db, apDecl);
+        }
+        for (const sibling of siblingDecls) {
+          await upsertD1Declaration(db, sibling);
         }
         await deleteCellEditsForCodesInD1(db, Array.from(targetCodes));
       } catch (d1SaveErr) {
@@ -1122,7 +1314,7 @@ export async function POST(request: Request) {
         : [];
     try {
       await patchAllJsonAndSyncSheets({
-        declItems: [rootDeclData, ...attachedDecls],
+        declItems: [rootDeclData, ...attachedDecls, ...siblingDecls],
         deletedCodes: removedAttached,
         timestamp,
       });
@@ -1130,21 +1322,25 @@ export async function POST(request: Request) {
       console.warn('Lỗi vá all.json / sync_sheets sau khi lưu đơn lẻ:', patchErr);
     }
 
-    // Trả về delta chỉ chứa các thửa vừa lưu (siêu nhẹ <1KB, phản hồi ngay lập tức ~1ms)
+    // Trả về delta chỉ chứa các thửa vừa lưu
     const savedDeltaMap: Record<string, any> = {
       [rootMaThua]: rootDeclData,
     };
     for (const ap of attachedDecls) {
       savedDeltaMap[ap.ma_thua] = ap;
     }
+    for (const sibling of siblingDecls) {
+      savedDeltaMap[sibling.ma_thua] = sibling;
+    }
 
-    const declaredCodes = Array.from(targetCodes);
+    const declaredCodes = Array.from(new Set([...Array.from(targetCodes), ...siblingDecls.map((s) => s.ma_thua)]));
 
     return NextResponse.json({
       success: true,
       declaredCodes,
       savedParcel: rootMaThua,
       declarationsMap: savedDeltaMap,
+      syncedCount: siblingDecls.length,
       updatedAt: timestamp,
     });
   } catch (error: any) {
