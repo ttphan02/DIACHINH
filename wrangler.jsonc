@@ -25,5 +25,8 @@
   ],
   "observability": {
     "enabled": true
+  },
+  "vars": {
+    "NEXT_PUBLIC_PUBLIC_READONLY": "true"
   }
 }

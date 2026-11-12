@@ -573,6 +573,36 @@ export async function GET(request: Request) {
 
     const clientEtag = request.headers.get('if-none-match');
 
+    // Ở chế độ Public Read-Only, ưu tiên đọc/stream thẳng declarations/all.json từ R2 để đồng bộ tức thì dữ liệu từ Local
+    if (process.env.NEXT_PUBLIC_PUBLIC_READONLY === 'true') {
+      const bucket = await getR2Binding();
+      if (bucket) {
+        try {
+          const r2Obj = await bucket.get(KEY_ALL_DECLARATIONS);
+          if (r2Obj?.body) {
+            const r2Etag = r2Obj.httpEtag || (r2Obj.customMetadata?.version ? `"${r2Obj.customMetadata.version}"` : `"r2-${r2Obj.uploaded?.getTime() || 'v1'}"`);
+            if (clientEtag && (clientEtag === r2Etag || clientEtag.includes(r2Etag))) {
+              return new Response(null, {
+                status: 304,
+                headers: {
+                  'ETag': r2Etag,
+                  ...NO_STORE_HEADERS,
+                },
+              });
+            }
+            return new Response(r2Obj.body, {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/json; charset=utf-8',
+                'ETag': r2Etag,
+                ...NO_STORE_HEADERS,
+              },
+            });
+          }
+        } catch {}
+      }
+    }
+
     // 1. Ưu tiên đọc trực tiếp từ D1 SQL Database (kiểm tra phiên bản 1 row để trả 304 <1ms nếu chưa có thay đổi)
     if (db) {
       try {

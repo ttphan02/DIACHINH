@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Parcel, NeighborParcel, DeclarationMode, DeclarationFormData } from '@/types';
+const IS_PUBLIC_READONLY = process.env.NEXT_PUBLIC_PUBLIC_READONLY === 'true';
 import {
   X,
   MapPin,
@@ -827,7 +828,7 @@ export default function ParcelDetailPanel({
         >
           Thông tin thửa đất
         </button>
-        {isAlreadyOnGgs ? (
+        {!IS_PUBLIC_READONLY && (isAlreadyOnGgs ? (
           <button
             onClick={() => setActiveTab('correction')}
             className={`py-2 px-3 font-medium text-xs border-b-2 transition flex items-center gap-1 ${
@@ -854,7 +855,7 @@ export default function ParcelDetailPanel({
               <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" title="Đã có phiếu kê khai" />
             )}
           </button>
-        )}
+        ))}
       </div>
 
       {/* Panel Scrollable Body */}
@@ -886,25 +887,27 @@ export default function ParcelDetailPanel({
                     </p>
                   )}
                 </div>
-                <div className="pt-1.5 flex items-center gap-2 border-t border-blue-100">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('declare')}
-                    className="flex-1 py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
-                  >
-                    <FileEdit className="w-3.5 h-3.5" /> Sửa thông tin phiếu
-                  </button>
-                  {onDeleteDeclaration && (
+                {!IS_PUBLIC_READONLY && (
+                  <div className="pt-1.5 flex items-center gap-2 border-t border-blue-100">
                     <button
                       type="button"
-                      onClick={() => setIsConfirmDeleteOpen(true)}
-                      className="py-1.5 px-2.5 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white border border-red-200 rounded-lg font-bold text-[11px] transition flex items-center gap-1 cursor-pointer"
-                      title="Xóa phiếu kê khai này"
+                      onClick={() => setActiveTab('declare')}
+                      className="flex-1 py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
                     >
-                      <Trash2 className="w-3.5 h-3.5" /> Xóa phiếu
+                      <FileEdit className="w-3.5 h-3.5" /> Sửa thông tin phiếu
                     </button>
-                  )}
-                </div>
+                    {onDeleteDeclaration && (
+                      <button
+                        type="button"
+                        onClick={() => setIsConfirmDeleteOpen(true)}
+                        className="py-1.5 px-2.5 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white border border-red-200 rounded-lg font-bold text-[11px] transition flex items-center gap-1 cursor-pointer"
+                        title="Xóa phiếu kê khai này"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Xóa phiếu
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1018,7 +1021,7 @@ export default function ParcelDetailPanel({
                   <AlertCircle className="w-4 h-4 text-gray-400 shrink-0" />
                   <span>Chưa có tệp scan (CCCD/GCN)</span>
                 </div>
-                {!isAlreadyOnGgs && (
+                {!IS_PUBLIC_READONLY && !isAlreadyOnGgs && (
                   <button
                     onClick={() => setActiveTab('declare')}
                     className="text-[11px] font-bold text-blue-600 hover:underline shrink-0"

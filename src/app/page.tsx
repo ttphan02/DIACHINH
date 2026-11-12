@@ -25,6 +25,7 @@ import hiddenParcelsData from '@/data/hidden_parcels.json';
 import digitizedParcelsData from '@/data/digitized_parcels.json';
 const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
 const DIGITIZED_SET = new Set(digitizedParcelsData as string[]);
+const IS_PUBLIC_READONLY = process.env.NEXT_PUBLIC_PUBLIC_READONLY === 'true';
 import {
   Search,
   Layers,
@@ -1652,40 +1653,46 @@ export default function Home() {
                   </button>
                 )}
 
-                {/* Nút mở Dashboard quản trị & tiến độ (Ẩn trên điện thoại) */}
-                <Link
-                  href="/dashboard"
-                  prefetch={false}
-                  className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs bg-cyan-50 hover:bg-cyan-100 text-cyan-800 font-bold rounded-xl transition shrink-0 border border-cyan-200 shadow-2xs"
-                  title="Mở Dashboard thống kê & tiến độ số hóa"
-                >
-                  <BarChart3 className="w-3.5 h-3.5 text-cyan-600" />
-                  <span className="hidden xs:inline">Dashboard</span>
-                </Link>
+                {/* Nút mở Dashboard quản trị & tiến độ (Ẩn trên điện thoại & Public) */}
+                {!IS_PUBLIC_READONLY && (
+                  <Link
+                    href="/dashboard"
+                    prefetch={false}
+                    className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs bg-cyan-50 hover:bg-cyan-100 text-cyan-800 font-bold rounded-xl transition shrink-0 border border-cyan-200 shadow-2xs"
+                    title="Mở Dashboard thống kê & tiến độ số hóa"
+                  >
+                    <BarChart3 className="w-3.5 h-3.5 text-cyan-600" />
+                    <span className="hidden xs:inline">Dashboard</span>
+                  </Link>
+                )}
 
-                {/* Nút mở công cụ Tách PDF & CCCD ScanName (Ẩn trên điện thoại) */}
-                <a
-                  href="/scanname"
-                  className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-bold rounded-xl transition shrink-0 border border-indigo-200 shadow-2xs"
-                  title="Mở công cụ Tách PDF & Quét CCCD ScanName"
-                >
-                  <FileText className="w-3.5 h-3.5 text-indigo-600" />
-                  <span className="hidden xs:inline">Tách PDF</span>
-                </a>
+                {/* Nút mở công cụ Tách PDF & CCCD ScanName (Ẩn trên điện thoại & Public) */}
+                {!IS_PUBLIC_READONLY && (
+                  <a
+                    href="/scanname"
+                    className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-bold rounded-xl transition shrink-0 border border-indigo-200 shadow-2xs"
+                    title="Mở công cụ Tách PDF & Quét CCCD ScanName"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                    <span className="hidden xs:inline">Tách PDF</span>
+                  </a>
+                )}
 
-                {/* Nút Tải Lên CCCD (Trượt form dưới lên như khi nhấn vào thửa đất) */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsPanelOpen(false);
-                    setIsCccdUploadOpen(true);
-                  }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold rounded-xl transition shrink-0 border border-purple-200 shadow-2xs cursor-pointer"
-                  title="Tải lên ảnh CCCD từ máy (trượt form từ dưới lên)"
-                >
-                  <Camera className="w-3.5 h-3.5 text-purple-600" />
-                  <span className="hidden xs:inline">Tải Lên CCCD</span>
-                </button>
+                {/* Nút Tải Lên CCCD (Chỉ hiển thị trên Local, ẩn trên Public) */}
+                {!IS_PUBLIC_READONLY && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPanelOpen(false);
+                      setIsCccdUploadOpen(true);
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold rounded-xl transition shrink-0 border border-purple-200 shadow-2xs cursor-pointer"
+                    title="Tải lên ảnh CCCD từ máy (trượt form từ dưới lên)"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-purple-600" />
+                    <span className="hidden xs:inline">Tải Lên CCCD</span>
+                  </button>
+                )}
 
                 {/* Nút DS Cần Thu Thập CCCD (Dạng Form Kê Khai Thửa Đất) */}
                 <button
@@ -1779,26 +1786,29 @@ export default function Home() {
         cccdNumber={svgData.cccd}
       />
 
-      {/* Bottom Sheet Tải Lên CCCD (Trượt từ dưới lên như khi nhấn vào thửa đất) */}
-      <CccdUploadBottomSheet
-        isOpen={isCccdUploadOpen}
-        onClose={() => setIsCccdUploadOpen(false)}
-        onSuccess={() => {
-          fetchCloudDeclarations();
-          fetchGgsCodes(true);
-        }}
-      />
+      {/* Bottom Sheet & Modal Tải Lên CCCD (Chỉ bật trên Local) */}
+      {!IS_PUBLIC_READONLY && (
+        <>
+          <CccdUploadBottomSheet
+            isOpen={isCccdUploadOpen}
+            onClose={() => setIsCccdUploadOpen(false)}
+            onSuccess={() => {
+              fetchCloudDeclarations();
+              fetchGgsCodes(true);
+            }}
+          />
 
-      {/* Modal Tải Lên CCCD Hàng Loạt & Thư Mục (AI Quét & Lưu R2) */}
-      <CccdSupplementModal
-        isOpen={isCccdModalOpen}
-        onClose={() => setIsCccdModalOpen(false)}
-        defaultMode="folder"
-        onSuccess={() => {
-          fetchCloudDeclarations();
-          fetchGgsCodes(true);
-        }}
-      />
+          <CccdSupplementModal
+            isOpen={isCccdModalOpen}
+            onClose={() => setIsCccdModalOpen(false)}
+            defaultMode="folder"
+            onSuccess={() => {
+              fetchCloudDeclarations();
+              fetchGgsCodes(true);
+            }}
+          />
+        </>
+      )}
 
 
 
