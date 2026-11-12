@@ -252,9 +252,11 @@ export default function CccdCollectPanel({
     return map;
   }, [parcels]);
 
-  // Kiểm tra 1 người đã có CCCD trên R2 hay chưa - ĐỘ PHỨC TẠP O(1) THAY VÌ O(M)!
+  // Kiểm tra 1 người/thửa đã có CCCD trên R2 hay chưa - ĐỘ PHỨC TẠP O(1) THAY VÌ O(M)!
+  // Tab 1 (Đã kê khai chưa CCCD) truyền allowNameMatch = false để khớp 100% với Dashboard:
+  // chỉ coi là đã có CCCD khi có file R2 khớp số CCCD 12 số hợp lệ (hoặc cccd_url).
   const hasCccdInR2 = useCallback(
-    (decl: any, personName: string): boolean => {
+    (decl: any, personName: string, allowNameMatch = true): boolean => {
       // 1. Nếu phiếu kê khai đã có liên kết file CCCD R2
       if (decl.cccd_url || decl.file_cccd_pdf || decl.cccd_file) {
         return true;
@@ -263,8 +265,15 @@ export default function CccdCollectPanel({
       // 2. Nếu số CCCD đã có trong R2 Set O(1)
       const rawCccd = decl.chu_dat_cccd || decl.cccd_chu_ho || decl.cccd || '';
       const cccdClean = cleanCccd(rawCccd);
-      if ((cccdClean.length === 12 || cccdClean.length === 9) && existingCccdSet.has(cccdClean)) {
+      const hasMatchingCccdFile = allowNameMatch
+        ? (cccdClean.length === 12 || cccdClean.length === 9) && existingCccdSet.has(cccdClean)
+        : isValidCccd(cccdClean) && existingCccdSet.has(cccdClean);
+      if (hasMatchingCccdFile) {
         return true;
+      }
+
+      if (!allowNameMatch) {
+        return false;
       }
 
       // 3. Khớp tên file trên R2 qua Index O(1) (tốc độ siêu thanh, không lặp lại regex)
@@ -347,9 +356,9 @@ export default function CccdCollectPanel({
         chu_dat_cccd: edits[6] ?? decl.chu_dat_cccd ?? decl.cccd_chu_ho ?? decl.cccd ?? '',
       };
 
-      // NẾU TÊN NÀO ĐÃ CÓ CCCD TRONG R2 THÌ BỎ TÊN ĐÓ KHỎI DANH SÁCH (Tra cứu O(1))
+      // NẾU THỬA ĐÃ CÓ CCCD 12 SỐ HỢP LỆ VÀ FILE PDF TRONG R2 THÌ MỚI BỎ KHỎI DANH SÁCH (khớp logic "Kê khai chưa CCCD" trên Dashboard)
       // Trừ khi thửa được chủ động đánh dấu yêu cầu thu thập lại CCCD (yeu_cau_thu_cccd)
-      if (!decl.yeu_cau_thu_cccd && hasCccdInR2(mergedForR2, name)) {
+      if (!decl.yeu_cau_thu_cccd && hasCccdInR2(mergedForR2, name, false)) {
         continue;
       }
 
