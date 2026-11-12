@@ -761,6 +761,20 @@ export async function POST(request: Request) {
 
   try {
     const body: any = await request.json();
+    if (process.env.NEXT_PUBLIC_PUBLIC_READONLY === 'true') {
+      const allowedType =
+        body &&
+        (body.type === 'patch_declaration_fields' || body.type === 'patch_cell_edits');
+      if (!allowedType) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Chế độ Public chỉ cho phép sửa thông tin trên Danh sách Thu thập CCCD.',
+          },
+          { status: 403 }
+        );
+      }
+    }
 
     // Vá từng trường của 1 phiếu kê khai trực tiếp trên D1 (an toàn khi nhiều máy cùng sửa khác cột trên 1 thửa)
     if (body && body.type === 'patch_declaration_fields' && body.ma_thua) {

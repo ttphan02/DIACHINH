@@ -22,10 +22,15 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith('/dashboard') || pathname.startsWith('/scanname')) {
       return NextResponse.redirect(new URL('/', request.url));
     }
+    const isCollectPanelPatch =
+      pathname.startsWith('/api/declarations') &&
+      request.headers.get('x-collect-panel-patch') === '1';
+
     if (
       request.method !== 'GET' &&
       request.method !== 'HEAD' &&
       request.method !== 'OPTIONS' &&
+      !isCollectPanelPatch &&
       PUBLIC_BLOCKED_WRITE_PREFIXES.some((p) => pathname.startsWith(p))
     ) {
       return NextResponse.json(

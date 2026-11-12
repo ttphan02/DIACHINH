@@ -143,7 +143,28 @@ export default function CccdCollectPanel({
     setTimeout(() => setToastMessage(null), 3000);
   }, []);
 
-  // 1. Phục hồi trạng thái từ localStorage
+  const collectedEtagRef = useRef<string>('');
+
+  const fetchCollectedKeys = useCallback(async () => {
+    try {
+      const headers: Record<string, string> = {};
+      if (collectedEtagRef.current) headers['If-None-Match'] = collectedEtagRef.current;
+      const res = await fetch('/api/cccd-collect-sync', { headers, cache: 'no-store' });
+      if (res.status === 304 || !res.ok) return;
+      const etag = res.headers.get('ETag');
+      if (etag) collectedEtagRef.current = etag;
+      const data = (await res.json()) as { success?: boolean; collectedKeys?: string[] };
+      if (data?.success && Array.isArray(data.collectedKeys)) {
+        const nextSet = new Set(data.collectedKeys);
+        setCheckedKeys(nextSet);
+        try {
+          localStorage.setItem('cccd_collect_checked_keys', JSON.stringify(data.collectedKeys));
+        } catch {}
+      }
+    } catch {}
+  }, []);
+
+  // 1. Phục hồi trạng thái từ localStorage + đồng bộ realtime từ Server (R2)
   useEffect(() => {
     try {
       const savedVillage = localStorage.getItem('cccd_collect_selected_village');
@@ -161,13 +182,25 @@ export default function CccdCollectPanel({
     } catch {}
 
     fetchExistingCccdList();
-  }, []);
+    fetchCollectedKeys();
+
+    // Tự động đồng bộ realtime 2 chiều (10s/lần khi tab đang mở):
+    // - Lấy trạng thái tích chọn mới nhất từ Public/Local
+    // - Lấy danh sách CCCD mới nhất trên R2 để tự ẩn người đã thu thập xong
+    const interval = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchCollectedKeys();
+        fetchExistingCccdList();
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [fetchCollectedKeys]);
 
   // Tải danh sách CCCD đã có trên Cloudflare R2
   const fetchExistingCccdList = async () => {
     setIsLoadingR2(true);
     try {
-      const res = await fetch(`/api/cccd?list_only=1&t=${Math.floor(Date.now() / 60000)}`);
+      const res = await fetch(`/api/cccd?list_only=1&t=${Math.floor(Date.now() / 10000)}`);
       if (res.ok) {
         const data = (await res.json()) as {
           success?: boolean;
@@ -197,20 +230,37 @@ export default function CccdCollectPanel({
     } catch {}
   };
 
-  // Toggle trạng thái Đã thu thập (checkbox) và lưu vào localStorage (debounce nhẹ)
+  // Toggle trạng thái Đã thu thập (checkbox), lưu localStorage và đồng bộ 2 chiều Public <-> Local qua R2
   const toggleCheck = (personKey: string) => {
+    let nextChecked = false;
     setCheckedKeys((prev) => {
       const next = new Set(prev);
       if (next.has(personKey)) {
         next.delete(personKey);
+        nextChecked = false;
       } else {
         next.add(personKey);
+        nextChecked = true;
       }
       try {
         localStorage.setItem('cccd_collect_checked_keys', JSON.stringify(Array.from(next)));
       } catch {}
       return next;
     });
+
+    fetch('/api/cccd-collect-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: personKey, checked: nextChecked }),
+      keepalive: true,
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: any) => {
+        if (data?.success && Array.isArray(data.collectedKeys)) {
+          collectedEtagRef.current = '';
+        }
+      })
+      .catch(() => {});
   };
 
   // TỐI ƯU CỰC ĐỘ 1: Tiền chỉ mục hóa toàn bộ 2.490 tên file trên R2 vào Set O(1)
@@ -703,7 +753,10 @@ export default function CccdCollectPanel({
         if (Object.keys(patchEdits).length > 0) {
           const res = await fetch('/api/declarations', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'x-collect-panel-patch': '1',
+            },
             body: JSON.stringify({ type: 'patch_cell_edits', cellEdits: patchEdits }),
           });
           if (!res.ok) {
@@ -773,7 +826,10 @@ export default function CccdCollectPanel({
 
           const res = await fetch('/api/declarations', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'x-collect-panel-patch': '1',
+            },
             body: JSON.stringify({
               type: 'patch_declaration_fields',
               ma_thua: maThua,

@@ -294,8 +294,8 @@ export async function GET(request: Request) {
         status: 200,
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
-          'Cache-Control': 'public, max-age=60, s-maxage=120, stale-while-revalidate=180',
-          'CDN-Cache-Control': 'public, max-age=120',
+          'Cache-Control': 'public, max-age=5, s-maxage=10, stale-while-revalidate=30',
+          'CDN-Cache-Control': 'public, max-age=10',
         },
       });
     }
