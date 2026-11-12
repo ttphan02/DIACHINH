@@ -20,6 +20,7 @@ import {
   Play,
   RotateCw,
 } from 'lucide-react';
+import { ocrCccdClientFirst, uploadCccdPdfSmart } from '@/utils/cccdClientPdf';
 
 interface CccdSupplementModalProps {
   isOpen: boolean;
@@ -74,6 +75,7 @@ export default function CccdSupplementModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const multiFileInputRef = useRef<HTMLInputElement>(null);
+  const cancelBatchRef = useRef(false);
 
   useEffect(() => {
     if (initialParcelCode) {
@@ -165,18 +167,13 @@ export default function CccdSupplementModal({
 
   const ocrImageWithAi = async (b64: string): Promise<{ so_cccd?: string; ho_va_ten?: string; nam_sinh?: string; gioi_tinh?: string }> => {
     try {
-      const res = await fetch('/api/ocr-cccd', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: b64 }),
-      });
-      const data: any = await res.json();
-      if (data.success && data.data) {
+      const data = await ocrCccdClientFirst(b64);
+      if (data) {
         return {
-          so_cccd: data.data.so_cccd || '',
-          ho_va_ten: data.data.ho_va_ten || '',
-          nam_sinh: data.data.nam_sinh || '',
-          gioi_tinh: data.data.gioi_tinh || '',
+          so_cccd: data.so_cccd || '',
+          ho_va_ten: data.ho_va_ten || '',
+          nam_sinh: data.nam_sinh || '',
+          gioi_tinh: data.gioi_tinh || '',
         };
       }
     } catch (e) {
@@ -227,30 +224,20 @@ export default function CccdSupplementModal({
     setIsSubmitting(true);
     setErrorMessage('');
     try {
-      const res = await fetch('/api/upload-cccd-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          frontBase64: imageFile,
-          so_cccd: soCccd,
-          ho_va_ten: hoVaTen,
-          nam_sinh: namSinh,
-          gioi_tinh: gioiTinh,
-          ma_thua: maThua,
-        }),
+      const { ok, status, statusText, data } = await uploadCccdPdfSmart({
+        frontBase64: imageFile,
+        so_cccd: soCccd,
+        ho_va_ten: hoVaTen,
+        nam_sinh: namSinh,
+        gioi_tinh: gioiTinh,
+        ma_thua: maThua,
       });
 
-      let data: any = null;
-      try {
-        const text = await res.text();
-        if (text) data = JSON.parse(text);
-      } catch {}
-
-      if (res.ok && data?.success) {
+      if (ok && data?.success) {
         setResultInfo({ fileName: data.fileName, r2Url: data.r2Url });
         if (onSuccess) onSuccess();
       } else {
-        setErrorMessage(data?.error || `Lỗi tải lên (${res.status}: ${res.statusText || 'Không xác định'})`);
+        setErrorMessage(data?.error || `Lỗi tải lên (${status}: ${statusText || 'Không xác định'})`);
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Lỗi hệ thống');
@@ -297,6 +284,10 @@ export default function CccdSupplementModal({
       });
     }
 
+    // Giải phóng URL ảnh cũ để tránh tràn RAM trình duyệt khi chọn thư mục lớn
+    batchItems.forEach((b) => {
+      if (b.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(b.previewUrl);
+    });
     setBatchItems(newItems);
     setBatchProgress({ current: 0, total: newItems.length });
     setBatchSuccessMessage('');
@@ -305,6 +296,7 @@ export default function CccdSupplementModal({
   const handleStartBatchProcessing = async () => {
     if (batchItems.length === 0) return;
 
+    cancelBatchRef.current = false;
     setIsBatchRunning(true);
     setBatchSuccessMessage('');
 
@@ -312,26 +304,39 @@ export default function CccdSupplementModal({
     const updated = [...batchItems];
 
     for (let i = 0; i < updated.length; i++) {
+      if (cancelBatchRef.current) break;
+
       const item = updated[i];
       setBatchProgress({ current: i + 1, total: updated.length });
 
+      // Bỏ qua các ảnh đã thành công trước đó (hỗ trợ bấm chạy tiếp cho ảnh lỗi)
+      if (item.status === 'success') {
+        successCount++;
+        continue;
+      }
+
       try {
-        // Bước 1: Quét AI OCR nếu chưa có đủ số CCCD & họ tên
+        // Bước 1: Quét AI OCR trực tiếp từ Client nếu chưa có đủ số CCCD & họ tên
         let curCccd = item.soCccd;
         let curName = item.hoVaTen;
+        let didRunOcr = false;
 
         item.status = 'scanning';
+        item.errorMessage = undefined;
         setBatchItems([...updated]);
 
         const b64 = await fileToBase64(item.file);
 
         if (!curCccd || !curName) {
+          didRunOcr = true;
           const ocr = await ocrImageWithAi(b64);
           if (ocr.so_cccd && !curCccd) curCccd = ocr.so_cccd;
           if (ocr.ho_va_ten && !curName) curName = ocr.ho_va_ten;
           if (ocr.nam_sinh) item.namSinh = ocr.nam_sinh;
           if (ocr.gioi_tinh) item.gioiTinh = ocr.gioi_tinh;
         }
+
+        if (cancelBatchRef.current) break;
 
         item.soCccd = curCccd;
         item.hoVaTen = curName;
@@ -347,37 +352,32 @@ export default function CccdSupplementModal({
         }
         item.destFileName = finalDestName;
 
-        // Bước 2: Chuyển thành PDF khổ A4 và lưu vào R2 cccd/
+        // Bước 2: Đóng gói PDF khổ A4 tại trình duyệt và đẩy nhị phân lên R2 (Zero-CPU Worker)
         item.status = 'converting';
         setBatchItems([...updated]);
 
-        const uploadRes = await fetch('/api/upload-cccd-pdf', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            frontBase64: b64,
-            so_cccd: curCccd,
-            ho_va_ten: curName,
-            nam_sinh: item.namSinh,
-            gioi_tinh: item.gioiTinh,
-            skipSync: true, // Tạm thời bỏ qua sync cho từng file
-          }),
+        const { ok, status, statusText, data: uploadData } = await uploadCccdPdfSmart({
+          frontBase64: b64,
+          so_cccd: curCccd,
+          ho_va_ten: curName,
+          nam_sinh: item.namSinh,
+          gioi_tinh: item.gioiTinh,
+          skipSync: true,
         });
 
-        let uploadData: any = null;
-        try {
-          const text = await uploadRes.text();
-          if (text) uploadData = JSON.parse(text);
-        } catch {}
-
-        if (uploadRes.ok && uploadData?.success) {
+        if (ok && uploadData?.success) {
           item.status = 'success';
           item.r2Url = uploadData.r2Url;
           item.destFileName = uploadData.fileName || finalDestName;
           successCount++;
         } else {
           item.status = 'error';
-          item.errorMessage = uploadData?.error || `Lỗi lưu R2 (${uploadRes.status}: ${uploadRes.statusText || 'Không xác định'})`;
+          item.errorMessage = uploadData?.error || `Lỗi lưu R2 (${status}: ${statusText || 'Không xác định'})`;
+        }
+
+        // Nghỉ nhẹ 250ms giữa các ảnh có quét OCR để tránh dồn nghẽn RPM Gemini
+        if (didRunOcr && i < updated.length - 1 && !cancelBatchRef.current) {
+          await new Promise((r) => setTimeout(r, 250));
         }
       } catch (err: any) {
         item.status = 'error';
@@ -387,18 +387,22 @@ export default function CccdSupplementModal({
       setBatchItems([...updated]);
     }
 
-    // Bước 3: Hoàn thành toàn bộ folder -> Kích hoạt đồng bộ Google Sheet 1 LẦN DUY NHẤT
-    try {
-      fetch('/api/sync-sheets').catch(() => {});
-    } catch (e) {
-      console.warn('Lỗi gọi sync-sheets sau batch:', e);
+    // Bước 3: Hoàn thành folder -> Kích hoạt đồng bộ Google Sheet 1 LẦN DUY NHẤT (chỉ khi có ảnh thành công)
+    if (successCount > 0) {
+      try {
+        fetch('/api/sync-sheets').catch(() => {});
+      } catch (e) {
+        console.warn('Lỗi gọi sync-sheets sau batch:', e);
+      }
     }
 
     setIsBatchRunning(false);
     setBatchSuccessMessage(
-      `Đã chuyển đổi và lưu thành công ${successCount}/${updated.length} file CCCD PDF A4 vào R2! Hệ thống đã tự động đồng bộ sang Google Sheets.`
+      cancelBatchRef.current
+        ? `Đã dừng xử lý. Hiện có ${successCount}/${updated.length} file đã lưu thành công vào R2 (bấm lại để chạy tiếp các ảnh còn lại).`
+        : `Đã chuyển đổi và lưu thành công ${successCount}/${updated.length} file CCCD PDF A4 vào R2! Hệ thống đã tự động đồng bộ sang Google Sheets.`
     );
-    if (onSuccess) onSuccess();
+    if (onSuccess && successCount > 0) onSuccess();
   };
 
   const previewSingleFileName =
@@ -895,10 +899,13 @@ export default function CccdSupplementModal({
         <div className="px-6 py-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between">
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => {
+              cancelBatchRef.current = true;
+              onClose();
+            }}
             className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition cursor-pointer"
           >
-            Đóng
+            {isBatchRunning ? 'Dừng & Đóng' : 'Đóng'}
           </button>
 
           {activeTab === 'single' && (

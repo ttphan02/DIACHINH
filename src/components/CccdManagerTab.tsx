@@ -115,7 +115,7 @@ export default function CccdManagerTab({
   }, []);
 
   useEffect(() => {
-    loadCccdFiles();
+    loadCccdFiles(Boolean(refreshKey && refreshKey > 0));
   }, [loadCccdFiles, refreshKey]);
 
   // Xóa file CCCD khỏi R2

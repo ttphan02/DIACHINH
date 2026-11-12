@@ -116,6 +116,36 @@ export async function GET(req: Request) {
     try {
       const obj = await bucket.get(KEY_SYNC_CACHE);
       if (obj) {
+        const etag = obj.httpEtag || `"${obj.uploaded?.getTime() || 'sync-v1'}"`;
+        const clientEtag = req.headers.get('if-none-match');
+        const hasFastValidMeta = obj.customMetadata?.schemaVersion === SYNC_SHEETS_SCHEMA_VERSION;
+
+        if (hasFastValidMeta) {
+          if (clientEtag && (clientEtag === etag || clientEtag.includes(etag))) {
+            return new Response(null, {
+              status: 304,
+              headers: {
+                'ETag': etag,
+                'Cache-Control': 'no-store, no-cache, must-revalidate',
+                'CDN-Cache-Control': 'no-store',
+                'Access-Control-Allow-Origin': '*',
+              },
+            });
+          }
+          // Zero-CPU streaming: không parse 303KB JSON khi metadata schema đã khớp
+          return new Response(obj.body, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8',
+              ...(obj.size ? { 'Content-Length': String(obj.size) } : {}),
+              'Cache-Control': 'no-store, no-cache, must-revalidate',
+              'CDN-Cache-Control': 'no-store',
+              'ETag': etag,
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+
         const text = await obj.text();
         let isValidSchema = false;
         try {
@@ -124,8 +154,6 @@ export async function GET(req: Request) {
         } catch {}
 
         if (isValidSchema) {
-          const etag = obj.httpEtag || `"${obj.uploaded?.getTime() || 'sync-v1'}"`;
-          const clientEtag = req.headers.get('if-none-match');
           if (clientEtag && (clientEtag === etag || clientEtag.includes(etag))) {
             return new Response(null, {
               status: 304,
@@ -221,6 +249,7 @@ export async function GET(req: Request) {
       try {
         await bucket.put(KEY_SYNC_CACHE, JSON.stringify(payload), {
           httpMetadata: { contentType: 'application/json' },
+          customMetadata: { schemaVersion: SYNC_SHEETS_SCHEMA_VERSION },
         });
       } catch (saveCacheErr) {
         console.warn('Lỗi lưu cache sync-sheets vào R2:', saveCacheErr);
@@ -300,6 +329,7 @@ export async function POST(req: Request) {
           try {
             await bucket.put(KEY_SYNC_CACHE, JSON.stringify(updatedPayload), {
               httpMetadata: { contentType: 'application/json' },
+              customMetadata: { schemaVersion: SYNC_SHEETS_SCHEMA_VERSION },
             });
           } catch (e) {
             console.warn('Lỗi lưu KEY_SYNC_CACHE trên R2:', e);

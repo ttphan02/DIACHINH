@@ -23,33 +23,9 @@ import {
   Edit2,
   RefreshCw,
 } from 'lucide-react';
-import geminiKeys from '@/data/gemini_keys.json';
-
-export function decodeCccd12(cccd: string): { nam_sinh?: string; gioi_tinh?: 'Nam' | 'Nữ' } {
-  const clean = String(cccd || '').replace(/\D/g, '');
-  if (clean.length === 12) {
-    const code = clean.charAt(3);
-    const yr = clean.substring(4, 6);
-    let century = 1900;
-    let gender: 'Nam' | 'Nữ' = 'Nam';
-    if (code === '0') { century = 1900; gender = 'Nam'; }
-    else if (code === '1') { century = 1900; gender = 'Nữ'; }
-    else if (code === '2') { century = 2000; gender = 'Nam'; }
-    else if (code === '3') { century = 2000; gender = 'Nữ'; }
-    else if (code === '4') { century = 2100; gender = 'Nam'; }
-    else if (code === '5') { century = 2100; gender = 'Nữ'; }
-    else if (code === '6') { century = 2200; gender = 'Nam'; }
-    else if (code === '7') { century = 2200; gender = 'Nữ'; }
-    else if (code === '8') { century = 1800; gender = 'Nam'; }
-    else if (code === '9') { century = 1800; gender = 'Nữ'; }
-    else return {};
-    return {
-      nam_sinh: String(century + parseInt(yr, 10)),
-      gioi_tinh: gender,
-    };
-  }
-  return {};
-}
+import { decodeCccd12 } from '@/utils/cccdOcrHelpers';
+import { ocrCccdClientFirst, uploadCccdPdfSmart } from '@/utils/cccdClientPdf';
+export { decodeCccd12 };
 
 interface SelectedCccdImage {
   id: string;
@@ -272,180 +248,14 @@ export default function CccdUploadBottomSheet({
     setCropRatioMode('cccd');
   }, []);
 
-// Biến con trỏ Round-Robin toàn cục giống ScanName để chia đều tải 100% cho các API Key
-let currentClientKeyIdx = 0;
-
-  // Hàm gọi trực tiếp Gemini từ trình duyệt của người dùng (tránh lỗi IP Cloudflare Data Center)
-  const doDirectGeminiOcr = async (rawB64: string): Promise<{ so_cccd: string; ho_va_ten: string; nam_sinh?: string; gioi_tinh?: string } | null> => {
-    try {
-      let cleanB64 = rawB64;
-      let mimeType = 'image/jpeg';
-      if (typeof rawB64 === 'string' && rawB64.includes(',')) {
-        const parts = rawB64.split(',');
-        const match = parts[0].match(/:(.*?);/);
-        if (match && match[1]) mimeType = match[1];
-        cleanB64 = parts[1];
-      }
-      cleanB64 = cleanB64.replace(/\s+/g, '');
-
-      const keys = (geminiKeys as string[])
-        .filter((k) => k && typeof k === 'string' && !k.startsWith('DIEN_API_KEY'))
-        .map((k) => (k.startsWith('AQ.') ? k : atob(k)));
-
-      if (keys.length === 0) return null;
-
-      // Thuật toán Round-Robin chuẩn ScanName: chia đều tuần tự các ảnh cho từng key
-      const startIdx = currentClientKeyIdx;
-      currentClientKeyIdx = (currentClientKeyIdx + 1) % keys.length;
-
-      const models = ['gemini-flash-lite-latest', 'gemini-3.1-flash-lite', 'gemini-3.5-flash-lite'];
-
-      const promptText = `Bạn là chuyên gia trích xuất thông tin Căn cước công dân / Thẻ căn cước Việt Nam.
-Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JSON:
-{
-  "so_cccd": "12 chữ số viết liền hoặc 9 chữ số",
-  "ho_va_ten": "Họ và tên đầy đủ viết hoa có dấu (Ví dụ: ĐẶNG THỊ HỒNG)",
-  "nam_sinh": "4 chữ số năm sinh (Ví dụ: 1985 hoặc trích năm từ ngày sinh)",
-  "gioi_tinh": "Nam hoặc Nữ"
-}`;
-
-      // Thử key xuất phát của ảnh, nếu lỗi quay vòng thử tiếp các key còn lại
-      for (let attempt = 0; attempt < keys.length; attempt++) {
-        const apiKey = keys[(startIdx + attempt) % keys.length];
-        for (const model of models) {
-          try {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-            const payload = {
-              contents: [
-                {
-                  parts: [
-                    { text: promptText },
-                    { inlineData: { mimeType, data: cleanB64 } },
-                  ],
-                },
-              ],
-              generationConfig: {
-                temperature: 0.1,
-                responseMimeType: 'application/json',
-              },
-            };
-
-            const res = await fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            });
-
-            if (!res.ok) continue;
-
-            const data: any = await res.json();
-            const rawText = (data.candidates?.[0]?.content?.parts || [])
-              .map((p: any) => p.text || '')
-              .filter(Boolean)
-              .join('\n')
-              .trim();
-
-            let parsed: any = null;
-            try {
-              parsed = JSON.parse(rawText);
-            } catch {
-              const match = rawText.match(/\{[\s\S]*?\}/);
-              if (match) {
-                try { parsed = JSON.parse(match[0]); } catch {}
-              }
-            }
-
-            let soCccd = '';
-            let hoVaTen = '';
-            let namSinh = '';
-            let gioiTinh = '';
-            if (parsed) {
-              soCccd = String(parsed.so_cccd || parsed.cccd || parsed.id || '').replace(/\D/g, '');
-              hoVaTen = String(parsed.ho_va_ten || parsed.ho_ten || parsed.name || '').replace(/["']/g, '').trim().toUpperCase();
-
-              const ns = String(parsed.nam_sinh || parsed.namsinh || parsed.ngay_sinh || parsed.dob || parsed.birth_year || '').trim();
-              const yearMatch = ns.match(/\b(19\d{2}|20\d{2})\b/);
-              if (yearMatch) namSinh = yearMatch[1];
-              else if (/^\d{4}$/.test(ns)) namSinh = ns;
-
-              const gt = String(parsed.gioi_tinh || parsed.gioitinh || parsed.gender || parsed.sex || '').trim().toLowerCase();
-              if (gt.includes('nữ') || gt.includes('nu') || gt === 'female' || gt === 'f') gioiTinh = 'Nữ';
-              else if (gt.includes('nam') || gt === 'male' || gt === 'm') gioiTinh = 'Nam';
-            }
-
-            if (!soCccd || soCccd.length < 9) {
-              const digitMatch = rawText.match(/\b\d{12}\b/) || rawText.match(/\b\d{9}\b/);
-              if (digitMatch) soCccd = digitMatch[0];
-            }
-
-            if (!hoVaTen) {
-              const nameMatch = rawText.match(/"ho_va_ten"\s*:\s*"([^"\\]+)"/i);
-              if (nameMatch) hoVaTen = nameMatch[1].trim().toUpperCase();
-            }
-
-            if (!namSinh) {
-              const jsonYearMatch = rawText.match(/"nam_sinh"\s*:\s*"([^"\\]+)"/i);
-              if (jsonYearMatch) {
-                const ym = jsonYearMatch[1].match(/\b(19\d{2}|20\d{2})\b/);
-                if (ym) namSinh = ym[1];
-              }
-            }
-
-            if (!gioiTinh) {
-              const jsonGenderMatch = rawText.match(/"gioi_tinh"\s*:\s*"([^"\\]+)"/i);
-              if (jsonGenderMatch) {
-                const gVal = jsonGenderMatch[1].toLowerCase();
-                if (gVal.includes('nữ') || gVal.includes('nu')) gioiTinh = 'Nữ';
-                else if (gVal.includes('nam')) gioiTinh = 'Nam';
-              }
-            }
-
-            // Fallback decode từ 12 số CCCD theo quy chuẩn Bộ Công An
-            if (soCccd && soCccd.length === 12) {
-              const decoded = decodeCccd12(soCccd);
-              if (!namSinh && decoded.nam_sinh) namSinh = decoded.nam_sinh;
-              if (!gioiTinh && decoded.gioi_tinh) gioiTinh = decoded.gioi_tinh;
-            }
-
-            if (soCccd || hoVaTen) {
-              return { so_cccd: soCccd, ho_va_ten: hoVaTen, nam_sinh: namSinh, gioi_tinh: gioiTinh };
-            }
-          } catch {
-            // tiếp tục model khác
-          }
-        }
-      }
-    } catch {
-      // bỏ qua
-    }
-    return null;
-  };
-
-  // Gọi AI OCR nhận diện thông tin CCCD (Ưu tiên trực tiếp từ máy người dùng, sau đó fallback server)
+  // Gọi AI OCR nhận diện thông tin CCCD (Ưu tiên trực tiếp từ máy người dùng có cooldown 429, fallback server)
   const runAiOcrForImage = async (id: string, previewUrl: string) => {
     setImages((prev) =>
       prev.map((img) => (img.id === id ? { ...img, isScanning: true, scanError: undefined } : img))
     );
     try {
       const b64 = await getBase64FromUrl(previewUrl);
-
-      // 1. Thử nhận diện trực tiếp từ Client IP (tránh bị Google chặn IP Cloudflare)
-      let ocrResult = await doDirectGeminiOcr(b64);
-
-      // 2. Dự phòng gọi qua API server nếu Client bị chặn (ví dụ do chặn adblock)
-      if (!ocrResult) {
-        try {
-          const res = await fetch('/api/ocr-cccd', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageBase64: b64 }),
-          });
-          const data: any = await res.json();
-          if (data.success && data.data) {
-            ocrResult = data.data;
-          }
-        } catch {}
-      }
+      const ocrResult = await ocrCccdClientFirst(b64);
 
       if (ocrResult && (ocrResult.so_cccd || ocrResult.ho_va_ten)) {
         setImages((prev) =>
@@ -892,41 +702,27 @@ Hãy đọc kỹ hình ảnh và trả về CHÍNH XÁC một đối tượng JS
       try {
         const b64 = await getBase64FromUrl(item.previewUrl);
 
-        const uploadRes = await fetch('/api/upload-cccd-pdf', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            frontBase64: b64,
-            so_cccd: item.soCccd?.trim() || '',
-            ho_va_ten: item.hoVaTen?.trim() || '',
-            nam_sinh: item.namSinh?.trim() || '',
-            gioi_tinh: item.gioiTinh || '',
-            ma_thua: item.maThua?.trim() || '',
-            skipSync: true,
-          }),
+        const { ok, status, statusText, data: uploadData } = await uploadCccdPdfSmart({
+          frontBase64: b64,
+          so_cccd: item.soCccd?.trim() || '',
+          ho_va_ten: item.hoVaTen?.trim() || '',
+          nam_sinh: item.namSinh?.trim() || '',
+          gioi_tinh: item.gioiTinh || '',
+          ma_thua: item.maThua?.trim() || '',
+          skipSync: true,
         });
 
-        let uploadData: any = null;
-        try {
-          const resText = await uploadRes.text();
-          if (resText) {
-            uploadData = JSON.parse(resText);
-          }
-        } catch {
-          // Phản hồi không phải JSON hợp lệ (ví dụ Cloudflare HTML timeout hoặc rỗng)
-        }
-
-        if (uploadRes.ok && uploadData?.success) {
+        if (ok && uploadData?.success) {
           successCount++;
           successfulIds.add(item.id);
         } else {
           const errDetail =
             uploadData?.error ||
-            (uploadRes.status === 413
+            (status === 413
               ? 'Dung lượng ảnh quá lớn (413)'
-              : uploadRes.status === 504 || uploadRes.status === 502
+              : status === 504 || status === 502
               ? 'Máy chủ Cloudflare bị timeout/quá tải (502/504)'
-              : `Lỗi máy chủ (${uploadRes.status}: ${uploadRes.statusText || 'Không xác định'})`);
+              : `Lỗi máy chủ (${status}: ${statusText || 'Không xác định'})`);
 
           setImages((prev) =>
             prev.map((img) =>

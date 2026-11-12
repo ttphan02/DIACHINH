@@ -683,15 +683,15 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchCloudDeclarations(true);
 
-    // Tự động kiểm tra đồng bộ mỗi 5 giây khi tab đang mở (304 Not Modified < 1ms nếu DB chưa đổi)
+    // Tự động kiểm tra đồng bộ mỗi 15 giây khi tab đang mở (304 Not Modified < 1ms nếu DB chưa đổi)
     const interval = setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
         fetchCloudDeclarations(false);
       }
-    }, 5000);
+    }, 15000);
     const onFocus = () => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-        fetchCloudDeclarations(true);
+        fetchCloudDeclarations(false);
       }
     };
     window.addEventListener('focus', onFocus);

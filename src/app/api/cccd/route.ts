@@ -4,6 +4,7 @@ const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { cleanCccd, cleanName } from '@/utils/textHelpers';
+import { getD1Binding } from '@/utils/d1Database';
 
 export const dynamic = 'force-dynamic';
 
@@ -280,10 +281,28 @@ export async function GET(request: Request) {
 
     if (bucket) {
       try {
-        const declPromise = bucket.get(KEY_ALL_DECLARATIONS).catch((e: any) => {
-          console.warn('Lỗi bucket.get declarations:', e);
+        // Ưu tiên truy vấn 3 cột gọn từ D1 SQL Database để tránh tải & parse blob 1.2MB all.json trong Worker
+        const d1DeclsPromise = (async () => {
+          try {
+            const db = await getD1Binding();
+            if (db) {
+              const { results } = await db
+                .prepare('SELECT ma_thua, chu_dat_ten, chu_dat_cccd FROM declarations')
+                .all();
+              if (Array.isArray(results) && results.length > 0) {
+                const map: Record<string, any> = {};
+                for (const r of results) {
+                  map[r.ma_thua] = {
+                    chu_dat_ten: r.chu_dat_ten,
+                    chu_dat_cccd: r.chu_dat_cccd,
+                  };
+                }
+                return map;
+              }
+            }
+          } catch {}
           return null;
-        });
+        })();
 
         // Phân trang toàn bộ để không bị thiếu bất kỳ file nào (vượt quá 1000 file)
         const listAllPromise = (async () => {
@@ -299,11 +318,16 @@ export async function GET(request: Request) {
           return list;
         })();
 
-        const [listRes, declObj] = await Promise.all([listAllPromise, declPromise]);
+        const [listRes, d1Map] = await Promise.all([listAllPromise, d1DeclsPromise]);
         objects = listRes || [];
-        if (declObj) {
-          const payload = JSON.parse(await declObj.text());
-          declarationsMap = payload.declarationsMap || {};
+        if (d1Map) {
+          declarationsMap = d1Map;
+        } else {
+          const declObj = await bucket.get(KEY_ALL_DECLARATIONS).catch(() => null);
+          if (declObj) {
+            const payload = JSON.parse(await declObj.text());
+            declarationsMap = payload.declarationsMap || {};
+          }
         }
       } catch (err) {
         console.warn('Lỗi list CCCD qua R2 binding:', err);
@@ -402,11 +426,13 @@ export async function GET(request: Request) {
           }
         }
 
+        const uploadedMs = obj.uploaded ? new Date(obj.uploaded).getTime() : 0;
         return {
           key: fullKey,
           filename,
           size: obj.size,
-          uploadedAt: obj.uploaded ? new Date(obj.uploaded).toISOString() : null,
+          uploadedAt: uploadedMs ? new Date(uploadedMs).toISOString() : null,
+          _uploadedMs: uploadedMs,
           url: `/api/image/${encodeURI(fullKey)}`,
           cccdNumber: cccdCandidate || '',
           ownerName: matchedOwner || '',
@@ -414,11 +440,8 @@ export async function GET(request: Request) {
         };
       })
       .filter(Boolean)
-      .sort((a: any, b: any) => {
-        const tA = a.uploadedAt ? new Date(a.uploadedAt).getTime() : 0;
-        const tB = b.uploadedAt ? new Date(b.uploadedAt).getTime() : 0;
-        return tB - tA; // Mới nhất lên đầu
-      });
+      .sort((a: any, b: any) => b._uploadedMs - a._uploadedMs)
+      .map(({ _uploadedMs, ...rest }: any) => rest);
 
     const result = {
       success: true,

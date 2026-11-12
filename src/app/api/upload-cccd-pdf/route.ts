@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { PDFDocument } from 'pdf-lib';
 import { cleanCccd, cleanName } from '@/utils/textHelpers';
+import { decodeCccd12 } from '@/utils/cccdOcrHelpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,45 +55,56 @@ function base64ToUint8Array(base64: string): Uint8Array {
   return bytes;
 }
 
-function decodeCccd12(cccd: string): { nam_sinh?: string; gioi_tinh?: 'Nam' | 'Nữ' } {
-  const clean = String(cccd || '').replace(/\D/g, '');
-  if (clean.length === 12) {
-    const code = clean.charAt(3);
-    const yr = clean.substring(4, 6);
-    let century = 1900;
-    let gender: 'Nam' | 'Nữ' = 'Nam';
-    if (code === '0') { century = 1900; gender = 'Nam'; }
-    else if (code === '1') { century = 1900; gender = 'Nữ'; }
-    else if (code === '2') { century = 2000; gender = 'Nam'; }
-    else if (code === '3') { century = 2000; gender = 'Nữ'; }
-    else if (code === '4') { century = 2100; gender = 'Nam'; }
-    else if (code === '5') { century = 2100; gender = 'Nữ'; }
-    else if (code === '6') { century = 2200; gender = 'Nam'; }
-    else if (code === '7') { century = 2200; gender = 'Nữ'; }
-    else if (code === '8') { century = 1800; gender = 'Nam'; }
-    else if (code === '9') { century = 1800; gender = 'Nữ'; }
-    else return {};
-    return {
-      nam_sinh: String(century + parseInt(yr, 10)),
-      gioi_tinh: gender,
-    };
-  }
-  return {};
-}
-
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as any;
-    const { frontBase64, backBase64, imageBase64, so_cccd, ho_va_ten, nam_sinh, gioi_tinh, ma_thua, skipSync } = body;
+    const contentType = request.headers.get('content-type') || '';
+    let frontBase64: any = null;
+    let backBase64: any = null;
+    let imageBase64: any = null;
+    let so_cccd = '';
+    let ho_va_ten = '';
+    let nam_sinh = '';
+    let gioi_tinh = '';
+    let ma_thua = '';
+    let skipSync = false;
+    let customFileName = '';
+    let prebuiltPdfBytes: Uint8Array | null = null;
+
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await request.formData();
+      const pdfEntry = formData.get('pdfFile');
+      if (pdfEntry && typeof (pdfEntry as any).arrayBuffer === 'function') {
+        prebuiltPdfBytes = new Uint8Array(await (pdfEntry as Blob).arrayBuffer());
+      }
+      so_cccd = String(formData.get('so_cccd') || '');
+      ho_va_ten = String(formData.get('ho_va_ten') || '');
+      nam_sinh = String(formData.get('nam_sinh') || '');
+      gioi_tinh = String(formData.get('gioi_tinh') || '');
+      ma_thua = String(formData.get('ma_thua') || '');
+      customFileName = String(formData.get('fileName') || '').trim();
+      skipSync = String(formData.get('skipSync') || '') === 'true';
+    } else {
+      const body = (await request.json()) as any;
+      frontBase64 = body.frontBase64;
+      backBase64 = body.backBase64;
+      imageBase64 = body.imageBase64;
+      so_cccd = body.so_cccd || '';
+      ho_va_ten = body.ho_va_ten || '';
+      nam_sinh = body.nam_sinh || '';
+      gioi_tinh = body.gioi_tinh || '';
+      ma_thua = body.ma_thua || '';
+      skipSync = Boolean(body.skipSync);
+      customFileName = typeof body.fileName === 'string' ? body.fileName.trim() : '';
+    }
+
     const imgPrimary = imageBase64 || frontBase64;
 
-    if (!imgPrimary && !backBase64) {
-      return NextResponse.json({ success: false, error: 'Vui lòng cung cấp ít nhất một ảnh CCCD' }, { status: 400 });
+    if (!prebuiltPdfBytes && !imgPrimary && !backBase64) {
+      return NextResponse.json({ success: false, error: 'Vui lòng cung cấp ít nhất một ảnh CCCD hoặc file PDF' }, { status: 400 });
     }
 
     const cccdClean = cleanCccd(so_cccd);
     const nameClean = cleanName(ho_va_ten);
-    const customFileName = typeof body.fileName === 'string' ? body.fileName.trim() : '';
 
     if (!cccdClean && !nameClean && !ma_thua && !customFileName) {
       return NextResponse.json({ success: false, error: 'Thiếu số CCCD, họ tên hoặc mã thửa để đặt tên file' }, { status: 400 });
@@ -114,76 +126,68 @@ export async function POST(request: Request) {
       fileName = `${ma_thua || 'CCCD'}_${Date.now()}.pdf`;
     }
 
-    console.log(`>>> Đang tạo file PDF khổ A4: ${fileName}`);
-
-    // Tạo PDF chuẩn A4 (595.28 pt x 841.89 pt = 210mm x 297mm)
-    const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([595.28, 841.89]);
-    const { width: pageWidth, height: pageHeight } = page.getSize();
-
-    const embedImage = async (b64: string) => {
-      const bytes = base64ToUint8Array(b64);
-      const isPng = b64.toLowerCase().startsWith('data:image/png');
-      try {
-        return isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
-      } catch (firstErr) {
-        // Thử ngược lại nếu MIME type header không khớp byte signature
-        try {
-          return isPng ? await pdfDoc.embedJpg(bytes) : await pdfDoc.embedPng(bytes);
-        } catch {
-          throw new Error('Định dạng ảnh không được hỗ trợ (cần JPG/PNG) hoặc dữ liệu ảnh bị hỏng.');
-        }
-      }
-    };
-
-    if (frontBase64 && backBase64) {
-      // 2 mặt: Canh chỉnh chuẩn bản photocopy A4 (Mặt trước ở nửa trên, Mặt sau ở nửa dưới)
-      const imgFront = await embedImage(frontBase64);
-      const imgBack = await embedImage(backBase64);
-
-      const maxBoxW = pageWidth - 80; // 515.28 pt
-      const maxBoxH = (pageHeight - 120) / 2; // ~360 pt
-
-      // Nửa trên (Mặt trước)
-      const scaleFront = imgFront.scaleToFit(maxBoxW, maxBoxH);
-      const xFront = (pageWidth - scaleFront.width) / 2;
-      const yFront = pageHeight - 60 - maxBoxH + (maxBoxH - scaleFront.height) / 2;
-      page.drawImage(imgFront, {
-        x: xFront,
-        y: yFront,
-        width: scaleFront.width,
-        height: scaleFront.height,
-      });
-
-      // Nửa dưới (Mặt sau)
-      const scaleBack = imgBack.scaleToFit(maxBoxW, maxBoxH);
-      const xBack = (pageWidth - scaleBack.width) / 2;
-      const yBack = 60 + (maxBoxH - scaleBack.height) / 2;
-      page.drawImage(imgBack, {
-        x: xBack,
-        y: yBack,
-        width: scaleBack.width,
-        height: scaleBack.height,
-      });
+    let pdfBytes: Uint8Array;
+    if (prebuiltPdfBytes && prebuiltPdfBytes.byteLength > 0) {
+      pdfBytes = prebuiltPdfBytes;
     } else {
-      // 1 ảnh (Mặt trước hoặc ảnh chụp gộp): Canh giữa trang A4
-      const singleB64 = frontBase64 || backBase64 || imgPrimary;
-      const img = await embedImage(singleB64);
-      const maxBoxW = pageWidth - 80;
-      const maxBoxH = pageHeight - 120;
-      const scale = img.scaleToFit(maxBoxW, maxBoxH);
+      // Fallback: Tạo PDF chuẩn A4 trên server nếu client cũ gửi JSON base64
+      const pdfDoc = await PDFDocument.create();
+      const page = pdfDoc.addPage([595.28, 841.89]);
+      const { width: pageWidth, height: pageHeight } = page.getSize();
 
-      const x = (pageWidth - scale.width) / 2;
-      const y = (pageHeight - scale.height) / 2;
-      page.drawImage(img, {
-        x,
-        y,
-        width: scale.width,
-        height: scale.height,
-      });
+      const embedImage = async (b64: string) => {
+        const bytes = base64ToUint8Array(b64);
+        const isPng = b64.toLowerCase().startsWith('data:image/png');
+        try {
+          return isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+        } catch {
+          try {
+            return isPng ? await pdfDoc.embedJpg(bytes) : await pdfDoc.embedPng(bytes);
+          } catch {
+            throw new Error('Định dạng ảnh không được hỗ trợ (cần JPG/PNG) hoặc dữ liệu ảnh bị hỏng.');
+          }
+        }
+      };
+
+      if (frontBase64 && backBase64) {
+        const imgFront = await embedImage(frontBase64);
+        const imgBack = await embedImage(backBase64);
+
+        const maxBoxW = pageWidth - 80;
+        const maxBoxH = (pageHeight - 120) / 2;
+
+        const scaleFront = imgFront.scaleToFit(maxBoxW, maxBoxH);
+        page.drawImage(imgFront, {
+          x: (pageWidth - scaleFront.width) / 2,
+          y: pageHeight - 60 - maxBoxH + (maxBoxH - scaleFront.height) / 2,
+          width: scaleFront.width,
+          height: scaleFront.height,
+        });
+
+        const scaleBack = imgBack.scaleToFit(maxBoxW, maxBoxH);
+        page.drawImage(imgBack, {
+          x: (pageWidth - scaleBack.width) / 2,
+          y: 60 + (maxBoxH - scaleBack.height) / 2,
+          width: scaleBack.width,
+          height: scaleBack.height,
+        });
+      } else {
+        const singleB64 = frontBase64 || backBase64 || imgPrimary;
+        const img = await embedImage(singleB64);
+        const maxBoxW = pageWidth - 80;
+        const maxBoxH = pageHeight - 120;
+        const scale = img.scaleToFit(maxBoxW, maxBoxH);
+
+        page.drawImage(img, {
+          x: (pageWidth - scale.width) / 2,
+          y: (pageHeight - scale.height) / 2,
+          width: scale.width,
+          height: scale.height,
+        });
+      }
+
+      pdfBytes = await pdfDoc.save();
     }
-
-    const pdfBytes = await pdfDoc.save();
     console.log(`>>> PDF tạo thành công (${pdfBytes.length} bytes). Đang lưu vào Cloudflare R2...`);
 
     // Lưu vào R2 bucket: cccd/{fileName}

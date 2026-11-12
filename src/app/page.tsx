@@ -475,17 +475,17 @@ export default function Home() {
     fetchGgsCodes(false);
     fetchCloudDeclarations(true);
 
-    // Kiểm tra đồng bộ phiếu kê khai mỗi 5 giây khi tab đang mở (304 Not Modified < 1ms nếu không có thay đổi)
+    // Kiểm tra đồng bộ phiếu kê khai mỗi 15 giây khi tab đang mở (304 Not Modified < 1ms nếu không có thay đổi)
     const declInterval = setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
         fetchCloudDeclarations(false);
       }
-    }, 5000);
+    }, 15000);
 
-    // Đồng bộ ngay lập tức khi người dùng chuyển tab hoặc mở màn hình điện thoại lên
+    // Kiểm tra đồng bộ theo ETag khi chuyển tab hoặc mở màn hình điện thoại lên (304 nếu DB chưa đổi)
     const onInstantSync = () => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-        fetchCloudDeclarations(true);
+        fetchCloudDeclarations(false);
       }
     };
     window.addEventListener('focus', onInstantSync);
