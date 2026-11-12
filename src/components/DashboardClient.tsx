@@ -162,12 +162,18 @@ export default function DashboardPage() {
   // Hàng đợi debounce theo từng trường dữ liệu để cập nhật thẳng vào D1 Database mà không ghi đè cột của thiết bị khác
   const inlineCommitQueueRef = useRef<Map<string, { ma_thua: string; fields: Record<string, any>; fallbackDecl: DeclarationFormData }>>(new Map());
   const inlineCommitTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isFlushingInlineRef = useRef<boolean>(false);
 
   const flushInlineCommitQueue = useCallback(async () => {
     if (inlineCommitQueueRef.current.size === 0) return;
+    if (inlineCommitTimerRef.current) {
+      clearTimeout(inlineCommitTimerRef.current);
+      inlineCommitTimerRef.current = null;
+    }
     const items = Array.from(inlineCommitQueueRef.current.values());
     inlineCommitQueueRef.current.clear();
     const codes = items.map((i) => i.ma_thua);
+    isFlushingInlineRef.current = true;
 
     try {
       const results = await Promise.all(
@@ -217,6 +223,7 @@ export default function DashboardPage() {
       setInlineSaveToast('❌ Lỗi lưu Database! Vui lòng kiểm tra mạng và thử lại.');
       setTimeout(() => setInlineSaveToast(null), 3500);
     } finally {
+      isFlushingInlineRef.current = false;
       setSavingRowCodes((prev) => {
         const next = new Set(prev);
         codes.forEach((c) => next.delete(c));
@@ -630,6 +637,13 @@ export default function DashboardPage() {
   // 1. Đồng bộ danh sách kê khai trực tiếp từ Database (Cloudflare D1) theo thời gian thực (Không dùng localStorage, Không cần F5)
   const fetchCloudDeclarations = useCallback(async (force = false) => {
     if (isFetchingCloudRef.current) return;
+    // Nếu người dùng đang gõ / chờ lưu hoặc đang gửi patch lên DB:
+    // - Poll ngầm thì bỏ qua để không ghi đè dữ liệu vừa nhập thành trống
+    // - Force (bấm Đồng bộ) thì xả hàng đợi lưu xong trước rồi mới fetch
+    if (inlineCommitQueueRef.current.size > 0 || isFlushingInlineRef.current) {
+      if (!force) return;
+      await flushInlineCommitQueue();
+    }
     isFetchingCloudRef.current = true;
     lastFetchTimeRef.current = Date.now();
     try {
@@ -664,7 +678,18 @@ export default function DashboardPage() {
         declarationsMapRef.current = cloudMap;
         setDeclaredParcelCodes(cloudCodesSet);
         setDeclarationsMap(cloudMap);
-        setCellEdits(cloudEdits);
+        setCellEdits((prev) => {
+          // Bảo toàn các ô đang được người dùng nhập dở (chưa blur/commit) để không bị poll xóa trắng
+          const activeMaThua = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null)?.closest('tr')?.dataset?.mathua : undefined;
+          if (!activeMaThua || !prev[activeMaThua]) return cloudEdits;
+          return {
+            ...cloudEdits,
+            [activeMaThua]: {
+              ...(cloudEdits[activeMaThua] || {}),
+              ...prev[activeMaThua],
+            },
+          };
+        });
 
         if (hadLoadedOnce) {
           if (realtimeReloadTimeoutRef.current) clearTimeout(realtimeReloadTimeoutRef.current);
@@ -1553,6 +1578,9 @@ export default function DashboardPage() {
   const fetchSyncSheetsReport = useCallback(async (force = false) => {
     setIsLoadingSyncSheets(true);
     try {
+      if (force && (inlineCommitQueueRef.current.size > 0 || isFlushingInlineRef.current)) {
+        await flushInlineCommitQueue();
+      }
       const res = await fetch(`/api/sync-sheets${force ? '?force=true' : ''}`);
       if (!res.ok) return;
       const data: any = await res.json();
@@ -6374,6 +6402,7 @@ export default function DashboardPage() {
                                 return (
                                   <tr
                                     key={rIdx}
+                                    data-mathua={maThua}
                                     className={`transition ${
                                       isChecked
                                         ? isLight
@@ -6602,24 +6631,24 @@ export default function DashboardPage() {
                                       let effectiveVal = cleanText;
                                       if (declForParcel && selectedReportSheet !== 'CHƯA THỰC HIỆN') {
                                         if (isNameCol) {
-                                          if (declForParcel.chu_dat_ten !== undefined) {
-                                            effectiveVal = declForParcel.chu_dat_ten ? cleanName(declForParcel.chu_dat_ten) : '';
-                                          } else if (declForParcel.chu_ho !== undefined) {
-                                            effectiveVal = declForParcel.chu_ho ? cleanName(declForParcel.chu_ho) : '';
+                                          const dName = declForParcel.chu_dat_ten || declForParcel.chu_ho || '';
+                                          if (String(dName).trim()) {
+                                            effectiveVal = cleanName(dName);
                                           }
-                                        } else if (isDobCol && declForParcel.chu_dat_nam_sinh !== undefined) {
-                                          effectiveVal = declForParcel.chu_dat_nam_sinh;
-                                        } else if (isGenderCol && declForParcel.chu_dat_gioi_tinh !== undefined) {
-                                          effectiveVal = declForParcel.chu_dat_gioi_tinh;
+                                        } else if (isDobCol && String(declForParcel.chu_dat_nam_sinh || '').trim()) {
+                                          effectiveVal = String(declForParcel.chu_dat_nam_sinh).trim();
+                                        } else if (isGenderCol && String(declForParcel.chu_dat_gioi_tinh || '').trim()) {
+                                          effectiveVal = String(declForParcel.chu_dat_gioi_tinh).trim();
                                         } else if (isCccdCol) {
                                           if (declForParcel?.yeu_cau_thu_cccd) {
                                             effectiveVal = '';
-                                          } else if (declForParcel?.chu_dat_cccd !== undefined) {
-                                            effectiveVal = cleanCccd(declForParcel.chu_dat_cccd);
-                                          } else if (declForParcel?.cccd !== undefined) {
-                                            effectiveVal = cleanCccd(declForParcel.cccd);
-                                          } else if (cleanText) {
-                                            effectiveVal = cleanCccd(cleanText);
+                                          } else {
+                                            const dCccd = cleanCccd(declForParcel?.chu_dat_cccd || declForParcel?.cccd || '');
+                                            if (dCccd) {
+                                              effectiveVal = dCccd;
+                                            } else if (cleanText) {
+                                              effectiveVal = cleanCccd(cleanText);
+                                            }
                                           }
                                         } else if (isVillageCol && (declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi || declForParcel.thon_xa)) {
                                           effectiveVal = cleanVillageDisplay(declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi || declForParcel.thon_xa);
