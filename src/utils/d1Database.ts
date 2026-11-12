@@ -1,5 +1,6 @@
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { isAgriculturalLand } from '@/utils/textHelpers';
+import { isLocalNodeRuntime } from '@/utils/localFileDb';
 
 let cachedD1: any = null;
 let schemaInitialized = false;
@@ -65,6 +66,10 @@ export async function bumpD1SyncVersion(db: any, customVersion?: string): Promis
  * Lấy D1 Database binding với cơ chế đa tầng (Multi-tier context)
  */
 export async function getD1Binding(): Promise<any | null> {
+  // Khi chạy trên máy Local (PM2 / Node.js), không dùng D1 ảo của Wrangler để tránh lỗi "no such table: declarations"
+  if (isLocalNodeRuntime()) {
+    return null;
+  }
   if (cachedD1) {
     await ensureSchemaMigration(cachedD1);
     return cachedD1;

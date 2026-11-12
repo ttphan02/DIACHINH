@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
+import { isLocalNodeRuntime, readLocalJson, writeLocalJson } from '@/utils/localFileDb';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,6 +51,19 @@ interface CollectedPayload {
 
 async function readCollectedFromR2(): Promise<{ payload: CollectedPayload; etag: string }> {
   const empty: CollectedPayload = { collectedKeys: [], updatedAt: '' };
+  if (isLocalNodeRuntime()) {
+    const localData = await readLocalJson<any>('cccd_collected.json');
+    if (localData && Array.isArray(localData.collectedKeys)) {
+      const etag = `"local-${localData.updatedAt || localData.collectedKeys.length}"`;
+      return {
+        payload: {
+          collectedKeys: localData.collectedKeys,
+          updatedAt: String(localData.updatedAt || ''),
+        },
+        etag,
+      };
+    }
+  }
   const bucket = await getR2Binding();
   if (bucket) {
     try {
@@ -92,6 +106,9 @@ async function readCollectedFromR2(): Promise<{ payload: CollectedPayload; etag:
 }
 
 async function writeCollectedToR2(payload: CollectedPayload): Promise<void> {
+  if (isLocalNodeRuntime()) {
+    await writeLocalJson('cccd_collected.json', payload);
+  }
   const jsonStr = JSON.stringify(payload);
   const bucket = await getR2Binding();
   if (bucket) {

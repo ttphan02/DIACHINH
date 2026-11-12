@@ -12,6 +12,7 @@ import {
   getD1SyncVersion,
   bumpD1SyncVersion,
 } from '@/utils/d1Database';
+import { isLocalNodeRuntime, readLocalJson, writeLocalJson } from '@/utils/localFileDb';
 
 const parcelsBrief = parcelsBriefData as unknown as Record<string, [string, string, string, number]>;
 
@@ -119,6 +120,17 @@ async function deleteCellEditsForCodesInD1(db: any, codes: string[]): Promise<vo
  * Đọc nhanh payload all.json từ R2 (hoặc D1 fallback) để vá delta tức thì
  */
 async function readAllJsonFast(bucket: any): Promise<StoragePayload> {
+  if (isLocalNodeRuntime()) {
+    const localData = await readLocalJson<any>('declarations.json');
+    if (localData && typeof localData === 'object') {
+      return {
+        declaredCodes: Array.isArray(localData.declaredCodes) ? localData.declaredCodes : [],
+        declarationsMap: localData.declarationsMap && typeof localData.declarationsMap === 'object' ? localData.declarationsMap : {},
+        cellEdits: localData.cellEdits && typeof localData.cellEdits === 'object' ? localData.cellEdits : {},
+        updatedAt: localData.updatedAt || new Date().toISOString(),
+      };
+    }
+  }
   if (bucket) {
     try {
       const obj = await bucket.get(KEY_ALL_DECLARATIONS);
@@ -490,6 +502,11 @@ async function saveDeclarationsToR2(
   const etag = `"${version || Date.now()}"`;
   memoryAllJsonCache = { text: jsonStr, etag, byteLength: jsonStr.length, timestamp: Date.now() };
 
+  // Khi chạy Local: lưu ngay lập tức vào local-data/declarations.json trước, rồi đồng bộ snapshot lên R2 cho bản Public đọc
+  if (isLocalNodeRuntime()) {
+    await writeLocalJson('declarations.json', { success: true, ...payload });
+  }
+
   try {
     const bucket = await getR2Binding();
     if (bucket) {
@@ -572,6 +589,34 @@ export async function GET(request: Request) {
     }
 
     const clientEtag = request.headers.get('if-none-match');
+
+    // Khi chạy Local (Node.js / PM2): đọc trực tiếp từ local-data/declarations.json (0ms, không lỗi D1 ảo)
+    if (isLocalNodeRuntime()) {
+      const localData = await readLocalJson<any>('declarations.json');
+      if (localData && Array.isArray(localData.declaredCodes)) {
+        const localEtag = `"local-${localData.updatedAt || localData.declaredCodes.length}"`;
+        if (clientEtag && (clientEtag === localEtag || clientEtag.includes(localEtag))) {
+          return new Response(null, {
+            status: 304,
+            headers: {
+              'ETag': localEtag,
+              ...NO_STORE_HEADERS,
+            },
+          });
+        }
+        return NextResponse.json(
+          {
+            success: true,
+            source: 'local_file_db',
+            declaredCodes: localData.declaredCodes,
+            declarationsMap: localData.declarationsMap || {},
+            cellEdits: localData.cellEdits || {},
+            updatedAt: localData.updatedAt || new Date().toISOString(),
+          },
+          { headers: { ETag: localEtag, ...NO_STORE_HEADERS } }
+        );
+      }
+    }
 
     // Ở chế độ Public Read-Only, ưu tiên đọc/stream thẳng declarations/all.json từ R2 để đồng bộ tức thì dữ liệu từ Local
     if (process.env.NEXT_PUBLIC_PUBLIC_READONLY === 'true') {

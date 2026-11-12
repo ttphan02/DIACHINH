@@ -52,3 +52,6 @@ next-env.d.ts
 !/public/scanname/data/gemini_keys.json
 
 
+
+# Local file database
+local-data/
