@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
+import { isLocalNodeRuntime, readLocalJson } from '@/utils/localFileDb';
+import { cleanCccd } from '@/utils/textHelpers';
 
 const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
 
@@ -55,6 +57,11 @@ let memoryCache: {
 const CACHE_TTL_MS = 15000; // 15 giây
 
 async function loadDeclarations(): Promise<Record<string, any>> {
+  if (isLocalNodeRuntime()) {
+    const local = await readLocalJson<any>('declarations.json');
+    if (local?.declarationsMap) return local.declarationsMap;
+  }
+
   const bucket = await getR2Binding();
   if (bucket) {
     try {
@@ -114,6 +121,17 @@ async function loadDeclarations(): Promise<Record<string, any>> {
 }
 
 async function loadSyncSheets(): Promise<Record<string, string[][]>> {
+  if (isLocalNodeRuntime()) {
+    try {
+      const { executeSyncToGoogleSheet } = await import('@/utils/syncGoogleSheets');
+      const declarationsMap = await loadDeclarations();
+      const res = await executeSyncToGoogleSheet(declarationsMap);
+      if ((res as any)?.sheetsData) return (res as any).sheetsData;
+    } catch (e) {
+      console.warn('Lỗi tự động tính syncSheets cho ScanName trên local:', e);
+    }
+  }
+
   const bucket = await getR2Binding();
   if (bucket) {
     try {
@@ -189,7 +207,7 @@ function buildDeclaredCccdDatabase(
     const cleanMa = String(maThua).trim();
     if (HIDDEN_PARCEL_SET.has(cleanMa)) return;
 
-    const cleanDigits = String(rawCccd || '').replace(/^="|"$/g, '').replace(/\D/g, '');
+    const cleanDigits = cleanCccd(String(rawCccd || '').replace(/^[="]+|["]+$/g, ''));
     // BẮT BUỘC PHẢI CÓ CCCD (9 đến 12 số)
     if (cleanDigits.length < 9) return;
 
@@ -231,7 +249,7 @@ function buildDeclaredCccdDatabase(
     }
   };
 
-  // 1. Nguồn chính: ĐÚNG DANH SÁCH "THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD)" trên Dashboard
+  // 1. Nguồn chính xác số 1: ĐÚNG DANH SÁCH "THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD)" trên Dashboard
   if (syncSheets && typeof syncSheets === 'object') {
     const readyRows = syncSheets['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] || syncSheets['THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD)'];
     if (Array.isArray(readyRows) && readyRows.length > 1) {
@@ -249,31 +267,41 @@ function buildDeclaredCccdDatabase(
         addEntry(maThua, cccd, chuHo, thon);
       }
     }
+
+    // Nguồn bổ trợ số 2: Các thửa trong danh sách GCN - ONT (các thửa đất ở có CCCD)
+    const ontRows = syncSheets['GCN - ONT'];
+    if (Array.isArray(ontRows) && ontRows.length > 1) {
+      const headers = ontRows[0] || [];
+      const maIdx = headers.findIndex((h) => /mã thửa/i.test(h));
+      const nameIdx = headers.findIndex((h) => /họ và tên|chủ đất/i.test(h));
+      const cccdIdx = headers.findIndex((h) => /cccd/i.test(h) && !/xem|file/i.test(h));
+      const thonIdx = headers.findIndex((h) => /thôn|buôn/i.test(h));
+
+      for (const r of ontRows.slice(1)) {
+        const maThua = maIdx >= 0 ? r[maIdx] : r[1];
+        const chuHo = nameIdx >= 0 ? r[nameIdx] : r[5] || r[3];
+        const cccd = cccdIdx >= 0 ? r[cccdIdx] : r[8] || r[6];
+        const thon = thonIdx >= 0 ? r[thonIdx] : r[4] || r[2];
+        addEntry(maThua, cccd, chuHo, thon);
+      }
+    }
   }
 
-  // 2. Nguồn bổ trợ: Các đơn kê khai trong declarationsMap có CCCD hợp lệ
+  // TUYỆT ĐỐI KHÔNG quét dmap toàn bộ vì sẽ nuốt nhầm các thửa ĐÃ GIẢI QUYẾT, CHƯA THỰC HIỆN, hoặc KHÔNG NHẬP!
+  // Chỉ bổ sung nếu dmap có cccd và được gắn cccd_url/file_cccd_pdf hợp lệ
   if (dmap && typeof dmap === 'object') {
     for (const [maThua, decl] of Object.entries(dmap)) {
-      if (!decl) continue;
+      if (!decl || addedRecords.has(maThua)) continue;
+      // Chỉ nạp nếu thửa này có file CCCD và không bị đánh dấu thu thập lại
+      const hasCccdFile = Boolean(decl.cccd_url || decl.file_cccd_pdf || decl.cccd_file);
       const cccd = decl.chu_dat_cccd || decl.cccd_chu_ho || decl.cccd;
-      if (!cccd) continue;
-      addEntry(
-        maThua,
-        cccd,
-        decl.chu_dat_ten || decl.chu_ho || decl.ho_va_ten_chu_ho,
-        decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi
-      );
-      if (Array.isArray(decl.thua_kem_theo)) {
-        decl.thua_kem_theo.forEach((ap: any) => {
-          if (ap && ap.ma_thua) {
-            addEntry(
-              ap.ma_thua,
-              cccd,
-              decl.chu_dat_ten || decl.chu_ho,
-              ap.thon_xa || decl.dia_chi_thua_dat
-            );
-          }
-        });
+      if (hasCccdFile && cccd && !decl.yeu_cau_thu_cccd && decl.ghi_chu !== 'Yêu cầu thu thập lại CCCD') {
+        addEntry(
+          maThua,
+          cccd,
+          decl.chu_dat_ten || decl.chu_ho || decl.ho_va_ten_chu_ho,
+          decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi
+        );
       }
     }
   }
