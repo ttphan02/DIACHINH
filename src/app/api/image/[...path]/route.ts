@@ -236,9 +236,9 @@ export async function GET(
       }
     }
 
-    // 2. S3Client Fallback (CHỈ cho Local Node.js dev mode, không bao giờ chạy trên Cloudflare Worker để tránh Error 1102)
+    // 2. S3Client Fallback (cho Local Node.js runtime đọc trực tiếp từ R2 thật, không bao giờ bị 403)
     const isWorkerEnv = typeof (globalThis as any).WebSocketPair !== 'undefined' || typeof (globalThis as any).caches !== 'undefined';
-    if (!isWorkerEnv && process.env.NODE_ENV !== 'production' && !bucket) {
+    if (!isWorkerEnv && !bucket) {
       const s3 = await getS3Client();
       if (s3) {
         try {

@@ -195,39 +195,20 @@ export default function DashboardPage() {
       );
 
       let hasError = false;
-      let totalSyncedSiblings = 0;
-      let lastSyncedOwner = '';
       results.forEach((result) => {
         if (result?.success && result.declaration?.ma_thua) {
-          const deltaMap: Record<string, DeclarationFormData> =
-            result.declarationsMap && typeof result.declarationsMap === 'object'
-              ? result.declarationsMap
-              : { [result.declaration.ma_thua]: result.declaration };
-          const deltaCodes = Array.isArray(result.declaredCodes)
-            ? result.declaredCodes
-            : Object.keys(deltaMap);
-
+          const code = result.declaration.ma_thua;
           setDeclarationsMap((prev) => {
-            const next = { ...prev, ...deltaMap };
+            const next = { ...prev, [code]: result.declaration };
             declarationsMapRef.current = next;
             return next;
           });
           setDeclaredParcelCodes((prev) => {
-            const next = new Set([...prev, ...deltaCodes]);
+            const next = new Set(prev);
+            next.add(code);
             declaredCodesRef.current = next;
             return next;
           });
-
-          Object.values(deltaMap).forEach((declItem) => {
-            if (declItem?.ma_thua) {
-              applyDeclarationToSyncSheets(declItem);
-            }
-          });
-
-          if (typeof result.syncedCount === 'number' && result.syncedCount > 0) {
-            totalSyncedSiblings += result.syncedCount;
-            lastSyncedOwner = result.declaration?.chu_dat_ten || '';
-          }
         } else {
           hasError = true;
         }
@@ -235,11 +216,6 @@ export default function DashboardPage() {
 
       if (hasError) {
         setInlineSaveToast('❌ Một số ô chưa lưu được lên Database. Đang đồng bộ lại...');
-        setTimeout(() => setInlineSaveToast(null), 3500);
-      } else if (totalSyncedSiblings > 0) {
-        setInlineSaveToast(
-          `✓ Đã lưu & đồng bộ thông tin cho ${totalSyncedSiblings} thửa khác cùng tên${lastSyncedOwner ? ` (${lastSyncedOwner})` : ''}!`
-        );
         setTimeout(() => setInlineSaveToast(null), 3500);
       }
     } catch (err) {
@@ -1539,19 +1515,8 @@ export default function DashboardPage() {
             return next;
           });
         }
-        if (result.declarationsMap && typeof result.declarationsMap === 'object') {
-          Object.values(result.declarationsMap as Record<string, DeclarationFormData>).forEach((declItem) => {
-            if (declItem?.ma_thua) {
-              applyDeclarationToSyncSheets(declItem);
-            }
-          });
-        }
-        setInlineSaveToast(
-          result.syncedCount > 0
-            ? `✓ Đã lưu & đồng bộ thông tin cho ${result.syncedCount} thửa khác cùng tên!`
-            : '✓ Đã lưu trực tiếp vào Database!'
-        );
-        setTimeout(() => setInlineSaveToast(null), 3000);
+        setInlineSaveToast('✓ Đã lưu trực tiếp vào Database!');
+        setTimeout(() => setInlineSaveToast(null), 2500);
       }
     } catch (err) {
       console.warn('Lỗi khi lưu chỉnh sửa vào Database:', err);
@@ -4587,6 +4552,12 @@ export default function DashboardPage() {
                             chu_dat_cccd: cleanVal,
                             cccd_chu_ho: cleanVal,
                             cccd: cleanVal,
+                            cccd_url: `/api/image/cccd/${encodeURIComponent(cleanVal)}.pdf`,
+                            file_cccd_pdf: `${cleanVal}.pdf`,
+                            cccd_file: `${cleanVal}.pdf`,
+                            yeu_cau_thu_cccd: false,
+                            ghi_chu: '',
+                            updated_at: new Date().toISOString(),
                           };
                           updatedDecls.push(updatedDecl);
                         }

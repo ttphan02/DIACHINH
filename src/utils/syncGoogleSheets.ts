@@ -474,12 +474,13 @@ export async function executeSyncToGoogleSheet(
         ? `${chuHoStrict}__${declVillage}`
         : '';
 
+      const cleanDeclCccd = cleanCccd(decl.chu_dat_cccd || decl.cccd || decl.cccd_chu_ho || '');
       const isForceUnpacked =
         Boolean(decl.yeu_cau_thu_cccd) ||
         decl.yeu_cau_thu_cccd === 1 ||
         decl.yeu_cau_thu_cccd === 'true' ||
         decl.yeu_cau_thu_cccd === '1' ||
-        decl.ghi_chu === 'Yêu cầu thu thập lại CCCD' ||
+        (decl.ghi_chu === 'Yêu cầu thu thập lại CCCD' && !cleanDeclCccd) ||
         (decl.chu_dat_cccd === '' && (decl.cccd_url === '' || !decl.cccd_url) && String(decl.ghi_chu || '').includes('thu thập'));
 
       // Nếu thửa đất bị lùi về Chưa có CCCD thì xóa hoàn toàn số CCCD, không lấy lại từ GGS
