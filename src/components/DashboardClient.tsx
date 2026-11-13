@@ -3628,30 +3628,6 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            {/* Trạng thái Database Realtime trực tiếp (Bấm để làm mới ngay) */}
-            <button
-              type="button"
-              onClick={handleForceSyncAll}
-              disabled={isManualSyncing || savingRowCodes.size > 0}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer select-none ${
-                savingRowCodes.size > 0 || isManualSyncing
-                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                  : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 active:scale-95'
-              }`}
-              title="Kết nối trực tiếp Cloudflare D1 (tự động cập nhật 5s). Bấm để làm mới ngay."
-            >
-              {savingRowCodes.size > 0 || isManualSyncing ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
-                  <span className="hidden sm:inline">Đang lưu DB...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  <span className="hidden sm:inline">Realtime DB</span>
-                </>
-              )}
-            </button>
 
             {/* Nút mở công cụ ScanName (Tách PDF & Đổi tên hồ sơ scan sau ký) */}
             <a

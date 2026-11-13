@@ -1611,17 +1611,6 @@ export default function Home() {
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                   </button>
 
-                  {/* Nút chỉ báo Database Realtime trực tiếp (Desktop) */}
-                  <button
-                    type="button"
-                    onClick={() => fetchCloudDeclarations(true)}
-                    className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold transition text-xs shrink-0 cursor-pointer bg-gray-50 hover:bg-gray-100 text-emerald-700 border border-emerald-200"
-                    title="Dữ liệu đồng bộ trực tiếp từ Cloudflare D1 (tự cập nhật mỗi 5s). Bấm để làm mới ngay."
-                  >
-                    <Cloud className="w-3.5 h-3.5 text-emerald-600" />
-                    <span className="hidden sm:inline">Realtime DB</span>
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  </button>
                 </div>
               </div>
 
