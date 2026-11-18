@@ -10,10 +10,11 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
+  Search,
 } from 'lucide-react';
 import { Parcel, DeclarationFormData } from '@/types';
 import { getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
-import { broadcastRealtimeEvent } from '@/utils/realtimeSync';
+import { broadcastRealtimeEvent, onRealtimeEvent } from '@/utils/realtimeSync';
 import {
   cleanCccd,
   cleanName,
@@ -30,6 +31,7 @@ import {
   isPersonName,
   isValidBirthYear,
   isValidCccd,
+  cleanStrictName,
 } from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
 import hiddenParcelsData from '@/data/hidden_parcels.json';
@@ -75,6 +77,8 @@ interface MissingCccdPerson {
     dienTich: string;
   }>;
   thonXa: string;
+  residentVillage?: string;
+  diaChiThuongTru?: string;
   namSinh?: string;
   gioiTinh?: 'Nam' | 'Nữ';
   cccdNumber?: string;
@@ -110,6 +114,7 @@ export default function CccdCollectPanel({
   }, [initialListMode]);
   // Bộ lọc Thôn / Buôn & chế độ chia đôi 1:1 với bản đồ trên điện thoại
   const [selectedVillage, setSelectedVillage] = useState<string>('ALL');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSplitView, setIsSplitView] = useState<boolean>(false);
 
   // Số lượng hàng đang hiển thị (cuộn vô tận phân đợt để tránh đơ DOM trên điện thoại)
@@ -187,13 +192,22 @@ export default function CccdCollectPanel({
     // Tự động đồng bộ realtime 2 chiều (10s/lần khi tab đang mở):
     // - Lấy trạng thái tích chọn mới nhất từ Public/Local
     // - Lấy danh sách CCCD mới nhất trên R2 để tự ẩn người đã thu thập xong
+    // Lắng nghe sự kiện Realtime để cập nhật ngay lập tức khi có kê khai mới hoặc tải CCCD
+    const unsubscribe = onRealtimeEvent((event) => {
+      fetchCollectedKeys();
+      fetchExistingCccdList();
+    });
+
     const interval = setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
         fetchCollectedKeys();
         fetchExistingCccdList();
       }
     }, 10000);
-    return () => clearInterval(interval);
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+    };
   }, [fetchCollectedKeys]);
 
   // Tải danh sách CCCD đã có trên Cloudflare R2
@@ -348,19 +362,10 @@ export default function CccdCollectPanel({
     [existingCccdSet, r2Filenames.length, r2NormalizedIndex]
   );
 
-  // Chuẩn hóa giải quyết Thôn / Buôn ưu tiên chỉnh sửa mới nhất (và tự vá bản ghi cũ bị kẹt thôn_xa == thôn gốc)
+  // Chuẩn hóa giải quyết Thôn / Buôn ưu tiên địa chỉ thường trú của chủ hộ
   const resolveDeclVillage = useCallback((decl: any, parcelCode: string): string => {
     const briefVillage = parcelCode && parcelsBrief[parcelCode] ? parcelsBrief[parcelCode][2] : '';
-    const briefCanon = getCanonicalVillage(briefVillage);
-    const addrCanon = getCanonicalVillage(decl?.chu_dat_dia_chi || '');
-    let rawVillage = decl?.dia_chi_thua_dat || decl?.thon_xa || '';
-    const rawCanon = getCanonicalVillage(rawVillage);
-
-    if ((!rawVillage || rawCanon === briefCanon) && addrCanon !== 'Chưa xác định' && addrCanon !== briefCanon) {
-      rawVillage = decl.chu_dat_dia_chi;
-    } else if (!rawVillage) {
-      rawVillage = decl?.chu_dat_dia_chi || briefVillage || '';
-    }
+    let rawVillage = decl?.chu_dat_dia_chi || decl?.dia_chi_thua_dat || decl?.thon_xa || briefVillage || '';
 
     const toBanDo = decl?.to_ban_do || (parcelCode ? parcelCode.split('_')[0] : '');
     const canon = getCanonicalVillage(rawVillage, toBanDo);
@@ -452,6 +457,8 @@ export default function CccdCollectPanel({
           loaiDatList: ld ? [ld] : [],
           parcelDetails: maThua ? [detailItem] : [],
           thonXa,
+          residentVillage: getCanonicalVillage(decl.chu_dat_dia_chi || '', toBanDo),
+          diaChiThuongTru: decl.chu_dat_dia_chi || '',
           namSinh,
           gioiTinh,
           cccdNumber: cccdClean || undefined,
@@ -552,6 +559,8 @@ export default function CccdCollectPanel({
           loaiDatList: loaiDat ? [loaiDat] : [],
           parcelDetails: [detailItem],
           thonXa,
+          residentVillage: thonXa,
+          diaChiThuongTru: formatDiaChiThuongTru(thonXa),
           namSinh,
           gioiTinh,
           cccdNumber: cccdClean || undefined,
@@ -604,11 +613,27 @@ export default function CccdCollectPanel({
     }));
   }, [missingCccdList]);
 
-  // Lọc theo Thôn / Buôn được chọn
+  // Lọc theo Thôn / Buôn được chọn & tìm kiếm theo tên / mã thửa
   const filteredCitizens = useMemo(() => {
-    if (selectedVillage === 'ALL') return missingCccdList;
-    return missingCccdList.filter((item) => item.thonXa === selectedVillage);
-  }, [missingCccdList, selectedVillage]);
+    let list = missingCccdList;
+    if (selectedVillage !== 'ALL') {
+      list = list.filter(
+        (item) => item.thonXa === selectedVillage || item.residentVillage === selectedVillage
+      );
+    }
+    if (searchQuery.trim()) {
+      const q = cleanStrictName(searchQuery);
+      const qRaw = searchQuery.toLowerCase().trim();
+      list = list.filter((item) => {
+        const n = cleanStrictName(item.name);
+        const m =
+          item.maThuaList.some((c) => c.toLowerCase().includes(qRaw)) ||
+          item.soThuaList.some((s) => s.includes(qRaw));
+        return n.includes(q) || m;
+      });
+    }
+    return list;
+  }, [missingCccdList, selectedVillage, searchQuery]);
 
   // TỐI ƯU CỰC ĐỘ 3: Phân đợt hiển thị cho điện thoại (chỉ render visibleCount người đầu tiên)
   const displayedCitizens = useMemo(() => {
@@ -924,21 +949,46 @@ export default function CccdCollectPanel({
           </div>
         </div>
 
-        {/* Bộ lọc Thôn / Buôn đặt ngay trên Header */}
-        <div className="relative">
-          <select
-            value={selectedVillage}
-            onChange={(e) => handleSelectVillage(e.target.value)}
-            className="w-full pl-3 pr-8 py-1.5 rounded-xl border border-gray-200 text-xs font-bold bg-white text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition cursor-pointer appearance-none shadow-2xs"
-          >
-            <option value="ALL">-- Tất cả Thôn / Buôn --</option>
-            {availableVillages.map((v) => (
-              <option key={v.village} value={v.village}>
-                {v.village}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+        {/* Bộ lọc Thôn / Buôn & Ô tìm kiếm */}
+        <div className="flex flex-col gap-1.5">
+          <div className="relative">
+            <select
+              value={selectedVillage}
+              onChange={(e) => handleSelectVillage(e.target.value)}
+              className="w-full pl-3 pr-8 py-1.5 rounded-xl border border-gray-200 text-xs font-bold bg-white text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition cursor-pointer appearance-none shadow-2xs"
+            >
+              <option value="ALL">-- Tất cả Thôn / Buôn ({missingCccdList.length}) --</option>
+              {availableVillages.map((v) => (
+                <option key={v.village} value={v.village}>
+                  {v.village} ({v.count})
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          </div>
+
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setVisibleCount(PAGE_BATCH_SIZE);
+              }}
+              placeholder="Tìm theo tên chủ đất, số thửa, mã thửa..."
+              className="w-full pl-8 pr-7 py-1 rounded-xl border border-gray-200 text-xs bg-gray-50/80 focus:bg-white text-gray-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition shadow-2xs placeholder:text-gray-400 font-medium"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

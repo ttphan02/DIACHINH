@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { decodeCccd12 } from '@/utils/cccdOcrHelpers';
 import { ocrCccdClientFirst, uploadCccdPdfSmart } from '@/utils/cccdClientPdf';
+import { broadcastRealtimeEvent } from '@/utils/realtimeSync';
 export { decodeCccd12 };
 
 interface SelectedCccdImage {
@@ -756,6 +757,7 @@ export default function CccdUploadBottomSheet({
       showToast(`✓ Đã lưu thành công ${successCount} file CCCD PDF vào kho lưu trữ!`);
       setImages([]);
       setEditingImageId(null);
+      if (successCount > 0) broadcastRealtimeEvent({ type: 'FORCE_REFRESH_REPORT' });
       if (onSuccess) onSuccess();
     } else {
       showToast(
@@ -763,6 +765,7 @@ export default function CccdUploadBottomSheet({
       );
       // Giữ lại các ảnh bị lỗi để người dùng sửa đổi mà không mất dữ liệu
       setImages((prev) => prev.filter((img) => !successfulIds.has(img.id)));
+      if (successCount > 0) broadcastRealtimeEvent({ type: 'FORCE_REFRESH_REPORT' });
       if (onSuccess) onSuccess();
     }
   };

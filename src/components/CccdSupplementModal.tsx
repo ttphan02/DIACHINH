@@ -21,6 +21,7 @@ import {
   RotateCw,
 } from 'lucide-react';
 import { ocrCccdClientFirst, uploadCccdPdfSmart } from '@/utils/cccdClientPdf';
+import { broadcastRealtimeEvent } from '@/utils/realtimeSync';
 
 interface CccdSupplementModalProps {
   isOpen: boolean;
@@ -235,6 +236,7 @@ export default function CccdSupplementModal({
 
       if (ok && data?.success) {
         setResultInfo({ fileName: data.fileName, r2Url: data.r2Url });
+        broadcastRealtimeEvent({ type: 'FORCE_REFRESH_REPORT', maThua: maThua || undefined });
         if (onSuccess) onSuccess();
       } else {
         setErrorMessage(data?.error || `Lỗi tải lên (${status}: ${statusText || 'Không xác định'})`);
@@ -402,6 +404,9 @@ export default function CccdSupplementModal({
         ? `Đã dừng xử lý. Hiện có ${successCount}/${updated.length} file đã lưu thành công vào R2 (bấm lại để chạy tiếp các ảnh còn lại).`
         : `Đã chuyển đổi và lưu thành công ${successCount}/${updated.length} file CCCD PDF A4 vào R2! Hệ thống đã tự động đồng bộ sang Google Sheets.`
     );
+    if (successCount > 0) {
+      broadcastRealtimeEvent({ type: 'FORCE_REFRESH_REPORT' });
+    }
     if (onSuccess && successCount > 0) onSuccess();
   };
 

@@ -39,6 +39,7 @@ import { AdditionalParcel } from '@/types';
 import { getOrCreateDeviceId } from '@/utils/declaration';
 import {
   cleanCccd,
+  extractInfoFromCccd,
   cleanName,
   stripHonorifics,
   cleanBoundaryText,
@@ -280,6 +281,13 @@ export default function ParcelDetailPanel({
   useEffect(() => {
     const clean = cleanCccd(chuDatCccd);
     if (clean.length === 12) {
+      // Tự động suy ra năm sinh và giới tính từ CCCD 12 số
+      const derived = extractInfoFromCccd(clean);
+      if (derived.isValid && derived.birthYear && derived.gender) {
+        setChuDatNamSinh(derived.birthYear);
+        setChuDatGioiTinh(derived.gender);
+      }
+
       // Kiểm tra nhanh trong allParcels nếu có sẵn
       const foundInProps = allParcels?.find((p) => cleanCccd(p.cccd) === clean);
       if (foundInProps) {

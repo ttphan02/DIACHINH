@@ -5,6 +5,7 @@ import {
   formatDiaChiThuongTru,
   isGcnOntRoute,
   NGUON_GOC_NN_GIAO_KHONG_THU_TIEN,
+  extractInfoFromCccd,
 } from '@/utils/textHelpers';
 
 export const dynamic = 'force-dynamic';
@@ -72,6 +73,39 @@ async function getPdfBuffer(filename: string): Promise<Uint8Array | null> {
       if (res.ok) {
         const arr = await res.arrayBuffer();
         return new Uint8Array(arr);
+      }
+    }
+  } catch {}
+
+  // 3. Fallback tìm trực tiếp trên ổ cứng máy tính (khi chạy local Node.js / PM2)
+  try {
+    if (typeof process !== 'undefined' && process.versions?.node) {
+      const fs = await import('fs');
+      const path = await import('path');
+      const localDirs = [
+        'C:/Users/phant/Downloads/la scan 13.11 8tt dã ký/la scan 13.11 8tt dã ký',
+        'C:/Users/phant/Downloads/la scan 4.11 đã ký/la scan 4.11 đã ký',
+      ];
+      for (const dir of localDirs) {
+        if (fs.existsSync(/*turbopackIgnore: true*/ dir)) {
+          // Thử tìm file theo tên chính xác
+          const p = path.join(/*turbopackIgnore: true*/ dir, cleanName);
+          if (fs.existsSync(/*turbopackIgnore: true*/ p)) {
+            const buf = fs.readFileSync(/*turbopackIgnore: true*/ p);
+            return new Uint8Array(buf);
+          }
+          // Thử tìm không phân biệt chữ hoa thường hoặc match phần tên
+          const allFiles = fs.readdirSync(/*turbopackIgnore: true*/ dir);
+          const matched = allFiles.find(
+            (f) =>
+              f.toLowerCase() === cleanName.toLowerCase() ||
+              (cleanName.includes('-DDK.pdf') && f.includes(cleanName.replace('CHUACOGIAY_24478_', '')))
+          );
+          if (matched) {
+            const buf = fs.readFileSync(/*turbopackIgnore: true*/ path.join(/*turbopackIgnore: true*/ dir, matched));
+            return new Uint8Array(buf);
+          }
+        }
       }
     }
   } catch {}
@@ -148,12 +182,10 @@ export async function POST(request: Request) {
       let gioiTinhVal = (firstItem.gioi_tinh || firstItem.chu_dat_gioi_tinh || 'Nam').toLowerCase().includes('nữ') ? 'Nữ' : 'Nam';
 
       // Chuẩn hóa Năm sinh và Giới tính trực tiếp từ số CCCD 12 chữ số
-      if (/^\d{12}$/.test(cccdVal)) {
-        const gCode = parseInt(cccdVal[3], 10);
-        const y2 = parseInt(cccdVal.slice(4, 6), 10);
-        const century = (gCode === 0 || gCode === 1) ? 1900 : (gCode === 2 || gCode === 3) ? 2000 : 1900;
-        namSinhVal = String(century + y2);
-        gioiTinhVal = (gCode % 2 === 0) ? 'Nam' : 'Nữ';
+      const cccdExtract = extractInfoFromCccd(cccdVal);
+      if (cccdExtract.isValid && cccdExtract.birthYear && cccdExtract.gender) {
+        namSinhVal = cccdExtract.birthYear;
+        gioiTinhVal = cccdExtract.gender;
       }
 
       const rawDiaChiThuongTru = firstItem.dia_chi_thuong_tru || firstItem.chu_dat_dia_chi || firstItem.thon_xa || 'xã Cư Pui';

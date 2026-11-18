@@ -31,6 +31,7 @@ import {
 import { getOrCreateDeviceId } from '@/utils/declaration';
 import {
   cleanCccd,
+  extractInfoFromCccd,
   cleanName,
   stripHonorifics,
   cleanBoundaryText,
@@ -130,6 +131,13 @@ export default function DeclarationEditModal({
   useEffect(() => {
     const clean = cleanCccd(chuDatCccd);
     if (clean.length === 12) {
+      // Tự động suy ra năm sinh và giới tính từ CCCD 12 số
+      const derived = extractInfoFromCccd(clean);
+      if (derived.isValid && derived.birthYear && derived.gender) {
+        setChuDatNamSinh(derived.birthYear);
+        setChuDatGioiTinh(derived.gender);
+      }
+
       let active = true;
       setIsCheckingCccd(true);
       fetch(`/api/cccd?check=${clean}`)

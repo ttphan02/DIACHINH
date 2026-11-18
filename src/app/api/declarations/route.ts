@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { DeclarationFormData } from '@/types';
-import { isAgriculturalLand, stripAccents, cleanStrictName, cleanCccd } from '@/utils/textHelpers';
+import { isAgriculturalLand, stripAccents, cleanStrictName, cleanCccd, cleanName, formatDiaChiThuongTru, normalizeNguonGoc } from '@/utils/textHelpers';
 import parcelsBriefData from '@/data/parcels_brief.json';
 import {
   getD1Binding,
@@ -27,6 +27,7 @@ const R2_PUBLIC_URL = process.env.NEXT_PUBLIC_CLOUDFLARE_R2_URL || 'https://pub-
 const KEY_ALL_DECLARATIONS = 'declarations/all.json';
 const KEY_SYNC_CACHE = 'cache/sync_sheets.json';
 const KEY_CELL_EDITS = 'cache/cell_edits.json';
+const SYNC_SHEETS_SCHEMA_VERSION = '2026-11-16-permanent-residence-default';
 
 interface StoragePayload {
   declaredCodes: string[];
@@ -157,15 +158,26 @@ async function patchSyncSheetsSnapshotInR2(
   cellEditsPatch?: Record<string, Record<number, string>>,
   deletedCodes?: string[]
 ): Promise<void> {
-  if (!bucket) return;
   if ((!declItems || declItems.length === 0) && (!cellEditsPatch || Object.keys(cellEditsPatch).length === 0) && (!deletedCodes || deletedCodes.length === 0)) {
     return;
   }
 
   try {
-    const obj = await bucket.get(KEY_SYNC_CACHE);
-    if (!obj) return;
-    const snapshot = JSON.parse(await obj.text());
+    let snapshot: any = null;
+    let localFilePath = '';
+    if (bucket) {
+      const obj = await bucket.get(KEY_SYNC_CACHE);
+      if (!obj) return;
+      snapshot = JSON.parse(await obj.text());
+    } else if (isLocalNodeRuntime()) {
+      try {
+        const fs = await import('fs/promises');
+        const path = await import('path');
+        localFilePath = path.join(process.cwd(), 'public', 'data', 'sync_sheets.json');
+        const txt = await fs.readFile(localFilePath, 'utf-8');
+        snapshot = JSON.parse(txt);
+      } catch {}
+    }
     if (!snapshot || !snapshot.sheetsData || typeof snapshot.sheetsData !== 'object') return;
 
     const declByCode = new Map<string, any>();
@@ -260,9 +272,17 @@ async function patchSyncSheetsSnapshotInR2(
 
     if (modified) {
       snapshot.cachedAt = Date.now();
-      await bucket.put(KEY_SYNC_CACHE, JSON.stringify(snapshot), {
-        httpMetadata: { contentType: 'application/json' },
-      });
+      if (bucket) {
+        await bucket.put(KEY_SYNC_CACHE, JSON.stringify(snapshot), {
+          httpMetadata: { contentType: 'application/json' },
+          customMetadata: { schemaVersion: SYNC_SHEETS_SCHEMA_VERSION },
+        });
+      } else if (localFilePath) {
+        try {
+          const fs = await import('fs/promises');
+          await fs.writeFile(localFilePath, JSON.stringify(snapshot, null, 2), 'utf-8');
+        } catch {}
+      }
     }
   } catch (err) {
     console.warn('Lỗi vá snapshot cache/sync_sheets.json trên R2:', err);
@@ -308,11 +328,22 @@ async function patchAllJsonAndSyncSheets(options: {
   }
 
   // Trên Local / Private mode: Khi sửa thông tin thửa, tự động đồng bộ cùng tên chủ hộ trên mọi thửa khác
-  // (CCCD, Năm sinh, Giới tính, Địa chỉ)
+  // (CCCD, Năm sinh, Giới tính, Địa chỉ), và đồng bộ tên chủ hộ cho các thửa kèm theo (thua_kem_theo)
   if (isLocalNodeRuntime() && declItems.length > 0) {
     for (const d of declItems) {
       const targetNameStrict = cleanStrictName(d?.chu_dat_ten || d?.chu_ho || '');
-      if (targetNameStrict && targetNameStrict.length >= 2) {
+      const attachedSet = new Set<string>();
+      if (Array.isArray(d?.thua_kem_theo)) {
+        for (const t of d.thua_kem_theo) {
+          if (t?.ma_thua) attachedSet.add(String(t.ma_thua).trim());
+        }
+      }
+      if (d?.parent_ma_thua) {
+        attachedSet.add(String(d.parent_ma_thua).trim());
+      }
+
+      if ((targetNameStrict && targetNameStrict.length >= 2) || attachedSet.size > 0) {
+        const syncedName = d.chu_dat_ten || d.chu_ho || d.ho_va_ten_chu_ho || '';
         const syncedCccd = cleanCccd(d.chu_dat_cccd || d.cccd || '');
         const syncedDob = d.chu_dat_nam_sinh || d.nam_sinh_chu_ho || '';
         const syncedGender = d.chu_dat_gioi_tinh || d.gioi_tinh_chu_ho || '';
@@ -321,15 +352,19 @@ async function patchAllJsonAndSyncSheets(options: {
         for (const [otherCode, otherDecl] of Object.entries(currentPayload.declarationsMap)) {
           if (!otherDecl || otherCode === d.ma_thua) continue;
           const otherNameStrict = cleanStrictName(otherDecl.chu_dat_ten || otherDecl.chu_ho || '');
-          if (otherNameStrict === targetNameStrict) {
+          const isAttachedMatch = attachedSet.has(otherCode) || (Boolean(otherDecl.parent_ma_thua) && (otherDecl.parent_ma_thua === d.ma_thua || otherDecl.parent_ma_thua === d.parent_ma_thua));
+          if (isAttachedMatch || (targetNameStrict && otherNameStrict === targetNameStrict)) {
             let changed = false;
+            if (isAttachedMatch && syncedName && (otherDecl.chu_dat_ten !== syncedName || otherDecl.chu_ho !== syncedName)) {
+              otherDecl.chu_dat_ten = syncedName;
+              otherDecl.chu_ho = syncedName;
+              otherDecl.ho_va_ten_chu_ho = syncedName;
+              changed = true;
+            }
             if (syncedCccd && (otherDecl.chu_dat_cccd !== syncedCccd || otherDecl.cccd !== syncedCccd)) {
               otherDecl.chu_dat_cccd = syncedCccd;
               otherDecl.cccd = syncedCccd;
               otherDecl.cccd_chu_ho = syncedCccd;
-              otherDecl.cccd_url = `/api/image/cccd/${encodeURIComponent(syncedCccd)}.pdf`;
-              otherDecl.file_cccd_pdf = `${syncedCccd}.pdf`;
-              otherDecl.cccd_file = `${syncedCccd}.pdf`;
               otherDecl.yeu_cau_thu_cccd = false;
               changed = true;
             }
@@ -929,6 +964,35 @@ export async function POST(request: Request) {
         created_at: latest?.created_at || fallbackDecl?.created_at || timestamp,
         updated_at: timestamp,
       };
+      // Chuẩn hóa đồng bộ các trường tên, địa chỉ, năm sinh, giới tính
+      if (fields.chu_dat_ten !== undefined || fields.chu_ho !== undefined || fields.ho_va_ten_chu_ho !== undefined) {
+        const newName = cleanName(fields.chu_dat_ten ?? fields.chu_ho ?? fields.ho_va_ten_chu_ho ?? '');
+        mergedDecl.chu_dat_ten = newName;
+        mergedDecl.chu_ho = newName;
+        mergedDecl.ho_va_ten_chu_ho = newName;
+      }
+      if (fields.chu_dat_nam_sinh !== undefined || fields.nam_sinh_chu_ho !== undefined) {
+        const newDob = String(fields.chu_dat_nam_sinh ?? fields.nam_sinh_chu_ho ?? '').trim();
+        mergedDecl.chu_dat_nam_sinh = newDob;
+        mergedDecl.nam_sinh_chu_ho = newDob;
+      }
+      if (fields.chu_dat_gioi_tinh !== undefined || fields.gioi_tinh_chu_ho !== undefined) {
+        const newGender = String(fields.chu_dat_gioi_tinh ?? fields.gioi_tinh_chu_ho ?? '').trim();
+        mergedDecl.chu_dat_gioi_tinh = newGender;
+        mergedDecl.gioi_tinh_chu_ho = newGender;
+      }
+      if (fields.dia_chi_thua_dat !== undefined || fields.thon_xa !== undefined || fields.chu_dat_dia_chi !== undefined) {
+        const newAddr = String(fields.dia_chi_thua_dat ?? fields.thon_xa ?? fields.chu_dat_dia_chi ?? '').trim();
+        mergedDecl.dia_chi_thua_dat = newAddr;
+        mergedDecl.thon_xa = newAddr;
+        mergedDecl.chu_dat_dia_chi = formatDiaChiThuongTru(newAddr);
+      }
+      if (fields.nguon_goc !== undefined || fields.nguon_goc_su_dung !== undefined) {
+        const newOrigin = normalizeNguonGoc(fields.nguon_goc ?? fields.nguon_goc_su_dung ?? '', mergedDecl.loai_dat);
+        mergedDecl.nguon_goc = newOrigin;
+        mergedDecl.nguon_goc_su_dung = newOrigin;
+      }
+
       // Khi thay đổi CCCD: tự động cập nhật cccd_url và xóa cccd_url cũ nếu không còn khớp
       if (fields.chu_dat_cccd !== undefined || fields.cccd !== undefined) {
         const newCccdClean = cleanCccd(fields.chu_dat_cccd ?? fields.cccd ?? '');
@@ -951,6 +1015,121 @@ export async function POST(request: Request) {
         }
       }
 
+      // Thu thập và đồng bộ đồng loạt các thửa kèm theo (thua_kem_theo)
+      const allDeclsToSave: any[] = [mergedDecl];
+      if (Array.isArray(mergedDecl.thua_kem_theo)) {
+        for (const t of mergedDecl.thua_kem_theo) {
+          if (t?.ma_thua) {
+            const childCode = String(t.ma_thua).trim();
+            let childDecl: any = null;
+            if (db) {
+              try {
+                const cRow = await db.prepare('SELECT * FROM declarations WHERE ma_thua = ?1').bind(childCode).first();
+                if (cRow) {
+                  childDecl = {
+                    ...cRow,
+                    chu_ho: mergedDecl.chu_dat_ten || mergedDecl.chu_ho,
+                    ho_va_ten_chu_ho: mergedDecl.chu_dat_ten || mergedDecl.chu_ho,
+                    chu_dat_ten: mergedDecl.chu_dat_ten || mergedDecl.chu_ho,
+                    chu_dat_nam_sinh: mergedDecl.chu_dat_nam_sinh,
+                    nam_sinh_chu_ho: mergedDecl.chu_dat_nam_sinh,
+                    chu_dat_gioi_tinh: mergedDecl.chu_dat_gioi_tinh,
+                    gioi_tinh_chu_ho: mergedDecl.chu_dat_gioi_tinh,
+                    chu_dat_cccd: mergedDecl.chu_dat_cccd,
+                    cccd: mergedDecl.cccd,
+                    cccd_chu_ho: mergedDecl.cccd_chu_ho,
+                    chu_dat_dia_chi: mergedDecl.chu_dat_dia_chi,
+                    parent_ma_thua: maThua,
+                    is_thua_kem_theo: true,
+                    updated_at: timestamp,
+                  };
+                  await upsertD1Declaration(db, childDecl);
+                }
+              } catch {}
+            }
+            if (!childDecl) {
+              const currentChild = (await readAllJsonFast(await getR2Binding())).declarationsMap?.[childCode];
+              if (currentChild) {
+                childDecl = {
+                  ...currentChild,
+                  chu_dat_ten: mergedDecl.chu_dat_ten || mergedDecl.chu_ho,
+                  chu_ho: mergedDecl.chu_dat_ten || mergedDecl.chu_ho,
+                  ho_va_ten_chu_ho: mergedDecl.chu_dat_ten || mergedDecl.chu_ho,
+                  chu_dat_nam_sinh: mergedDecl.chu_dat_nam_sinh,
+                  nam_sinh_chu_ho: mergedDecl.chu_dat_nam_sinh,
+                  chu_dat_gioi_tinh: mergedDecl.chu_dat_gioi_tinh,
+                  gioi_tinh_chu_ho: mergedDecl.chu_dat_gioi_tinh,
+                  chu_dat_cccd: mergedDecl.chu_dat_cccd,
+                  cccd: mergedDecl.cccd,
+                  cccd_chu_ho: mergedDecl.cccd_chu_ho,
+                  chu_dat_dia_chi: mergedDecl.chu_dat_dia_chi,
+                  parent_ma_thua: maThua,
+                  is_thua_kem_theo: true,
+                  updated_at: timestamp,
+                };
+              }
+            }
+            if (childDecl) {
+              allDeclsToSave.push(childDecl);
+              await saveSingleDeclarationToR2(childCode, childDecl);
+            }
+          }
+        }
+      }
+
+      // Nếu thửa được sửa là thửa con (thửa kèm theo), tự động đồng bộ sang thửa cha
+      if (mergedDecl.parent_ma_thua) {
+        const parentCode = String(mergedDecl.parent_ma_thua).trim();
+        let parentDecl: any = null;
+        if (db) {
+          try {
+            const pRow = await db.prepare('SELECT * FROM declarations WHERE ma_thua = ?1').bind(parentCode).first();
+            if (pRow) {
+              parentDecl = {
+                ...pRow,
+                chu_ho: mergedDecl.chu_dat_ten || mergedDecl.chu_ho,
+                ho_va_ten_chu_ho: mergedDecl.chu_dat_ten || mergedDecl.chu_ho,
+                chu_dat_ten: mergedDecl.chu_dat_ten || mergedDecl.chu_ho,
+                chu_dat_nam_sinh: mergedDecl.chu_dat_nam_sinh,
+                nam_sinh_chu_ho: mergedDecl.chu_dat_nam_sinh,
+                chu_dat_gioi_tinh: mergedDecl.chu_dat_gioi_tinh,
+                gioi_tinh_chu_ho: mergedDecl.chu_dat_gioi_tinh,
+                chu_dat_cccd: mergedDecl.chu_dat_cccd,
+                cccd: mergedDecl.cccd,
+                cccd_chu_ho: mergedDecl.cccd_chu_ho,
+                chu_dat_dia_chi: mergedDecl.chu_dat_dia_chi,
+                updated_at: timestamp,
+              };
+              await upsertD1Declaration(db, parentDecl);
+            }
+          } catch {}
+        }
+        if (!parentDecl) {
+          const currentParent = (await readAllJsonFast(await getR2Binding())).declarationsMap?.[parentCode];
+          if (currentParent) {
+            parentDecl = {
+              ...currentParent,
+              chu_dat_ten: mergedDecl.chu_dat_ten || mergedDecl.chu_ho,
+              chu_ho: mergedDecl.chu_dat_ten || mergedDecl.chu_ho,
+              ho_va_ten_chu_ho: mergedDecl.chu_dat_ten || mergedDecl.chu_ho,
+              chu_dat_nam_sinh: mergedDecl.chu_dat_nam_sinh,
+              nam_sinh_chu_ho: mergedDecl.chu_dat_nam_sinh,
+              chu_dat_gioi_tinh: mergedDecl.chu_dat_gioi_tinh,
+              gioi_tinh_chu_ho: mergedDecl.chu_dat_gioi_tinh,
+              chu_dat_cccd: mergedDecl.chu_dat_cccd,
+              cccd: mergedDecl.cccd,
+              cccd_chu_ho: mergedDecl.cccd_chu_ho,
+              chu_dat_dia_chi: mergedDecl.chu_dat_dia_chi,
+              updated_at: timestamp,
+            };
+          }
+        }
+        if (parentDecl) {
+          allDeclsToSave.push(parentDecl);
+          await saveSingleDeclarationToR2(parentCode, parentDecl);
+        }
+      }
+
       if (db) {
         await upsertD1Declaration(db, mergedDecl);
         await deleteCellEditsForCodesInD1(db, [maThua]);
@@ -959,13 +1138,19 @@ export async function POST(request: Request) {
       memoryAllJsonCache = null;
       try {
         await patchAllJsonAndSyncSheets({
-          declItems: [mergedDecl],
+          declItems: allDeclsToSave,
           timestamp,
         });
       } catch {}
 
-      let returnMap: Record<string, any> = { [maThua]: mergedDecl };
-      let returnCodes: string[] = [maThua];
+      let returnMap: Record<string, any> = {};
+      let returnCodes: string[] = [];
+      for (const d of allDeclsToSave) {
+        if (d?.ma_thua) {
+          returnMap[d.ma_thua] = d;
+          returnCodes.push(d.ma_thua);
+        }
+      }
       if (isLocalNodeRuntime()) {
         const localData = await readLocalJson<any>('declarations.json');
         if (localData?.declarationsMap) {

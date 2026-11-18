@@ -51,6 +51,7 @@ import {
   isOntLand,
   isGcnOntRoute,
   isExcludedLandType,
+  extractInfoFromCccd,
 } from './textHelpers';
 
 function parseNameAndType(rawName: string) {
@@ -133,7 +134,7 @@ async function getCachedGgsData(): Promise<{
   let ggsPeople: Record<string, any> = {};
 
   try {
-    const data = await fetchOrGetCachedGgsData();
+    const data = await fetchOrGetCachedGgsData(true);
     if (Array.isArray(data.codes)) {
       data.codes.forEach((c: string) => ggsCodes.add(c));
     }
@@ -401,10 +402,19 @@ export async function executeSyncToGoogleSheet(
         const key = `${toNum}_${thuaNum}`;
         if (!cccdByToThua.has(key)) cccdByToThua.set(key, cf);
       }
-      // Trích xuất tên công dân từ tên file CCCD (dạng {12_so}_{Ho_Ten}.pdf)
-      const namePartMatch = cleanCf.match(/^\d{9,12}_(.*)$/);
-      if (namePartMatch) {
-        const strictInFile = cleanStrictName(namePartMatch[1]);
+      // Trích xuất tên công dân từ tên file CCCD (dạng {12_so}_{Ho_Ten}.pdf hoặc {Ho_Ten}_{12_so}.pdf hoặc {Ho_Ten}.pdf)
+      let namePart = '';
+      const namePartMatch1 = cleanCf.match(/^\d{9,12}_(.*)$/);
+      const namePartMatch2 = cleanCf.match(/^(.*)_\d{9,12}$/);
+      if (namePartMatch1) {
+        namePart = namePartMatch1[1];
+      } else if (namePartMatch2) {
+        namePart = namePartMatch2[1];
+      } else if (!num) {
+        namePart = cleanCf;
+      }
+      if (namePart) {
+        const strictInFile = cleanStrictName(namePart);
         if (strictInFile && !cccdByStrictName.has(strictInFile)) {
           cccdByStrictName.set(strictInFile, {
             filename: cf,
@@ -450,7 +460,7 @@ export async function executeSyncToGoogleSheet(
           ma_thua: maThua,
           to_ban_do: toMoi,
           so_thua: thuaMoi,
-          thon_xa: formatDiaChiThuongTru(decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || fallbackThon),
+          thon_xa: formatDiaChiThuongTru(decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || decl.thon_xa || fallbackThon),
           chu_ho: cleanName(chuHo || 'Đơn vị / Cơ quan quản lý'),
           cccd: cccd,
           cccd_source: cccdSource,
@@ -498,15 +508,7 @@ export async function executeSyncToGoogleSheet(
       // Tự động bổ sung fallback dữ liệu mặc định/ảo nếu thiếu trường
       const rawChuHo = chuHo || (ggsP && ggsP.chu_ho ? cleanName(ggsP.chu_ho) : '') || fallbackOwner || 'Chủ sử dụng';
       const cleanOwner = cleanName(rawChuHo) || 'Chủ sử dụng';
-      const briefCanon = getCanonicalVillage(fallbackThon, toMoi);
-      const addrCanon = getCanonicalVillage(decl.chu_dat_dia_chi || '', toMoi);
-      let rawAddr = decl.dia_chi_thua_dat || decl.thon_xa || '';
-      const rawCanon = getCanonicalVillage(rawAddr, toMoi);
-      if ((!rawAddr || rawCanon === briefCanon) && addrCanon !== 'Chưa xác định' && addrCanon !== briefCanon) {
-        rawAddr = decl.chu_dat_dia_chi;
-      } else if (!rawAddr) {
-        rawAddr = decl.chu_dat_dia_chi || fallbackThon;
-      }
+      let rawAddr = decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || decl.thon_xa || fallbackThon;
       const thonXa = formatDiaChiThuongTru(rawAddr);
       const dienTich = (fallbackDt && parseFloat(fallbackDt) > 0)
         ? String(fallbackDt)
@@ -517,9 +519,20 @@ export async function executeSyncToGoogleSheet(
                 : '1000'));
       const loaiDat = decl.loai_dat || (ggsP && ggsP.loai_dat) || fallbackLoaiDat || 'DGT';
       const rawDob = (decl.chu_dat_nam_sinh || decl.nam_sinh_chu_ho || decl.chu_dat_ngay_sinh || '').trim();
-      const dob = isValidBirthYear(rawDob) ? rawDob : '1980';
+      let dob = isValidBirthYear(rawDob) ? rawDob : '1980';
       const rawGender = (decl.chu_dat_gioi_tinh || decl.gioi_tinh_chu_ho || '').trim();
-      const gender = (rawGender && ['nam', 'nữ', 'nu'].includes(rawGender.toLowerCase())) ? rawGender : 'Nam';
+      let gender = (rawGender && ['nam', 'nữ', 'nu'].includes(rawGender.toLowerCase())) ? rawGender : 'Nam';
+
+      // Tự động giải mã năm sinh và giới tính từ số CCCD 12 số
+      const cccdForExtraction = cleanCccd(isForceUnpacked ? '' : (cccd || cleanDeclCccd));
+      if (cccdForExtraction.length === 12) {
+        const derived = extractInfoFromCccd(cccdForExtraction);
+        if (derived.isValid && derived.birthYear && derived.gender) {
+          dob = derived.birthYear;
+          gender = derived.gender;
+        }
+      }
+
       const nguonGoc = normalizeNguonGoc(decl.nguon_goc_su_dung || decl.nguon_goc, loaiDat);
 
       const item: {
@@ -556,9 +569,11 @@ export async function executeSyncToGoogleSheet(
         nguon_chuyen: '',
       };
 
-      // GIAI ĐOẠN 4A: ĐÃ LÊN GGS CHÍNH THỨC HOẶC ĐÃ NHẬP KH2959 (ĐÃ GIẢI QUYẾT)
-      // Nếu mã thửa A_B có trên Google Sheet Cột BF Trang tính 1 hoặc đã có trên KH2959
-      if (ggsCodes.has(maThua) || KH2959_IMPORTED_SET.has(maThua)) {
+      // GIAI ĐOẠN 4A: ĐÃ LÊN GGS CHÍNH THỨC HOẶC ĐÃ NHẬP KH2959 (ĐÃ GIẢI QUYẾT / ĐÃ SỐ HÓA)
+      // CHỈ COI LÀ ĐÃ SỐ HÓA KHI ĐÃ NHẬP TRÊN KH2959 HOẶC ĐÃ CÓ TRÊN GOOGLE SHEET CHÍNH THỨC
+      // (Nguyên tắc: Chưa nhập trên KH2959 là chưa số hóa - tuyệt đối không dùng DIGITIZED_SET nền để nuốt thửa kê khai)
+      const isDeclDigitized = Boolean(decl.kh2959_imported);
+      if (ggsCodes.has(maThua) || KH2959_IMPORTED_SET.has(maThua) || isDeclDigitized) {
         if (ggsP) {
           if (ggsP.chu_ho) item.chu_ho = ggsP.chu_ho;
           if (ggsP.cccd) item.cccd = cleanCccd(ggsP.cccd);
@@ -599,7 +614,18 @@ export async function executeSyncToGoogleSheet(
         }
         if (!foundCccd && (decl.cccd_file || decl.file_cccd_pdf || decl.cccd_url)) {
           const rawCccdRef = String(decl.cccd_file || decl.file_cccd_pdf || decl.cccd_url || '').trim();
-          foundCccd = rawCccdRef.split('/').pop() || rawCccdRef;
+          const cand = rawCccdRef.split('/').pop() || rawCccdRef;
+          if (cand) {
+            const cleanCand = cand.replace(/^cccd\//, '');
+            if (
+              cccdFiles.has(cleanCand) ||
+              cccdFiles.has(`${cleanCand}.pdf`) ||
+              (cleanCand.endsWith('.pdf') && cccdFiles.has(cleanCand.slice(0, -4))) ||
+              (cleanCccd(cleanCand).length >= 9 && cccdByNumber.has(cleanCccd(cleanCand)))
+            ) {
+              foundCccd = cleanCand;
+            }
+          }
         }
 
         item.scan_file = foundScan;
@@ -611,16 +637,8 @@ export async function executeSyncToGoogleSheet(
         continue;
       }
 
-      // GIAI ĐOẠN 4B: CÁC THỬA ĐÃ SỐ HÓA KHÁC (PHI-ONT)
-      // Không nuốt thửa ONT của 5 thôn miễn GCN-ONT vào Đã giải quyết khi chưa có trên GGS/KH2959
-      if (DIGITIZED_SET.has(maThua) && !isOntLand(item.loai_dat)) {
-        if (ggsP) {
-          if (ggsP.chu_ho) item.chu_ho = ggsP.chu_ho;
-          if (ggsP.cccd) item.cccd = cleanCccd(ggsP.cccd);
-        }
-        stage4DaGiaiQuyet.push(item);
-        continue;
-      }
+      // GIAI ĐOẠN 4B: Chỉ các thửa đã nhập trên KH2959 hoặc GGS mới được coi là Đã số hóa / Đã giải quyết
+      // (Nguyên tắc: Chưa nhập trên KH2959 là chưa số hóa)
 
       // GIAI ĐOẠN 3: ĐÃ ĐÓNG TẬP & ĐÃ CÓ FILE SCAN TRONG R2 -> CHUYỂN SANG NHẬP DỮ LIỆU!
       const toNum = String(parseInt(String(toMoi || ''), 10) || toMoi || '');
@@ -643,7 +661,9 @@ export async function executeSyncToGoogleSheet(
           item.nguon_chuyen = 'Từ Nhập dữ liệu (Đã có scan)';
           stageGcnOnt.push(item);
         } else {
-          stage3ChoNhap.push(item);
+          // XÓA NHẬP DỮ LIỆU: Chuyển thẳng về THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD)
+          item.nguon_chuyen = 'Đã có file scan';
+          stage2DaDongTap.push(item);
         }
         continue;
       }
@@ -669,15 +689,32 @@ export async function executeSyncToGoogleSheet(
       }
 
       // 2. Nếu chưa có CCCD hoặc chưa tìm thấy theo số, đối soát CHÍNH XÁC 100% THEO TÊN (KHÔNG DÙNG INCLUDES SUBSTRING)
+      // CHỈ ghép khi thửa chưa có số CCCD hoặc số CCCD trùng khớp, VÀ năm sinh (nếu đã khai) khớp với CCCD trên R2
       if (!isForceUnpacked && !foundCccd && chuHoStrict.length >= 2) {
         const matchedCf = cccdByStrictName.get(chuHoStrict);
         if (matchedCf) {
-          foundCccd = matchedCf.filename;
+          let canMatch = true;
           if (matchedCf.cccdCandidate) {
-            cccd = matchedCf.cccdCandidate;
-            cccdSource = 'Trích từ file CCCD R2';
-            item.cccd = cccd;
-            item.cccd_source = cccdSource;
+            const candidateDerived = extractInfoFromCccd(matchedCf.cccdCandidate);
+            const isYearMatch = !rawDob || !candidateDerived.isValid || !candidateDerived.birthYear || rawDob === candidateDerived.birthYear;
+            const isCccdCompatible = !cccd || cleanCccd(cccd) === matchedCf.cccdCandidate;
+            if (!isYearMatch || !isCccdCompatible) {
+              canMatch = false;
+            }
+          }
+          if (canMatch) {
+            foundCccd = matchedCf.filename;
+            if (matchedCf.cccdCandidate) {
+              cccd = matchedCf.cccdCandidate;
+              cccdSource = 'Trích từ file CCCD R2';
+              item.cccd = cccd;
+              item.cccd_source = cccdSource;
+              const candDerived = extractInfoFromCccd(cccd);
+              if (candDerived.isValid && candDerived.birthYear && candDerived.gender) {
+                item.dob = candDerived.birthYear;
+                item.gender = candDerived.gender;
+              }
+            }
           }
         }
       }
@@ -687,10 +724,21 @@ export async function executeSyncToGoogleSheet(
         foundCccd = cccdByToThua.get(toThuaKey) || cccdByToThua.get(maThua) || '';
       }
 
-      // 4. Fallback đọc trực tiếp file CCCD đã liên kết trên phiếu kê khai
+      // 4. Fallback đọc trực tiếp file CCCD đã liên kết trên phiếu kê khai (BẮT BUỘC PHẢI TỒN TẠI TRÊN R2)
       if (!foundCccd && (decl.cccd_file || decl.file_cccd_pdf || decl.cccd_url)) {
         const rawCccdRef = String(decl.cccd_file || decl.file_cccd_pdf || decl.cccd_url || '').trim();
-        foundCccd = rawCccdRef.split('/').pop() || rawCccdRef;
+        const cand = rawCccdRef.split('/').pop() || rawCccdRef;
+        if (cand) {
+          const cleanCand = cand.replace(/^cccd\//, '');
+          if (
+            cccdFiles.has(cleanCand) ||
+            cccdFiles.has(`${cleanCand}.pdf`) ||
+            (cleanCand.endsWith('.pdf') && cccdFiles.has(cleanCand.slice(0, -4))) ||
+            (cleanCccd(cleanCand).length >= 9 && cccdByNumber.has(cleanCccd(cleanCand)))
+          ) {
+            foundCccd = cleanCand;
+          }
+        }
       }
 
       // Nếu đã có file CCCD nhưng chưa có số CCCD, trích xuất từ tên file
@@ -710,6 +758,13 @@ export async function executeSyncToGoogleSheet(
 
       if (hasCccdAndFile) {
         item.cccd_file = foundCccd;
+        if (cleanCVal.length === 12) {
+          const derived = extractInfoFromCccd(cleanCVal);
+          if (derived.isValid && derived.birthYear && derived.gender) {
+            item.dob = derived.birthYear;
+            item.gender = derived.gender;
+          }
+        }
         // Nếu thuộc luồng GCN - ONT: Tự động chuyển qua danh sách "GCN - ONT" để bổ sung sau
         if (isGcnOntRoute(item.loai_dat, thonXa, toMoi)) {
           item.nguon_chuyen = 'Từ Đơn kê khai có CCCD';
@@ -749,8 +804,15 @@ export async function executeSyncToGoogleSheet(
     ];
     const rowsPack: string[][] = [headersPack];
     stage2DaDongTap.forEach((it, idx) => {
-      const cccdLink = `/api/image/cccd/${encodeURIComponent(it.cccd_file)}`;
-      const cccdFormula = `=HYPERLINK("${cccdLink}"; "${it.cccd_file}")`;
+      let cccdFormula = 'Chưa có file';
+      if (it.cccd_file) {
+        const cccdLink = `/api/image/cccd/${encodeURIComponent(it.cccd_file)}`;
+        cccdFormula = `=HYPERLINK("${cccdLink}"; "${it.cccd_file}")`;
+      } else if (it.scan_file) {
+        const cleanScan = String(it.scan_file).replace(/^filescan\//, '').replace(/^scanhoso\//, '');
+        const scanLink = `/api/image/filescan/${encodeURIComponent(cleanScan)}`;
+        cccdFormula = `=HYPERLINK("${scanLink}"; "${cleanScan}")`;
+      }
       const cccdText = it.cccd ? `="${it.cccd}"` : '';
       rowsPack.push([
         String(idx + 1), it.ma_thua, it.thon_xa,
@@ -793,29 +855,6 @@ export async function executeSyncToGoogleSheet(
       ]);
     });
     sheetsData['ĐÃ GIẢI QUYẾT'] = rowsDone;
-
-    // SHEET 3: NHẬP DỮ LIỆU (Đơn kê khai đã đóng tập và có file scan trong R2 filescan/)
-    const headersNhapDuLieu = [
-      'STT', 'Mã thửa', 'Tờ BĐ', 'Số thửa', 'Thôn / Buôn', 'Họ và tên chủ đất',
-      'Năm sinh', 'Giới tính', 'Số CCCD', 'Diện tích (m²)', 'Loại đất', 'Nguồn gốc sử dụng',
-      'Xem & Tải file scan'
-    ];
-    const rowsNhapDuLieu: string[][] = [headersNhapDuLieu];
-    stage3ChoNhap.forEach((it, idx) => {
-      const cleanFileName = String(it.scan_file || '').replace(/^filescan\//, '').replace(/^scanhoso\//, '');
-      const scanLink = `/api/image/filescan/${encodeURIComponent(cleanFileName)}`;
-      const scanFormula = `=HYPERLINK("${scanLink}"; "${cleanFileName}")`;
-      const cccdText = it.cccd ? `="${it.cccd}"` : '';
-      rowsNhapDuLieu.push([
-        String(idx + 1), it.ma_thua, String(it.to_ban_do || ''), String(it.so_thua || ''), it.thon_xa,
-        cleanName(it.chu_ho), it.dob || '', it.gender || 'Nam', cccdText,
-        String(it.dien_tich || ''), it.loai_dat || 'DGT', normalizeNguonGoc(it.nguon_goc, it.loai_dat),
-        scanFormula
-      ]);
-    });
-    sheetsData['NHẬP DỮ LIỆU'] = rowsNhapDuLieu;
-    sheetsData['CHỜ NHẬP'] = rowsNhapDuLieu;
-    sheetsData['NHẬP GGS'] = rowsNhapDuLieu; // Hỗ trợ tương thích ngược
 
     // SHEET MỚI: GCN - ONT (Toàn bộ các thửa đất có loại đất ONT từ Nhập dữ liệu và từ Đóng tập có CCCD chuyển sang)
     const headersGcnOnt = [
@@ -1050,9 +1089,6 @@ export async function executeSyncToGoogleSheet(
 
     sheetsData['THỐNG KÊ'] = padRectangular(rowsTk);
     sheetsData['ĐÃ GIẢI QUYẾT'] = padRectangular(rowsDone);
-    sheetsData['NHẬP DỮ LIỆU'] = padRectangular(rowsNhapDuLieu);
-    sheetsData['CHỜ NHẬP'] = padRectangular(rowsNhapDuLieu);
-    sheetsData['NHẬP GGS'] = padRectangular(rowsNhapDuLieu);
     sheetsData['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'] = padRectangular(rowsPack);
     sheetsData['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'] = padRectangular(rowsUnpack);
     sheetsData['GCN - ONT'] = padRectangular(rowsGcnOnt);
@@ -1085,9 +1121,9 @@ export async function executeSyncToGoogleSheet(
       summary: {
         totalDeclared,
         daGiaiQuyet: stage4DaGiaiQuyet.length,
-        nhapDuLieu: stage3ChoNhap.length,
-        choNhap: stage3ChoNhap.length,
-        nhapGgs: stage3ChoNhap.length,
+        nhapDuLieu: 0,
+        choNhap: 0,
+        nhapGgs: 0,
         daDongTap: stage2DaDongTap.length,
         canTimCccd: stage1CanTimCccd.length,
         khongCoCccd: stage1KhongCoCccd.length,

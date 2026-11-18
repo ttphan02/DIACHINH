@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { PDFDocument } from 'pdf-lib';
-import { cleanCccd, cleanName } from '@/utils/textHelpers';
+import { cleanCccd, cleanName, cleanStrictName } from '@/utils/textHelpers';
 import { decodeCccd12 } from '@/utils/cccdOcrHelpers';
-import { isLocalNodeRuntime } from '@/utils/localFileDb';
+import { isLocalNodeRuntime, readLocalJson, writeLocalJson } from '@/utils/localFileDb';
+import { invalidateR2Cache } from '@/utils/syncGoogleSheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -255,65 +256,96 @@ export async function POST(request: Request) {
       if (!finalGioiTinh && decoded.gioi_tinh) finalGioiTinh = decoded.gioi_tinh;
     }
 
-    // Cập nhật thông tin phiếu kê khai nếu có liên kết thửa hoặc trùng số CCCD
+    // Cập nhật thông tin phiếu kê khai nếu có liên kết thửa, trùng số CCCD, hoặc trùng tên chủ sử dụng (so sánh tuyệt đối tên)
     let updatedDeclarations: Record<string, any> = {};
-    if (!skipSync && bucket) {
-      try {
-        const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
-        if (declObj) {
-          const payload = JSON.parse(await declObj.text());
-          const map = payload.declarationsMap || {};
-          let changed = false;
+    const strictUploadName = cleanStrictName(nameClean);
 
-          for (const [code, decl] of Object.entries(map as Record<string, any>)) {
-            const curCccd = cleanCccd(decl.cccd || decl.chu_dat_cccd || decl.cccd_chu_ho);
-            if (
-              (cccdClean && curCccd === cccdClean) ||
-              (ma_thua && code === ma_thua)
-            ) {
-              if (cccdClean) {
-                decl.cccd = cccdClean;
-                decl.cccd_chu_ho = cccdClean;
-                decl.chu_dat_cccd = cccdClean;
-              }
-              if (nameClean) {
-                decl.chu_ho = nameClean;
-                decl.chu_dat_ten = nameClean;
-              }
-              if (finalNamSinh) {
-                decl.chu_dat_nam_sinh = finalNamSinh;
-                decl.nam_sinh_chu_ho = finalNamSinh;
-              }
-              if (finalGioiTinh) {
-                decl.chu_dat_gioi_tinh = finalGioiTinh;
-                decl.gioi_tinh_chu_ho = finalGioiTinh;
-              }
-              decl.anh_cccd_pdf = r2PublicUrl;
-              changed = true;
-            }
+    const updateDeclarationsMap = (map: Record<string, any>): boolean => {
+      let changed = false;
+      for (const [code, decl] of Object.entries(map as Record<string, any>)) {
+        const curCccd = cleanCccd(decl.cccd || decl.chu_dat_cccd || decl.cccd_chu_ho);
+        const curOwnerStrict = cleanStrictName(decl.chu_dat_ten || decl.chu_ho || decl.ho_va_ten_chu_ho || '');
+        const matchesName = Boolean(strictUploadName && curOwnerStrict && curOwnerStrict === strictUploadName);
+
+        if (
+          (cccdClean && curCccd === cccdClean) ||
+          (ma_thua && code === ma_thua) ||
+          matchesName
+        ) {
+          if (cccdClean) {
+            decl.cccd = cccdClean;
+            decl.cccd_chu_ho = cccdClean;
+            decl.chu_dat_cccd = cccdClean;
           }
+          if (nameClean) {
+            decl.chu_ho = nameClean;
+            decl.chu_dat_ten = nameClean;
+          }
+          if (finalNamSinh) {
+            decl.chu_dat_nam_sinh = finalNamSinh;
+            decl.nam_sinh_chu_ho = finalNamSinh;
+          }
+          if (finalGioiTinh) {
+            decl.chu_dat_gioi_tinh = finalGioiTinh;
+            decl.gioi_tinh_chu_ho = finalGioiTinh;
+          }
+          decl.anh_cccd_pdf = r2PublicUrl;
+          changed = true;
+        }
+      }
+      return changed;
+    };
 
+    if (!skipSync) {
+      if (bucket) {
+        try {
+          const declObj = await bucket.get(KEY_ALL_DECLARATIONS);
+          if (declObj) {
+            const payload = JSON.parse(await declObj.text());
+            const map = payload.declarationsMap || {};
+            const changed = updateDeclarationsMap(map);
+            if (changed) {
+              payload.updatedAt = new Date().toISOString();
+              await bucket.put(KEY_ALL_DECLARATIONS, JSON.stringify(payload), {
+                httpMetadata: { contentType: 'application/json' },
+              });
+            }
+            updatedDeclarations = map;
+          }
+        } catch (e) {
+          console.warn('Lỗi cập nhật declarations R2 sau upload CCCD:', e);
+        }
+      }
+
+      // Luôn đồng bộ vào local-data nếu đang chạy Node.js
+      if (isLocalNodeRuntime()) {
+        try {
+          const localPayload = (await readLocalJson<any>('declarations.json')) || { declaredCodes: [], declarationsMap: {} };
+          const map = localPayload.declarationsMap || {};
+          const changed = updateDeclarationsMap(map);
           if (changed) {
-            payload.updatedAt = new Date().toISOString();
-            await bucket.put(KEY_ALL_DECLARATIONS, JSON.stringify(payload), {
-              httpMetadata: { contentType: 'application/json' },
-            });
+            localPayload.updatedAt = new Date().toISOString();
+            await writeLocalJson('declarations.json', localPayload);
           }
           updatedDeclarations = map;
+        } catch (e) {
+          console.warn('Lỗi cập nhật local declarations.json sau upload CCCD:', e);
         }
-      } catch (e) {
-        console.warn('Lỗi cập nhật declarations sau upload CCCD:', e);
       }
     }
 
-
+    // Xóa cache R2 để các bộ đếm và danh sách tự động nhận diện file mới ngay lập tức
+    invalidateR2Cache();
 
     return NextResponse.json({
       success: true,
       fileName,
       r2Key,
       r2Url: r2PublicUrl,
-      message: 'Đã tạo PDF A4, lưu vào R2 và kích hoạt đồng bộ Google Sheet thành công!',
+      so_cccd: cccdClean,
+      ho_va_ten: nameClean,
+      ma_thua,
+      message: 'Đã lưu PDF A4 vào R2 và tự động liên kết hồ sơ kê khai theo tên/CCCD thành công!',
     });
   } catch (error: any) {
     console.error('Lỗi POST /api/upload-cccd-pdf:', error);

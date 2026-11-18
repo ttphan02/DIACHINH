@@ -3,7 +3,7 @@ const HIDDEN_PARCEL_SET = new Set(hiddenParcelsData as string[]);
 
 import { NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
-import { cleanCccd, cleanName } from '@/utils/textHelpers';
+import { cleanCccd, cleanName, cleanStrictName } from '@/utils/textHelpers';
 import { getD1Binding } from '@/utils/d1Database';
 import { isLocalNodeRuntime } from '@/utils/localFileDb';
 
@@ -262,6 +262,8 @@ export async function GET(request: Request) {
 
       const cccdSet = new Set<string>();
       const filenames: string[] = [];
+      const nameMap: Record<string, { cccd: string; filename: string }> = {};
+
       for (let i = 0; i < objects.length; i++) {
         const rawKey = objects[i].key;
         const fn = rawKey.startsWith('cccd/') ? rawKey.slice(5) : rawKey;
@@ -269,10 +271,28 @@ export async function GET(request: Request) {
         filenames.push(cleanFn);
         const m = cleanFn.match(/\b\d{9,12}\b/);
         const digits = m ? m[0] : cleanFn.replace(/\D/g, '');
+        let cccdVal = '';
         if (digits.length === 12) {
+          cccdVal = digits;
           cccdSet.add(digits);
         } else if (digits.length === 10 || digits.length === 11) {
-          cccdSet.add(digits.padStart(12, '0'));
+          cccdVal = digits.padStart(12, '0');
+          cccdSet.add(cccdVal);
+        }
+
+        // Trích xuất tên công dân từ tên file để so sánh tuyệt đối tên
+        let namePart = '';
+        const mName1 = cleanFn.match(/^\d{9,12}_(.*)$/);
+        const mName2 = cleanFn.match(/^(.*)_\d{9,12}$/);
+        if (mName1) namePart = mName1[1];
+        else if (mName2) namePart = mName2[1];
+        else if (!digits) namePart = cleanFn;
+
+        if (namePart) {
+          const strict = cleanStrictName(namePart);
+          if (strict && !nameMap[strict]) {
+            nameMap[strict] = { cccd: cccdVal, filename: fn };
+          }
         }
       }
       const cccdNumbers = Array.from(cccdSet);
@@ -281,6 +301,7 @@ export async function GET(request: Request) {
         success: true,
         count: cccdNumbers.length,
         cccdList: cccdNumbers,
+        nameMap,
         filenames,
       };
       listOnlyCache = { data: payload, timestamp: now };

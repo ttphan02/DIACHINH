@@ -95,7 +95,7 @@ async function getDeclarationsMap(): Promise<Record<string, any>> {
 }
 
 const KEY_SYNC_CACHE = 'cache/sync_sheets.json';
-const SYNC_SHEETS_SCHEMA_VERSION = '2026-11-11-ont-5villages';
+const SYNC_SHEETS_SCHEMA_VERSION = '2026-11-16-permanent-residence-default';
 let cachedSyncResult: any = null;
 let lastSyncTime = 0;
 const SYNC_CACHE_TTL = 60 * 1000; // 60 giây cache (giảm 85% tải tính toán Worker)
@@ -108,8 +108,8 @@ export async function GET(req: Request) {
   const previousResult = cachedSyncResult?.schemaVersion === SYNC_SHEETS_SCHEMA_VERSION ? cachedSyncResult : null;
 
   // Khi yêu cầu làm mới dữ liệu bắt buộc (force=true)
-  // Chống spam: nếu vừa tính toán xong trong vòng 15 giây, trả về ngay kết quả gần nhất để bảo vệ Worker
-  if (force && cachedSyncResult && cachedSyncResult.schemaVersion === SYNC_SHEETS_SCHEMA_VERSION && now - lastSyncTime < 15000) {
+  // Chống spam: nếu vừa tính toán xong trong vòng 15 giây, trả về ngay kết quả gần nhất để bảo vệ Worker (không áp dụng trên Local Node)
+  if (force && !isLocalNodeRuntime() && cachedSyncResult && cachedSyncResult.schemaVersion === SYNC_SHEETS_SCHEMA_VERSION && now - lastSyncTime < 15000) {
     return NextResponse.json({
       ...cachedSyncResult,
       sheetsData: sanitizeSheetsPayload(cachedSyncResult.sheetsData),
@@ -119,8 +119,8 @@ export async function GET(req: Request) {
   }
   // Tuyệt đối KHÔNG xóa KEY_SYNC_CACHE trên R2 để luôn có dữ liệu fallback an toàn
 
-  // 1. Stream trực tiếp cache snapshot từ Cloudflare R2 (khi KHÔNG yêu cầu force làm mới)
-  if (!force && bucket) {
+  // 1. Stream trực tiếp cache snapshot từ Cloudflare R2 (khi KHÔNG yêu cầu force làm mới VÀ KHÔNG PHẢI Local Node runtime)
+  if (!force && bucket && !isLocalNodeRuntime()) {
     try {
       const obj = await bucket.get(KEY_SYNC_CACHE);
       if (obj) {
@@ -192,8 +192,8 @@ export async function GET(req: Request) {
     }
   }
 
-  // 2. Fallback đọc từ public R2 URL nếu bucket.get gặp vấn đề (khi KHÔNG yêu cầu force)
-  if (!force) {
+  // 2. Fallback đọc từ public R2 URL nếu bucket.get gặp vấn đề (khi KHÔNG yêu cầu force VÀ KHÔNG PHẢI Local Node runtime)
+  if (!force && !isLocalNodeRuntime()) {
     try {
       const res = await fetch(`${R2_PUBLIC_URL}/${KEY_SYNC_CACHE}?t=${now}`, {
         headers: { 'Cache-Control': 'no-cache' },
@@ -223,8 +223,8 @@ export async function GET(req: Request) {
     }
   }
 
-  // 3. In-memory cache fallback (khi KHÔNG force)
-  if (!force && cachedSyncResult && cachedSyncResult.schemaVersion === SYNC_SHEETS_SCHEMA_VERSION) {
+  // 3. In-memory cache fallback (khi KHÔNG force VÀ KHÔNG PHẢI Local Node runtime)
+  if (!force && !isLocalNodeRuntime() && cachedSyncResult && cachedSyncResult.schemaVersion === SYNC_SHEETS_SCHEMA_VERSION) {
     return NextResponse.json({
       ...cachedSyncResult,
       sheetsData: sanitizeSheetsPayload(cachedSyncResult.sheetsData),
@@ -251,6 +251,18 @@ export async function GET(req: Request) {
 
     cachedSyncResult = payload;
     lastSyncTime = now;
+
+    // Khi chạy trên máy Local Node runtime: lưu trực tiếp vào public/data/sync_sheets.json để dữ liệu luôn khớp 100% Realtime
+    if (isLocalNodeRuntime()) {
+      try {
+        const fs = await import('fs/promises');
+        const path = await import('path');
+        const pubPath = path.join(process.cwd(), 'public', 'data', 'sync_sheets.json');
+        await fs.writeFile(pubPath, JSON.stringify(payload, null, 2), 'utf-8');
+      } catch (saveLocalErr) {
+        console.warn('Lỗi ghi đè file public/data/sync_sheets.json trên local:', saveLocalErr);
+      }
+    }
 
     // Lưu vào R2 cache cho các worker isolate khác dùng chung
     if (bucket) {

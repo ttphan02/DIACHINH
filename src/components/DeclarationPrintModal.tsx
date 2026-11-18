@@ -104,7 +104,7 @@ export default function DeclarationPrintModal({
         const cleanCccdVal = rawCccd ? String(rawCccd).replace(/\D/g, '').trim() : '';
 
         const permanentAddr = formatPrintAddress(decl.chu_dat_dia_chi, p.thon_xa);
-        const parcelAddr = formatPrintAddress(decl.dia_chi_thua_dat || p.thon_xa, decl.chu_dat_dia_chi);
+        const parcelAddr = 'Xã Cư Pui';
 
         return {
           ma_thua: p.ma_thua,
@@ -429,7 +429,7 @@ export default function DeclarationPrintModal({
                         </div>
                         <div className="pl-4 space-y-1 text-[13px]">
                           <div>
-                            a) Địa chỉ thửa đất: <strong>{formatPrintAddress(decl.dia_chi_thua_dat || p.thon_xa, decl.chu_dat_dia_chi)}</strong>
+                            a) Địa chỉ thửa đất: <strong>Xã Cư Pui</strong>
                           </div>
                           <div className="grid grid-cols-2 gap-4">
                             <div>

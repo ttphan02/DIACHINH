@@ -226,6 +226,72 @@ export function isValidCccd(cccd: string): boolean {
   return digits.length === 12 || digits.length === 9;
 }
 
+export interface CccdDerivedInfo {
+  birthYear?: string;
+  gender?: 'Nam' | 'Nữ';
+  isValid: boolean;
+}
+
+/**
+ * Tự động giải mã và trích xuất năm sinh & giới tính từ số CCCD 12 số:
+ * Quy tắc chuẩn CCCD 12 số: PPP G YY XXXXXX
+ * - PPP: 3 số đầu là mã tỉnh/thành phố (001 đến 096)
+ * - G: 1 số tiếp theo là thế kỷ và giới tính:
+ *     + Thế kỷ 20 (sinh 1900-1999): 0 là Nam, 1 là Nữ
+ *     + Thế kỷ 21 (sinh 2000-2099): 2 là Nam, 3 là Nữ
+ * - YY: 2 số tiếp theo là 2 số cuối của năm sinh
+ * - Năm sinh hợp lệ: từ 1920 đến năm hiện tại
+ */
+export function extractInfoFromCccd(cccd: any): CccdDerivedInfo {
+  if (!cccd) return { isValid: false };
+  const raw = String(cccd).trim().replace(/^[="]+|["]+$/g, '');
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length !== 12) {
+    return { isValid: false };
+  }
+
+  // 1. Kiểm tra 3 số đầu: Mã tỉnh/thành phố Việt Nam từ 001 đến 096
+  const ppp = parseInt(digits.substring(0, 3), 10);
+  if (isNaN(ppp) || ppp < 1 || ppp > 96) {
+    return { isValid: false };
+  }
+
+  // 2. Kiểm tra chữ số thứ 4: Thế kỷ & Giới tính
+  // Người đang sống hiện tại chỉ thuộc thế kỷ 20 (19xx) hoặc 21 (20xx)
+  const g = parseInt(digits.charAt(3), 10);
+  const yy = parseInt(digits.substring(4, 6), 10);
+  if (isNaN(g) || isNaN(yy)) {
+    return { isValid: false };
+  }
+
+  let century = 1900;
+  let gender: 'Nam' | 'Nữ' = 'Nam';
+
+  if (g === 0 || g === 1) {
+    century = 1900;
+    gender = g === 0 ? 'Nam' : 'Nữ';
+  } else if (g === 2 || g === 3) {
+    century = 2000;
+    gender = g === 2 ? 'Nam' : 'Nữ';
+  } else {
+    return { isValid: false };
+  }
+
+  const birthYearNum = century + yy;
+  const currentYear = new Date().getFullYear();
+
+  // 3. Kiểm tra năm sinh hợp lý: từ 1920 đến năm hiện tại
+  if (birthYearNum < 1920 || birthYearNum > currentYear) {
+    return { isValid: false };
+  }
+
+  return {
+    birthYear: String(birthYearNum),
+    gender,
+    isValid: true,
+  };
+}
+
 // Kiểm tra tính hợp lệ của năm sinh (4 chữ số, từ 1920 đến năm hiện tại)
 export function isValidBirthYear(year: string): boolean {
   if (!year) return false;

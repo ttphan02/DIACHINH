@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredVa
 import Link from 'next/link';
 import { Parcel, ParcelStatus, DeclarationFormData } from '@/types';
 import { removeVietnameseTones, getResolvedImageUrl } from '@/utils/geo';
-import { stripAccents, cleanCccd, getCanonicalVillage, CANONICAL_VILLAGES, cleanVillageDisplay, normalizeNguonGoc, NGUON_GOC_OPTIONS, isAgriculturalLand, getNguonGocShortLabel, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName, isOntLand, isGcnOntRoute, formatDiaChiThuongTru, isExcludedLandType } from '@/utils/textHelpers';
+import { stripAccents, cleanCccd, extractInfoFromCccd, getCanonicalVillage, CANONICAL_VILLAGES, cleanVillageDisplay, normalizeNguonGoc, NGUON_GOC_OPTIONS, isAgriculturalLand, getNguonGocShortLabel, cleanName, isValidFullName, isValidBirthYear, isValidCccd, cleanDisplayAddress, isPersonName, cleanStrictName, isOntLand, isGcnOntRoute, formatDiaChiThuongTru, isExcludedLandType } from '@/utils/textHelpers';
 import { applyDeclarationToState, removeDeclarationFromState, clearLegacyLocalDataStorage, getOrCreateDeviceId, getSavedCadreName } from '@/utils/declaration';
 import { broadcastRealtimeEvent, onRealtimeEvent } from '@/utils/realtimeSync';
 import dynamic from 'next/dynamic';
@@ -196,19 +196,36 @@ export default function DashboardPage() {
 
       let hasError = false;
       results.forEach((result) => {
-        if (result?.success && result.declaration?.ma_thua) {
-          const code = result.declaration.ma_thua;
-          setDeclarationsMap((prev) => {
-            const next = { ...prev, [code]: result.declaration };
-            declarationsMapRef.current = next;
-            return next;
-          });
-          setDeclaredParcelCodes((prev) => {
-            const next = new Set(prev);
-            next.add(code);
-            declaredCodesRef.current = next;
-            return next;
-          });
+        if (result?.success) {
+          if (result.declarationsMap && typeof result.declarationsMap === 'object') {
+            setDeclarationsMap((prev) => {
+              const next = { ...prev, ...result.declarationsMap };
+              declarationsMapRef.current = next;
+              return next;
+            });
+          } else if (result.declaration?.ma_thua) {
+            const code = result.declaration.ma_thua;
+            setDeclarationsMap((prev) => {
+              const next = { ...prev, [code]: result.declaration };
+              declarationsMapRef.current = next;
+              return next;
+            });
+          }
+          if (Array.isArray(result.declaredCodes)) {
+            setDeclaredParcelCodes((prev) => {
+              const next = new Set(prev);
+              result.declaredCodes.forEach((c: string) => next.add(c));
+              declaredCodesRef.current = next;
+              return next;
+            });
+          } else if (result.declaration?.ma_thua) {
+            setDeclaredParcelCodes((prev) => {
+              const next = new Set(prev);
+              next.add(result.declaration.ma_thua);
+              declaredCodesRef.current = next;
+              return next;
+            });
+          }
         } else {
           hasError = true;
         }
@@ -355,6 +372,7 @@ export default function DashboardPage() {
 
   // Danh sách CCCD đã có trên R2 và trên GGS phục vụ kiểm tra realtime
   const [r2CccdSet, setR2CccdSet] = useState<Set<string>>(new Set());
+  const [r2NameMap, setR2NameMap] = useState<Map<string, { cccd: string; filename: string }>>(new Map());
   const [ggsCccdSet, setGgsCccdSet] = useState<Set<string>>(new Set());
   const [isLoadingR2Cccd, setIsLoadingR2Cccd] = useState(false);
   const [isMovingParcelsToPack, setIsMovingParcelsToPack] = useState(false);
@@ -842,11 +860,23 @@ export default function DashboardPage() {
 
   // Cập nhật giá trị ô trong bộ nhớ tạm khi người dùng đang gõ (chỉ lưu Database khi rời ô / commit)
   const handleInlineCellChange = (maThua: string, colIdx: number, val: string) => {
+    let extraEdits: Record<number, string> = {};
+    if (colIdx === 6) {
+      const cleanVal = cleanCccd(val);
+      if (cleanVal.length === 12) {
+        const derived = extractInfoFromCccd(cleanVal);
+        if (derived.isValid && derived.birthYear && derived.gender) {
+          extraEdits[4] = derived.birthYear;
+          extraEdits[5] = derived.gender;
+        }
+      }
+    }
     setCellEdits((prev) => ({
       ...prev,
       [maThua]: {
         ...(prev[maThua] || {}),
         [colIdx]: val,
+        ...extraEdits,
       },
     }));
   };
@@ -855,7 +885,7 @@ export default function DashboardPage() {
   const applyDeclarationToSyncSheets = useCallback((decl: any) => {
     if (!decl?.ma_thua) return;
     const targetMa = String(decl.ma_thua).trim();
-    const villageVal = cleanVillageDisplay(decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || '') || decl.dia_chi_thua_dat || decl.thon_xa || '';
+    const villageVal = cleanVillageDisplay(decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || decl.thon_xa || '') || decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || decl.thon_xa || '';
     const nameVal = decl.chu_dat_ten !== undefined ? cleanName(decl.chu_dat_ten) : (decl.chu_ho ? cleanName(decl.chu_ho) : undefined);
     const dobVal = decl.chu_dat_nam_sinh ?? decl.nam_sinh_chu_ho;
     const genderVal = decl.chu_dat_gioi_tinh ?? decl.gioi_tinh_chu_ho;
@@ -863,6 +893,24 @@ export default function DashboardPage() {
     const areaVal = decl.dien_tich;
     const landTypeVal = decl.loai_dat;
     const originVal = decl.nguon_goc_su_dung || decl.nguon_goc;
+
+    // Đồng bộ đồng loạt cả thửa chính và các thửa kèm theo (thua_kem_theo) hoặc parent
+    const targetCodes = new Set<string>([targetMa]);
+    if (Array.isArray(decl.thua_kem_theo)) {
+      for (const t of decl.thua_kem_theo) {
+        if (t?.ma_thua) targetCodes.add(String(t.ma_thua).trim());
+      }
+    }
+    if (decl.parent_ma_thua) {
+      const parentCode = String(decl.parent_ma_thua).trim();
+      targetCodes.add(parentCode);
+      const parentDecl = declarationsMapRef.current[parentCode];
+      if (Array.isArray(parentDecl?.thua_kem_theo)) {
+        for (const t of parentDecl.thua_kem_theo) {
+          if (t?.ma_thua) targetCodes.add(String(t.ma_thua).trim());
+        }
+      }
+    }
 
     setSyncSheetsData((prev) => {
       if (!prev) return prev;
@@ -885,6 +933,7 @@ export default function DashboardPage() {
         const dIdx = normH.findIndex((h) => h.includes('nam sinh') || h.includes('ngay sinh'));
         const gIdx = normH.findIndex((h) => h.includes('gioi tinh'));
         const cIdx = normH.findIndex((h) => (h.includes('cccd') || h.includes('cmnd')) && !h.includes('xem') && !h.includes('file'));
+        const fIdx = normH.findIndex((h) => (h.includes('xem') || h.includes('file')) && (h.includes('cccd') || h.includes('pdf')));
         const aIdx = normH.findIndex((h) => h.includes('dien tich'));
         const lIdx = normH.findIndex((h) => h.includes('loai dat'));
         const oIdx = normH.findIndex((h) => h.includes('nguon goc'));
@@ -892,17 +941,34 @@ export default function DashboardPage() {
         let sheetChanged = false;
         const nextRows = rows.map((r, rIdx) => {
           if (rIdx === 0) return r;
-          if (String(r[maIdx] || '').trim() !== targetMa) return r;
+          const rMa = String(r[maIdx] || '').trim();
+          if (!targetCodes.has(rMa)) return r;
           sheetChanged = true;
           const cloned = [...r];
+          // Các trường chủ hộ dùng chung cho cả thửa chính và các thửa kèm theo:
           if (vIdx >= 0 && villageVal) cloned[vIdx] = villageVal;
           if (nIdx >= 0 && nameVal !== undefined) cloned[nIdx] = nameVal;
           if (dIdx >= 0 && dobVal !== undefined) cloned[dIdx] = String(dobVal);
           if (gIdx >= 0 && genderVal !== undefined) cloned[gIdx] = String(genderVal);
-          if (cIdx >= 0 && cccdVal !== undefined) cloned[cIdx] = cccdVal;
-          if (aIdx >= 0 && areaVal !== undefined && String(areaVal) !== '') cloned[aIdx] = String(areaVal);
-          if (lIdx >= 0 && landTypeVal) cloned[lIdx] = String(landTypeVal);
-          if (oIdx >= 0 && originVal) cloned[oIdx] = String(originVal);
+          if (cIdx >= 0 && cccdVal !== undefined) {
+            cloned[cIdx] = cccdVal ? `="${cccdVal}"` : '';
+            if (fIdx >= 0) {
+              const cleanC = cleanCccd(cccdVal);
+              if (cleanC && cleanC.length >= 9) {
+                const fileName = decl.cccd_file || (decl.cccd_url ? decl.cccd_url.split('/').pop() || '' : '') || `${cleanC}.pdf`;
+                const link = decl.cccd_url || `/api/image/cccd/${encodeURIComponent(fileName)}`;
+                cloned[fIdx] = `=HYPERLINK("${link}"; "${fileName}")`;
+              } else {
+                cloned[fIdx] = 'Chưa có file';
+              }
+            }
+          }
+          // Riêng diện tích, loại đất, nguồn gốc chỉ áp dụng cho thửa trực tiếp (trừ khi thửa con không có)
+          if (rMa === targetMa) {
+            if (aIdx >= 0 && areaVal !== undefined && String(areaVal) !== '') cloned[aIdx] = String(areaVal);
+            if (lIdx >= 0 && landTypeVal) cloned[lIdx] = String(landTypeVal);
+            if (oIdx >= 0 && originVal) cloned[oIdx] = String(originVal);
+          }
           return cloned;
         });
         if (sheetChanged) anySheetChanged = true;
@@ -1004,7 +1070,7 @@ export default function DashboardPage() {
     const chuDatCccd = safeDecl.yeu_cau_thu_cccd
       ? ''
       : cleanCccd(safeDecl.chu_dat_cccd || safeDecl.cccd || findColVal([/cccd/, /cmnd/]) || p?.cccd || '');
-    const diaChiThua = safeDecl.dia_chi_thua_dat || safeDecl.thon_xa || safeDecl.chu_dat_dia_chi || findColVal([/thon/, /buon/]) || (p?.thon_xa ? `${p.thon_xa}, xã Cư Pui` : 'Xã Cư Pui');
+    const diaChiThua = 'Xã Cư Pui';
     const dienTich = safeDecl.dien_tich || findColVal([/dien tich/]) || p?.dien_tich || '';
     const loaiDat = safeDecl.loai_dat || findColVal([/loai dat/]) || p?.loai_dat || 'DGT';
     const defaultOrigin = 'Khai Hoang';
@@ -1049,6 +1115,21 @@ export default function DashboardPage() {
       if (formattedValue) {
         delete (updatedDecl as any).yeu_cau_thu_cccd;
         patchFields.yeu_cau_thu_cccd = undefined;
+
+        // Tự động suy ra năm sinh và giới tính từ CCCD 12 số
+        if (formattedValue.length === 12) {
+          const derived = extractInfoFromCccd(formattedValue);
+          if (derived.isValid && derived.birthYear && derived.gender) {
+            updatedDecl.chu_dat_nam_sinh = derived.birthYear;
+            updatedDecl.nam_sinh_chu_ho = derived.birthYear;
+            updatedDecl.chu_dat_gioi_tinh = derived.gender;
+            updatedDecl.gioi_tinh_chu_ho = derived.gender;
+            patchFields.chu_dat_nam_sinh = derived.birthYear;
+            patchFields.nam_sinh_chu_ho = derived.birthYear;
+            patchFields.chu_dat_gioi_tinh = derived.gender;
+            patchFields.gioi_tinh_chu_ho = derived.gender;
+          }
+        }
       }
     }
     if (fieldKey === 'chu_dat_ten') {
@@ -1155,8 +1236,20 @@ export default function DashboardPage() {
 
     const chuDatNamSinh = String(edits[4] ?? row[4] ?? (p as any)?.ngay_sinh ?? '').trim();
     const chuDatGioiTinh = String(edits[5] ?? row[5] ?? (p as any)?.gioi_tinh ?? 'Nam').trim();
-    const rawCccd = String(edits[6] ?? row[6] ?? p?.cccd ?? '').replace(/^="|"$/g, '').trim();
-    const cleanCccdVal = cleanCccd(rawCccd);
+    let rawCccd = String(edits[6] ?? row[6] ?? p?.cccd ?? '').replace(/^="|"$/g, '').trim();
+    let cleanCccdVal = cleanCccd(rawCccd);
+
+    // Tự động phát hiện có CCCD trong kho R2 theo phép so sánh tuyệt đối tên
+    let matchedFromR2: { cccd: string; filename: string } | undefined = undefined;
+    if (chuDatTen) {
+      const strict = cleanStrictName(chuDatTen);
+      if (strict && r2NameMap.has(strict)) {
+        matchedFromR2 = r2NameMap.get(strict);
+        if (matchedFromR2?.cccd && !cleanCccdVal) {
+          cleanCccdVal = matchedFromR2.cccd;
+        }
+      }
+    }
 
     const dienTich = String(p?.dien_tich ?? row[7] ?? '').trim();
     const loaiDat = String(p?.loai_dat ?? row[8] ?? 'DGT').trim();
@@ -1236,8 +1329,13 @@ export default function DashboardPage() {
             declaredCodes: updatedCodes,
           });
 
-          const hasCccd = cleanCccdVal && cleanCccdVal.length === 12;
-          const targetLabel = hasCccd ? 'Sẵn Sàng Đóng Tập (Có CCCD)' : 'Đang Kê Khai (Chưa có CCCD)';
+          const isOntGcn = isGcnOntRoute(loaiDat, finalThon, toBanDo);
+          const hasCccd = Boolean(cleanCccdVal && cleanCccdVal.length === 12) || Boolean(matchedFromR2);
+          const targetLabel = isOntGcn
+            ? 'GCN - ONT'
+            : hasCccd
+            ? 'Sẵn Sàng Đóng Tập (Có CCCD)'
+            : 'Đang Kê Khai (Chưa có CCCD)';
           setInlineSaveToast(`✓ Đã lưu Thửa ${soThua} (Tờ ${toBanDo}) vào Database -> [${targetLabel}]!`);
           setTimeout(() => setInlineSaveToast(null), 4500);
           return true;
@@ -1581,7 +1679,10 @@ export default function DashboardPage() {
       if (force && (inlineCommitQueueRef.current.size > 0 || isFlushingInlineRef.current)) {
         await flushInlineCommitQueue();
       }
-      const res = await fetch(`/api/sync-sheets${force ? '?force=true' : ''}`);
+      const res = await fetch(`/api/sync-sheets?t=${Date.now()}${force ? '&force=true' : ''}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
       if (!res.ok) return;
       const data: any = await res.json();
       if (data && data.success) {
@@ -1649,8 +1750,17 @@ export default function DashboardPage() {
     try {
       const res = await fetch(`/api/cccd?list_only=1&t=${Math.floor(Date.now() / 60000)}`);
       const data: any = await res.json();
-      if (data && data.success && Array.isArray(data.cccdList)) {
-        setR2CccdSet(new Set(data.cccdList));
+      if (data && data.success) {
+        if (Array.isArray(data.cccdList)) {
+          setR2CccdSet(new Set(data.cccdList));
+        }
+        if (data.nameMap && typeof data.nameMap === 'object') {
+          const nm = new Map<string, { cccd: string; filename: string }>();
+          for (const [k, v] of Object.entries(data.nameMap)) {
+            nm.set(k, v as any);
+          }
+          setR2NameMap(nm);
+        }
       }
     } catch (err) {
       console.warn('Lỗi nạp danh sách CCCD R2:', err);
@@ -1699,7 +1809,8 @@ export default function DashboardPage() {
       const mergedThon =
         edits[2] ??
         (savedDecl
-          ? cleanVillageDisplay(savedDecl.dia_chi_thua_dat || savedDecl.thon_xa || savedDecl.chu_dat_dia_chi || '', p.to_ban_do) ||
+          ? cleanVillageDisplay(savedDecl.chu_dat_dia_chi || savedDecl.dia_chi_thua_dat || savedDecl.thon_xa || '', p.to_ban_do) ||
+            savedDecl.chu_dat_dia_chi ||
             savedDecl.dia_chi_thua_dat ||
             savedDecl.thon_xa ||
             p.thon_xa
@@ -1712,8 +1823,8 @@ export default function DashboardPage() {
       const isGcnOntParcel = isGcnOntRoute(loaiDat, mergedThon, p.to_ban_do);
       const isBypassDigitizedOnt = isOntLand(loaiDat) && !isGcnOntParcel;
 
-      // Nếu mã thửa có trên Google Sheet Cột BF, KH2959, hoặc DIGITIZED_SET (trừ ONT của 5 thôn miễn GCN-ONT) -> ĐÃ SỐ HÓA!
-      const isDigitized = (DIGITIZED_SET.has(p.ma_thua) && !isBypassDigitizedOnt) || ggsCodes.has(p.ma_thua) || kh2959ImportedCodes.has(p.ma_thua);
+      // Nguyên tắc vàng: Chưa nhập trên KH2959 (hoặc GGS chính thức) là CHƯA SỐ HÓA
+      const isDigitized = ggsCodes.has(p.ma_thua) || kh2959ImportedCodes.has(p.ma_thua);
       const isOnGgs = isDigitized;
       const isDeclared = declaredParcelCodes.has(p.ma_thua) || Boolean(savedDecl);
 
@@ -1721,11 +1832,7 @@ export default function DashboardPage() {
       if (isOnGgs) {
         finalStatus = 'DA_SO_HOA_XANH';
       } else if (isDeclared) {
-        if (isGcnOntParcel) {
-          finalStatus = 'DA_SO_HOA_XANH';
-        } else {
-          finalStatus = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
-        }
+        finalStatus = 'DA_KE_KHAI_CHUA_SO_HOA_LAM';
       } else if (p.trang_thai === 'DA_SO_HOA_XANH') {
         finalStatus = 'DA_SO_HOA_XANH';
       } else if (mergedChuHo && mergedChuHo !== 'Không có trong dữ liệu' && isPersonName(mergedChuHo)) {
@@ -1812,8 +1919,7 @@ export default function DashboardPage() {
     r2Set: Set<string>
   ) => {
     const cccd = cleanCccd(rawCccd || '');
-    if (!isValidCccd(cccd)) return false;
-    return Boolean(r2Set.has(cccd) || cccdUrl);
+    return isValidCccd(cccd) && (r2Set.has(cccd) || Boolean(cccdUrl));
   }, []);
 
   // Danh sách các thửa đất KHÔNG NHẬP (DCS, DGD, DTT, DVH, SKC, TSC, MNC, NTD):
@@ -1835,12 +1941,10 @@ export default function DashboardPage() {
   const nonGgsParcels = useMemo(() => {
     return computedParcels.filter((p) => {
       if (khongNhapCodes.has(p.ma_thua)) return false;
-      if (p.trang_thai === 'DA_SO_HOA_XANH') return false;
-      const isBypassDigitizedOnt = isOntLand(p.loai_dat) && !isGcnOntRoute(p.loai_dat, p.thon_xa, p.to_ban_do);
-      if (DIGITIZED_SET.has(p.ma_thua) && !isBypassDigitizedOnt) return false;
+      if (ggsCodes.has(p.ma_thua) || kh2959ImportedCodes.has(p.ma_thua)) return false;
       return true;
     });
-  }, [computedParcels, ggsCodes, khongNhapCodes]);
+  }, [computedParcels, ggsCodes, kh2959ImportedCodes, khongNhapCodes]);
 
   // 1. THỬA SẲN SÀNG ĐÓNG TẬP (CÓ CCCD): Thửa đã kê khai + CCCD 12 số + có file trên R2 (loại trừ luồng GCN - ONT, giữ 5 thôn miễn GCN-ONT)
   const readyToPackParcels = useMemo(() => {
@@ -1856,7 +1960,7 @@ export default function DashboardPage() {
       if (decl.yeu_cau_thu_cccd) return false;
       const edits = cellEdits[p.ma_thua] || {};
       const loaiDat = String(edits[8] ?? decl.loai_dat ?? p.loai_dat ?? '').trim();
-      const vAddr = edits[2] ?? decl.dia_chi_thua_dat ?? decl.thon_xa ?? decl.chu_dat_dia_chi ?? p.thon_xa;
+      const vAddr = edits[2] ?? decl.chu_dat_dia_chi ?? decl.dia_chi_thua_dat ?? decl.thon_xa ?? p.thon_xa;
       // Nếu thuộc luồng GCN - ONT (ngoài 5 thôn Ea Bar, Ea Uôl, Ea Lang, Cư Tê, Ea Rớt): chuyển sang tab GCN - ONT
       if (isGcnOntRoute(loaiDat, vAddr, p.to_ban_do)) return false;
 
@@ -1891,7 +1995,7 @@ export default function DashboardPage() {
 
       const edits = cellEdits[p.ma_thua] || {};
       const loaiDat = String(edits[8] ?? decl?.loai_dat ?? p.loai_dat ?? '').trim();
-      const vAddr = edits[2] ?? decl?.dia_chi_thua_dat ?? decl?.thon_xa ?? decl?.chu_dat_dia_chi ?? p.thon_xa;
+      const vAddr = edits[2] ?? decl?.chu_dat_dia_chi ?? decl?.dia_chi_thua_dat ?? decl?.thon_xa ?? p.thon_xa;
       return isGcnOntRoute(loaiDat, vAddr, p.to_ban_do);
     });
   }, [parcels, declaredParcelCodes, declarationsMap, ggsCodes, kh2959ImportedCodes, cellEdits]);
@@ -1909,7 +2013,7 @@ export default function DashboardPage() {
       const decl = declarationsMap[p.ma_thua] || {};
       const edits = cellEdits[p.ma_thua] || {};
       const loaiDat = String(edits[8] ?? decl.loai_dat ?? p.loai_dat ?? '').trim();
-      const vAddr = edits[2] ?? decl.dia_chi_thua_dat ?? decl.thon_xa ?? decl.chu_dat_dia_chi ?? p.thon_xa;
+      const vAddr = edits[2] ?? decl.chu_dat_dia_chi ?? decl.dia_chi_thua_dat ?? decl.thon_xa ?? p.thon_xa;
       if (isGcnOntRoute(loaiDat, vAddr, p.to_ban_do)) return false;
 
       if (decl.yeu_cau_thu_cccd) return true;
@@ -1921,28 +2025,34 @@ export default function DashboardPage() {
   }, [nonGgsParcels, declaredParcelCodes, declarationsMap, cellEdits, hasCccdAndFile, r2CccdSet]);
 
   // Số lượng hiển thị chính xác, đồng bộ 100% giữa Card thống kê và Bảng danh sách
-  // Ưu tiên đọc trực tiếp số lượng dòng trong Bảng danh sách (syncSheetsData) để Card và Bảng luôn khớp nhau tuyệt đối
+  // Đồng bộ Realtime: Tự động gộp số lượng thửa từ database kê khai để Card và Bảng luôn khớp nhau tuyệt đối
   const displayCountReadyToPack = useMemo(() => {
-    const rows = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'];
-    if (Array.isArray(rows) && rows.length > 1) {
-      return rows.slice(1).filter((r) => !HIDDEN_PARCEL_SET.has(String(r[1] || '').trim())).length;
-    }
     if (syncSummary?.daDongTap !== undefined) {
       return syncSummary.daDongTap;
     }
+    const rows = syncSheetsData?.['THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)'];
+    if (Array.isArray(rows) && rows.length > 1) {
+      return rows.slice(1).filter((r) => {
+        const ma = String(r[1] || '').trim();
+        return !HIDDEN_PARCEL_SET.has(ma) && !ggsCodes.has(ma) && !kh2959ImportedCodes.has(ma);
+      }).length;
+    }
     return readyToPackParcels.length;
-  }, [syncSummary, syncSheetsData, readyToPackParcels.length]);
+  }, [syncSummary, syncSheetsData, readyToPackParcels.length, ggsCodes, kh2959ImportedCodes]);
 
   const displayCountChuaCccd = useMemo(() => {
     const rows = syncSheetsData?.['THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)'];
+    let count = 0;
     if (Array.isArray(rows) && rows.length > 1) {
-      return rows.slice(1).filter((r) => !HIDDEN_PARCEL_SET.has(String(r[1] || '').trim())).length;
+      // Trừ đi các thửa đã có CCCD (chuyển sang Sẵn sàng đóng tập)
+      const readyCodes = new Set(readyToPackParcels.map((p) => p.ma_thua));
+      count = rows.slice(1).filter((r) => {
+        const ma = String(r[1] || '').trim();
+        return !HIDDEN_PARCEL_SET.has(ma) && !readyCodes.has(ma);
+      }).length;
     }
-    if (syncSummary?.canTimCccd !== undefined && syncSummary?.khongCoCccd !== undefined) {
-      return syncSummary.canTimCccd + syncSummary.khongCoCccd;
-    }
-    return dangKeKhaiChuaCccdParcels.length;
-  }, [syncSummary, syncSheetsData, dangKeKhaiChuaCccdParcels.length]);
+    return Math.max(count, dangKeKhaiChuaCccdParcels.length);
+  }, [syncSheetsData, readyToPackParcels, dangKeKhaiChuaCccdParcels.length]);
 
   const displayCountTotalDangKeKhai = displayCountReadyToPack + displayCountChuaCccd;
 
@@ -1952,12 +2062,12 @@ export default function DashboardPage() {
       return rows.slice(1).filter((r) => {
         const ma = String(r[1] || '').trim();
         if (!ma || HIDDEN_PARCEL_SET.has(ma)) return false;
-        if (kh2959ImportedCodes.has(ma) || DIGITIZED_SET.has(ma)) return false;
+        if (kh2959ImportedCodes.has(ma) || ggsCodes.has(ma)) return false;
         return true;
       }).length;
     }
     return 0;
-  }, [syncSheetsData, kh2959ImportedCodes]);
+  }, [syncSheetsData, kh2959ImportedCodes, ggsCodes]);
 
   const displayCountGcnOnt = useMemo(() => {
     const rows = syncSheetsData?.['GCN - ONT'];
@@ -2868,7 +2978,7 @@ export default function DashboardPage() {
         return [
           String(idx + 1),
           p.ma_thua,
-          decl.dia_chi_thua_dat || p.thon_xa || 'Xã Cư Pui',
+          decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || p.thon_xa || 'Xã Cư Pui',
           cleanName(decl.chu_dat_ten || p.chu_ho || 'Chưa có tên'),
           decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '',
           decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam',
@@ -3442,28 +3552,6 @@ export default function DashboardPage() {
                 <strong className="font-black">{displayCountReadyToPack}</strong>
               </button>
 
-              {/* Nhập dữ liệu (Đã scan) */}
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedReportSheet('NHẬP DỮ LIỆU');
-                  setActiveTab('progressReport');
-                  setReportPage(1);
-                  setReportSearchQuery('');
-                }}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs transition cursor-pointer border ${
-                  selectedReportSheet === 'NHẬP DỮ LIỆU' && activeTab === 'progressReport'
-                    ? 'bg-cyan-600 text-white border-cyan-600 font-black shadow-xs ring-1 ring-cyan-400'
-                    : isLight
-                    ? 'bg-cyan-50 hover:bg-cyan-100 border-cyan-200 text-cyan-800'
-                    : 'bg-cyan-950/50 hover:bg-cyan-900/60 border-cyan-800/60 text-cyan-300'
-                }`}
-                title={`Đơn kê khai đã đóng tập & đã scan có file trong R2: ${displayCountNhapDuLieu} thửa`}
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
-                <span className="text-[10px] font-medium">Nhập dữ liệu:</span>
-                <strong className="font-black">{displayCountNhapDuLieu}</strong>
-              </button>
 
               {/* 5. GCN - ONT (Thửa đất có đất ONT chờ bổ sung sau) */}
               <button
@@ -3893,7 +3981,7 @@ export default function DashboardPage() {
                       return [
                         String(idx + 1),
                         p.ma_thua,
-                        decl.dia_chi_thua_dat || p.thon_xa || 'Thôn 1, xã Cư Pui',
+                        decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || p.thon_xa || 'Xã Cư Pui',
                         cleanName(decl.chu_dat_ten || p.chu_ho || 'Chủ sử dụng'),
                         decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '1980',
                         decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam',
@@ -3919,7 +4007,7 @@ export default function DashboardPage() {
                       return [
                         String(idx + 1),
                         p.ma_thua,
-                        decl.dia_chi_thua_dat || p.thon_xa || 'Thôn 1, xã Cư Pui',
+                        decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || p.thon_xa || 'Xã Cư Pui',
                         cleanName(decl.chu_dat_ten || p.chu_ho || 'Chủ sử dụng'),
                         decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '1980',
                         decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam',
@@ -3978,7 +4066,7 @@ export default function DashboardPage() {
                         p.ma_thua,
                         p.to_ban_do || p.ma_thua.split('_')[0] || '',
                         p.so_thua || p.ma_thua.split('_')[1] || '',
-                        decl.dia_chi_thua_dat || p.thon_xa || 'Xã Cư Pui',
+                        decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || p.thon_xa || 'Xã Cư Pui',
                         cleanName(decl.chu_dat_ten || p.chu_ho || 'Chủ sử dụng'),
                         decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '1980',
                         decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam',
@@ -4034,7 +4122,7 @@ export default function DashboardPage() {
                       return [
                         String(idx + 1),
                         p.ma_thua,
-                        decl.dia_chi_thua_dat || p.thon_xa || 'Xã Cư Pui',
+                        decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || p.thon_xa || 'Xã Cư Pui',
                         cleanName(decl.chu_dat_ten || p.chu_ho || 'Đơn vị / Cơ quan quản lý'),
                         decl.chu_dat_nam_sinh || (p as any).ngay_sinh || '',
                         decl.chu_dat_gioi_tinh || (p as any).gioi_tinh || 'Nam',
@@ -4053,7 +4141,12 @@ export default function DashboardPage() {
                     .filter((r) => {
                       const ma = String(r[1] || '').trim();
                       if (selectedReportSheet !== 'KH2959 - NHÓM 1' && selectedReportSheet !== 'THỬA KHÔNG NHẬP (DCS, DGD...)' && selectedReportSheet !== 'KHÔNG NHẬP' && ma && HIDDEN_PARCEL_SET.has(ma)) return false;
-                      if (selectedReportSheet === 'NHẬP DỮ LIỆU' && (kh2959ImportedCodes.has(ma) || DIGITIZED_SET.has(ma))) return false;
+                      if (
+                        (selectedReportSheet === 'THỬA SẲN SÀNG ĐÓNG TẬP(CÓ CCCD)' ||
+                         selectedReportSheet === 'THỬA ĐANG KÊ KHAI(CHƯA CÓ CCCD)' ||
+                         selectedReportSheet === 'NHẬP DỮ LIỆU') &&
+                        (kh2959ImportedCodes.has(ma) || ggsCodes.has(ma))
+                      ) return false;
                       return true;
                     })
                     .map((r) => [...r]);
@@ -4101,6 +4194,7 @@ export default function DashboardPage() {
                   const isKhongNhapSheet = selectedReportSheet === 'THỬA KHÔNG NHẬP (DCS, DGD...)' || selectedReportSheet === 'KHÔNG NHẬP';
 
                   const cccdColIdx = headers.findIndex((h) => /cccd/i.test(h) && !/xem|file/i.test(h));
+                  const fileColIdx = headers.findIndex((h) => (h.includes('xem') || h.includes('file')) && (h.includes('cccd') || h.includes('pdf')));
 
                   // Đọc giá trị hiệu lực của từng ô (ưu tiên: cellEdits -> declarationsMap -> dữ liệu gốc của row)
                   const getEffectiveRowVal = (maThua: string, row: any[], cIdx: number): string => {
@@ -4113,13 +4207,23 @@ export default function DashboardPage() {
                       if (cIdx === nameColIdx && (decl.chu_dat_ten !== undefined || decl.chu_ho !== undefined)) {
                         return String(decl.chu_dat_ten ?? decl.chu_ho ?? '');
                       }
-                      if (cIdx === villageColIdx && (decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi)) {
-                        return cleanVillageDisplay(decl.dia_chi_thua_dat || decl.thon_xa || decl.chu_dat_dia_chi || '');
+                      if (cIdx === villageColIdx && (decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || decl.thon_xa)) {
+                        return cleanVillageDisplay(decl.chu_dat_dia_chi || decl.dia_chi_thua_dat || decl.thon_xa || '');
                       }
                       if (cIdx === cccdColIdx) {
                         if (decl.yeu_cau_thu_cccd) return '';
                         if (decl.chu_dat_cccd !== undefined) return cleanCccd(decl.chu_dat_cccd);
                         if (decl.cccd !== undefined) return cleanCccd(decl.cccd);
+                      }
+                      if (fileColIdx >= 0 && cIdx === fileColIdx) {
+                        const curCccd = cleanCccd(cellEdits[maThua]?.[cccdColIdx] ?? decl.chu_dat_cccd ?? decl.cccd ?? '');
+                        if (curCccd && curCccd.length >= 9) {
+                          const fName = decl.cccd_file || (decl.cccd_url ? decl.cccd_url.split('/').pop() || '' : '') || `${curCccd}.pdf`;
+                          const fLink = decl.cccd_url || `/api/image/cccd/${encodeURIComponent(fName)}`;
+                          return `=HYPERLINK("${fLink}"; "${fName}")`;
+                        } else if (!curCccd) {
+                          return 'Chưa có file';
+                        }
                       }
                     }
                     return String(row[cIdx] ?? '');
@@ -4952,7 +5056,7 @@ export default function DashboardPage() {
                         if (!maThua || kh2959ImportedCodes.has(maThua)) return false;
                         const p = extractParcelFromRow(r);
                         if (isGcnOntRoute(p.loai_dat, p.thon_xa, p.so_to)) return false;
-                        if (DIGITIZED_SET.has(maThua) && !isOntLand(p.loai_dat)) return false;
+                        if ((kh2959ImportedCodes.has(maThua) || ggsCodes.has(maThua)) && !isOntLand(p.loai_dat)) return false;
                         return true;
                       })
                     : [];
@@ -5643,7 +5747,7 @@ export default function DashboardPage() {
                                   title="Tất cả các thửa hợp lệ đã được nhập lên web KH2959"
                                 >
                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                                  <span>Đã chuyển sang Đã số hóa ({allRows.filter((r) => kh2959ImportedCodes.has(String(r[1] || '').trim()) || DIGITIZED_SET.has(String(r[1] || '').trim())).length}/{allRows.length})</span>
+                                  <span>Đã chuyển sang Đã số hóa ({allRows.filter((r) => kh2959ImportedCodes.has(String(r[1] || '').trim()) || ggsCodes.has(String(r[1] || '').trim())).length}/{allRows.length})</span>
                                 </div>
                               )}
                             </div>
@@ -6379,7 +6483,7 @@ export default function DashboardPage() {
                                 const isSaving = savingRowCodes.has(maThua);
                                 const hasEdited = Boolean(cellEdits[maThua]);
                                 // Tuyệt đối KHÔNG tô màu xanh cho thửa thuộc luồng GCN - ONT
-                                const isImportedWeb = !isOntRow && (kh2959ImportedCodes.has(maThua) || (DIGITIZED_SET.has(maThua) && !isBypassDigitizedOntRow));
+                                const isImportedWeb = !isOntRow && (kh2959ImportedCodes.has(maThua) || ggsCodes.has(maThua));
 
                                 return (
                                   <tr
@@ -6498,9 +6602,56 @@ export default function DashboardPage() {
                                         );
                                       }
 
+                                      // Bắt và xử lý chuỗi rỗng HYPERLINK("", "") nếu có hoặc tự động đồng bộ theo CCCD hiện hành
+                                      let effectiveCellStr = getEffectiveRowVal(maThua, row, cIdx) || cellStr;
+                                      const isCccdFileCol = (hLower.includes('xem') || hLower.includes('file')) && (hLower.includes('cccd') || hLower.includes('pdf'));
+                                      const activeCccd = cccdColIdx >= 0 ? cleanCccd(getEffectiveRowVal(maThua, row, cccdColIdx)) : '';
+
+                                      if (isCccdFileCol) {
+                                        if (activeCccd && activeCccd.length >= 9) {
+                                          const decl = declarationsMap[maThua];
+                                          let targetFileName = `${activeCccd}.pdf`;
+                                          let targetUrl = `/api/image/cccd/${encodeURIComponent(targetFileName)}`;
+                                          if (decl && cleanCccd(decl.chu_dat_cccd || decl.cccd || '') === activeCccd && (decl.cccd_file || decl.cccd_url)) {
+                                            targetFileName = decl.cccd_file || (decl.cccd_url ? decl.cccd_url.split('/').pop() || '' : '') || `${activeCccd}.pdf`;
+                                            targetUrl = decl.cccd_url || `/api/image/cccd/${encodeURIComponent(targetFileName)}`;
+                                          }
+                                          effectiveCellStr = `=HYPERLINK("${targetUrl}"; "${targetFileName}")`;
+                                        } else {
+                                          return (
+                                            <td
+                                              key={cIdx}
+                                              style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                              className={`py-2 px-2.5 border-r overflow-hidden text-xs truncate ${
+                                                isLight ? 'border-slate-200 text-slate-400' : 'border-slate-800/60 text-slate-500'
+                                              }`}
+                                            >
+                                              <span className="italic text-[11px]">Chưa có file</span>
+                                            </td>
+                                          );
+                                        }
+                                      } else if (effectiveCellStr.includes('HYPERLINK') && (/HYPERLINK\(\s*["']?[^"';,]*\/api\/image\/cccd\/?["']?\s*[;,]\s*["']{2}\s*\)/i.test(effectiveCellStr) || effectiveCellStr.trim() === '=HYPERLINK("/api/image/cccd/"; "")')) {
+                                        const cleanC = activeCccd || cleanCccd(String((cccdColIdx !== -1 ? row[cccdColIdx] : row[6]) || '').replace(/^="|"$/g, '').trim());
+                                        if (cleanC && cleanC.length >= 9) {
+                                          effectiveCellStr = `=HYPERLINK("/api/image/cccd/${encodeURIComponent(cleanC)}.pdf"; "${cleanC}.pdf")`;
+                                        } else {
+                                          return (
+                                            <td
+                                              key={cIdx}
+                                              style={{ width: `${colW}px`, minWidth: `${colW}px`, maxWidth: `${colW}px` }}
+                                              className={`py-2 px-2.5 border-r overflow-hidden text-xs truncate ${
+                                                isLight ? 'border-slate-200 text-slate-400' : 'border-slate-800/60 text-slate-500'
+                                              }`}
+                                            >
+                                              <span className="italic text-[11px]">Chưa có file</span>
+                                            </td>
+                                          );
+                                        }
+                                      }
+
                                       // Hiển thị nút bấm Xem CCCD / Xem PDF kèm Card Hover nổi
-                                      const linkMatch = cellStr.match(/HYPERLINK\(\s*["']?([^"';,]+)["']?\s*[;,]\s*["']?([^"')]+)["']?\s*\)/i);
-                                      const isPdfCell = !linkMatch && (/\.pdf$/i.test(cellStr.trim().replace(/^="|"$/g, '')) || cellStr.includes('.r2.dev/'));
+                                      const linkMatch = effectiveCellStr.match(/HYPERLINK\(\s*["']?([^"';,]+)["']?\s*[;,]\s*["']?([^"')]+)["']?\s*\)/i);
+                                      const isPdfCell = !linkMatch && (/\.pdf$/i.test(effectiveCellStr.trim().replace(/^="|"$/g, '')) || effectiveCellStr.includes('.r2.dev/'));
 
                                       // Nếu là cột tên file scan thuần túy (không phải link) thì chỉ hiển thị text tên file, không render nút
                                       if (hLower.includes('tên file scan')) {
@@ -6519,15 +6670,14 @@ export default function DashboardPage() {
                                       }
 
                                       if (linkMatch || isPdfCell) {
-                                        const rawUrl = linkMatch ? linkMatch[1].trim() : cellStr.trim().replace(/^="|"$/g, '');
+                                        const rawUrl = linkMatch ? linkMatch[1].trim() : effectiveCellStr.trim().replace(/^="|"$/g, '');
                                         const cleanUrl = rawUrl.startsWith('http') || rawUrl.startsWith('/api/')
                                           ? rawUrl
                                           : (rawUrl.includes('/') ? rawUrl : `cccd/${rawUrl}`);
                                         const href = getResolvedImageUrl(cleanUrl);
                                         const text = linkMatch ? linkMatch[2].trim() : (cleanUrl.split('/').pop() || 'Xem PDF');
-                                        const ownerName = String(cellEdits[maThua]?.[nameColIdx] ?? row[nameColIdx] ?? '').trim();
-                                        const cccdColIdx = headers.findIndex((h) => /cccd|cmnd|định danh/i.test(h));
-                                        const cccdVal = String((cccdColIdx !== -1 ? row[cccdColIdx] : row[6]) || '').replace(/^="|"$/g, '').trim();
+                                        const ownerName = String(getEffectiveRowVal(maThua, row, nameColIdx) || row[nameColIdx] || '').trim();
+                                        const cccdVal = activeCccd || String((cccdColIdx !== -1 ? row[cccdColIdx] : row[6]) || '').replace(/^="|"$/g, '').trim();
                                         const isScan = href.includes('filescan') || hLower.includes('scan') || isNhapDuLieuSheet;
 
                                         return (
@@ -6632,8 +6782,8 @@ export default function DashboardPage() {
                                               effectiveVal = cleanCccd(cleanText);
                                             }
                                           }
-                                        } else if (isVillageCol && (declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi || declForParcel.thon_xa)) {
-                                          effectiveVal = cleanVillageDisplay(declForParcel.dia_chi_thua_dat || declForParcel.chu_dat_dia_chi || declForParcel.thon_xa);
+                                        } else if (isVillageCol && (declForParcel.chu_dat_dia_chi || declForParcel.dia_chi_thua_dat || declForParcel.thon_xa)) {
+                                          effectiveVal = cleanVillageDisplay(declForParcel.chu_dat_dia_chi || declForParcel.dia_chi_thua_dat || declForParcel.thon_xa);
                                         } else if (isOriginCol && (declForParcel.nguon_goc || declForParcel.nguon_goc_su_dung)) {
                                           effectiveVal = normalizeNguonGoc(declForParcel.nguon_goc || declForParcel.nguon_goc_su_dung, declForParcel.loai_dat || rowLoaiDat);
                                         } else if (isAreaCol && declForParcel.dien_tich !== undefined && String(declForParcel.dien_tich).trim() !== '' && declForParcel.ma_thua === maThua) {

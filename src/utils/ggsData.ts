@@ -104,6 +104,41 @@ export async function fetchOrGetCachedGgsData(force = false): Promise<{
     console.warn('Lỗi đọc ggs cache từ R2:', e);
   }
 
+  // 3. Fallback: Đọc file snapshot tĩnh từ public/data/ggs_snapshot.json
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    let snapPath = path.join(process.cwd(), 'public', 'data', 'ggs_snapshot.json');
+    if (!fs.existsSync(snapPath)) {
+      snapPath = path.join(process.cwd(), 'diachinh-web', 'public', 'data', 'ggs_snapshot.json');
+    }
+    if (fs.existsSync(snapPath)) {
+      const snapText = fs.readFileSync(snapPath, 'utf8');
+      const snapData = JSON.parse(snapText);
+      const codes = snapData.codes || snapData.ggsCodes || [];
+      const parcels = snapData.parcels || snapData.ggsParcels || {};
+      const allCccds = snapData.allCccds || snapData.ggsCccds || [];
+      cachedData = {
+        codes,
+        parcels,
+        people: snapData.people || {},
+        allCccds,
+        updatedAt: snapData.updatedAt || new Date().toISOString(),
+        expiresAt: now + CACHE_TTL_MS,
+      };
+      return {
+        codes,
+        parcels,
+        people: cachedData.people,
+        allCccds,
+        updatedAt: cachedData.updatedAt,
+        cached: true,
+      };
+    }
+  } catch (e) {
+    console.warn('Lỗi đọc ggs snapshot từ local disk:', e);
+  }
+
   return {
     codes: [],
     parcels: {},
